@@ -1,4 +1,4 @@
-
+﻿
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getLeadById, saveLead, convertLeadToContact, addContact, addDeal, deleteLead } from '../utils/storage';
@@ -729,17 +729,22 @@ const SalesLeadQuickProcess: React.FC = () => {
                                         console.log('[Convert] Contact created:', savedContact.id);
 
                                         // 2. Create Deal
+                                        const computedValue = (lead.productItems || []).reduce((sum, item) => {
+                                            return sum + (item.price * item.quantity);
+                                        }, 0);
+
                                         const newDeal = {
                                             id: `D-${Date.now()}`,
                                             leadId: savedContact.id,
                                             title: `${lead.name} - ${lead.program || 'Chương trình'}`,
-                                            value: 0, // Sẽ cập nhật sau khi chọn sản phẩm
-                                            stage: DealStage.DEEP_CONSULTING, // Giai đoạn đầu tiên
+                                            value: lead.value || computedValue || 0, // S? c?p nh?t sau khi ch?n s?n ph?m
+                                            stage: DealStage.NEW_OPP, // Giai do?n d?u ti�n
                                             ownerId: lead.ownerId,
                                             expectedCloseDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // +30 days
                                             products: lead.program ? [lead.program] : [],
                                             probability: 20,
-                                            createdAt: new Date().toISOString()
+                                            createdAt: new Date().toISOString(),
+                                            activities: (lead.activities || []).map(a => ({...a, type: a.type === 'message' ? 'chat' : a.type === 'system' ? 'note' : a.type as any})) as any
                                         };
 
                                         addDeal(newDeal);
@@ -777,3 +782,5 @@ const SalesLeadQuickProcess: React.FC = () => {
 };
 
 export default SalesLeadQuickProcess;
+
+

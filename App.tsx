@@ -5,9 +5,9 @@ import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import MarketingDashboard from './pages/MarketingDashboard';
 import Leads from './pages/Leads';
-import MyLeads from './pages/MyLeads'; // New Import
-import MyContacts from './pages/MyContacts'; // New Import
-import LeadDetailsRouter from './pages/LeadDetailsRouter'; // Smart Router for role-based views
+import MyLeads from './pages/MyLeads';
+import MyContacts from './pages/MyContacts';
+import LeadDetailsRouter from './pages/LeadDetailsRouter';
 import LeadSLAPage from './pages/LeadSLAPage';
 import LeadImport from './pages/LeadImport';
 import LeadBatches from './pages/LeadBatches';
@@ -17,9 +17,14 @@ import Pipeline from './pages/Pipeline';
 import DealDetails from './pages/DealDetails';
 import DuplicateDetection from './pages/DuplicateDetection';
 import Campaigns from './pages/Campaigns';
+import CampaignDetails from './pages/CampaignDetails';
+import Students from './pages/Students';
 import StudentList from './pages/StudentList';
 import StudentProfile from './pages/StudentProfile';
 import Contracts from './pages/Contracts';
+import ContractDashboard from './pages/ContractDashboard';
+import Quotations from './pages/Quotations';
+import QuotationDetails from './pages/QuotationDetails';
 import ContractDetails from './pages/ContractDetails';
 import ContractTemplates from './pages/ContractTemplates';
 import ContractApprovalQueue from './pages/ContractApprovalQueue';
@@ -36,27 +41,21 @@ import FinancePayroll from './pages/FinancePayroll';
 import FinancePeriodClosing from './pages/FinancePeriodClosing';
 import FinanceIntegration from './pages/FinanceIntegration';
 import TrainingClassList from './pages/TrainingClassList';
-import TrainingStudentList from './pages/TrainingStudentList';
 import TrainingSchedule from './pages/TrainingSchedule';
 import TrainingAttendance from './pages/TrainingAttendance';
 import TrainingGradebook from './pages/TrainingGradebook';
 import TrainingResources from './pages/TrainingResources';
-import TrainingFeedback from './pages/TrainingFeedback';
-import TrainingCertificates from './pages/TrainingCertificates';
-import TrainingCourses from './pages/TrainingCourses';
-import TrainingEnrollment from './pages/TrainingEnrollment';
 import TrainingAppProgress from './pages/TrainingAppProgress';
+import TrainingTeachers from './pages/TrainingTeachers';
 import TeacherDashboard from './pages/TeacherDashboard';
-import TrainingAutomation from './pages/TrainingAutomation';
 import StudyAbroadDashboard from './pages/StudyAbroadDashboard';
-import StudyAbroadPipeline from './pages/StudyAbroadPipeline';
+import StudyAbroadPipelineBoard from './pages/StudyAbroadPipelineBoard';
 import StudyAbroadCaseDetail from './pages/StudyAbroadCaseDetail';
 import StudyAbroadPartners from './pages/StudyAbroadPartners';
 import StudyAbroadInterviews from './pages/StudyAbroadInterviews';
-import StudyAbroadFinance from './pages/StudyAbroadFinance';
-import StudyAbroadServices from './pages/StudyAbroadServices';
-import StudyAbroadAgents from './pages/StudyAbroadAgents';
-import MarketingEvents from './pages/MarketingEvents';
+import StudyAbroadStudentList from './pages/StudyAbroadStudentList';
+import FinanceTransactions from './pages/FinanceTransactions';
+import Collaborators from './pages/Collaborators';
 import AdminIntegration from './pages/AdminIntegration';
 import AdminPermissions from './pages/AdminPermissions';
 import AdminSystemConfig from './pages/AdminSystemConfig';
@@ -70,7 +69,10 @@ import AdminPaymentTemplates from './pages/AdminPaymentTemplates';
 import AdminCustomFields from './pages/AdminCustomFields';
 import AdminFormBuilder from './pages/AdminFormBuilder';
 import AdminWorkflowBuilder from './pages/AdminWorkflowBuilder';
-import SLALeadList from './pages/SLALeadList'; // New Import
+import SLALeadList from './pages/SLALeadList';
+import SalesKPIs from './pages/SalesKPIs';
+import DocumentLibrary from './pages/DocumentLibrary';
+import SalesMeetings from './pages/SalesMeetings';
 
 // Placeholder components
 const PlaceholderPage = ({ title, sub }: { title: string, sub?: string }) => (
@@ -120,13 +122,15 @@ const AppRoutes = () => {
           <Route path="admin/workflow-builder" element={<AdminWorkflowBuilder />} />
 
           <Route path="marketing" element={<MarketingDashboard />} />
-          <Route path="marketing/events" element={<MarketingEvents />} />
+          <Route path="marketing/collaborators" element={<Collaborators />} />
           <Route path="leads" element={<Leads />} />
 
           {/* SALES SPECIFIC ROUTES */}
           <Route path="sales/my-leads" element={<MyLeads />} />
           <Route path="sales/my-contacts" element={<MyContacts />} />
-          <Route path="sales/sla-leads" element={<SLALeadList />} />
+          <Route path="sales/meetings" element={<SalesMeetings />} />
+          <Route path="marketing/sla-leads" element={<SLALeadList />} />
+          <Route path="sales/kpis" element={<SalesKPIs />} />
 
           <Route path="leads/import" element={<LeadImport />} />
           <Route path="leads/batches" element={<LeadBatches />} />
@@ -134,11 +138,16 @@ const AppRoutes = () => {
           <Route path="leads/:id" element={<LeadDetailsRouter />} />
           <Route path="leads/:id/sla" element={<LeadSLAPage />} />
           <Route path="campaigns" element={<Campaigns />} />
+          <Route path="campaigns/:id" element={<CampaignDetails />} />
           <Route path="pipeline" element={<Pipeline />} />
           <Route path="pipeline/:id" element={<DealDetails />} />
 
           {/* Contracts Module */}
+          <Route path="contracts/dashboard" element={<ContractDashboard />} />
           <Route path="contracts" element={<Contracts />} />
+          <Route path="contracts/quotations" element={<Quotations />} />
+          <Route path="contracts/quotations/:id" element={<QuotationDetails />} />
+          <Route path="/enrollment/students" element={<Students />} />
           <Route path="contracts/new" element={<Contracts />} />
           <Route path="contracts/templates" element={<ContractTemplates />} />
           <Route path="contracts/approvals" element={<ContractApprovalQueue />} />
@@ -149,32 +158,25 @@ const AppRoutes = () => {
           <Route path="students/:id" element={<StudentProfile />} />
 
           {/* Training Routes (New & Enhanced) */}
-          <Route path="training/courses" element={<TrainingCourses />} />
-          <Route path="training/enrollment" element={<TrainingEnrollment />} />
           <Route path="training/classes" element={<TrainingClassList />} />
           <Route path="training/classes/:id/attendance" element={<TrainingAttendance />} />
           <Route path="training/classes/:id/grades" element={<TrainingGradebook />} />
           <Route path="training/classes/:id/resources" element={<TrainingResources />} />
-          <Route path="training/feedback" element={<TrainingFeedback />} />
-          <Route path="training/certificates" element={<TrainingCertificates />} />
-          <Route path="training/students" element={<TrainingStudentList />} />
+
           <Route path="training/schedule" element={<TrainingSchedule />} />
           <Route path="training/students/:id/app-progress" element={<TrainingAppProgress />} />
-          <Route path="training/automation" element={<TrainingAutomation />} />
+          <Route path="training/teachers" element={<TrainingTeachers />} />
 
-          {/* Teacher Portal Routes */}
-          <Route path="teacher/classes" element={<TeacherDashboard />} />
-          <Route path="teacher/schedule" element={<PlaceholderPage title="Lịch dạy của tôi" sub="Xem lịch dạy cá nhân và lịch nghỉ lễ" />} />
+          {/* Library (Formerly Teacher Portal) */}
+          <Route path="library" element={<DocumentLibrary />} />
 
           {/* Study Abroad Routes */}
           <Route path="study-abroad" element={<StudyAbroadDashboard />} />
-          <Route path="study-abroad/pipeline" element={<StudyAbroadPipeline />} />
+          <Route path="study-abroad/pipeline" element={<StudyAbroadPipelineBoard />} />
           <Route path="study-abroad/cases/:id" element={<StudyAbroadCaseDetail />} />
           <Route path="study-abroad/partners" element={<StudyAbroadPartners />} />
           <Route path="study-abroad/interviews" element={<StudyAbroadInterviews />} />
-          <Route path="study-abroad/finance" element={<StudyAbroadFinance />} />
-          <Route path="study-abroad/services" element={<StudyAbroadServices />} />
-          <Route path="study-abroad/agents" element={<StudyAbroadAgents />} />
+          <Route path="study-abroad/students" element={<StudyAbroadStudentList />} />
 
           {/* Finance Routes */}
           <Route path="refunds" element={<FinanceRefunds />} />
@@ -189,6 +191,7 @@ const AppRoutes = () => {
           <Route path="finance/integration" element={<FinanceIntegration />} />
           <Route path="payment-plans/:id" element={<FinancePaymentPlan />} />
           <Route path="finance/transaction/new" element={<FinanceNewTransaction />} />
+          <Route path="finance/transactions-list" element={<FinanceTransactions />} />
 
           <Route path="reports" element={<PlaceholderPage title="Advanced Reports" />} />
           <Route path="settings" element={<Navigate to="/settings/assignment-rules" replace />} />

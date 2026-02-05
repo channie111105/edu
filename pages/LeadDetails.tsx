@@ -1,19 +1,19 @@
 
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { getLeadById, saveLead, addDeal, addContact } from '../utils/storage';
+import { getLeadById, saveLead, addDeal, addContact, addMeeting } from '../utils/storage';
 import { useAuth } from '../contexts/AuthContext';
 import {
    ArrowLeft, Phone, Mail, MessageCircle, Clock,
    User, CheckCircle2,
    ChevronDown, UserPlus, PhoneOutgoing,
-   Send, FileText, Save, Layout
+   Send, FileText, Save, Layout, Calendar
 } from 'lucide-react';
-import { LeadStatus, DealStage, ILead, IDeal, UserRole } from '../types';
+import { LeadStatus, DealStage, ILead, IDeal, IContact, UserRole, IMeeting, MeetingStatus, MeetingType } from '../types';
 
 interface IActivity {
    id: string;
-   type: 'system' | 'note' | 'email' | 'call';
+   type: 'system' | 'note' | 'email' | 'call' | 'meeting';
    content: string;
    subContent?: string;
    timestamp: string;
@@ -32,6 +32,10 @@ const LeadDetails: React.FC = () => {
    const [studentInfo, setStudentInfo] = useState<any>({});
 
    const [noteContent, setNoteContent] = useState('');
+   const [activityType, setActivityType] = useState<'note' | 'meeting'>('note');
+   const [meetingDate, setMeetingDate] = useState('');
+   const [meetingType, setMeetingType] = useState<MeetingType>(MeetingType.OFFLINE);
+
    const [activeTab, setActiveTab] = useState<'timeline' | 'notes' | 'email'>('timeline');
    const [activities, setActivities] = useState<IActivity[]>([]);
 
@@ -92,18 +96,59 @@ const LeadDetails: React.FC = () => {
       }
    };
 
-   const handleSendNote = () => {
-      if (!noteContent.trim()) return;
-      const newNote: IActivity = {
-         id: `note-${Date.now()}`,
-         type: 'note',
-         content: 'Ghi chú cuộc gọi / Chăm sóc',
-         subContent: noteContent,
-         timestamp: 'Vừa xong',
-         isSystem: false
-      };
-      setActivities([newNote, ...activities]);
-      setNoteContent('');
+   const handleSendActivity = () => {
+      if (!noteContent.trim() && activityType === 'note') return;
+      if (activityType === 'meeting' && !meetingDate) {
+         alert('Vui lòng chọn thời gian lịch hẹn');
+         return;
+      }
+
+      // 1. Logic Create Meeting
+      if (activityType === 'meeting' && lead) {
+         const newMeeting: IMeeting = {
+            id: `M-${Date.now()}`,
+            title: `Lịch hẹn: ${lead.name}`,
+            leadId: lead.id,
+            leadName: lead.name,
+            leadPhone: lead.phone,
+            salesPersonId: lead.ownerId,
+            salesPersonName: user?.name || 'Sales Rep', // Simplified, in real app get from users list
+            campus: formData.company || 'Hanoi',
+            address: lead.address || formData.address,
+            datetime: meetingDate,
+            type: meetingType,
+            status: MeetingStatus.DRAFT,
+            notes: noteContent,
+            createdAt: new Date().toISOString()
+         };
+         addMeeting(newMeeting);
+
+         const meetingActivity: IActivity = {
+            id: `mt-${Date.now()}`,
+            type: 'meeting',
+            content: `Đã tạo lịch hẹn: ${meetingType}`,
+            subContent: `Thời gian: ${new Date(meetingDate).toLocaleString('vi-VN')} - Note: ${noteContent}`,
+            timestamp: 'Vừa xong',
+            isSystem: false
+         };
+         setActivities([meetingActivity, ...activities]);
+         setNoteContent('');
+         setMeetingDate('');
+         setActivityType('note'); // Reset
+         alert('Đã tạo lịch hẹn thành công!');
+      } else {
+         // 2. Logic Normal Note
+         const newNote: IActivity = {
+            id: `note-${Date.now()}`,
+            type: 'note',
+            content: 'Ghi chú cuộc gọi / Chăm sóc',
+            subContent: noteContent,
+            timestamp: 'Vừa xong',
+            isSystem: false
+         };
+         setActivities([newNote, ...activities]);
+         setNoteContent('');
+      }
    };
 
    // --- LOGIC CHUYỂN ĐỔI (CORE REQUIREMENT) ---
@@ -123,30 +168,49 @@ const LeadDetails: React.FC = () => {
       if (window.confirm(`Xác nhận chuyển đổi "${lead.name}" thành Contact chính thức và tạo Deal mới?`)) {
 
          // 2. Create/Update Contact (Unique by Phone)
-         const contactData: ILead = {
+         const contactData = {
             ...lead,
             ...formData,
             studentInfo: studentInfo,
             status: LeadStatus.CONVERTED,
+            targetCountry: studentInfo.targetCountry || 'Đức', // Ensure required field
             // ID will be handled by addContact to ensure it matches existing if phone exists
-         };
+         } as IContact;
          const savedContact = addContact(contactData); // Returns the updated contacts list, but we need the specific ID.
          // Note: In a real app, addContact should return the saved contact. 
          // For now, we assume the ID is consistent or handled by storage.
 
          // 3. Create Deal
          const dealId = `D-${Date.now()}`;
+         const computedValue = lead.value || (lead.productItems || []).reduce((sum, item) => {
+            return sum + (item.price * item.quantity);
+         }, 0);
+
          const deal: IDeal = {
             id: dealId,
             leadId: contactData.id, // Link to contact
             title: `${lead.name} - ${lead.program}`,
-            value: 0,
-            stage: DealStage.NEEDS_DISCOVERY, // First column
+            value: computedValue || 0,
+            stage: DealStage.NEW_OPP, // First column
             ownerId: lead.ownerId,
             expectedCloseDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
             products: [lead.program],
             probability: 20,
-            createdAt: new Date().toISOString()
+            createdAt: new Date().toISOString(),
+            activities: [
+               {
+                  id: `act-${Date.now()}`,
+                  type: 'call' as any,
+                  content: 'Gọi điện tư vấn lần đầu',
+                  timestamp: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+                  status: 'scheduled',
+                  userId: 'admin' // Or current user if available
+               },
+               ...(lead.activities || []).map(a => ({
+                  ...a,
+                  type: a.type === 'message' ? 'chat' : a.type === 'system' ? 'note' : a.type as any
+               }))
+            ] as any
          };
          addDeal(deal);
 
@@ -482,24 +546,70 @@ const LeadDetails: React.FC = () => {
                   </div>
                </div>
 
-               {/* Footer Note Input */}
-               <div className="p-4 border-t border-slate-200 bg-white">
-                  <label className="text-xs font-bold text-slate-500 uppercase mb-2 block">GHI CHÚ CUỘC GỌI / KẾT QUẢ (BẮT BUỘC)</label>
+               {/* Footer Activity Input */}
+               <div className="p-4 border-t border-slate-200 bg-white shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-10">
+                  <div className="flex items-center justify-between mb-3">
+                     <label className="text-xs font-bold text-slate-500 uppercase flex items-center gap-2">
+                        <FileText size={14} /> Ghi nhận hoạt động
+                     </label>
+
+                     {/* Activity Type Selector */}
+                     <div className="flex bg-slate-100 p-0.5 rounded-lg">
+                        <button
+                           onClick={() => setActivityType('note')}
+                           className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${activityType === 'note' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                        >
+                           Ghi chú
+                        </button>
+                        <button
+                           onClick={() => setActivityType('meeting')}
+                           className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${activityType === 'meeting' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                        >
+                           Lịch hẹn / Test
+                        </button>
+                     </div>
+                  </div>
+
+                  {/* Meeting Extra Fields */}
+                  {activityType === 'meeting' && (
+                     <div className="flex gap-3 mb-3 animate-in slide-in-from-bottom-2">
+                        <div className="flex-1">
+                           <input
+                              type="datetime-local"
+                              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:border-blue-500 outline-none"
+                              value={meetingDate}
+                              onChange={(e) => setMeetingDate(e.target.value)}
+                           />
+                        </div>
+                        <div className="flex-1">
+                           <select
+                              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:border-blue-500 outline-none"
+                              value={meetingType}
+                              onChange={(e) => setMeetingType(e.target.value as MeetingType)}
+                           >
+                              <option value={MeetingType.OFFLINE}>Test Offline (Tại trung tâm)</option>
+                              <option value={MeetingType.ONLINE}>Phỏng vấn Online</option>
+                              <option value={MeetingType.CONSULTING}>Tư vấn trực tiếp</option>
+                           </select>
+                        </div>
+                     </div>
+                  )}
+
                   <div className="flex gap-2">
                      <textarea
                         rows={2}
                         className="flex-1 border border-slate-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none"
-                        placeholder="Nhập nội dung trao đổi với khách hàng..."
+                        placeholder={activityType === 'meeting' ? "Ghi chú cho lịch hẹn (VD: Học sinh cần test kỹ ngữ pháp...)" : "Nhập nội dung trao đổi với khách hàng..."}
                         value={noteContent}
                         onChange={(e) => setNoteContent(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendNote(); } }}
+                        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendActivity(); } }}
                      />
                      <button
-                        onClick={handleSendNote}
-                        className="bg-[#1380ec] text-white px-4 rounded-lg font-bold hover:bg-blue-700 shadow-sm flex flex-col items-center justify-center min-w-[80px]"
+                        onClick={handleSendActivity}
+                        className={`px-4 rounded-lg font-bold shadow-sm flex flex-col items-center justify-center min-w-[80px] transition-colors ${activityType === 'meeting' ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-slate-800 hover:bg-slate-900 text-white'}`}
                      >
                         <Send size={18} className="mb-1" />
-                        <span className="text-xs">Lưu Note</span>
+                        <span className="text-xs">{activityType === 'meeting' ? 'Đặt lịch' : 'Lưu'}</span>
                      </button>
                   </div>
                </div>

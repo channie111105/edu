@@ -11,12 +11,16 @@ import {
    Building2,
    User
 } from 'lucide-react';
+import ContactDrawer from '../components/ContactDrawer';
+import { IContact } from '../types';
 
 const MyContacts: React.FC = () => {
    const { user } = useAuth();
    const navigate = useNavigate();
-   const [contacts, setContacts] = useState<any[]>([]);
+   const [contacts, setContacts] = useState<IContact[]>([]);
    const [searchTerm, setSearchTerm] = useState('');
+   const [selectedContact, setSelectedContact] = useState<IContact | null>(null);
+   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
    useEffect(() => {
       // Lấy dữ liệu từ bảng CONTACTS
@@ -68,7 +72,7 @@ const MyContacts: React.FC = () => {
 
             {/* 2. Contact Cards */}
             {filteredContacts.map(contact => (
-               <div key={contact.id} className="bg-white p-4 rounded-lg border border-slate-100 shadow-sm hover:shadow-md transition-all flex gap-4 items-start group cursor-pointer" onClick={() => navigate(`/leads/${contact.id}`)}>
+               <div key={contact.id} className="bg-white p-4 rounded-lg border border-slate-100 shadow-sm hover:shadow-md transition-all flex gap-4 items-start group cursor-pointer" onClick={() => { setSelectedContact(contact); setIsDrawerOpen(true); }}>
                   {/* Avatar */}
                   <div className="w-12 h-12 rounded bg-blue-50 flex items-center justify-center text-blue-600 font-bold text-lg shrink-0 uppercase">
                      {getInitials(contact.name || 'Unknown')}
@@ -82,8 +86,8 @@ const MyContacts: React.FC = () => {
                               {contact.name}
                            </h3>
                            <p className="text-[10px] uppercase font-bold text-slate-400 mt-0.5 flex items-center gap-1">
-                              {contact.company ? <Building2 size={10} /> : <User size={10} />}
-                              {contact.company ? 'Company' : 'Individual'}
+                              {(contact as any).company ? <Building2 size={10} /> : <User size={10} />}
+                              {(contact as any).company ? 'Company' : 'Individual'}
                            </p>
                         </div>
                      </div>
@@ -106,6 +110,16 @@ const MyContacts: React.FC = () => {
                </div>
             ))}
          </div>
+
+         <ContactDrawer
+            contact={selectedContact}
+            isOpen={isDrawerOpen}
+            onClose={() => setIsDrawerOpen(false)}
+            onUpdate={(updated) => {
+               setContacts(prev => prev.map(c => c.id === updated.id ? updated : c));
+               setSelectedContact(updated);
+            }}
+         />
       </div>
    );
 };

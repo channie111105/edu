@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { DragDropContext, Droppable, Draggable, DropResult } from 'react-beautiful-dnd';
-import { DealStage, IDeal, ILead, LeadStatus } from '../types';
+import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
+import { DealStage, IDeal, ILead, LeadStatus, IContact, Activity, ActivityType } from '../types';
 import { getDeals, saveDeals, getContacts, addContact, updateDeal } from '../utils/storage';
 import { useAuth } from '../contexts/AuthContext';
 import { useLocation, useNavigate, Link } from 'react-router-dom';
 import UnifiedLeadDrawer from '../components/UnifiedLeadDrawer';
 import DealPivotTable from '../components/DealPivotTable';
+import AdvancedDateFilter, { DateRange } from '../components/AdvancedDateFilter';
 import {
   Phone, Mail, MessageCircle, Calendar, DollarSign, User,
   FileText, CheckCircle, XCircle, AlertCircle, Clock, Plus,
@@ -15,41 +16,53 @@ import {
 // Pipeline Stages với hoạt động cụ thể
 const PIPELINE_STAGES = [
   {
-    id: DealStage.DEEP_CONSULTING,
-    title: 'Tư vấn chuyên sâu',
+    id: DealStage.NEW_OPP,
+    title: 'New Opp',
     color: 'blue',
-    activities: ['Phân tích hồ sơ', 'Xây dựng lộ trình', 'Đặt lịch hẹn']
+    activities: ['Tiếp nhận Lead', 'Xác nhận thông tin', 'Phân công Sales']
+  },
+  {
+    id: DealStage.DEEP_CONSULTING,
+    title: 'Tư vấn/Hẹn meeting',
+    color: 'blue',
+    activities: ['Gọi tư vấn', 'Đặt lịch hẹn', 'Xác nhận nhu cầu']
   },
   {
     id: DealStage.PROPOSAL,
-    title: 'Gửi lộ trình & Báo giá',
+    title: 'Tư vấn sâu (Gửi báo giá, lộ trình)',
     color: 'purple',
-    activities: ['Lập bảng tài chính', 'Gửi Timeline', 'Gửi mẫu HĐ']
+    activities: ['Xây dựng lộ trình', 'Gửi báo giá', 'Chốt phương án']
   },
   {
     id: DealStage.NEGOTIATION,
-    title: 'Thương thảo',
+    title: 'Đàm phán (Theo dõi chốt)',
     color: 'amber',
-    activities: ['Giải đáp thắc mắc', 'Áp dụng ưu đãi', 'Xử lý từ chối']
-  },
-  {
-    id: DealStage.DOCUMENT_COLLECTION,
-    title: 'Thu thập hồ sơ',
-    color: 'cyan',
-    activities: ['Checklist hồ sơ', 'Scan & Upload', 'Xác nhận đầy đủ']
+    activities: ['Giải đáp thắc mắc', 'Theo dõi phản hồi', 'Chốt điều kiện']
   },
   {
     id: DealStage.WON,
-    title: 'Chốt thành công',
+    title: 'Won',
     color: 'green',
-    activities: ['Chốt Deal', 'Bàn giao', 'Chuyển xử lý hồ sơ']
+    activities: ['Chốt Deal', 'Bàn giao', 'Xác nhận kết quả']
   },
   {
-    id: DealStage.CONTRACT,
-    title: 'Đặt cọc & Ký HĐ',
-    color: 'orange',
-    activities: ['Khởi tạo HĐ', 'Xác nhận thanh toán', 'Ký kết']
+    id: DealStage.LOST,
+    title: 'Lost',
+    color: 'red',
+    activities: ['Ghi nhận lý do', 'Phân tích nguyên nhân', 'Lên kế hoạch tái liên hệ']
+  },
+  {
+    id: DealStage.AFTER_SALE,
+    title: 'After sale',
+    color: 'cyan',
+    activities: ['Bàn giao hồ sơ', 'Chăm sóc sau bán', 'Theo dõi tái mua']
   }
+];
+
+const NEXT_ACTIVITY_TYPES: { id: ActivityType; label: string }[] = [
+  { id: 'call', label: 'Gọi điện' },
+  { id: 'meeting', label: 'Hẹn gặp' },
+  { id: 'email', label: 'Email' }
 ];
 
 const Pipeline: React.FC = () => {
@@ -60,6 +73,13 @@ const Pipeline: React.FC = () => {
   const [deals, setDeals] = useState<IDeal[]>([]);
   const [viewMode, setViewMode] = useState<'kanban' | 'list' | 'pivot'>('kanban');
   const [highlightDealId, setHighlightDealId] = useState<string | null>(null);
+  const [dateFilter, setDateFilter] = useState<DateRange>({ startDate: null, endDate: null, label: 'Tất cả' });
+  const [contacts, setContacts] = useState<IContact[]>([]);
+  const [showNextActivityModal, setShowNextActivityModal] = useState(false);
+  const [nextActivityDealId, setNextActivityDealId] = useState<string | null>(null);
+  const [nextActivityType, setNextActivityType] = useState<ActivityType>('call');
+  const [nextActivityDate, setNextActivityDate] = useState('');
+  const [nextActivitySummary, setNextActivitySummary] = useState('');
 
   // Drawer State
   const [selectedDeal, setSelectedDeal] = useState<IDeal | null>(null);
@@ -69,16 +89,27 @@ const Pipeline: React.FC = () => {
   useEffect(() => {
     const loadedDeals = getDeals();
     setDeals(loadedDeals);
+    setContacts(getContacts());
 
     // Check for newDeal param
     const params = new URLSearchParams(location.search);
     const newDealId = params.get('newDeal');
     if (newDealId) {
       setHighlightDealId(newDealId);
+      setNextActivityDealId(newDealId);
+      setNextActivityType('call');
+      setNextActivityDate(getDefaultActivityDate('call'));
+      setNextActivitySummary('');
+      setShowNextActivityModal(true);
       // Remove highlight after 3 seconds
       setTimeout(() => setHighlightDealId(null), 3000);
     }
   }, [location]);
+
+  useEffect(() => {
+    if (!showNextActivityModal) return;
+    setNextActivityDate(getDefaultActivityDate(nextActivityType));
+  }, [nextActivityType, showNextActivityModal]);
 
   // Drag and Drop Handler
   const onDragEnd = (result: DropResult) => {
@@ -96,15 +127,137 @@ const Pipeline: React.FC = () => {
     saveDeals(updatedDeals);
   };
 
-  // Group deals by stage
+  const handleSaveNextActivity = () => {
+    if (!nextActivityDealId || !nextActivitySummary) return;
+    const newActivity: Activity = {
+      id: `a-${Date.now()}`,
+      type: nextActivityType,
+      timestamp: new Date(nextActivityDate || Date.now()).toISOString(),
+      title: 'Hoạt động tiếp theo',
+      description: nextActivitySummary,
+      status: 'scheduled'
+    };
+
+    const updatedDeals = deals.map(d => {
+      if (d.id !== nextActivityDealId) return d;
+      return {
+        ...d,
+        activities: [newActivity, ...(d.activities || [])]
+      };
+    });
+
+    setDeals(updatedDeals);
+    saveDeals(updatedDeals);
+    setShowNextActivityModal(false);
+    setNextActivityDealId(null);
+    setNextActivitySummary('');
+  };
+
+  const contactsById = contacts.reduce((acc, contact) => {
+    acc[contact.id] = contact;
+    return acc;
+  }, {} as Record<string, IContact>);
+
+  const getPipelineBucket = (stage: DealStage) => {
+    if (stage === DealStage.CONTRACT || stage === DealStage.DOCUMENT_COLLECTION) return DealStage.AFTER_SALE;
+    return stage;
+  };
+
+  const getStageLabel = (stage: DealStage) => {
+    switch (stage) {
+      case DealStage.NEW_OPP: return 'New Opp';
+      case DealStage.DEEP_CONSULTING: return 'Tư vấn/Hẹn meeting';
+      case DealStage.PROPOSAL: return 'Tư vấn sâu (Gửi báo giá, lộ trình)';
+      case DealStage.NEGOTIATION: return 'Đàm phán (Theo dõi chốt)';
+      case DealStage.WON: return 'Won';
+      case DealStage.LOST: return 'Lost';
+      case DealStage.AFTER_SALE:
+      case DealStage.CONTRACT:
+      case DealStage.DOCUMENT_COLLECTION:
+        return 'After sale';
+      default:
+        return stage;
+    }
+  };
+
+  const getExpectedValue = (deal: IDeal) => {
+    if (deal.value > 0) return deal.value;
+    if (deal.productItems && deal.productItems.length > 0) {
+      return deal.productItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+    }
+    return 0;
+  };
+
+  const getNextActivityDate = (deal: IDeal, contact?: IContact) => {
+    const allActivities = [
+      ...(deal.activities || []),
+      ...((contact?.activities as any[]) || [])
+    ];
+    const scheduled = allActivities
+      .filter(a => a && (a.status === 'scheduled' || a.type === 'activity'))
+      .map(a => a.datetime || a.timestamp || a.date)
+      .filter(Boolean)
+      .map((d: string) => new Date(d))
+      .filter(d => !Number.isNaN(d.getTime()));
+
+    if (scheduled.length === 0) return '';
+    scheduled.sort((a, b) => a.getTime() - b.getTime());
+    return scheduled[0].toISOString();
+  };
+
+  const formatDate = (dateStr?: string) => {
+    if (!dateStr) return '-';
+    const parsed = new Date(dateStr);
+    if (Number.isNaN(parsed.getTime())) return '-';
+    return parsed.toLocaleDateString('vi-VN');
+  };
+
+  const getPotentialTag = (probability: number) => {
+    if (probability >= 70) return { label: 'Nóng', className: 'bg-red-50 text-red-700 border-red-200' };
+    if (probability >= 40) return { label: 'Tiềm năng', className: 'bg-amber-50 text-amber-700 border-amber-200' };
+    return { label: 'Lạnh', className: 'bg-slate-100 text-slate-600 border-slate-200' };
+  };
+
+  const filteredDeals = deals.filter(deal => {
+    // Nếu chưa chọn filter (initial) -> hiện hết hoặc theo default logic
+    if (!dateFilter.startDate && !dateFilter.endDate) return true;
+
+    // Lấy Next Activity Date
+    const contact = contactsById[deal.leadId];
+    const nextActivityDateStr = getNextActivityDate(deal, contact);
+
+    // Nếu filter theo thời gian mà Deal không có lịch hẹn -> Ẩn
+    if (!nextActivityDateStr) {
+      return false;
+    }
+
+    const nextDate = new Date(nextActivityDateStr);
+
+    // Normalize dates for comparison (ignore time components if needed, but for precision keeping them is ok)
+    // AdvancedDateFilter returns start at 00:00 and end at 23:59
+
+    if (dateFilter.startDate && nextDate < dateFilter.startDate) return false;
+    if (dateFilter.endDate && nextDate > dateFilter.endDate) return false;
+
+    return true;
+  });
+
+  // Group deals by stage bucket
   const getDealsByStage = (stage: DealStage) => {
-    return deals.filter(deal => deal.stage === stage);
+    return filteredDeals.filter(deal => getPipelineBucket(deal.stage) === stage);
   };
 
   // Format currency
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
   };
+
+  function getDefaultActivityDate(typeId: ActivityType) {
+    const now = new Date();
+    const delayHours = typeId === 'meeting' ? 24 : 2;
+    now.setHours(now.getHours() + delayHours);
+    return new Date(now.getTime() - (now.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
+  }
 
   // Handle Deal Click -> Open Drawer (Unified Form)
   const handleDealClick = (deal: IDeal) => {
@@ -216,10 +369,15 @@ const Pipeline: React.FC = () => {
             Quản lý hành trình từ tư vấn đến chốt thành công
           </p>
         </div>
-        <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200">
-          <button onClick={() => setViewMode('kanban')} className={`p-2 rounded ${viewMode === 'kanban' ? 'bg-white shadow text-blue-600' : 'text-slate-500 hover:text-slate-700'}`} title="Kanban"><Kanban size={18} /></button>
-          <button onClick={() => setViewMode('list')} className={`p-2 rounded ${viewMode === 'list' ? 'bg-white shadow text-blue-600' : 'text-slate-500 hover:text-slate-700'}`} title="Danh sách"><ListIcon size={18} /></button>
-          <button onClick={() => setViewMode('pivot')} className={`p-2 rounded ${viewMode === 'pivot' ? 'bg-white shadow text-blue-600' : 'text-slate-500 hover:text-slate-700'}`} title="Báo cáo Pivot"><LayoutGrid size={18} /></button>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2">
+            <AdvancedDateFilter onChange={setDateFilter} label="Sắp xếp thời gian" />
+          </div>
+          <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200">
+            <button onClick={() => setViewMode('kanban')} className={`p-2 rounded ${viewMode === 'kanban' ? 'bg-white shadow text-blue-600' : 'text-slate-500 hover:text-slate-700'}`} title="Kanban"><Kanban size={18} /></button>
+            <button onClick={() => setViewMode('list')} className={`p-2 rounded ${viewMode === 'list' ? 'bg-white shadow text-blue-600' : 'text-slate-500 hover:text-slate-700'}`} title="Danh sách"><ListIcon size={18} /></button>
+            <button onClick={() => setViewMode('pivot')} className={`p-2 rounded ${viewMode === 'pivot' ? 'bg-white shadow text-blue-600' : 'text-slate-500 hover:text-slate-700'}`} title="Báo cáo Pivot"><LayoutGrid size={18} /></button>
+          </div>
         </div>
       </header>
 
@@ -252,91 +410,139 @@ const Pipeline: React.FC = () => {
                             className={`flex-1 overflow-y-auto p-3 space-y-3 bg-white rounded-lg shadow-sm border-2 border-slate-200 border-t-4 border-t-blue-500 ${snapshot.isDraggingOver ? 'bg-blue-50 border-blue-400' : ''
                               }`}
                           >
-                            {stageDeals.map((deal, index) => (
-                              <Draggable key={deal.id} draggableId={deal.id} index={index}>
-                                {(provided, snapshot) => (
-                                  <div
-                                    ref={provided.innerRef}
-                                    {...provided.draggableProps}
-                                    {...provided.dragHandleProps}
-                                    className={`bg-white border-2 rounded-lg p-3 shadow-sm hover:shadow-md transition-all cursor-pointer ${snapshot.isDragging ? 'shadow-lg rotate-2' : ''
-                                      } ${highlightDealId === deal.id
-                                        ? 'border-green-500 bg-green-50 animate-pulse'
-                                        : 'border-slate-200'
-                                      }`}
-                                    onClick={() => handleDealClick(deal)}
-                                  >
-                                    {/* Deal Card Content */}
-                                    <div className="space-y-2">
-                                      {/* Title */}
-                                      <h4 className="font-bold text-sm text-slate-900 line-clamp-2">
-                                        {deal.title}
-                                      </h4>
+                            {stageDeals.map((deal, index) => {
+                              const contact = contactsById[deal.leadId];
+                              const nextDate = getNextActivityDate(deal, contact) || deal.expectedCloseDate;
+                              const expectedValue = getExpectedValue(deal);
+                              const potential = getPotentialTag(deal.probability || 0);
 
-                                      {/* Value */}
-                                      <div className="flex items-center gap-2">
-                                        <DollarSign size={14} className="text-green-600" />
-                                        <span className="text-sm font-bold text-green-600">
-                                          {formatCurrency(deal.value)}
-                                        </span>
-                                      </div>
+                              return (
+                                <Draggable key={deal.id} draggableId={deal.id} index={index}>
+                                  {(provided, snapshot) => (
+                                    <div
+                                      ref={provided.innerRef}
+                                      {...provided.draggableProps}
+                                      {...provided.dragHandleProps}
+                                      className={`bg-white border-2 rounded-lg p-3 shadow-sm hover:shadow-md transition-all cursor-pointer ${snapshot.isDragging ? 'shadow-lg rotate-2' : ''
+                                        } ${highlightDealId === deal.id
+                                          ? 'border-green-500 bg-green-50 animate-pulse'
+                                          : 'border-slate-200'
+                                        }`}
+                                      onClick={() => handleDealClick(deal)}
+                                    >
+                                      {/* Deal Card Content */}
+                                      <div className="space-y-2">
+                                        {/* Title */}
+                                        <h4 className="font-bold text-sm text-slate-900 line-clamp-2">
+                                          {deal.title}
+                                        </h4>
 
-                                      {/* Owner */}
-                                      <div className="flex items-center gap-2">
-                                        <User size={14} className="text-slate-500" />
-                                        <span className="text-xs text-slate-600">{deal.ownerId}</span>
-                                      </div>
-
-                                      {/* Expected Close Date */}
-                                      <div className="flex items-center gap-2">
-                                        <Calendar size={14} className="text-blue-500" />
-                                        <span className="text-xs text-slate-600">
-                                          {new Date(deal.expectedCloseDate).toLocaleDateString('vi-VN')}
-                                        </span>
-                                      </div>
-
-                                      {/* Probability */}
-                                      <div className="flex items-center gap-2">
-                                        <TrendingUp size={14} className="text-purple-500" />
-                                        <div className="flex-1 bg-slate-200 rounded-full h-2">
-                                          <div
-                                            className="bg-purple-500 h-2 rounded-full"
-                                            style={{ width: `${deal.probability}%` }}
-                                          />
-                                        </div>
-                                        <span className="text-xs font-semibold text-purple-600">
-                                          {deal.probability}%
-                                        </span>
-                                      </div>
-
-                                      {/* Products */}
-                                      {deal.products && deal.products.length > 0 && (
-                                        <div className="flex flex-wrap gap-1 mt-2">
-                                          {deal.products.map((product, idx) => (
-                                            <span
-                                              key={idx}
-                                              className="px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded-full"
-                                            >
-                                              {product}
-                                            </span>
-                                          ))}
-                                        </div>
-                                      )}
-
-                                      {/* New Badge */}
-                                      {highlightDealId === deal.id && (
-                                        <div className="flex items-center gap-1 mt-2">
-                                          <Sparkles size={14} className="text-green-600" />
-                                          <span className="text-xs font-bold text-green-600">
-                                            Deal mới!
+                                        {/* Value */}
+                                        <div className="flex items-center gap-2">
+                                          <DollarSign size={14} className="text-green-600" />
+                                          <span className="text-sm font-bold text-green-600">
+                                            {formatCurrency(expectedValue)}
                                           </span>
                                         </div>
-                                      )}
+
+                                        {/* Phone */}
+                                        {contact?.phone && (
+                                          <div className="flex items-center gap-2">
+                                            <Phone size={14} className="text-slate-500" />
+                                            <span className="text-xs text-slate-600">{contact.phone}</span>
+                                          </div>
+                                        )}
+
+                                        {/* Owner */}
+                                        <div className="flex items-center gap-2">
+                                          <User size={14} className="text-slate-500" />
+                                          <span className="text-xs text-slate-600">{deal.ownerId}</span>
+                                        </div>
+
+                                        {/* Expected Close Date */}
+                                        <div className="flex items-center gap-2">
+                                          <Calendar size={14} className="text-blue-500" />
+                                          <span className="text-xs text-slate-600">
+                                            {formatDate(nextDate)}
+                                          </span>
+                                        </div>
+
+                                        {/* Next Activity Indicator */}
+                                        {(() => {
+                                          const nextActivity = (deal.activities || []).find(a => a.status === 'scheduled');
+                                          if (!nextActivity) return null;
+
+                                          const activityDate = new Date(nextActivity.timestamp);
+                                          const now = new Date();
+                                          const isOverdue = activityDate < now;
+
+                                          return (
+                                            <div className={`flex items-center gap-2 px-2 py-1 rounded-md border ${isOverdue
+                                              ? 'bg-red-50 border-red-200'
+                                              : 'bg-green-50 border-green-200'
+                                              }`}>
+                                              <Calendar size={12} className={isOverdue ? 'text-red-600' : 'text-green-600'} />
+                                              <span className={`text-[10px] font-bold ${isOverdue ? 'text-red-700' : 'text-green-700'
+                                                }`}>
+                                                {isOverdue ? '⚠️ Quá hạn' : '✓ Đã lên lịch'}
+                                              </span>
+                                              <span className="text-[9px] text-slate-500">
+                                                {activityDate.toLocaleDateString('vi-VN')}
+                                              </span>
+                                            </div>
+                                          );
+                                        })()}
+
+                                        {/* Potential Tag */}
+                                        <div className="flex items-center gap-2">
+                                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${potential.className}`}>
+                                            {potential.label}
+                                          </span>
+                                        </div>
+
+                                        {/* Probability */}
+                                        <div className="flex items-center gap-2">
+                                          <TrendingUp size={14} className="text-purple-500" />
+                                          <div className="flex-1 bg-slate-200 rounded-full h-2">
+                                            <div
+                                              className="bg-purple-500 h-2 rounded-full"
+                                              style={{ width: `${deal.probability}%` }}
+                                            />
+                                          </div>
+                                          <span className="text-xs font-semibold text-purple-600">
+                                            {deal.probability}%
+                                          </span>
+                                        </div>
+
+                                        {/* Products */}
+                                        {deal.products && deal.products.length > 0 && (
+                                          <div className="flex flex-wrap gap-1 mt-2">
+                                            {deal.products.map((product, idx) => (
+                                              <span
+                                                key={idx}
+                                                className="px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded-full"
+                                              >
+                                                {product}
+                                              </span>
+                                            ))}
+                                          </div>
+                                        )}
+
+                                        {/* New Badge */}
+                                        {highlightDealId === deal.id && (
+                                          <div className="flex items-center gap-1 mt-2">
+                                            <Sparkles size={14} className="text-green-600" />
+                                            <span className="text-xs font-bold text-green-600">
+                                              Deal mới!
+                                            </span>
+                                          </div>
+                                        )}
+                                      </div>
                                     </div>
-                                  </div>
-                                )}
-                              </Draggable>
-                            ))}
+                                  )}
+                                </Draggable>
+                              )
+                            })}
                             {provided.placeholder}
 
                             {/* Empty State */}
@@ -375,16 +581,16 @@ const Pipeline: React.FC = () => {
                 {deals.map(d => (
                   <tr key={d.id} className="border-b hover:bg-blue-50 cursor-pointer transition-colors" onClick={() => handleDealClick(d)}>
                     <td className="p-3 font-bold text-blue-600">{d.title}</td>
-                    <td className="p-3 font-semibold text-green-600">{formatCurrency(d.value)}</td>
+                    <td className="p-3 font-semibold text-green-600">{formatCurrency(getExpectedValue(d))}</td>
                     <td className="p-3">
                       <span className={`px-2 py-1 rounded text-xs font-bold 
                                        ${d.stage === DealStage.WON ? 'bg-green-100 text-green-700' :
                           d.stage === DealStage.LOST ? 'bg-red-100 text-red-700' :
                             'bg-blue-100 text-blue-700'}`}>
-                        {d.stage}
+                        {getStageLabel(d.stage)}
                       </span>
                     </td>
-                    <td className="p-3 text-slate-600">{new Date(d.expectedCloseDate).toLocaleDateString('vi-VN')}</td>
+                    <td className="p-3 text-slate-600">{formatDate(getNextActivityDate(d, contactsById[d.leadId]) || d.expectedCloseDate)}</td>
                     <td className="p-3 flex items-center gap-2">
                       <div className="w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold">{d.ownerId?.charAt(0)}</div>
                       {d.ownerId}
@@ -396,6 +602,45 @@ const Pipeline: React.FC = () => {
           </div>
         )}
       </div>
+
+      {showNextActivityModal && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm">
+          <div className="bg-white rounded-lg p-6 w-[420px] shadow-2xl">
+            <h3 className="text-lg font-bold text-slate-900 mb-2">Tạo hành động tiếp theo</h3>
+            <p className="text-sm text-slate-600 mb-4">Hãy tạo hoạt động tiếp theo để theo dõi Deal mới.</p>
+
+            <div className="flex gap-2 mb-3">
+              {NEXT_ACTIVITY_TYPES.map(t => (
+                <button
+                  key={t.id}
+                  onClick={() => setNextActivityType(t.id)}
+                  className={`flex-1 p-2 rounded border text-[10px] font-bold uppercase ${nextActivityType === t.id ? 'bg-purple-50 border-purple-400 text-purple-700' : 'border-slate-200 text-slate-500'}`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+
+            <input type="datetime-local" className="w-full text-xs p-2 border rounded font-bold mb-2" value={nextActivityDate} onChange={e => setNextActivityDate(e.target.value)} />
+            <input className="w-full text-xs p-2 border rounded mb-4" placeholder="Nội dung dự kiến..." value={nextActivitySummary} onChange={e => setNextActivitySummary(e.target.value)} />
+
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => { setShowNextActivityModal(false); setNextActivityDealId(null); }}
+                className="px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-100 rounded"
+              >
+                Bỏ qua
+              </button>
+              <button
+                onClick={handleSaveNextActivity}
+                className="px-4 py-2 text-sm font-bold text-white bg-purple-600 hover:bg-purple-700 rounded"
+              >
+                Lưu hoạt động
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* UNIFIED DRAWER FOR DEALS */}
       {drawerLead && (

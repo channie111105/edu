@@ -11,22 +11,26 @@ import {
 } from 'lucide-react';
 
 const STAGE_ORDER = [
+    DealStage.NEW_OPP,
     DealStage.DEEP_CONSULTING,
     DealStage.PROPOSAL,
     DealStage.NEGOTIATION,
     DealStage.CONTRACT,
     DealStage.DOCUMENT_COLLECTION,
-    DealStage.WON
+    DealStage.WON,
+    DealStage.AFTER_SALE
 ];
 
 const STAGE_INFO: Record<DealStage, { title: string, nextAction: string }> = {
-    [DealStage.DEEP_CONSULTING]: { title: '1. Tư vấn chuyên sâu', nextAction: 'Chuyển sang: Gửi lộ trình & Báo giá' },
-    [DealStage.PROPOSAL]: { title: '2. Gửi lộ trình & Báo giá', nextAction: 'Chuyển sang: Thương thảo' },
-    [DealStage.NEGOTIATION]: { title: '3. Thương thảo', nextAction: 'Chuyển sang: Đặt cọc & Ký HĐ' },
-    [DealStage.CONTRACT]: { title: '4. Đặt cọc & Ký HĐ', nextAction: 'Chuyển sang: Thu thập hồ sơ' },
-    [DealStage.DOCUMENT_COLLECTION]: { title: '5. Thu thập hồ sơ', nextAction: 'Chốt thành công (Won)' },
-    [DealStage.WON]: { title: '6. Chốt thành công', nextAction: 'Đã hoàn thành' },
-    [DealStage.LOST]: { title: 'Thất bại', nextAction: 'Mở lại Deal' }
+    [DealStage.NEW_OPP]: { title: '1. New Opp', nextAction: 'Chuyển sang: Tư vấn/Hẹn meeting' },
+    [DealStage.DEEP_CONSULTING]: { title: '2. Tư vấn/Hẹn meeting', nextAction: 'Chuyển sang: Tư vấn sâu' },
+    [DealStage.PROPOSAL]: { title: '3. Tư vấn sâu (Gửi báo giá, lộ trình)', nextAction: 'Chuyển sang: Đàm phán' },
+    [DealStage.NEGOTIATION]: { title: '4. Đàm phán (Theo dõi chốt)', nextAction: 'Chuyển sang: Đặt cọc & Ký HĐ' },
+    [DealStage.CONTRACT]: { title: '5. Đặt cọc & Ký HĐ', nextAction: 'Chuyển sang: Thu thập hồ sơ' },
+    [DealStage.DOCUMENT_COLLECTION]: { title: '6. Thu thập hồ sơ', nextAction: 'Chốt thành công (Won)' },
+    [DealStage.WON]: { title: '7. Won', nextAction: 'Chuyển sang: After sale' },
+    [DealStage.AFTER_SALE]: { title: '8. After sale', nextAction: 'Đã hoàn thành' },
+    [DealStage.LOST]: { title: 'Lost', nextAction: 'Mở lại Deal' }
 };
 
 const MOCK_PRODUCTS = [
@@ -302,6 +306,7 @@ const DealDetails: React.FC = () => {
     };
 
     const canMoveToNextStage = () => {
+        if (deal?.stage === DealStage.NEW_OPP) return true;
         if (deal?.stage === DealStage.DEEP_CONSULTING) {
             // Logic Stage 1 simplified for brevity here, assumed correct per previous edits
             return activities.some(a => a.type === 'call') && dealForm.targetMajor.trim().length > 0 && dealForm.budget > 0;
@@ -424,6 +429,25 @@ const DealDetails: React.FC = () => {
                     {/* ... Stage 1, 2, 3 ... (Collapsed) */}
                     {deal.stage !== DealStage.CONTRACT && deal.stage !== DealStage.WON && deal.stage !== DealStage.LOST && (
                         <div className="text-center p-4 bg-slate-50 rounded mb-4"><p className="text-xs text-slate-500">Đã hoàn thành các bước trước.</p></div>
+                    )}
+
+
+                    {/* --- STAGE 3: PROPOSAL ACTIONS --- */}
+                    {deal.stage === DealStage.PROPOSAL && (
+                        <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                            <h3 className="text-sm font-bold text-blue-900 mb-2 flex items-center gap-2">
+                                <FileText size={16} /> Báo giá & Lộ trình
+                            </h3>
+                            <button
+                                onClick={() => navigate(`/contracts/quotations/new?dealId=${deal.id}`)}
+                                className="w-full py-2 bg-white border border-blue-300 text-blue-700 font-bold rounded hover:bg-blue-50 flex items-center justify-center gap-2 mb-2"
+                            >
+                                <Plus size={16} /> Tạo Báo giá
+                            </button>
+                            <p className="text-xs text-blue-600 italic">
+                                Tạo báo giá từ hệ thống để gửi cho khách hàng.
+                            </p>
+                        </div>
                     )}
 
                     {/* --- STAGE 4: CONTRACT FORM UPDATED --- */}

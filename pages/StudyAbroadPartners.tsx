@@ -1,13 +1,16 @@
-
 import React, { useState } from 'react';
-import { 
-  Search, 
-  Plus, 
-  ChevronDown, 
-  ChevronUp, 
+import {
+  Search,
+  Plus,
+  ChevronDown,
+  ChevronUp,
   Building2,
   Globe,
-  Award
+  Award,
+  MapPin,
+  Users,
+  Wallet,
+  StickyNote
 } from 'lucide-react';
 
 // Mock Data
@@ -18,12 +21,17 @@ const PARTNERS = [
     type: 'Đại học Nghiên cứu Công lập',
     country: 'Germany',
     flag: '🇩🇪',
-    successRate: 85,
+    ranking: '#1 Đức',
+    intake: 'Tháng 4, 10',
     applicants: 142,
     level: 'GOLD',
     details: {
       tuition: '€0 - €1,500 / kỳ (Phí hành chính)',
       requirements: ['GPA: 3.5+', 'IELTS: 6.5 / TestDaF 4', 'Yêu cầu Phỏng vấn'],
+      address: 'Arcisstraße 21, 80333 München, Đức',
+      quota: '50 sinh viên/năm',
+      cmtc: 'Tài khoản phong tỏa 11.208 Euro',
+      note: 'Ưu tiên hồ sơ nộp sớm trước 3 tháng. Trường yêu cầu phỏng vấn kỹ thuật online.'
     }
   },
   {
@@ -32,12 +40,17 @@ const PARTNERS = [
     type: 'Đại học Trọng điểm Quốc gia',
     country: 'China',
     flag: '🇨🇳',
-    successRate: 78,
+    ranking: '#2 TQ',
+    intake: 'Tháng 9',
     applicants: 118,
     level: 'GOLD',
     details: {
       tuition: '26,000 - 30,000 RMB / năm',
       requirements: ['HSK 5 (210+)', 'GPA: 3.2+', 'Thư giới thiệu'],
+      address: 'Haidian District, Beijing, Trung Quốc',
+      quota: '30 sinh viên/năm',
+      cmtc: 'Sổ tiết kiệm tối thiểu 30.000 USD',
+      note: 'Học bổng CSC thường đóng đơn vào tháng 1.'
     }
   },
   {
@@ -46,12 +59,17 @@ const PARTNERS = [
     type: 'Đại học Xuất sắc',
     country: 'Germany',
     flag: '🇩🇪',
-    successRate: 92,
+    ranking: '#3 Đức',
+    intake: 'Tháng 10',
     applicants: 78,
     level: 'SILVER',
     details: {
       tuition: '€1,500 / kỳ (Sinh viên quốc tế)',
       requirements: ['GPA: 3.0+', 'TestAS', 'DSH-2'],
+      address: 'Grabengasse 1, 69117 Heidelberg, Đức',
+      quota: '20 sinh viên/năm',
+      cmtc: 'Tài khoản phong tỏa 11.208 Euro',
+      note: 'Yêu cầu TestAS (Core + Subject Module)'
     }
   },
   {
@@ -60,12 +78,17 @@ const PARTNERS = [
     type: 'Thành viên C9 League',
     country: 'China',
     flag: '🇨🇳',
-    successRate: 65,
+    ranking: '#5 TQ',
+    intake: 'Tháng 9',
     applicants: 62,
     level: 'PREMIUM',
     details: {
       tuition: '23,000 - 75,000 RMB / năm',
       requirements: ['HSK 6', 'Phỏng vấn chuyên môn', 'Bài luận cá nhân'],
+      address: '220 Handan Rd, Yangpu District, Shanghai, Trung Quốc',
+      quota: '15 sinh viên/năm',
+      cmtc: 'Chứng minh thu nhập người bảo lãnh',
+      note: 'Chương trình MBBS (Y khoa) yêu cầu phỏng vấn trực tiếp.'
     }
   },
 ];
@@ -94,7 +117,7 @@ const StudyAbroadPartners: React.FC = () => {
   return (
     <div className="flex flex-col h-full bg-[#f8fafc] text-[#0d141b] font-sans overflow-y-auto">
       <div className="flex flex-col flex-1 p-6 lg:p-10 max-w-[1600px] mx-auto w-full gap-6">
-        
+
         {/* Header */}
         <div className="flex justify-between items-end">
           <div>
@@ -106,43 +129,13 @@ const StudyAbroadPartners: React.FC = () => {
           </button>
         </div>
 
-        {/* Chart Section */}
-        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="font-bold text-slate-900 text-lg">Top Trường có lượng Hồ sơ cao nhất</h3>
-            <div className="flex gap-4 text-xs font-medium text-slate-500">
-              <div className="flex items-center gap-1"><span className="w-3 h-3 bg-[#0d47a1] rounded-sm"></span> Đức</div>
-              <div className="flex items-center gap-1"><span className="w-3 h-3 bg-[#94a3b8] rounded-sm"></span> Trung Quốc</div>
-            </div>
-          </div>
-          
-          <div className="flex items-end gap-6 h-40 mt-4">
-            {/* Chart Bars */}
-            {[
-              { name: 'TU Munich', val: 142, h: '90%', color: 'bg-[#0d47a1]' },
-              { name: 'ĐH Bắc Kinh', val: 118, h: '75%', color: 'bg-[#94a3b8]' },
-              { name: 'TU Berlin', val: 95, h: '60%', color: 'bg-[#0d47a1]' },
-              { name: 'Thanh Hoa', val: 132, h: '85%', color: 'bg-[#94a3b8]' },
-              { name: 'Heidelberg', val: 78, h: '50%', color: 'bg-[#0d47a1]' },
-              { name: 'Phục Đán', val: 62, h: '40%', color: 'bg-[#94a3b8]' },
-            ].map((item, idx) => (
-              <div key={idx} className="flex-1 flex flex-col justify-end gap-2 group cursor-pointer h-full">
-                <div className={`w-full ${item.color} rounded-t-sm relative transition-all group-hover:opacity-80`} style={{ height: item.h }}>
-                  <span className="absolute -top-6 left-1/2 -translate-x-1/2 text-[10px] font-bold text-slate-600">{item.val}</span>
-                </div>
-                <p className="text-[10px] text-center text-slate-500 truncate font-medium">{item.name}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Filters */}
+        {/* Filters - Chart Section Removed */}
         <div className="flex flex-wrap gap-3 items-center bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
           <div className="flex-1 min-w-[300px] relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-            <input 
-              className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-200 text-sm focus:ring-2 focus:ring-[#0d47a1] focus:border-transparent outline-none" 
-              placeholder="Tìm kiếm theo tên trường..." 
+            <input
+              className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-200 text-sm focus:ring-2 focus:ring-[#0d47a1] focus:border-transparent outline-none"
+              placeholder="Tìm kiếm theo tên trường..."
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
@@ -170,7 +163,8 @@ const StudyAbroadPartners: React.FC = () => {
               <tr className="bg-slate-50 border-b border-slate-200">
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Tên Trường</th>
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Quốc gia</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Tỷ lệ Đậu (%)</th>
+                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Ranking</th>
+                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Kỳ nhập học</th>
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Hồ sơ hiện tại</th>
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Cấp độ Đối tác</th>
                 <th className="px-6 py-4 w-10"></th>
@@ -179,7 +173,7 @@ const StudyAbroadPartners: React.FC = () => {
             <tbody className="divide-y divide-slate-100">
               {PARTNERS.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase())).map((partner) => (
                 <React.Fragment key={partner.id}>
-                  <tr 
+                  <tr
                     onClick={() => toggleExpand(partner.id)}
                     className={`cursor-pointer transition-colors group ${expandedId === partner.id ? 'bg-blue-50/50' : 'hover:bg-slate-50'}`}
                   >
@@ -198,17 +192,10 @@ const StudyAbroadPartners: React.FC = () => {
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      <div className="flex items-center gap-2">
-                        <div className="w-16 bg-slate-200 rounded-full h-1.5 overflow-hidden">
-                          <div 
-                            className={`h-1.5 rounded-full ${partner.successRate >= 80 ? 'bg-green-500' : 'bg-yellow-500'}`} 
-                            style={{ width: `${partner.successRate}%` }}
-                          ></div>
-                        </div>
-                        <span className={`text-sm font-bold ${partner.successRate >= 80 ? 'text-green-600' : 'text-yellow-600'}`}>
-                          {partner.successRate}%
-                        </span>
-                      </div>
+                      <span className="font-bold text-[#0d47a1] bg-blue-50 px-2 py-1 rounded text-xs">{partner.ranking}</span>
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className="text-sm text-slate-700 font-medium">{partner.intake}</span>
                     </td>
                     <td className="px-6 py-4 text-center">
                       <span className="bg-blue-50 text-[#0d47a1] px-3 py-1 rounded-full text-xs font-bold">
@@ -226,33 +213,72 @@ const StudyAbroadPartners: React.FC = () => {
                       )}
                     </td>
                   </tr>
-                  
+
                   {/* Expanded Detail View */}
                   {expandedId === partner.id && (
                     <tr className="bg-slate-50/50 animate-in slide-in-from-top-1">
-                      <td colSpan={6} className="px-0 py-0 border-b border-slate-100">
-                        <div className="p-6 border-l-4 border-[#0d47a1] grid grid-cols-1 md:grid-cols-3 gap-8 ml-6 my-2 bg-white rounded-r-lg shadow-inner">
-                          <div>
-                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1">
-                              <Building2 size={12} /> Học phí (Tham khảo)
-                            </p>
-                            <p className="text-sm font-bold text-slate-800">{partner.details.tuition}</p>
+                      <td colSpan={7} className="px-0 py-0 border-b border-slate-100">
+                        <div className="p-6 border-l-4 border-[#0d47a1] ml-6 my-2 bg-white rounded-r-lg shadow-inner">
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-6">
+                            {/* Tuition & CMTC */}
+                            <div className="space-y-4">
+                              <div>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-1">
+                                  <Building2 size={12} /> Học phí (Tham khảo)
+                                </p>
+                                <p className="text-sm font-bold text-slate-800">{partner.details.tuition}</p>
+                              </div>
+                              <div>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-1">
+                                  <Wallet size={12} /> Chứng minh tài chính (CMTC)
+                                </p>
+                                <p className="text-sm font-bold text-slate-800">{partner.details.cmtc}</p>
+                              </div>
+                            </div>
+
+                            {/* Address & Quota */}
+                            <div className="space-y-4">
+                              <div>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-1">
+                                  <MapPin size={12} /> Địa chỉ
+                                </p>
+                                <p className="text-sm text-slate-700 font-medium">{partner.details.address}</p>
+                              </div>
+                              <div>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-1">
+                                  <Users size={12} /> Chỉ tiêu tuyển sinh
+                                </p>
+                                <p className="text-sm font-bold text-slate-800">{partner.details.quota}</p>
+                              </div>
+                            </div>
+
+                            {/* Requirements & Actions */}
+                            <div className="space-y-4">
+                              <div>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-1">
+                                  <Award size={12} /> Yêu cầu đầu vào
+                                </p>
+                                <ul className="text-sm text-slate-700 list-disc pl-4 space-y-1">
+                                  {partner.details.requirements.map((req, i) => (
+                                    <li key={i}>{req}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                              <div className="pt-2">
+                                <button className="w-full text-xs font-bold text-[#0d47a1] border border-[#0d47a1] px-4 py-2.5 rounded-lg hover:bg-[#0d47a1] hover:text-white transition-all flex items-center justify-center gap-2">
+                                  <Globe size={14} />
+                                  Xem Chương trình Đào tạo
+                                </button>
+                              </div>
+                            </div>
                           </div>
-                          <div>
-                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1">
-                              <Award size={12} /> Yêu cầu đầu vào
+
+                          {/* Notes */}
+                          <div className="pt-4 border-t border-slate-100 bg-amber-50/50 p-3 rounded-md -mx-2">
+                            <p className="text-[10px] font-bold text-amber-600 uppercase tracking-widest mb-1 flex items-center gap-1">
+                              <StickyNote size={12} /> Ghi chú nội bộ
                             </p>
-                            <ul className="text-sm text-slate-700 list-disc pl-4 space-y-1">
-                              {partner.details.requirements.map((req, i) => (
-                                <li key={i}>{req}</li>
-                              ))}
-                            </ul>
-                          </div>
-                          <div className="flex flex-col justify-center items-end">
-                            <button className="text-xs font-bold text-[#0d47a1] border border-[#0d47a1] px-4 py-2.5 rounded-lg hover:bg-[#0d47a1] hover:text-white transition-all flex items-center gap-2">
-                              <Globe size={14} />
-                              Xem Chương trình Đào tạo
-                            </button>
+                            <p className="text-xs text-slate-700 italic">"{partner.details.note}"</p>
                           </div>
                         </div>
                       </td>
@@ -262,7 +288,7 @@ const StudyAbroadPartners: React.FC = () => {
               ))}
             </tbody>
           </table>
-          
+
           {/* Pagination */}
           <div className="px-6 py-4 bg-white border-t border-slate-200 flex items-center justify-between text-sm text-slate-500 font-medium">
             <p>Hiển thị 1 đến 4 trong số 48 đối tác</p>

@@ -1,242 +1,248 @@
-
-import React from 'react';
-import { 
-  ChevronLeft, 
-  ChevronRight, 
-  Plus, 
-  MessageSquare, 
-  Mail, 
-  AlertCircle, 
-  CheckCircle2, 
-  Clock, 
+import React, { useState } from 'react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  Plus,
+  MessageSquare,
+  Mail,
+  AlertCircle,
+  CheckCircle2,
+  Clock,
   Calendar,
-  MoreHorizontal
+  MoreHorizontal,
+  Search,
+  Filter,
+  MapPin,
+  Pencil,
+  Trash2,
+  Bell
 } from 'lucide-react';
 
 const StudyAbroadInterviews: React.FC = () => {
-  // Mock Data for Calendar Grid
-  const CALENDAR_DAYS = [
-    { day: 28, currentMonth: false }, { day: 29, currentMonth: false }, { day: 30, currentMonth: false },
-    { day: 1, currentMonth: true }, { day: 2, currentMonth: true }, 
-    { 
-      day: 3, 
-      currentMonth: true, 
-      events: [{ type: 'visa', title: 'Visa: Nguyễn Thùy Linh', sub: 'Đại sứ quán Đức' }] 
+  // Standardized table data
+  const INTERVIEW_DATA = [
+    {
+      id: 1,
+      date: '10/09/2026',
+      time: '09:00',
+      studentName: 'Nguyễn Thùy Linh',
+      type: 'Visa',
+      subType: 'Đức',
+      location: 'Đại sứ quán Đức (Hà Nội)',
+      status: 'Scheduled',
+      reminded: true,
+      channel: 'Zalo'
     },
-    { day: 4, currentMonth: true },
-    { day: 5, currentMonth: true }, { day: 6, currentMonth: true },
-    { 
-      day: 7, 
-      currentMonth: true, 
-      events: [{ type: 'exam', title: 'Thi: Trần Văn Minh', sub: 'TestAS Online' }] 
+    {
+      id: 2,
+      date: '07/09/2026',
+      time: '14:30',
+      studentName: 'Trần Văn Minh',
+      type: 'Entrance Exam',
+      subType: 'TestAS',
+      location: 'Online (Zoom Link)',
+      status: 'Scheduled',
+      reminded: false,
+      channel: 'Email'
     },
-    { day: 8, currentMonth: true }, { day: 9, currentMonth: true },
-    { 
-      day: 10, 
-      currentMonth: true, 
-      isToday: true,
-      events: [{ type: 'visa', title: 'Visa: Lê Hoàng', sub: 'Lãnh sự quán (HCM)' }] 
+    {
+      id: 3,
+      date: '15/09/2026',
+      time: '10:00',
+      studentName: 'Lê Hoàng',
+      type: 'Visa',
+      subType: 'Đức',
+      location: 'Lãnh sự quán (HCM)',
+      status: 'Pending',
+      reminded: false,
+      channel: 'Zalo'
     },
-    { day: 11, currentMonth: true }, { day: 12, currentMonth: true }, { day: 13, currentMonth: true }, { day: 14, currentMonth: true },
-    { day: 15, currentMonth: true }, { day: 16, currentMonth: true }, { day: 17, currentMonth: true }, { day: 18, currentMonth: true },
-    { day: 19, currentMonth: true }, { day: 20, currentMonth: true }, { day: 21, currentMonth: true }, { day: 22, currentMonth: true },
-    { day: 23, currentMonth: true }, { day: 24, currentMonth: true }, { day: 25, currentMonth: true }, { day: 26, currentMonth: true },
-    { day: 27, currentMonth: true }, { day: 28, currentMonth: true }, { day: 29, currentMonth: true }, { day: 30, currentMonth: true },
-    { day: 1, currentMonth: false }, { day: 2, currentMonth: false }
+    {
+      id: 4,
+      date: '01/09/2026',
+      time: '08:00',
+      studentName: 'Phạm Hương',
+      type: 'Visa',
+      subType: 'Đức',
+      location: 'Đại sứ quán Đức (Hà Nội)',
+      status: 'Completed',
+      reminded: true,
+      channel: 'Email'
+    },
+    {
+      id: 5,
+      date: '12/09/2026',
+      time: '13:00',
+      studentName: 'Đào Văn Hùng',
+      type: 'Entrance Exam',
+      subType: 'Tiếng Đức B1',
+      location: 'Trung tâm Goethe',
+      status: 'Cancelled',
+      reminded: true,
+      channel: 'SMS'
+    }
   ];
+
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case 'Scheduled':
+        return <span className="px-2 py-1 rounded text-xs font-bold bg-blue-100 text-blue-700">Đã lên lịch</span>;
+      case 'Completed':
+        return <span className="px-2 py-1 rounded text-xs font-bold bg-green-100 text-green-700">Hoàn thành</span>;
+      case 'Cancelled':
+        return <span className="px-2 py-1 rounded text-xs font-bold bg-gray-100 text-gray-500 line-through">Đã hủy</span>;
+      case 'Pending':
+        return <span className="px-2 py-1 rounded text-xs font-bold bg-amber-100 text-amber-700">Chờ xác nhận</span>;
+      default:
+        return status;
+    }
+  };
+
+  const getTypeBadge = (type: string, sub: string) => {
+    if (type === 'Visa') {
+      return (
+        <div className="flex flex-col">
+          <span className="text-sm font-medium text-purple-700">Phỏng vấn Visa</span>
+          <span className="text-xs text-purple-500">{sub}</span>
+        </div>
+      )
+    }
+    return (
+      <div className="flex flex-col">
+        <span className="text-sm font-medium text-orange-700">Thi Đầu vào</span>
+        <span className="text-xs text-orange-500">{sub}</span>
+      </div>
+    )
+  };
 
   return (
     <div className="flex flex-col h-full bg-[#f8fafc] text-[#0d141b] font-sans overflow-hidden">
-      
+
       {/* Header */}
-      <div className="px-8 py-6 flex justify-between items-end shrink-0">
+      <div className="px-8 py-6 flex justify-between items-end shrink-0 border-b border-[#e7edf3] bg-white">
         <div>
-          <h1 className="text-3xl font-bold text-[#0d141b]">Lịch Phỏng vấn & Nhắc nhở</h1>
-          <p className="text-[#4c739a] text-sm mt-1">Tự động lên lịch và gửi thông báo nhắc nhở phỏng vấn Visa, thi đầu vào.</p>
+          <h1 className="text-3xl font-bold text-[#0d141b] flex items-center gap-2">
+            <Calendar className="text-blue-600" />
+            Lịch Phỏng vấn & Nhắc nhở
+          </h1>
+          <p className="text-[#4c739a] text-sm mt-1">Quản lý lịch phỏng vấn Visa và lịch thi đầu vào của học viên.</p>
         </div>
         <button className="flex items-center gap-2 rounded-lg bg-[#0d47a1] px-5 py-2.5 text-white font-bold text-sm hover:bg-[#0a3d8b] transition-all shadow-sm">
           <Plus size={20} />
-          Lên lịch Phỏng vấn
+          Lên lịch Mới
         </button>
       </div>
 
-      <div className="flex flex-1 overflow-hidden px-8 pb-8 gap-6">
-        
-        {/* LEFT COLUMN: CALENDAR */}
+      <div className="flex flex-1 overflow-hidden p-8 gap-6">
+
+        {/* MAIN TABLE CONTENT */}
         <div className="flex-1 bg-white rounded-xl border border-[#e7edf3] shadow-sm flex flex-col overflow-hidden">
-          
-          {/* Calendar Toolbar */}
-          <div className="flex items-center justify-between p-4 border-b border-[#e7edf3]">
-            <div className="flex items-center gap-4">
-              <h3 className="text-lg font-bold text-[#0d141b]">Tháng 9, 2024</h3>
-              <div className="flex border border-[#e7edf3] rounded-md overflow-hidden">
-                <button className="px-3 py-1 bg-white hover:bg-slate-50 transition-colors border-r border-[#e7edf3]">
-                  <ChevronLeft size={16} />
-                </button>
-                <button className="px-3 py-1 bg-white hover:bg-slate-50 transition-colors">
-                  <ChevronRight size={16} />
-                </button>
+
+          {/* Toolbar */}
+          <div className="p-4 border-b border-[#e7edf3] flex justify-between items-center bg-gray-50/50">
+            <div className="flex gap-3">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+                <input
+                  type="text"
+                  placeholder="Tìm học viên..."
+                  className="pl-9 pr-4 py-2 bg-white border border-[#cfdbe7] rounded-lg text-sm focus:ring-2 focus:ring-blue-500 w-64 shadow-sm"
+                />
               </div>
+              <button className="px-3 py-2 bg-white border border-[#cfdbe7] rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 flex items-center gap-2 shadow-sm">
+                <Filter size={16} /> Bộ lọc
+              </button>
             </div>
-            <div className="flex gap-2">
-              <span className="flex items-center gap-1.5 px-3 py-1 bg-blue-50 text-blue-700 text-xs font-bold rounded-full border border-blue-100">
-                <span className="w-2 h-2 rounded-full bg-blue-600"></span> Phỏng vấn Visa
-              </span>
-              <span className="flex items-center gap-1.5 px-3 py-1 bg-amber-50 text-amber-700 text-xs font-bold rounded-full border border-amber-100">
-                <span className="w-2 h-2 rounded-full bg-amber-500"></span> Thi Đầu vào
-              </span>
+            <div className="flex items-center gap-2">
+              <button className="text-gray-400 hover:text-gray-600 p-2">
+                <ChevronLeft size={20} />
+              </button>
+              <span className="text-sm font-bold text-gray-700">Tháng 9, 2026</span>
+              <button className="text-gray-400 hover:text-gray-600 p-2">
+                <ChevronRight size={20} />
+              </button>
             </div>
           </div>
 
-          {/* Calendar Grid Header */}
-          <div className="grid grid-cols-7 border-b border-[#e7edf3] bg-slate-50">
-            {['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'].map((day) => (
-              <div key={day} className="text-center text-xs font-bold text-[#4c739a] uppercase tracking-wider py-3">
-                {day}
-              </div>
-            ))}
-          </div>
-
-          {/* Calendar Grid Body */}
-          <div className="grid grid-cols-7 flex-1 auto-rows-fr bg-white">
-            {CALENDAR_DAYS.map((date, index) => (
-              <div 
-                key={index} 
-                className={`border-b border-r border-[#e7edf3] p-2 min-h-[100px] flex flex-col relative transition-colors hover:bg-[#f8fafc]
-                  ${!date.currentMonth ? 'bg-slate-50/50' : ''} 
-                  ${date.isToday ? 'bg-blue-50/30' : ''}
-                  ${(index + 1) % 7 === 0 ? 'border-r-0' : ''}
-                `}
-              >
-                <span className={`text-sm font-medium mb-1 ${!date.currentMonth ? 'text-slate-400' : date.isToday ? 'text-blue-600 font-bold' : 'text-[#0d141b]'}`}>
-                  {date.day}
-                </span>
-                
-                {date.events?.map((ev, idx) => (
-                  <div 
-                    key={idx} 
-                    className={`mb-1 p-1.5 rounded border-l-4 text-[10px] font-medium leading-tight cursor-pointer shadow-sm hover:shadow-md transition-all
-                      ${ev.type === 'visa' 
-                        ? 'bg-blue-100 border-blue-600 text-blue-800' 
-                        : 'bg-amber-100 border-amber-500 text-amber-800'}
-                    `}
-                  >
-                    <div className="font-bold">{ev.title}</div>
-                    <div className="opacity-80">{ev.sub}</div>
-                  </div>
+          {/* Table */}
+          <div className="flex-1 overflow-auto">
+            <table className="w-full text-left border-collapse">
+              <thead className="bg-[#f8fafc] border-b border-[#e7edf3] sticky top-0 z-10 shadow-sm">
+                <tr>
+                  <th className="px-6 py-4 text-[#4c739a] text-xs font-bold uppercase tracking-wider w-32">Thời gian</th>
+                  <th className="px-6 py-4 text-[#4c739a] text-xs font-bold uppercase tracking-wider">Học viên</th>
+                  <th className="px-6 py-4 text-[#4c739a] text-xs font-bold uppercase tracking-wider">Loại lịch</th>
+                  <th className="px-6 py-4 text-[#4c739a] text-xs font-bold uppercase tracking-wider">Địa điểm</th>
+                  <th className="px-6 py-4 text-[#4c739a] text-xs font-bold uppercase tracking-wider w-32">Trạng thái</th>
+                  <th className="px-6 py-4 text-[#4c739a] text-xs font-bold uppercase tracking-wider text-center w-32">Nhắc nhở</th>
+                  <th className="px-6 py-4 text-[#4c739a] w-10"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#e7edf3]">
+                {INTERVIEW_DATA.map((item) => (
+                  <tr key={item.id} className="hover:bg-blue-50/30 transition-colors group">
+                    <td className="px-6 py-4">
+                      <div className="font-bold text-[#0d141b] text-sm">{item.date}</div>
+                      <div className="text-[#4c739a] text-xs font-medium flex items-center gap-1 mt-0.5">
+                        <Clock size={12} /> {item.time}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="font-bold text-[#0d141b] text-sm">{item.studentName}</div>
+                    </td>
+                    <td className="px-6 py-4">
+                      {getTypeBadge(item.type, item.subType)}
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex items-start gap-1.5 text-sm text-[#0d141b] max-w-[200px]">
+                        <MapPin size={14} className="text-[#4c739a] mt-0.5 shrink-0" />
+                        <span className="truncate">{item.location}</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      {getStatusBadge(item.status)}
+                    </td>
+                    <td className="px-6 py-4 text-center">
+                      {item.reminded ? (
+                        <div className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-green-50 text-green-700 text-[10px] font-bold border border-green-100">
+                          <CheckCircle2 size={10} /> Đã gửi ({item.channel})
+                        </div>
+                      ) : (
+                        <button className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-gray-100 text-gray-500 text-[10px] font-bold border border-gray-200 hover:bg-blue-100 hover:text-blue-700 hover:border-blue-200 transition-colors">
+                          <Bell size={10} /> Gửi ngay
+                        </button>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 text-center">
+                      <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button className="p-1.5 hover:bg-gray-100 rounded text-gray-500 hover:text-blue-600" title="Chỉnh sửa">
+                          <Pencil size={16} />
+                        </button>
+                        <button className="p-1.5 hover:bg-gray-100 rounded text-gray-500 hover:text-red-600" title="Hủy lịch">
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
                 ))}
-              </div>
-            ))}
+              </tbody>
+            </table>
           </div>
+
+          {/* Pagination Placeholder */}
+          <div className="p-4 border-t border-[#e7edf3] flex justify-between items-center bg-gray-50 text-xs text-gray-500">
+            <span>Hiển thị 1-5 trên tổng 24 lịch hẹn</span>
+            <div className="flex gap-1">
+              <button className="px-2 py-1 border rounded hover:bg-white disabled:opacity-50">Trước</button>
+              <button className="px-2 py-1 border rounded bg-blue-600 text-white border-blue-600">1</button>
+              <button className="px-2 py-1 border rounded hover:bg-white">2</button>
+              <button className="px-2 py-1 border rounded hover:bg-white">3</button>
+              <button className="px-2 py-1 border rounded hover:bg-white">Sau</button>
+            </div>
+          </div>
+
         </div>
 
-        {/* RIGHT COLUMN: SIDEBAR */}
-        <aside className="w-[380px] bg-white border border-[#e7edf3] rounded-xl shadow-sm flex flex-col overflow-hidden shrink-0">
-          
-          <div className="p-5 border-b border-[#e7edf3]">
-            <h3 className="text-lg font-bold text-[#0d141b]">Trạng thái Thông báo</h3>
-            <p className="text-xs text-[#4c739a]">Hệ thống nhắc nhở tự động (Zalo/Email)</p>
-          </div>
-
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            
-            {/* Notification Item 1 */}
-            <div className="p-4 rounded-xl border border-[#e7edf3] hover:bg-slate-50 transition-colors bg-white shadow-sm">
-              <div className="flex justify-between items-start mb-2">
-                <span className="text-sm font-bold text-[#0d141b]">Nguyễn Thùy Linh</span>
-                <span className="px-2 py-0.5 rounded bg-green-100 text-green-700 text-[10px] font-bold uppercase border border-green-200">Đã gửi</span>
-              </div>
-              <p className="text-xs text-[#4c739a] mb-3 font-medium">Visa Interview (Đức) - Nhắc trước 3 ngày</p>
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-1 text-[11px] text-slate-500">
-                  <MessageSquare size={14} className="text-blue-500" /> Zalo
-                </div>
-                <div className="flex items-center gap-1 text-[11px] text-slate-500">
-                  <Mail size={14} className="text-orange-500" /> Email
-                </div>
-                <div className="ml-auto text-[11px] text-slate-400 flex items-center gap-1">
-                  <Clock size={12} /> 2 giờ trước
-                </div>
-              </div>
-            </div>
-
-            {/* Notification Item 2 */}
-            <div className="p-4 rounded-xl border border-[#e7edf3] hover:bg-slate-50 transition-colors bg-white shadow-sm">
-              <div className="flex justify-between items-start mb-2">
-                <span className="text-sm font-bold text-[#0d141b]">Trần Văn Minh</span>
-                <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-700 text-[10px] font-bold uppercase border border-blue-200">Đã lên lịch</span>
-              </div>
-              <p className="text-xs text-[#4c739a] mb-3 font-medium">Thi Đầu vào (Trung Quốc) - Nhắc trước 1 ngày</p>
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-1 text-[11px] text-slate-500">
-                  <MessageSquare size={14} className="text-blue-500" /> Zalo
-                </div>
-                <div className="ml-auto text-[11px] text-slate-400 italic">09:00 Sáng mai</div>
-              </div>
-            </div>
-
-            {/* Notification Item 3 (Failed) */}
-            <div className="p-4 rounded-xl border border-red-100 bg-red-50/40">
-              <div className="flex justify-between items-start mb-2">
-                <span className="text-sm font-bold text-[#0d141b]">Lê Hoàng</span>
-                <span className="px-2 py-0.5 rounded bg-red-100 text-red-700 text-[10px] font-bold uppercase border border-red-200">Gửi lỗi</span>
-              </div>
-              <p className="text-xs text-[#4c739a] mb-3 font-medium">Visa Interview (Đức) - Nhắc trước 7 ngày</p>
-              <div className="flex items-center gap-2 text-[10px] text-red-600 font-bold mb-2">
-                <AlertCircle size={14} /> Sai số điện thoại Zalo
-              </div>
-              <button className="w-full py-1.5 bg-white border border-red-200 text-red-600 rounded text-xs font-bold hover:bg-red-50 transition-colors">
-                Thử lại qua Email
-              </button>
-            </div>
-
-            {/* Notification Item 4 (Completed) */}
-            <div className="p-4 rounded-xl border border-[#e7edf3] hover:bg-slate-50 transition-colors opacity-70">
-              <div className="flex justify-between items-start mb-2">
-                <span className="text-sm font-bold text-[#0d141b]">Phạm Hương</span>
-                <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px] font-bold uppercase">Hoàn thành</span>
-              </div>
-              <p className="text-xs text-[#4c739a] mb-2">Visa Interview (Đức) - Xác nhận cuối</p>
-              <div className="text-[11px] text-slate-400 italic">01/09/2024</div>
-            </div>
-
-          </div>
-
-          {/* Quick Schedule Form */}
-          <div className="p-5 bg-slate-50 border-t border-[#e7edf3]">
-            <h4 className="text-xs font-bold text-[#4c739a] uppercase mb-4 tracking-widest flex items-center gap-2">
-              <Clock size={14} /> Lên lịch nhanh (Auto-fill)
-            </h4>
-            <div className="space-y-3">
-              <div className="space-y-1">
-                <label className="text-[11px] font-bold text-slate-500 uppercase">Học viên</label>
-                <select className="w-full text-xs rounded-lg border border-[#e7edf3] bg-white py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-[#0d141b]">
-                  <option>Chọn từ Pipeline...</option>
-                  <option>Nguyễn Thùy Linh (+84 987...)</option>
-                  <option>Trần Văn Minh (+84 912...)</option>
-                </select>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-slate-500 uppercase">Ngày</label>
-                  <input className="w-full text-xs rounded-lg border border-[#e7edf3] py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500" type="date" />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-slate-500 uppercase">Giờ</label>
-                  <input className="w-full text-xs rounded-lg border border-[#e7edf3] py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500" type="time" defaultValue="09:00"/>
-                </div>
-              </div>
-              <div className="space-y-1">
-                <label className="text-[11px] font-bold text-slate-500 uppercase">Địa điểm</label>
-                <input className="w-full text-xs rounded-lg border border-[#e7edf3] py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Đại sứ quán / Link Online" type="text"/>
-              </div>
-              <button className="w-full bg-white border border-[#0d47a1] text-[#0d47a1] text-xs font-bold py-2.5 rounded-lg mt-2 hover:bg-blue-50 transition-colors shadow-sm">
-                Soạn Thông báo
-              </button>
-            </div>
-          </div>
-
-        </aside>
       </div>
     </div>
   );

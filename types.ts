@@ -27,6 +27,7 @@ export enum LeadStatus {
 
 // 2. TRẠNG THÁI// 2. DEAL/PIPELINE
 export enum DealStage {
+  NEW_OPP = 'New Opp',
   DEEP_CONSULTING = 'Tư vấn chuyên sâu',
   PROPOSAL = 'Gửi lộ trình & Báo giá',
   NEGOTIATION = 'Thương thảo',
@@ -34,6 +35,7 @@ export enum DealStage {
   WON = 'Chốt thành công (Won)',
   CONTRACT = 'Đặt cọc & Ký hợp đồng',
   LOST = 'Thất bại (Lost)',
+  AFTER_SALE = 'After sale',
 }
 
 // 3. HỢP ĐỒNG & TÀI CHÍNH (New)
@@ -94,6 +96,9 @@ export interface IMarketingData {
   profileLink?: string; // Link Profile (Facebook/TikTok)
   region?: string; // Địa chỉ/Khu vực
   message?: string; // Ghi chú từ Form (Message/Note)
+  campaign?: string; // Chiến dịch Marketing
+  medium?: string; // Kênh Marketing (CPC, Organic, Social, etc.)
+  market?: string; // Thị trường (Miền Bắc, Miền Nam, Sinh viên, etc.)
 }
 
 // Contact entity - Central hub for customer data
@@ -131,6 +136,8 @@ export interface IContact {
   languageLevel?: string;
   financialStatus?: string;
   socialLink?: string;
+  company?: string;
+  job?: string;
 
   // System Info
   ownerId?: string; // Sales Rep phụ trách
@@ -154,12 +161,15 @@ export interface ILead {
   source: string;
   campaign?: string; // Chiến dịch
 
-  program: 'Tiếng Đức' | 'Tiếng Trung' | 'Du học Đức' | 'Du học Trung';
+  program: 'Tiếng Đức' | 'Tiếng Trung' | 'Du học Đức' | 'Du học Trung' | 'Du học nghề Úc';
   status: LeadStatus | DealStage | string;
   ownerId: string;
   createdAt: string;
   lastInteraction: string;
   notes: string;
+  company?: string;
+  title?: string;
+  referredBy?: string;
 
   // Lý do thất bại (Bắt buộc khi Disqualified)
   lostReason?: string;
@@ -170,6 +180,7 @@ export interface ILead {
   // Additional fields for UI/Logic compatibility
   score?: number;
   slaStatus?: 'normal' | 'warning' | 'danger';
+  slaReason?: string; // Lý do cảnh báo SLA
   lastActivityDate?: string;
 
   // 3. Deal & Revenue Info (Persisted)
@@ -226,6 +237,14 @@ export interface ILead {
 
   // 5. Followers
   followers?: IFollower[];
+
+  // 6. Internal Notes (Structured)
+  internalNotes?: {
+    expectedStart?: string;
+    parentOpinion?: string;
+    financial?: string;
+    potential?: 'Nóng' | 'Tiềm năng' | 'Tham khảo';
+  };
 }
 
 export interface IFollower {
@@ -243,6 +262,9 @@ export interface IActivityLog {
   title: string;
   description: string;
   user: string;
+  // Extended for SLA tracking
+  status?: 'scheduled' | 'completed' | 'cancelled';
+  datetime?: string;
 }
 
 // --- SALES ENTITIES ---
@@ -352,4 +374,191 @@ export interface AIAnalysisResult {
   actionableAdvice: string;
   suggestedEmail: string;
   score: number;
+}
+
+export enum MeetingStatus {
+  DRAFT = 'Draft', // Mới tạo
+  CONFIRMED = 'Confirmed', // Đã xác nhận/Khách đến
+  SUBMITTED = 'Submitted', // Đã có kết quả
+  CANCELLED = 'Cancelled' // Hủy
+}
+
+export enum MeetingType {
+  ONLINE = 'Online Interview',
+  OFFLINE = 'Offline Test',
+  CONSULTING = 'Consulting'
+}
+
+export interface IMeeting {
+  id: string;
+  title: string;
+  leadId: string; // Link lead
+  leadName: string;
+  leadPhone: string;
+  salesPersonId: string;
+  salesPersonName: string;
+  campus?: string; // Cơ sở
+  address?: string; // Địa chỉ khách hàng
+
+  datetime: string;
+  type: MeetingType;
+  status: MeetingStatus;
+
+  // Test info
+  teacherId?: string;
+  teacherName?: string;
+  notes?: string; // Ghi chú ban đầu
+
+  // Result
+  result?: string; // Kết quả/Điểm số
+  resultFile?: string; // File kết quả
+  feedback?: string; // Đánh giá chi tiết
+
+  createdAt: string;
+}
+
+export enum StudentStatus {
+  ADMISSION = 'Chưa ghi danh', // From Sale Order (Locked)
+  ENROLLED = 'Đã ghi danh',   // Confirmed by Training
+  RESERVED = 'Bảo lưu',
+  DROPPED = 'Thôi học',
+  DONE = 'Hoàn thành'
+}
+
+export interface IStudent {
+  id: string;
+  code: string; // HV-2023-001
+  name: string;
+  gender?: 'Nam' | 'Nữ' | 'Khác';
+  dob?: string;
+  phone: string;
+  email?: string;
+  address?: string;
+
+  // Link back to Sales
+  dealId?: string;
+  soId?: string; // Quotation (SO) ID
+  salesPersonId?: string;
+
+  // Academic Info
+  campus: string;
+  classId?: string; // Official Class
+  className?: string;
+  admissionDate?: string; // Ngày nhập học
+  level?: string; // A1, A2...
+
+  status: StudentStatus;
+
+  // Metadata
+  profileImage?: string;
+  createdAt: string;
+}
+export enum QuotationStatus {
+  DRAFT = 'New Quote',
+  SENT = 'Quotation Sent',
+  SALE_ORDER = 'Sale Order',
+  LOCKED = 'Locked'
+}
+
+export interface IQuotation {
+  id: string;
+  soCode: string; // SO001
+  customerName: string;
+  customerId?: string; // Link to contact
+  leadId?: string;
+  dealId?: string;
+  studentId?: string; // Linked Student ID when Locked
+
+
+  serviceType: 'StudyAbroad' | 'Training' | 'Combo';
+  product: string; // Course name
+  amount: number;
+  discount?: number;
+  finalAmount: number;
+
+  createdAt: string;
+  updatedAt: string;
+  status: QuotationStatus;
+
+  // Class Info
+  schedule?: string;
+  classCode?: string;
+
+  // Payment Info (Log SO)
+  paymentMethod?: 'CK' | 'CASH';
+  paymentProof?: string; // Image URL or code
+
+  createdBy: string;
+}
+
+// 4. TRANSACTION MANAGEMENT (THU CHI)
+export type TransactionType = 'IN' | 'OUT';
+export type TransactionStatus =
+  | 'PROPOSED'  // Đề xuất (Chi)
+  | 'APPROVED'  // Đã duyệt (Chi)
+  | 'PAID'      // Đã chi (Chi)
+  | 'PLANNED'   // Dự thu (Thu)
+  | 'RECEIVED'; // Đã thu (Thu)
+
+export interface IActualTransaction {
+  id: string;
+  type: TransactionType; // Thu / Chi
+  category: string; // Salary, Tuition, Electricity...
+  title: string; // Description
+  amount: number;
+  department: string; // Sale, OPS, Marketing
+  date: string;
+  status: TransactionStatus;
+  proof?: string; // Image URL/Code
+
+  // Links
+  relatedId?: string; // SO ID, Student ID...
+  createdBy: string;
+  createdAt: string;
+}
+
+// 5. INVOICE MANAGEMENT
+export enum InvoiceStatus {
+  DRAFT = 'Nháp',
+  SENT = 'Đã gửi Email',
+  PRINTED = 'Đã in',
+  CANCELLED = 'Đã hủy'
+}
+
+export interface IInvoice {
+  id: string;
+  code: string; // INV-2026-001
+
+  // Customer Info
+  customerId?: string;
+  customerName: string;
+  customerEmail?: string;
+  customerPhone?: string;
+
+  // Tax Info (Optional)
+  taxId?: string;
+  companyName?: string;
+  companyAddress?: string;
+
+  // SO Link
+  soId?: string;
+  soCode?: string;
+
+  // Financials
+  items: {
+    name: string;
+    quantity: number;
+    price: number;
+    total: number;
+  }[];
+  subTotal: number;
+  taxAmount: number;
+  totalAmount: number;
+
+  issueDate: string;
+  dueDate?: string;
+  status: InvoiceStatus;
+
+  createdBy: string;
+  createdAt: string;
 }

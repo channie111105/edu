@@ -1,320 +1,264 @@
-
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { 
-  Search, 
-  Bell, 
-  Receipt, 
-  DollarSign, 
-  History, 
-  BarChart3, 
-  FileText, 
-  Clock, 
-  CheckCircle2, 
-  ChevronLeft, 
-  ChevronRight, 
-  Image as ImageIcon,
-  MoreHorizontal,
-  Filter,
-  X,
-  Check,
-  Download
+import {
+   CheckCircle2,
+   XCircle,
+   Eye,
+   Search,
+   Filter,
+   Clock,
+   FileText,
+   AlertCircle,
+   MoreHorizontal,
+   ChevronLeft,
+   ChevronRight
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+
+// Mock Transaction Data (Pending Approval)
+const TRANSACTIONS = [
+   {
+      id: 'TRX-9021',
+      contractCode: 'HD-2023-089',
+      student: 'Phạm Văn Hùng',
+      className: 'Du học Đức',
+      amount: 37500000,
+      method: 'Chuyển khoản',
+      proof: 'https://via.placeholder.com/150', // Mock image
+      date: '24/10/2023 10:30',
+      type: 'Thanh toán Đợt 1',
+      status: 'approved',
+      salesRep: 'Nguyễn Văn A'
+   },
+   {
+      id: 'TRX-9104',
+      contractCode: 'HD-2023-082',
+      student: 'Trần Thị Mai',
+      className: 'Tiếng Trung',
+      amount: 12000000,
+      method: 'Chuyển khoản',
+      proof: 'https://via.placeholder.com/150',
+      date: '24/10/2023 09:15',
+      type: 'Học phí trọn gói',
+      status: 'pending',
+      salesRep: 'Lê Thị B'
+   },
+   {
+      id: 'TRX-8892',
+      contractCode: 'HD-2023-085',
+      student: 'Lê Hoàng',
+      className: 'Workshop',
+      amount: 500000,
+      method: 'QR Code',
+      proof: 'https://via.placeholder.com/150',
+      date: '23/10/2023 15:45',
+      type: 'Phí ghi danh',
+      status: 'approved',
+      salesRep: 'Nguyễn Văn A'
+   },
+   {
+      id: 'TRX-8877',
+      contractCode: 'HD-2023-088',
+      student: 'Nguyễn Thùy Linh',
+      className: 'Tiếng Đức A2',
+      amount: 8000000,
+      method: 'Chuyển khoản',
+      proof: 'https://via.placeholder.com/150',
+      date: '23/10/2023 14:20',
+      type: 'Đợt 2',
+      status: 'pending',
+      salesRep: 'Trần C'
+   }
+];
 
 const FinanceTransactionQueue: React.FC = () => {
-  const navigate = useNavigate();
-  const [showInvoiceToast, setShowInvoiceToast] = useState(false);
+   const navigate = useNavigate();
+   const [filter, setFilter] = useState('pending'); // all, pending, approved, rejected
 
-  // Mock Data
-  const [transactions, setTransactions] = useState([
-    {
-      id: 'TRX-9021',
-      contractId: 'HĐ-2023-089',
-      studentName: 'Phạm Văn Hùng',
-      detail: 'Thanh toán Đợt 1 - Du học Đức',
-      amount: 37500000,
-      status: 'approved',
-      date: '24/10/2023 09:30',
-      proofUrl: '#'
-    },
-    {
-      id: 'TRX-9104',
-      contractId: 'HĐ-2023-092',
-      studentName: 'Trần Thị Mai',
-      detail: 'Học phí trọn gói - Tiếng Trung',
-      amount: 12000000,
-      status: 'pending',
-      date: '24/10/2023 10:15',
-      proofUrl: '#'
-    },
-    {
-      id: 'TRX-8892',
-      contractId: 'HĐ-2023-095',
-      studentName: 'Lê Hoàng',
-      detail: 'Phí ghi danh - Workshop',
-      amount: 500000,
-      status: 'approved',
-      date: '23/10/2023 14:20',
-      proofUrl: '#'
-    },
-    {
-      id: 'TRX-8877',
-      contractId: 'HĐ-2023-088',
-      studentName: 'Nguyễn Thùy Linh',
-      detail: 'Đợt 2 - Tiếng Đức A2',
-      amount: 8000000,
-      status: 'pending',
-      date: '23/10/2023 16:45',
-      proofUrl: '#'
-    }
-  ]);
+   // Filter Data
+   const filteredData = TRANSACTIONS.filter(t => {
+      if (filter === 'all') return true;
+      return t.status === filter;
+   });
 
-  const handleApprove = (id: string) => {
-    setTransactions(prev => prev.map(t => t.id === id ? { ...t, status: 'approved' } : t));
-  };
+   const formatCurrency = (val: number) =>
+      new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(val);
 
-  const handleReject = (id: string) => {
-    if (window.confirm('Bạn có chắc chắn muốn từ chối giao dịch này? Sales sẽ nhận được thông báo.')) {
-        setTransactions(prev => prev.filter(t => t.id !== id));
-    }
-  };
+   return (
+      <div className="flex flex-col h-full bg-[#F8FAFC]">
 
-  const handleGenerateInvoice = () => {
-    setShowInvoiceToast(true);
-    setTimeout(() => setShowInvoiceToast(false), 3000);
-  };
+         {/* Main Content Area - Full Width No Sidebar */}
+         <div className="flex-1 p-8 max-w-[1600px] mx-auto w-full overflow-y-auto">
 
-  const formatCurrency = (val: number) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(val);
-
-  return (
-    <div className="flex flex-col h-full bg-[#f8fafc] dark:bg-[#101922] font-sans text-slate-900 dark:text-slate-100 overflow-hidden">
-      
-      {/* Module Header (Internal Navigation) */}
-      <header className="flex items-center justify-between px-6 py-3 bg-white border-b border-slate-200 sticky top-0 z-20">
-         <div className="flex items-center gap-4">
-            <button onClick={() => navigate('/finance')} className="text-slate-500 hover:text-blue-600 transition-colors">
-               <ChevronLeft size={24} />
-            </button>
-            <div className="flex items-center gap-3">
-               <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center text-white shadow-sm">
-                  <Receipt size={20} />
-               </div>
-               <div>
-                  <h1 className="text-lg font-bold text-slate-900 leading-tight">Nghiệp vụ Tài chính</h1>
-                  <p className="text-xs text-slate-500">EduCRM Finance Module</p>
-               </div>
-            </div>
-         </div>
-         
-         <div className="flex items-center gap-4">
-            <div className="relative">
-               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-               <input 
-                  type="text" 
-                  placeholder="Tìm mã HĐ, Tên HV..." 
-                  className="pl-9 pr-4 py-2 bg-slate-100 border-none rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none w-64 transition-all"
-               />
-            </div>
-            <button className="p-2 text-slate-500 hover:bg-slate-100 rounded-full relative">
-               <Bell size={20} />
-               <span className="absolute top-1.5 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
-            </button>
-         </div>
-      </header>
-
-      <div className="flex flex-1 overflow-hidden">
-         
-         {/* LEFT SIDEBAR: Finance Ops */}
-         <aside className="w-64 bg-white border-r border-slate-200 hidden lg:flex flex-col p-4 gap-6 overflow-y-auto">
-            <div>
-               <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 px-3">Vận hành (Ops)</p>
-               <div className="flex flex-col gap-1">
-                  <button className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-blue-50 text-blue-700 font-bold shadow-sm">
-                     <Receipt size={18} />
-                     <span className="text-sm">Hàng chờ Giao dịch</span>
-                  </button>
-                  <button className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors font-medium">
-                     <DollarSign size={18} />
-                     <span className="text-sm">Duyệt Phí / Miễn giảm</span>
-                  </button>
-                  <button className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors font-medium">
-                     <History size={18} />
-                     <span className="text-sm">Lịch sử Thu phí</span>
-                  </button>
-               </div>
+            {/* Header Section - Cleaned up */}
+            <div className="mb-8">
+               <h1 className="text-2xl font-bold text-slate-900">Hàng chờ Duyệt Giao dịch</h1>
+               <p className="text-slate-500 mt-1">Kiểm tra minh chứng thanh toán (UNC) và đối chiếu ngân hàng trước khi ghi nhận doanh thu.</p>
             </div>
 
-            <div>
-               <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 px-3">Báo cáo</p>
-               <div className="flex flex-col gap-1">
-                  <button className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors font-medium">
-                     <BarChart3 size={18} />
-                     <span className="text-sm">Phân tích Doanh thu</span>
-                  </button>
-                  <button className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors font-medium">
-                     <FileText size={18} />
-                     <span className="text-sm">Nhật ký Hóa đơn</span>
-                  </button>
-               </div>
-            </div>
-         </aside>
-
-         {/* MAIN CONTENT AREA */}
-         <main className="flex-1 overflow-y-auto bg-[#f8fafc] p-6 lg:p-8 relative">
-            
-            {/* Page Title */}
-            <div className="flex flex-col gap-1 mb-8">
-               <h2 className="text-3xl font-black text-slate-900 tracking-tight">Hàng chờ Duyệt Giao dịch</h2>
-               <p className="text-slate-500">Kiểm tra minh chứng thanh toán (UNC), đối chiếu ngân hàng và xuất hóa đơn.</p>
-            </div>
-
-            {/* Stats Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 mb-8">
-               <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col gap-2">
-                  <div className="flex justify-between items-start">
-                     <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Chờ duyệt</p>
-                     <Clock className="text-amber-500" size={20} />
+            {/* --- KPI STATS (Focused on Approval Workflow) --- */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+               <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
+                  <div>
+                     <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Chờ Duyệt</p>
+                     <p className="text-3xl font-black text-orange-500">18</p>
+                     <p className="text-xs text-slate-400 mt-1">Giao dịch cần xử lý</p>
                   </div>
-                  <p className="text-3xl font-bold text-slate-900">18</p>
-               </div>
-               
-               <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col gap-2">
-                  <div className="flex justify-between items-start">
-                     <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Cần xuất HĐ</p>
-                     <FileText className="text-blue-600" size={20} />
+                  <div className="p-3 bg-orange-50 rounded-full text-orange-500">
+                     <Clock size={24} />
                   </div>
-                  <p className="text-3xl font-bold text-slate-900">7</p>
                </div>
 
-               <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col gap-2">
-                  <div className="flex justify-between items-start">
-                     <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Đã duyệt hôm nay</p>
-                     <CheckCircle2 className="text-green-500" size={20} />
+               <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
+                  <div>
+                     <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Cần Xuất HĐ</p>
+                     <p className="text-3xl font-black text-blue-600">7</p>
+                     <p className="text-xs text-slate-400 mt-1">Hóa đơn GTGT yêu cầu</p>
                   </div>
-                  <p className="text-3xl font-bold text-slate-900">24</p>
+                  <div className="p-3 bg-blue-50 rounded-full text-blue-600">
+                     <FileText size={24} />
+                  </div>
                </div>
 
-               <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col gap-2">
-                  <div className="flex justify-between items-start">
-                     <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Doanh số (24h)</p>
-                     <DollarSign className="text-slate-400" size={20} />
+               <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
+                  <div>
+                     <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Đã Duyệt Hôm Nay</p>
+                     <p className="text-3xl font-black text-emerald-600">24</p>
+                     <p className="text-xs text-slate-400 mt-1">Thành công</p>
                   </div>
-                  <p className="text-3xl font-bold text-slate-900">1.2 Tỷ</p>
+                  <div className="p-3 bg-emerald-50 rounded-full text-emerald-600">
+                     <CheckCircle2 size={24} />
+                  </div>
                </div>
+
+               {/* REVENUE CARD REMOVED AS REQUESTED */}
             </div>
 
-            {/* Transaction Table */}
-            <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+            {/* --- MAIN TRANSACTION TABLE --- */}
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+               {/* Toolbar */}
+               <div className="p-4 border-b border-slate-200 flex flex-wrap gap-4 items-center justify-between">
+                  <div className="flex gap-2">
+                     <button
+                        onClick={() => setFilter('all')}
+                        className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${filter === 'all' ? 'bg-slate-800 text-white shadow' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                     >
+                        Tất cả
+                     </button>
+                     <button
+                        onClick={() => setFilter('pending')}
+                        className={`px-4 py-2 rounded-lg text-sm font-bold transition-all flex items-center gap-2 ${filter === 'pending' ? 'bg-orange-500 text-white shadow' : 'bg-orange-50 text-orange-600 hover:bg-orange-100'}`}
+                     >
+                        <Clock size={14} /> Chờ duyệt
+                     </button>
+                     <button
+                        onClick={() => setFilter('approved')}
+                        className={`px-4 py-2 rounded-lg text-sm font-bold transition-all flex items-center gap-2 ${filter === 'approved' ? 'bg-emerald-600 text-white shadow' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'}`}
+                     >
+                        <CheckCircle2 size={14} /> Đã duyệt
+                     </button>
+                  </div>
+
+                  <div className="relative">
+                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                     <input
+                        placeholder="Tìm mã HĐ, Tên HV..."
+                        className="pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-slate-200 w-64"
+                     />
+                  </div>
+               </div>
+
+               {/* Table */}
                <div className="overflow-x-auto">
                   <table className="w-full text-left border-collapse">
-                     <thead className="bg-slate-50 border-b border-slate-200">
+                     <thead className="bg-[#F8FAFC] border-b border-slate-200">
                         <tr>
-                           <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Mã Hợp đồng</th>
+                           <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Mã Hợp Đồng</th>
                            <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Học viên & Nội dung</th>
                            <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Minh chứng (UNC)</th>
                            <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Số tiền</th>
-                           <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Trạng thái</th>
+                           <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Trạng thái</th>
                            <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Thao tác</th>
                         </tr>
                      </thead>
                      <tbody className="divide-y divide-slate-100">
-                        {transactions.map((trx) => (
-                           <tr key={trx.id} className="hover:bg-slate-50 transition-colors">
-                              <td className="px-6 py-4">
-                                 <span className="text-sm font-bold text-blue-600 font-mono">{trx.contractId}</span>
-                                 <div className="text-xs text-slate-400 mt-0.5">{trx.id}</div>
+                        {filteredData.map((trx) => (
+                           <tr key={trx.id} className="hover:bg-slate-50 transition-colors group">
+                              <td className="px-6 py-4 align-top">
+                                 <div className="font-bold text-blue-600 text-sm">{trx.contractCode}</div>
+                                 <div className="text-xs text-slate-400 mt-1">{trx.id}</div>
                               </td>
-                              <td className="px-6 py-4">
-                                 <div className="flex flex-col">
-                                    <span className="text-sm font-bold text-slate-900">{trx.studentName}</span>
-                                    <span className="text-xs text-slate-500">{trx.detail}</span>
-                                 </div>
+                              <td className="px-6 py-4 align-top">
+                                 <div className="font-bold text-slate-900 text-sm">{trx.student}</div>
+                                 <div className="text-xs text-slate-500 mt-0.5">{trx.type} - {trx.className}</div>
+                                 <div className="text-xs text-slate-400 mt-1 italic">Sales: {trx.salesRep}</div>
                               </td>
-                              <td className="px-6 py-4">
-                                 <div className="flex items-center gap-2 group cursor-pointer">
-                                    <div className="w-10 h-10 rounded border border-slate-200 bg-slate-100 flex items-center justify-center group-hover:border-blue-300 transition-colors">
-                                       <ImageIcon size={20} className="text-slate-400 group-hover:text-blue-500" />
+                              <td className="px-6 py-4 align-top">
+                                 <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center border border-slate-200 text-slate-400">
+                                       <FileText size={18} />
                                     </div>
-                                    <span className="text-xs font-medium text-blue-600 hover:underline">Xem ảnh</span>
+                                    <a href="#" className="text-xs font-bold text-blue-600 hover:underline flex items-center gap-1">
+                                       Xem ảnh <Eye size={12} />
+                                    </a>
                                  </div>
                               </td>
-                              <td className="px-6 py-4">
-                                 <span className="text-sm font-bold text-slate-900">{formatCurrency(trx.amount)}</span>
+                              <td className="px-6 py-4 align-top">
+                                 <div className="font-black text-slate-900">{formatCurrency(trx.amount)}</div>
+                                 <div className="text-xs text-slate-500 mt-1">{trx.method}</div>
                               </td>
-                              <td className="px-6 py-4">
-                                 {trx.status === 'approved' ? (
-                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-green-100 text-green-700">
+                              <td className="px-6 py-4 align-top text-center">
+                                 {trx.status === 'approved' && (
+                                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700">
                                        Đã duyệt
                                     </span>
-                                 ) : (
-                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-700">
+                                 )}
+                                 {trx.status === 'pending' && (
+                                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-orange-100 text-orange-700 animate-pulse">
                                        Chờ duyệt
                                     </span>
                                  )}
                               </td>
-                              <td className="px-6 py-4 text-right">
-                                 {trx.status === 'approved' ? (
-                                    <button 
-                                       onClick={handleGenerateInvoice}
-                                       className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition-colors"
-                                    >
-                                       <FileText size={14} /> Xuất hóa đơn
-                                    </button>
-                                 ) : (
-                                    <div className="flex justify-end gap-2">
-                                       <button 
-                                          onClick={() => handleReject(trx.id)}
-                                          className="px-3 py-1.5 text-red-600 hover:bg-red-50 rounded-lg text-xs font-bold transition-colors"
-                                       >
-                                          Từ chối
-                                       </button>
-                                       <button 
-                                          onClick={() => handleApprove(trx.id)}
-                                          className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-sm transition-colors"
-                                       >
-                                          Duyệt
-                                       </button>
-                                    </div>
-                                 )}
+                              <td className="px-6 py-4 align-top text-right">
+                                 <div className="flex items-center justify-end gap-2">
+                                    {trx.status === 'pending' ? (
+                                       <>
+                                          <button className="text-xs font-bold text-red-600 hover:bg-red-50 px-3 py-1.5 rounded transition-colors">
+                                             Từ chối
+                                          </button>
+                                          <button className="text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 px-4 py-1.5 rounded shadow-sm transition-all flex items-center gap-1">
+                                             <CheckCircle2 size={14} /> Duyệt
+                                          </button>
+                                       </>
+                                    ) : (
+                                       <div className="flex items-center justify-end gap-2">
+                                          <button className="text-xs font-bold text-slate-500 hover:bg-slate-100 px-3 py-1.5 rounded transition-colors flex items-center gap-1 border border-slate-200">
+                                             <AlertCircle size={14} /> Báo lỗi
+                                          </button>
+                                          {/* REMOVED: Xuât hóa đơn button as requested */}
+                                       </div>
+                                    )}
+                                 </div>
                               </td>
                            </tr>
                         ))}
                      </tbody>
                   </table>
                </div>
-               
+
                {/* Pagination */}
-               <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-between items-center">
-                  <p className="text-xs font-medium text-slate-500">Hiển thị {transactions.length} giao dịch đang chờ xử lý</p>
+               <div className="px-6 py-4 border-t border-slate-200 flex items-center justify-between bg-white">
+                  <span className="text-xs text-slate-500 font-medium">Hiển thị 4 giao dịch đang chờ xử lý</span>
                   <div className="flex gap-1">
-                     <button className="p-2 rounded hover:bg-slate-200 text-slate-500 disabled:opacity-50" disabled>
-                        <ChevronLeft size={16} />
-                     </button>
-                     <button className="w-8 h-8 rounded bg-blue-600 text-white text-xs font-bold shadow-sm">1</button>
-                     <button className="w-8 h-8 rounded text-slate-600 text-xs font-bold hover:bg-slate-200">2</button>
-                     <button className="p-2 rounded hover:bg-slate-200 text-slate-600 transition-colors">
-                        <ChevronRight size={16} />
-                     </button>
+                     <button className="p-1 rounded text-slate-400 hover:bg-slate-100 hover:text-slate-600"><ChevronLeft size={20} /></button>
+                     <button className="w-8 h-8 rounded bg-blue-600 text-white font-bold text-xs flex items-center justify-center">1</button>
+                     <button className="w-8 h-8 rounded hover:bg-slate-100 text-slate-600 font-bold text-xs flex items-center justify-center">2</button>
+                     <button className="p-1 rounded text-slate-400 hover:bg-slate-100 hover:text-slate-600"><ChevronRight size={20} /></button>
                   </div>
                </div>
             </div>
-
-         </main>
-      </div>
-
-      {/* Invoice Toast Notification */}
-      {showInvoiceToast && (
-         <div className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-6 py-4 rounded-xl shadow-2xl flex items-center gap-4 border border-slate-700 animate-in slide-in-from-bottom-4 z-50">
-            <CheckCircle2 className="text-green-400" size={24} />
-            <div className="flex flex-col">
-               <p className="text-sm font-bold">Xuất Hóa đơn Thành công</p>
-               <p className="text-xs opacity-80">Đã gửi PDF hóa đơn về email của học viên.</p>
-            </div>
          </div>
-      )}
-
-    </div>
-  );
+      </div>
+   );
 };
 
 export default FinanceTransactionQueue;

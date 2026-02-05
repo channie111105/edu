@@ -1,260 +1,269 @@
 
-import React from 'react';
-import { 
-  AreaChart, 
-  Area, 
-  XAxis, 
-  Tooltip, 
-  ResponsiveContainer 
+import React, { useState, useMemo } from 'react';
+import {
+  AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
+  PieChart, Pie, Cell, Legend, BarChart, Bar, CartesianGrid
 } from 'recharts';
-import { ArrowUp, ArrowDown, AlertOctagon, Clock, Phone, ChevronRight } from 'lucide-react';
+import {
+  ArrowUp, ArrowDown, MoreVertical, Calendar, TrendingUp, TrendingDown,
+  Users, BadgeDollarSign
+} from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
-// --- DỮ LIỆU MẪU (MOCK DATA) ---
-const KPI_DATA = [
-  { label: 'Tổng doanh thu thực thu', value: '2.3 Tỷ', change: '+12%', isPositive: true },
-  { label: 'Tổng giá trị Pipeline', value: '1.5 Tỷ', change: '+8%', isPositive: true },
-  { label: 'Tỷ lệ chuyển đổi chung', value: '15%', change: '-2%', isPositive: false },
-  { label: 'Tổng nợ quá hạn', value: '50 Triệu', change: '+5%', isPositive: true },
+// --- MOCK DATA GENERATORS ---
+
+const getKPIData = (range: string) => {
+  const multiplier = range === 'today' ? 0.03 : range === 'thisWeek' ? 0.25 : 1;
+  return [
+    { label: 'Tổng doanh thu thực thu', value: `${(2.3 * multiplier).toFixed(1)} Tỷ`, change: '+12%', isPositive: true },
+    { label: 'Tổng giá trị Pipeline', value: `${(1.5 * multiplier).toFixed(1)} Tỷ`, change: '+8%', isPositive: true },
+    { label: 'Tỷ lệ chuyển đổi chung', value: '15%', change: '-2%', isPositive: false },
+    { label: '% Lead xác thực', value: '45%', change: '+5%', isPositive: true },
+  ];
+};
+
+const getRevenueData = (range: string) => {
+  // Return different data points based on range granularity
+  if (range === 'today') {
+    return [
+      { name: '8:00', value: 5, target: 10 },
+      { name: '10:00', value: 12, target: 20 },
+      { name: '12:00', value: 18, target: 30 },
+      { name: '14:00', value: 25, target: 40 },
+      { name: '16:00', value: 35, target: 50 },
+      { name: '18:00', value: 42, target: 60 },
+    ];
+  } else if (range === 'thisWeek') {
+    return [
+      { name: 'T2', value: 80, target: 100 },
+      { name: 'T3', value: 150, target: 200 },
+      { name: 'T4', value: 220, target: 300 },
+      { name: 'T5', value: 310, target: 400 },
+      { name: 'T6', value: 450, target: 500 },
+      { name: 'T7', value: 520, target: 600 },
+      { name: 'CN', value: 580, target: 700 },
+    ];
+  } else {
+    // Month
+    return [
+      { name: 'Tuần 1', value: 400, target: 350 },
+      { name: 'Tuần 2', value: 700, target: 600 },
+      { name: 'Tuần 3', value: 1200, target: 1000 },
+      { name: 'Tuần 4', value: 1600, target: 1400 },
+    ];
+  }
+};
+
+const getSalesComparison = (range: string) => {
+  const multiplier = range === 'today' ? 0.05 : range === 'thisWeek' ? 0.2 : 1;
+  return [
+    { name: 'Nguyễn Văn Nam', revenue: Math.round(500 * multiplier), deals: Math.round(25 * multiplier) },
+    { name: 'Trần Thị Hương', revenue: Math.round(400 * multiplier), deals: Math.round(20 * multiplier) },
+    { name: 'Lê Hoàng', revenue: Math.round(350 * multiplier), deals: Math.round(18 * multiplier) },
+    { name: 'Phạm Bích Ngọc', revenue: Math.round(300 * multiplier), deals: Math.round(15 * multiplier) },
+    { name: 'Vũ Minh Hiếu', revenue: Math.round(250 * multiplier), deals: Math.round(12 * multiplier) },
+  ];
+};
+
+const SOURCE_DISTRIBUTION = [
+  { name: 'Facebook', value: 45, color: '#6366f1' },
+  { name: 'Google Ads', value: 25, color: '#3b82f6' },
+  { name: 'Referral', value: 15, color: '#10b981' },
+  { name: 'Offline', value: 10, color: '#f59e0b' },
+  { name: 'Other', value: 5, color: '#94a3b8' },
 ];
 
-const URGENT_SLA_LEADS = [
-  { id: 'L-991', name: 'Trần Văn Hùng', phone: '0912 345 ***', timeWaiting: '45 phút', status: 'Danger', source: 'Facebook Ads' },
-  { id: 'L-992', name: 'Lê Thị Mai', phone: '0909 123 ***', timeWaiting: '32 phút', status: 'Danger', source: 'Hotline' },
-  { id: 'L-993', name: 'Nguyễn Quốc Bảo', phone: '0988 777 ***', timeWaiting: '12 phút', status: 'Warning', source: 'Web Form' },
+const CONVERSION_BY_SOURCE = [
+  { name: 'Facebook', rate: 12 },
+  { name: 'Google', rate: 18 },
+  { name: 'Referral', rate: 35 },
+  { name: 'Offline', rate: 25 },
+  { name: 'Other', rate: 8 },
 ];
 
-const FUNNEL_DATA = [
-  { stage: 'Lead (Tiềm năng)', value: '100%', drop: '-60%', height: '20%', color: 'bg-[#e7edf3]' },
-  { stage: 'Qualified (Đạt chuẩn)', value: '40%', drop: '-50%', height: '40%', color: 'bg-[#e7edf3]' },
-  { stage: 'Negotiation (Thương lượng)', value: '20%', drop: '-25%', height: '80%', color: 'bg-[#e7edf3]' },
-  { stage: 'Won (Chốt đơn)', value: '15%', drop: '', height: '100%', color: 'bg-[#e7edf3]' },
-];
-
-const REVENUE_CHART_DATA = [
-  { name: 'T1', value: 40 },
-  { name: 'T2', value: 70 },
-  { name: 'T3', value: 50 },
-  { name: 'T4', value: 90 },
-  { name: 'T5', value: 120 },
-  { name: 'T6', value: 160 },
-  { name: 'T7', value: 140 },
-  { name: 'T8', value: 180 },
-  { name: 'T9', value: 200 },
-  { name: 'T10', value: 240 },
-  { name: 'T11', value: 300 },
-  { name: 'T12', value: 380 },
-];
-
-const LEADERBOARD_DATA = [
-  { name: 'Nguyễn Văn Nam', deals: 25, value: '500 Triệu', conversion: '20%' },
-  { name: 'Trần Thị Hương', deals: 20, value: '400 Triệu', conversion: '18%' },
-  { name: 'Lê Hoàng', deals: 18, value: '350 Triệu', conversion: '16%' },
-  { name: 'Phạm Bích Ngọc', deals: 15, value: '300 Triệu', conversion: '14%' },
-  { name: 'Vũ Minh Hiếu', deals: 12, value: '250 Triệu', conversion: '12%' },
+const STATUS_BY_SOURCE = [
+  { source: 'Facebook', NEW: 40, CONTACTED: 30, QUALIFIED: 20, WON: 10 },
+  { source: 'Google', NEW: 30, CONTACTED: 30, QUALIFIED: 25, WON: 15 },
+  { source: 'Referral', NEW: 10, CONTACTED: 20, QUALIFIED: 30, WON: 40 },
+  { source: 'Offline', NEW: 20, CONTACTED: 25, QUALIFIED: 30, WON: 25 },
 ];
 
 const SalesDashboard: React.FC = () => {
   const navigate = useNavigate();
+  const [dateRange, setDateRange] = useState('thisMonth');
+
+  // Dynamic Data
+  const kpiData = useMemo(() => getKPIData(dateRange), [dateRange]);
+  const revenueData = useMemo(() => getRevenueData(dateRange), [dateRange]);
+  const salesComparison = useMemo(() => getSalesComparison(dateRange), [dateRange]);
 
   return (
-    <div className="flex flex-col h-full bg-[#f8fafc] text-[#0d141b] font-sans overflow-y-auto" style={{ fontFamily: 'Inter, "Noto Sans", sans-serif' }}>
-      <div className="flex justify-center py-5">
-        <div className="flex flex-col max-w-[960px] flex-1 px-4 md:px-8">
-          
-          {/* Header Title */}
-          <div className="flex flex-wrap justify-between gap-3 p-4">
-            <p className="text-[#0d141b] tracking-[-0.015em] text-[32px] font-bold leading-tight min-w-72">
-              Tổng quan Kinh doanh
-            </p>
+    <div className="flex flex-col h-full bg-[#f8fafc] text-[#0d141b] font-sans">
+      <div className="flex flex-col flex-1 p-6 lg:p-8 max-w-[1600px] mx-auto w-full gap-6">
+
+        {/* Header Title & Controls */}
+        <div className="flex flex-wrap justify-between items-center gap-4">
+          <div>
+            <h1 className="text-3xl font-bold text-slate-900">Tổng quan Kinh doanh (Sales)</h1>
+            <p className="text-slate-500 mt-1">Theo dõi hiệu suất bán hàng, doanh thu và tỷ lệ chuyển đổi.</p>
           </div>
 
-          {/* --- NEW: URGENT SLA SECTION --- */}
-          {URGENT_SLA_LEADS.length > 0 && (
-            <div className="px-4 mb-6">
-              <div className="bg-red-50 border border-red-200 rounded-xl overflow-hidden shadow-sm animate-in slide-in-from-top-2">
-                <div className="bg-red-100/50 px-4 py-3 flex justify-between items-center border-b border-red-200">
-                   <div className="flex items-center gap-2">
-                      <div className="bg-red-600 text-white p-1 rounded animate-pulse">
-                        <AlertOctagon size={18} />
-                      </div>
-                      <h3 className="text-red-800 font-bold text-sm uppercase tracking-wider">Cảnh báo SLA (Cần xử lý ngay)</h3>
-                   </div>
-                   <button 
-                      onClick={() => navigate('/sales/sla-leads')} 
-                      className="text-xs font-bold text-red-700 hover:underline flex items-center"
-                   >
-                      Xem tất cả <ChevronRight size={14} />
-                   </button>
-                </div>
-                <div className="divide-y divide-red-100">
-                   {URGENT_SLA_LEADS.map(lead => (
-                      <div key={lead.id} className="px-4 py-3 flex items-center justify-between hover:bg-red-100/40 transition-colors">
-                         <div className="flex items-center gap-3">
-                            <div className={`w-2 h-2 rounded-full ${lead.status === 'Danger' ? 'bg-red-600' : 'bg-amber-500'}`}></div>
-                            <div>
-                               <p className="text-sm font-bold text-slate-900">{lead.name} <span className="text-slate-500 font-normal text-xs">- {lead.source}</span></p>
-                               <p className="text-xs text-red-600 font-medium flex items-center gap-1">
-                                  <Clock size={12} /> Đã chờ: {lead.timeWaiting}
-                               </p>
-                            </div>
-                         </div>
-                         <button 
-                            className="bg-white border border-red-200 text-red-700 hover:bg-red-600 hover:text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-1"
-                            onClick={() => navigate('/pipeline', { state: { highlightLeadId: lead.id } })}
-                         >
-                            <Phone size={14} /> Gọi ngay
-                         </button>
-                      </div>
-                   ))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* KPI Cards Grid */}
-          <div className="flex flex-wrap gap-4 p-4">
-            {KPI_DATA.map((kpi, index) => (
-              <div key={index} className="flex min-w-[158px] flex-1 flex-col gap-2 rounded-lg p-6 border border-[#cfdbe7] bg-white">
-                <p className="text-[#0d141b] text-base font-medium leading-normal">{kpi.label}</p>
-                <p className="text-[#0d141b] tracking-[-0.015em] text-2xl font-bold leading-tight">{kpi.value}</p>
-                <div className="flex items-center gap-1">
-                   {kpi.isPositive ? <ArrowUp size={16} className="text-[#078838]" /> : <ArrowDown size={16} className="text-[#e73908]" />}
-                   <p className={`text-base font-medium leading-normal ${kpi.isPositive ? 'text-[#078838]' : 'text-[#e73908]'}`}>
-                    {kpi.change}
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Conversion Funnel Section */}
-          <h2 className="text-[#0d141b] text-[22px] font-bold leading-tight tracking-[-0.015em] px-4 pb-3 pt-5">
-            Phễu chuyển đổi (Funnel)
-          </h2>
-          <div className="flex flex-wrap gap-4 px-4 py-6">
-            {/* Visual Funnel Representation */}
-            <div className="flex min-w-72 flex-1 flex-col gap-2">
-              <p className="text-[#0d141b] text-base font-medium leading-normal">Tỷ lệ chuyển đổi Lead</p>
-              <p className="text-[#0d141b] tracking-[-0.015em] text-[32px] font-bold leading-tight truncate">100%</p>
-              <p className="text-[#e73908] text-base font-medium leading-normal">-60%</p>
-              
-              {/* Funnel Bars */}
-              <div className="grid min-h-[180px] grid-flow-col gap-6 grid-rows-[1fr_auto] items-end justify-items-center px-3 pt-4">
-                {FUNNEL_DATA.map((stage, idx) => (
-                  <div key={idx} className="flex flex-col items-center justify-end w-full h-full gap-2">
-                     {/* Bar */}
-                     <div className={`border-[#4c739a] ${stage.color} border-t-2 w-full transition-all duration-500`} style={{ height: stage.height }}></div>
-                     {/* Label */}
-                     <p className="text-[#4c739a] text-[13px] font-bold leading-normal tracking-[0.015em] text-center whitespace-nowrap">
-                        {stage.stage.split(' ')[0]}
-                     </p>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Funnel Text Stats */}
-            <div className="flex min-w-72 flex-1 flex-col gap-2 justify-center">
-              <p className="text-[#0d141b] tracking-[-0.015em] text-[32px] font-bold leading-tight truncate">40%</p>
-              <p className="text-[#e73908] text-base font-medium leading-normal">-50% <span className="text-slate-400 text-sm font-normal ml-2">(Rớt tại vòng Tư vấn)</span></p>
-            </div>
-            <div className="flex min-w-72 flex-1 flex-col gap-2 justify-center">
-              <p className="text-[#0d141b] tracking-[-0.015em] text-[32px] font-bold leading-tight truncate">20%</p>
-              <p className="text-[#e73908] text-base font-medium leading-normal">-25% <span className="text-slate-400 text-sm font-normal ml-2">(Rớt tại vòng Thương lượng)</span></p>
-            </div>
-            <div className="flex min-w-72 flex-1 flex-col gap-2 justify-center">
-               <p className="text-[#0d141b] tracking-[-0.015em] text-[32px] font-bold leading-tight truncate">15%</p>
-               <p className="text-[#078838] text-base font-medium leading-normal">Win Rate</p>
+          {/* Filter Controls - UPDATED */}
+          <div className="flex items-center gap-4 bg-white border border-slate-200 px-4 py-2 rounded-full shadow-sm">
+            <div className="flex items-center gap-2">
+              <Calendar size={16} className="text-slate-500" />
+              <select
+                value={dateRange}
+                onChange={(e) => setDateRange(e.target.value)}
+                className="bg-transparent border-none text-sm font-bold focus:ring-0 cursor-pointer outline-none text-slate-700"
+              >
+                <option value="today">Hôm nay</option>
+                <option value="thisWeek">Tuần này</option>
+                <option value="thisMonth">Tháng này</option>
+                <option value="thisYear">Năm nay</option>
+              </select>
             </div>
           </div>
-
-          {/* Monthly Revenue Trends Chart */}
-          <h2 className="text-[#0d141b] text-[22px] font-bold leading-tight tracking-[-0.015em] px-4 pb-3 pt-5">
-            Xu hướng Doanh thu Tháng
-          </h2>
-          <div className="flex flex-wrap gap-4 px-4 py-6">
-            <div className="flex min-w-72 flex-1 flex-col gap-2">
-              <p className="text-[#0d141b] text-base font-medium leading-normal">Tổng doanh thu</p>
-              <p className="text-[#0d141b] tracking-[-0.015em] text-[32px] font-bold leading-tight truncate">400 Triệu</p>
-              <p className="text-[#078838] text-base font-medium leading-normal">+10%</p>
-              
-              <div className="flex min-h-[180px] flex-1 flex-col gap-8 py-4">
-                 <div className="h-[200px] w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={REVENUE_CHART_DATA}>
-                        <defs>
-                          <linearGradient id="paint0_linear" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#e7edf3" stopOpacity={0.8}/>
-                            <stop offset="95%" stopColor="#e7edf3" stopOpacity={0}/>
-                          </linearGradient>
-                        </defs>
-                        <Tooltip 
-                            contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
-                            cursor={{ stroke: '#cfdbe7', strokeWidth: 1 }}
-                            formatter={(value: number) => [`${value} Tr`, 'Doanh thu']}
-                        />
-                        <Area 
-                            type="monotone" 
-                            dataKey="value" 
-                            stroke="#4c739a" 
-                            strokeWidth={3} 
-                            fill="url(#paint0_linear)" 
-                        />
-                        <XAxis 
-                            dataKey="name" 
-                            axisLine={false} 
-                            tickLine={false} 
-                            tick={{ fill: '#4c739a', fontSize: 13, fontWeight: 700 }} 
-                            dy={10}
-                        />
-                      </AreaChart>
-                    </ResponsiveContainer>
-                 </div>
-              </div>
-            </div>
-            
-            {/* Additional Metrics Columns */}
-            <div className="flex min-w-72 flex-1 flex-col gap-2 justify-center">
-              <p className="text-[#0d141b] tracking-[-0.015em] text-[32px] font-bold leading-tight truncate">200 Tr</p>
-              <p className="text-[#078838] text-base font-medium leading-normal">+10% <span className="text-slate-400 text-sm ml-2">Doanh thu Du học</span></p>
-            </div>
-            <div className="flex min-w-72 flex-1 flex-col gap-2 justify-center">
-              <p className="text-[#0d141b] tracking-[-0.015em] text-[32px] font-bold leading-tight truncate">220 Tr</p>
-              <p className="text-[#078838] text-base font-medium leading-normal">+10% <span className="text-slate-400 text-sm ml-2">Doanh thu Đào tạo</span></p>
-            </div>
-          </div>
-
-          {/* Sales Performance Leaderboard */}
-          <h2 className="text-[#0d141b] text-[22px] font-bold leading-tight tracking-[-0.015em] px-4 pb-3 pt-5">
-            Bảng xếp hạng Hiệu suất Sale
-          </h2>
-          <div className="px-4 py-3">
-            <div className="flex overflow-hidden rounded-lg border border-[#cfdbe7] bg-white">
-              <table className="flex-1 w-full">
-                <thead className="bg-[#f8fafc]">
-                  <tr>
-                    <th className="px-6 py-4 text-left text-[#0d141b] text-sm font-medium leading-normal">Nhân viên</th>
-                    <th className="px-6 py-4 text-left text-[#0d141b] text-sm font-medium leading-normal">Deal Thắng</th>
-                    <th className="px-6 py-4 text-left text-[#0d141b] text-sm font-medium leading-normal">Doanh số</th>
-                    <th className="px-6 py-4 text-left text-[#0d141b] text-sm font-medium leading-normal">Tỷ lệ CĐ</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#cfdbe7]">
-                  {LEADERBOARD_DATA.map((row, index) => (
-                    <tr key={index} className="hover:bg-[#f0f4f8] transition-colors">
-                      <td className="px-6 py-4 h-[72px] text-[#0d141b] text-sm font-normal leading-normal">{row.name}</td>
-                      <td className="px-6 py-4 h-[72px] text-[#4c739a] text-sm font-normal leading-normal">{row.deals}</td>
-                      <td className="px-6 py-4 h-[72px] text-[#4c739a] text-sm font-normal leading-normal">{row.value}</td>
-                      <td className="px-6 py-4 h-[72px] text-[#4c739a] text-sm font-normal leading-normal">{row.conversion}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
         </div>
+
+        {/* KPI CARDS */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {kpiData.map((kpi, index) => (
+            <div key={index} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 animate-in fade-in duration-500">
+              <p className="text-slate-500 text-sm font-medium">{kpi.label}</p>
+              <div className="flex items-end justify-between mt-2">
+                <p className="text-2xl font-bold text-slate-900">{kpi.value}</p>
+                <div className={`flex items-center text-sm font-bold ${kpi.isPositive ? 'text-emerald-600' : 'text-red-500'}`}>
+                  {kpi.isPositive ? <TrendingUp size={16} className="mr-1" /> : <TrendingDown size={16} className="mr-1" />}
+                  {kpi.change}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* SALES REPORTS (Revenue & Comparison) */}
+        <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2 mt-4">
+          <BadgeDollarSign className="text-blue-600" /> Báo cáo Hiệu suất Bán hàng
+        </h2>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          {/* Revenue Report */}
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="font-bold text-lg text-slate-900">Doanh thu Thực tế vs Mục tiêu</h3>
+              <button className="text-slate-400 hover:text-slate-600"><MoreVertical size={20} /></button>
+            </div>
+            <div className="h-[300px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={revenueData}>
+                  <defs>
+                    <linearGradient id="colorRev" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8} />
+                      <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b' }} dy={10} />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b' }} />
+                  <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
+                  <Area type="monotone" dataKey="value" stroke="#3b82f6" fillOpacity={1} fill="url(#colorRev)" name="Thực tế" />
+                  <Area type="monotone" dataKey="target" stroke="#94a3b8" strokeDasharray="5 5" fill="none" name="Mục tiêu" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Sales Comparison */}
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="font-bold text-lg text-slate-900">Top Sale theo Doanh số</h3>
+              <button className="text-slate-400 hover:text-slate-600"><MoreVertical size={20} /></button>
+            </div>
+            <div className="h-[300px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={salesComparison} layout="vertical" barSize={20}>
+                  <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#e2e8f0" />
+                  <XAxis type="number" axisLine={false} tickLine={false} tick={{ fill: '#64748b' }} />
+                  <YAxis dataKey="name" type="category" width={120} axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12, fontWeight: 500 }} />
+                  <Tooltip cursor={{ fill: '#f1f5f9' }} contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
+                  <Bar dataKey="revenue" fill="#10b981" radius={[0, 4, 4, 0]} name="Doanh số (Tr)" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </div>
+
+        {/* MARKETING-STYLE ANALYSIS */}
+        <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2 mt-4">
+          <Users className="text-indigo-600" /> Phân tích Nguồn & Chuyển đổi
+        </h2>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          {/* Source Distribution */}
+          <div className="lg:col-span-1 bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+            <h3 className="font-bold text-lg text-slate-900 mb-6">Tỷ trọng Nguồn Lead</h3>
+            <div className="h-[250px] relative">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={SOURCE_DISTRIBUTION}
+                    cx="50%" cy="50%"
+                    innerRadius={60} outerRadius={80}
+                    paddingAngle={5}
+                    dataKey="value"
+                  >
+                    {SOURCE_DISTRIBUTION.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip contentStyle={{ borderRadius: '8px', border: 'none' }} />
+                  <Legend verticalAlign="bottom" height={36} iconType="circle" />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none pb-8">
+                <span className="text-2xl font-bold text-slate-800">100%</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Conversion By Source */}
+          <div className="lg:col-span-2 bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+            <h3 className="font-bold text-lg text-slate-900 mb-6">% Chuyển đổi ra Hợp đồng theo Nguồn</h3>
+            <div className="h-[250px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={CONVERSION_BY_SOURCE} barSize={40}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b' }} dy={10} />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b' }} unit="%" />
+                  <Tooltip cursor={{ fill: '#f1f5f9' }} contentStyle={{ borderRadius: '8px', border: 'none' }} />
+                  <Bar dataKey="rate" fill="#8b5cf6" radius={[4, 4, 0, 0]} name="Tỷ lệ CĐ (%)" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </div>
+
+        {/* Status By Source */}
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 mb-8">
+          <h3 className="font-bold text-lg text-slate-900 mb-6">Tỷ trọng Trạng thái theo Nguồn</h3>
+          <div className="h-[300px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={STATUS_BY_SOURCE} barSize={50}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                <XAxis dataKey="source" axisLine={false} tickLine={false} tick={{ fill: '#64748b' }} dy={10} />
+                <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b' }} />
+                <Tooltip cursor={{ fill: '#f1f5f9' }} contentStyle={{ borderRadius: '8px', border: 'none' }} />
+                <Legend wrapperStyle={{ paddingTop: '20px' }} />
+                <Bar dataKey="NEW" stackId="a" fill="#94a3b8" name="Mới" />
+                <Bar dataKey="CONTACTED" stackId="a" fill="#3b82f6" name="Đang LH" />
+                <Bar dataKey="QUALIFIED" stackId="a" fill="#f59e0b" name="Đạt chuẩn/Xác thực" />
+                <Bar dataKey="WON" stackId="a" fill="#10b981" name="Đã chốt (Won)" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
       </div>
     </div>
   );

@@ -18,22 +18,31 @@ const Layout: React.FC = () => {
   };
 
   const visibleNavItems = NAV_ITEMS.filter(item => {
-    if (!item.roles) return true; 
+    if (!item.roles) return true;
     return item.roles.includes(user.role);
   });
+
+  // Calculate the active path based on longest matching prefix
+  const activePath = visibleNavItems.reduce((best, item) => {
+    if (location.pathname === item.path) return item.path; // Exact match
+    if (item.path !== '/' && location.pathname.startsWith(item.path)) {
+      return item.path.length > best.length ? item.path : best;
+    }
+    return best;
+  }, '');
 
   return (
     <div className="flex h-screen w-full bg-[#f8fafc]">
       {/* Mobile Menu Overlay */}
       {isMobileMenuOpen && (
-        <div 
+        <div
           className="fixed inset-0 bg-black/50 z-40 lg:hidden"
           onClick={() => setIsMobileMenuOpen(false)}
         />
       )}
 
       {/* Sidebar */}
-      <aside 
+      <aside
         className={`
           fixed top-0 left-0 z-50 h-full w-64 bg-white border-r border-slate-200 transition-transform duration-300 ease-in-out flex flex-col
           lg:translate-x-0 lg:static
@@ -47,7 +56,7 @@ const Layout: React.FC = () => {
             </div>
             <span className="text-xl font-bold text-slate-900">{APP_NAME}</span>
           </div>
-          <button 
+          <button
             onClick={() => setIsMobileMenuOpen(false)}
             className="lg:hidden text-slate-500 hover:text-slate-700"
           >
@@ -57,7 +66,7 @@ const Layout: React.FC = () => {
 
         <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-1 custom-scrollbar">
           {visibleNavItems.map((item) => {
-            const isActive = location.pathname === item.path || (item.path !== '/' && location.pathname.startsWith(item.path));
+            const isActive = item.path === activePath;
             return (
               <NavLink
                 key={item.path}
@@ -65,8 +74,8 @@ const Layout: React.FC = () => {
                 onClick={() => setIsMobileMenuOpen(false)}
                 className={`
                   flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors
-                  ${isActive 
-                    ? 'bg-blue-50 text-blue-700' 
+                  ${isActive
+                    ? 'bg-blue-50 text-blue-700'
                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}
                 `}
               >
@@ -80,14 +89,14 @@ const Layout: React.FC = () => {
         <div className="p-4 border-t border-slate-100">
           <div className="flex items-center gap-3 mb-4 px-2">
             <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 overflow-hidden">
-               {user.avatar ? <img src={user.avatar} alt={user.name} className="w-full h-full object-cover" /> : <UserIcon size={20} />}
+              {user.avatar ? <img src={user.avatar} alt={user.name} className="w-full h-full object-cover" /> : <UserIcon size={20} />}
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-bold text-slate-900 truncate">{user.name}</p>
               <p className="text-xs text-slate-500 truncate">{user.role}</p>
             </div>
           </div>
-          <button 
+          <button
             onClick={handleLogout}
             className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-slate-50 hover:bg-slate-100 text-slate-700 rounded-lg text-sm font-medium transition-colors"
           >
@@ -102,7 +111,7 @@ const Layout: React.FC = () => {
         {/* Mobile Header */}
         <header className="lg:hidden flex items-center justify-between bg-white border-b border-slate-200 px-4 py-3">
           <div className="flex items-center gap-3">
-            <button 
+            <button
               onClick={() => setIsMobileMenuOpen(true)}
               className="text-slate-500 hover:text-slate-700"
             >
@@ -111,7 +120,7 @@ const Layout: React.FC = () => {
             <span className="font-bold text-slate-900">{APP_NAME}</span>
           </div>
           <div className="w-8 h-8 rounded-full bg-slate-100 overflow-hidden">
-             {user.avatar && <img src={user.avatar} alt="User" className="w-full h-full object-cover" />}
+            {user.avatar && <img src={user.avatar} alt="User" className="w-full h-full object-cover" />}
           </div>
         </header>
 

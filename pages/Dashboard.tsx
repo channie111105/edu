@@ -7,7 +7,7 @@ import MarketingDashboard from './MarketingDashboard';
 import SalesDashboard from './SalesDashboard';
 import ContractDashboard from './ContractDashboard';
 import FinanceDashboard from './FinanceDashboard';
-import TrainingDashboard from './TrainingDashboard';
+// import TrainingDashboard from './TrainingDashboard'; // Removed
 import TeacherDashboard from './TeacherDashboard';
 import StudyAbroadDashboard from './StudyAbroadDashboard';
 import AdminDashboard from './AdminDashboard'; // New Import
@@ -32,17 +32,17 @@ const Dashboard: React.FC = () => {
 
   // Role Kế toán (Finance) -> Dashboard Tài chính / Công nợ
   if (user?.role === UserRole.ACCOUNTANT) {
-    return <FinanceDashboard />; 
+    return <FinanceDashboard />;
   }
 
-  // Role Đào tạo (Training) -> Dashboard Đào tạo / Học vụ
+  // Role Đào tạo (Training) -> Redirect to Schedule
   if (user?.role === UserRole.TRAINING) {
-    return <TrainingDashboard />;
+    return <Navigate to="/training/schedule" replace />;
   }
 
-  // Role Giáo viên (Teacher) -> Teacher Portal (Simplified)
+  // Role Giáo viên (Teacher) -> Redirect to Document Library
   if (user?.role === UserRole.TEACHER) {
-    return <TeacherDashboard />;
+    return <Navigate to="/library" replace />;
   }
 
   // Role Du học (Study Abroad) -> Dashboard Du học
