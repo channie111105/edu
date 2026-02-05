@@ -133,6 +133,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
         setLead(initialLead);
         setProductItems(initialLead.productItems || []);
         setDiscount(initialLead.discount || 0);
+        setFollowers(initialLead.followers || []);
     }, [initialLead]);
 
     const getDefaultActivityDate = (typeId: string) => {
@@ -305,7 +306,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
             // Sync Owner to Followers
             if (field === 'ownerId') {
                 const newOwner = MOCK_USERS.find(u => u.name === currentValue) || { id: 'u-ex', name: currentValue, avatar: 'EX', role: 'Sales Rep' };
-                if (!followers.find(f => f.name === currentValue)) {
+                if (!followers?.find(f => f.name === currentValue)) {
                     // Add new owner to followers
                     handleAddFollower(newOwner, true);
                 }
@@ -324,7 +325,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
     };
 
     const handleAddFollower = (newFollower: any, isSystem = false) => {
-        if (followers.some(f => f.id === newFollower.id)) return;
+        if (followers?.some(f => f.id === newFollower.id)) return;
 
         const updatedList = [...followers, { ...newFollower, addedAt: new Date().toISOString() }];
         setFollowers(updatedList);
@@ -527,7 +528,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
         let updatedFollowers = [...followers];
         let logs: any[] = [];
 
-        if (contractManager && !updatedFollowers.find(f => f.id === contractManager.id)) {
+        if (contractManager && !updatedFollowers?.find(f => f.id === contractManager.id)) {
             updatedFollowers.push({ ...contractManager, addedAt: new Date().toISOString() });
             logs.push({
                 id: `act-${Date.now()}`, type: 'system', timestamp: new Date().toISOString(),
@@ -1072,7 +1073,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                             </div>
                             <div className="flex items-center gap-1">
                                 <div className="flex -space-x-2 mr-2">
-                                    {followers.map((f, idx) => (
+                                    {followers?.map((f, idx) => (
                                         <div key={idx} className="w-6 h-6 rounded-full bg-blue-100 border border-white flex items-center justify-center text-[10px] font-bold text-blue-800" title={f.name}>
                                             {f.avatar || f.name?.charAt(0)}
                                         </div>
@@ -1329,7 +1330,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                             </div>
                             <div className="space-y-2">
                                 {MOCK_USERS.map(u => {
-                                    const isFollowing = followers.some(f => f.id === u.id);
+                                    const isFollowing = followers?.some(f => f.id === u.id);
                                     return (
                                         <div key={u.id} className="flex justify-between items-center p-2 hover:bg-slate-50 rounded border border-transparent hover:border-slate-100">
                                             <div className="flex items-center gap-3">
