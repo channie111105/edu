@@ -20,6 +20,8 @@ export function calculateSLAWarnings(
     const now = new Date();
 
     leads.forEach(lead => {
+        if (!lead) return;
+
         // Only check leads assigned to current user (unless viewing all)
         if (currentUserId && lead.ownerId !== currentUserId) {
             return;

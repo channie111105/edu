@@ -65,7 +65,7 @@ const STAGE_LABELS: Record<string, string> = {
 
 const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead, isOpen, onClose, onUpdate, onConvert }) => {
     const { user } = useAuth();
-    const [lead, setLead] = useState<ILead>(initialLead);
+    const [lead, setLead] = useState<ILead>(initialLead || {} as ILead);
 
     // UI States
     const [chatterTab, setChatterTab] = useState<'message' | 'note' | 'activity' | 'meeting'>('note');
@@ -79,15 +79,16 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
 
     // Followers State
     const [showFollowersModal, setShowFollowersModal] = useState(false);
-    const [followers, setFollowers] = useState<any[]>(initialLead.followers || []);
+    const [followers, setFollowers] = useState<any[]>((initialLead && initialLead.followers) || []);
 
     // Ensure Owner is a follower
     useEffect(() => {
+        if (!initialLead) return;
         if (followers.length === 0 && initialLead.ownerId) {
             const owner = MOCK_USERS.find(u => u.name === initialLead.ownerId) || { id: 'u1', name: initialLead.ownerId || 'Sarah Miller', avatar: 'SM', isOwner: true };
             setFollowers([{ ...owner, addedAt: new Date().toISOString() }]);
         }
-    }, [initialLead.ownerId]);
+    }, [initialLead?.ownerId]);
 
     // Loss Modal State
     const [showLossModal, setShowLossModal] = useState(false);
@@ -107,8 +108,8 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
     const [scheduleNext, setScheduleNext] = useState(false); // New state for auto-schedule checkbox
 
     // Local State for Quotation Editing
-    const [productItems, setProductItems] = useState(initialLead.productItems || []);
-    const [discount, setDiscount] = useState(initialLead.discount || 0);
+    const [productItems, setProductItems] = useState((initialLead && initialLead.productItems) || []);
+    const [discount, setDiscount] = useState((initialLead && initialLead.discount) || 0);
 
     // Toast Notification State
     const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info'; visible: boolean } | null>(null);
@@ -128,6 +129,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
     const isLost = lead.status === 'LOST' || lead.status === 'lost';
 
     useEffect(() => {
+        if (!initialLead) return;
         setLead(initialLead);
         setProductItems(initialLead.productItems || []);
         setDiscount(initialLead.discount || 0);

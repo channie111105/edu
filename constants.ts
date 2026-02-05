@@ -132,7 +132,7 @@ export const NAV_ITEMS = [
   { label: 'Cơ hội (Leads)', path: '/leads', icon: Users, roles: [UserRole.MARKETING, UserRole.FOUNDER] },
   { label: 'Chiến dịch', path: '/campaigns', icon: Megaphone, roles: [UserRole.MARKETING] },
   { label: 'Cộng tác viên', path: '/marketing/collaborators', icon: Contact2, roles: [UserRole.MARKETING] },
-  { label: 'Danh sách Lead (SLA)', path: '/marketing/sla-leads', icon: ListTodo, roles: [UserRole.MARKETING] },
+  { label: 'Danh sách Lead (SLA)', path: '/marketing/sla-leads', icon: ListTodo, roles: [UserRole.MARKETING, UserRole.ADMIN] },
 
   // --- ROLE SALES REP (Updated) ---
   { label: 'My Leads', path: '/sales/my-leads', icon: Inbox, roles: [UserRole.SALES_REP] }, // NEW

@@ -7,6 +7,7 @@ import {
    Phone,
    Clock,
    AlertOctagon,
+   AlertCircle,
    AlertTriangle,
    CheckCircle2,
    ChevronRight,
@@ -205,7 +206,7 @@ const SLALeadList: React.FC = () => {
                      onClick={() => setFilterStatus('NotAck')}
                      className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors flex items-center gap-1 ${filterStatus === 'NotAck' ? 'bg-red-600 text-white' : 'bg-red-50 text-red-600 hover:bg-red-100'}`}
                   >
-                     <AlertOctagon size={14} /> Quá hạn nhận ({notAckCount})
+                     <AlertCircle size={14} /> Quá hạn nhận ({notAckCount})
                   </button>
                   <button
                      onClick={() => setFilterStatus('Slow')}
@@ -383,10 +384,10 @@ const SLALeadList: React.FC = () => {
          <UnifiedLeadDrawer
             isOpen={!!selectedLead}
             onClose={() => setSelectedLead(null)}
-            lead={selectedLead || undefined}
+            lead={selectedLead || {} as ILead}
             onUpdate={handleUpdate}
          />
-      </div>
+      </div >
    );
 };
 
