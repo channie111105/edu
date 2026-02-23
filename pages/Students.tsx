@@ -1,298 +1,236 @@
-import React, { useState, useEffect } from 'react';
-import {
-    Search, Plus, Filter, MoreHorizontal, GraduationCap,
-    Calendar, MapPin, User, CheckCircle2, AlertCircle,
-    ArrowRightLeft, FileBadge
-} from 'lucide-react';
-import { IStudent, StudentStatus, UserRole } from '../types';
-import { getStudents, updateStudent } from '../utils/storage';
+﻿import React, { useEffect, useMemo, useState } from 'react';
+import { AlertCircle, CheckCircle2, GraduationCap, Search } from 'lucide-react';
+import { IAdmission, IQuotation, IStudent, QuotationStatus, StudentStatus } from '../types';
+import { getAdmissions, getQuotations, getStudents } from '../utils/storage';
+import { createAdmission } from '../services/enrollmentFlow.service';
 import { useAuth } from '../contexts/AuthContext';
 
 const MOCK_CLASSES = ['GER-A1-K35', 'GER-A1-K36', 'GER-B1-K12', 'AUS-COOK-K01'];
+const MOCK_CAMPUSES = ['Ha Noi', 'HCM', 'Da Nang'];
 
 const Students: React.FC = () => {
-    const { user } = useAuth();
-    const [students, setStudents] = useState<IStudent[]>([]);
-    const [filterStatus, setFilterStatus] = useState<StudentStatus | 'ALL'>(StudentStatus.ADMISSION);
-    const [searchTerm, setSearchTerm] = useState('');
+  const { user } = useAuth();
+  const [students, setStudents] = useState<IStudent[]>([]);
+  const [quotations, setQuotations] = useState<IQuotation[]>([]);
+  const [admissions, setAdmissions] = useState<IAdmission[]>([]);
+  const [filter, setFilter] = useState<'ALL' | 'CHUA_GHI_DANH' | 'DA_GHI_DANH'>('CHUA_GHI_DANH');
+  const [search, setSearch] = useState('');
 
-    // Modal State
-    const [selectedStudent, setSelectedStudent] = useState<IStudent | null>(null);
-    const [showEnrollModal, setShowEnrollModal] = useState(false);
+  const [showModal, setShowModal] = useState(false);
+  const [selectedStudent, setSelectedStudent] = useState<IStudent | null>(null);
+  const [enrollData, setEnrollData] = useState({
+    quotationId: '',
+    campusId: 'Ha Noi',
+    classId: '',
+    note: ''
+  });
 
-    // Enroll Form State
-    const [enrollData, setEnrollData] = useState({
-        classId: '',
-        admissionDate: new Date().toISOString().slice(0, 10),
-        campus: 'Hà Nội'
+  const loadData = () => {
+    setStudents(getStudents() as IStudent[]);
+    setQuotations(getQuotations());
+    setAdmissions(getAdmissions());
+  };
+
+  useEffect(() => {
+    loadData();
+    window.addEventListener('educrm:students-changed', loadData as EventListener);
+    window.addEventListener('educrm:quotations-changed', loadData as EventListener);
+    window.addEventListener('educrm:admissions-changed', loadData as EventListener);
+    return () => {
+      window.removeEventListener('educrm:students-changed', loadData as EventListener);
+      window.removeEventListener('educrm:quotations-changed', loadData as EventListener);
+      window.removeEventListener('educrm:admissions-changed', loadData as EventListener);
+    };
+  }, []);
+
+  const hasLockedQuotation = (studentId: string) => quotations.some((q) => q.studentId === studentId && q.status === QuotationStatus.LOCKED);
+
+  const filteredData = useMemo(() => {
+    return students.filter((s) => {
+      const status = s.enrollmentStatus || (s.status === StudentStatus.ENROLLED ? 'DA_GHI_DANH' : 'CHUA_GHI_DANH');
+      const statusOk = filter === 'ALL' || status === filter;
+      const searchOk = `${s.code} ${s.name} ${s.phone}`.toLowerCase().includes(search.toLowerCase());
+      return statusOk && searchOk;
     });
+  }, [students, filter, search]);
 
-    useEffect(() => {
-        // Load data
-        setStudents(getStudents());
-    }, []);
-
-    const filteredData = students.filter(s => {
-        const matchesStatus = filterStatus === 'ALL' || s.status === filterStatus;
-        const matchesSearch = s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            s.code.toLowerCase().includes(searchTerm.toLowerCase());
-        return matchesStatus && matchesSearch;
+  const openEnroll = (student: IStudent) => {
+    const lockedQuotation = quotations.find((q) => q.studentId === student.id && q.status === QuotationStatus.LOCKED);
+    setSelectedStudent(student);
+    setEnrollData({
+      quotationId: lockedQuotation?.id || '',
+      campusId: student.campus || 'Ha Noi',
+      classId: student.className || '',
+      note: ''
     });
+    setShowModal(true);
+  };
 
-    const handleEnrollClick = (student: IStudent) => {
-        setSelectedStudent(student);
-        setEnrollData({
-            classId: student.className || '', // Pre-fill if available
-            admissionDate: new Date().toISOString().slice(0, 10),
-            campus: student.campus || 'Hà Nội'
-        });
-        setShowEnrollModal(true);
-    };
+  const submitEnroll = () => {
+    if (!selectedStudent) return;
+    if (!enrollData.campusId || !enrollData.classId) {
+      alert('Vui long chon co so va lop');
+      return;
+    }
+    if (!enrollData.quotationId) {
+      alert('Không tìm thấy báo giá đã Khóa để ghi danh');
+      return;
+    }
 
-    const handleSaveEnrollment = () => {
-        if (!selectedStudent) return;
+    try {
+      createAdmission({
+        studentId: selectedStudent.id,
+        quotationId: enrollData.quotationId || undefined,
+        campusId: enrollData.campusId,
+        classId: enrollData.classId,
+        note: enrollData.note,
+        createdBy: user?.id || 'system'
+      });
+    } catch (error: any) {
+      alert(error?.message || 'Không thể tạo Admission');
+      return;
+    }
 
-        // Update Student
-        const updated: IStudent = {
-            ...selectedStudent,
-            className: enrollData.classId,
-            campus: enrollData.campus,
-            admissionDate: enrollData.admissionDate,
-            // If SALE updates, status remains ADMISSION? 
-            // User Story: "Step 1 (Sale) ... Status is Admission ... Save"
-            // "Step 2 (Training) ... Click Confirm -> Enrolled"
-            // So if User is Training, we might confirm. If Sale, just save info.
-            // For simplicity, let's assume this action prepares it. 
-            // Let's Add a "Confirm" button for Training role separately?
-            // User requested: Action is "Ghi danh" for new students.
-        };
+    setShowModal(false);
+    setSelectedStudent(null);
+    loadData();
+    alert('Da tao Admission CHO_DUYET. Student van CHUA_GHI_DANH cho toi khi Dao tao confirm.');
+  };
 
-        updateStudent(updated);
-        setStudents(getStudents()); // Reload
-        setShowEnrollModal(false);
-        alert('Đã cập nhật thông tin ghi danh!');
-    };
+  return (
+    <div className="p-6 max-w-7xl mx-auto font-sans text-slate-800">
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
+          <GraduationCap className="text-indigo-600" /> Quan ly Hoc vien
+        </h1>
+        <p className="text-slate-500 text-sm mt-1">Lock Quotation se tao Student. Sale bam "Ghi danh" de tao Admission cho dao tao duyet.</p>
+      </div>
 
-    const handleConfirmEnrollment = (student: IStudent) => {
-        // Only Training Manager?
-        // if (user?.role !== UserRole.TRAINING) return alert("Chỉ quản lý đào tạo mới được duyệt!");
+      <div className="flex bg-slate-100 p-1 rounded-lg w-fit mb-4">
+        <button onClick={() => setFilter('CHUA_GHI_DANH')} className={`px-4 py-2 rounded-md text-sm font-bold ${filter === 'CHUA_GHI_DANH' ? 'bg-white text-indigo-700' : 'text-slate-500'}`}>CHUA_GHI_DANH</button>
+        <button onClick={() => setFilter('DA_GHI_DANH')} className={`px-4 py-2 rounded-md text-sm font-bold ${filter === 'DA_GHI_DANH' ? 'bg-white text-green-700' : 'text-slate-500'}`}>DA_GHI_DANH</button>
+        <button onClick={() => setFilter('ALL')} className={`px-4 py-2 rounded-md text-sm font-bold ${filter === 'ALL' ? 'bg-white text-slate-900' : 'text-slate-500'}`}>Tat ca</button>
+      </div>
 
-        const updated = { ...student, status: StudentStatus.ENROLLED };
-        updateStudent(updated);
-        setStudents(getStudents());
-        alert(`Đã xác nhận học viên ${student.name} vào lớp chính thức!`);
-    };
+      <div className="relative mb-6 max-w-md">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Tim theo ten, ma, SDT..."
+          className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
+        />
+      </div>
 
-    return (
-        <div className="p-6 max-w-7xl mx-auto font-sans text-slate-800">
-            <div className="flex justify-between items-center mb-6">
-                <div>
-                    <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
-                        <GraduationCap className="text-indigo-600" /> Quản lý Học viên
-                    </h1>
-                    <p className="text-slate-500 text-sm mt-1">Quản lý hồ sơ, xếp lớp và trạng thái học tập của học viên.</p>
-                </div>
-                {/* <button className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-indigo-700">
-                    <Plus size={18} /> Thêm thủ công
-                </button> */}
-            </div>
-
-            {/* Quick Filters (Tabs) */}
-            <div className="flex bg-slate-100 p-1 rounded-lg w-fit mb-6">
-                <button
-                    onClick={() => setFilterStatus(StudentStatus.ADMISSION)}
-                    className={`px-4 py-2 rounded-md text-sm font-bold transition-all ${filterStatus === StudentStatus.ADMISSION ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                >
-                    Chưa ghi danh (Admission)
-                </button>
-                <button
-                    onClick={() => setFilterStatus(StudentStatus.ENROLLED)}
-                    className={`px-4 py-2 rounded-md text-sm font-bold transition-all ${filterStatus === StudentStatus.ENROLLED ? 'bg-white text-green-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                >
-                    Đã ghi danh (Enrolled)
-                </button>
-                <button
-                    onClick={() => setFilterStatus('ALL')}
-                    className={`px-4 py-2 rounded-md text-sm font-bold transition-all ${filterStatus === 'ALL' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                >
-                    Tất cả
-                </button>
-            </div>
-
-            {/* Toolbar */}
-            <div className="flex items-center gap-4 mb-6">
-                <div className="relative flex-1 max-w-md">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                    <input
-                        type="text"
-                        placeholder="Tìm kiếm theo tên, mã học viên..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
-                    />
-                </div>
-                <button className="p-2 border border-slate-300 rounded-lg hover:bg-slate-50 text-slate-600">
-                    <Filter size={18} />
-                </button>
-            </div>
-
-            {/* Table */}
-            <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-                <table className="w-full text-left text-sm">
-                    <thead className="bg-slate-50 text-slate-500 font-bold uppercase text-xs border-b border-slate-200">
-                        <tr>
-                            <th className="px-6 py-4">Mã HV</th>
-                            <th className="px-6 py-4">Học viên</th>
-                            <th className="px-6 py-4">Sản phẩm / Dịch vụ</th>
-                            <th className="px-6 py-4">Cơ sở / Lớp</th>
-                            <th className="px-6 py-4 text-center">Trạng thái</th>
-                            <th className="px-6 py-4 text-right">Hành động</th>
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                        {filteredData.length > 0 ? (
-                            filteredData.map((student) => (
-                                <tr key={student.id} className="hover:bg-indigo-50/30 transition-colors group">
-                                    <td className="px-6 py-4 font-mono text-slate-600 font-bold">{student.code}</td>
-                                    <td className="px-6 py-4">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center font-bold text-slate-600 text-xs">
-                                                {student.name.charAt(0)}
-                                            </div>
-                                            <div>
-                                                <div className="font-bold text-slate-900">{student.name}</div>
-                                                <div className="text-xs text-slate-500">{student.phone}</div>
-                                            </div>
-                                        </div>
-                                    </td>
-                                    <td className="px-6 py-4">
-                                        <div className="font-medium text-slate-800">{student.level || 'Chưa rõ'}</div>
-                                        <div className="text-xs text-slate-500 truncate max-w-[150px]">{student.dealId ? 'Từ Deal' : 'Trực tiếp'}</div>
-                                    </td>
-                                    <td className="px-6 py-4">
-                                        <div className="flex items-center gap-1 text-slate-700 font-medium">
-                                            <MapPin size={12} /> {student.campus}
-                                        </div>
-                                        <div className="text-indigo-600 font-bold text-xs mt-1">
-                                            {student.className || 'Chưa xếp lớp'}
-                                        </div>
-                                    </td>
-                                    <td className="px-6 py-4 text-center">
-                                        <span className={`
-                                            px-3 py-1 rounded-full text-xs font-bold inline-flex items-center gap-1
-                                            ${student.status === StudentStatus.ADMISSION ? 'bg-orange-100 text-orange-700' : ''}
-                                            ${student.status === StudentStatus.ENROLLED ? 'bg-green-100 text-green-700' : ''}
-                                            ${student.status === StudentStatus.DROPPED ? 'bg-red-100 text-red-700' : ''}
-                                        `}>
-                                            {student.status === StudentStatus.ADMISSION && <AlertCircle size={12} />}
-                                            {student.status === StudentStatus.ENROLLED && <CheckCircle2 size={12} />}
-                                            {student.status}
-                                        </span>
-                                    </td>
-                                    <td className="px-6 py-4 text-right">
-                                        {student.status === StudentStatus.ADMISSION ? (
-                                            <div className="flex justify-end gap-2">
-                                                <button
-                                                    onClick={() => handleEnrollClick(student)}
-                                                    className="bg-indigo-600 text-white px-3 py-1.5 rounded text-xs font-bold hover:bg-indigo-700 shadow-sm"
-                                                >
-                                                    Ghi danh
-                                                </button>
-                                                {user?.role === UserRole.TRAINING && (
-                                                    <button
-                                                        onClick={() => handleConfirmEnrollment(student)}
-                                                        className="bg-green-600 text-white px-3 py-1.5 rounded text-xs font-bold hover:bg-green-700 shadow-sm"
-                                                        title="Quản lý đào tạo duyệt nhanh"
-                                                    >
-                                                        Duyệt
-                                                    </button>
-                                                )}
-                                            </div>
-                                        ) : (
-                                            <div className="flex justify-end gap-2">
-                                                <button className="border border-slate-300 text-slate-600 px-3 py-1.5 rounded text-xs font-bold hover:bg-slate-50 flex items-center gap-1">
-                                                    <ArrowRightLeft size={12} /> Chuyển cơ sở
-                                                </button>
-                                                <button className="border border-slate-300 text-slate-600 px-3 py-1.5 rounded text-xs font-bold hover:bg-slate-50 flex items-center gap-1">
-                                                    <FileBadge size={12} /> Hồ sơ
-                                                </button>
-                                            </div>
-                                        )}
-                                    </td>
-                                </tr>
-                            ))
-                        ) : (
-                            <tr>
-                                <td colSpan={6} className="text-center py-12 text-slate-500">
-                                    Chưa có học viên nào trong danh sách.
-                                </td>
-                            </tr>
-                        )}
-                    </tbody>
-                </table>
-            </div>
-
-            {/* Enroll Modal */}
-            {showEnrollModal && selectedStudent && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
-                    <div className="bg-white rounded-xl shadow-2xl p-6 max-w-lg w-full animate-in zoom-in-95">
-                        <div className="flex justify-between items-start mb-6">
-                            <div>
-                                <h3 className="text-xl font-bold text-slate-900">Ghi danh Học viên</h3>
-                                <p className="text-sm text-slate-500">Cập nhật thông tin xếp lớp cho <b>{selectedStudent.name}</b></p>
-                            </div>
-                            <button onClick={() => setShowEnrollModal(false)} className="text-slate-400 hover:text-slate-600">×</button>
-                        </div>
-
-                        <div className="space-y-4">
-                            <div>
-                                <label className="block text-sm font-bold text-slate-700 mb-1">Cơ sở (Campus)</label>
-                                <select
-                                    className="w-full p-2 border border-slate-300 rounded font-medium"
-                                    value={enrollData.campus}
-                                    onChange={(e) => setEnrollData(p => ({ ...p, campus: e.target.value }))}
-                                >
-                                    <option value="Hà Nội">Hà Nội</option>
-                                    <option value="Hồ Chí Minh">Hồ Chí Minh</option>
-                                    <option value="Đà Nẵng">Đà Nẵng</option>
-                                </select>
-                            </div>
-
-                            <div>
-                                <label className="block text-sm font-bold text-slate-700 mb-1">Lớp học Chính thức</label>
-                                <select
-                                    className="w-full p-2 border border-slate-300 rounded font-medium focus:ring-2 focus:ring-indigo-500"
-                                    value={enrollData.classId}
-                                    onChange={(e) => setEnrollData(p => ({ ...p, classId: e.target.value }))}
-                                >
-                                    <option value="">-- Chọn lớp học --</option>
-                                    {MOCK_CLASSES.map(c => <option key={c} value={c}>{c}</option>)}
-                                </select>
-                                <p className="text-xs text-orange-600 mt-1 italic">Lớp dự kiến: {selectedStudent.className || 'Không có'}</p>
-                            </div>
-
-                            <div>
-                                <label className="block text-sm font-bold text-slate-700 mb-1">Ngày nhập học</label>
-                                <input
-                                    type="date"
-                                    className="w-full p-2 border border-slate-300 rounded"
-                                    value={enrollData.admissionDate}
-                                    onChange={(e) => setEnrollData(p => ({ ...p, admissionDate: e.target.value }))}
-                                />
-                            </div>
-                        </div>
-
-                        <div className="flex justify-end gap-3 mt-8">
-                            <button onClick={() => setShowEnrollModal(false)} className="px-4 py-2 text-slate-600 font-bold hover:bg-slate-100 rounded-lg">Hủy</button>
-                            <button onClick={handleSaveEnrollment} className="px-4 py-2 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700">
-                                Lưu thông tin
-                            </button>
-                        </div>
-                    </div>
-                </div>
+      <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+        <table className="w-full text-left text-sm">
+          <thead className="bg-slate-50 text-slate-500 font-bold uppercase text-xs border-b border-slate-200">
+            <tr>
+              <th className="px-6 py-4">Ma HV</th>
+              <th className="px-6 py-4">Hoc vien</th>
+              <th className="px-6 py-4">Co so / Lop</th>
+              <th className="px-6 py-4">Trang thai</th>
+              <th className="px-6 py-4 text-right">Hanh dong</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {filteredData.length > 0 ? (
+              filteredData.map((student) => {
+                const enrollmentStatus = student.enrollmentStatus || (student.status === StudentStatus.ENROLLED ? 'DA_GHI_DANH' : 'CHUA_GHI_DANH');
+                const hasPendingAdmission = admissions.some((a) => a.studentId === student.id && a.status === 'CHO_DUYET');
+                const canEnroll = enrollmentStatus === 'CHUA_GHI_DANH' && hasLockedQuotation(student.id) && !hasPendingAdmission;
+                return (
+                  <tr key={student.id} className="hover:bg-slate-50">
+                    <td className="px-6 py-4 font-mono font-bold text-slate-700">{student.code}</td>
+                    <td className="px-6 py-4">
+                      <div className="font-bold text-slate-900">{student.name}</div>
+                      <div className="text-xs text-slate-500">{student.phone}</div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div>{student.campus || '-'}</div>
+                      <div className="text-xs text-indigo-700 font-semibold">{student.className || 'Chua xep lop'}</div>
+                    </td>
+                    <td className="px-6 py-4">
+                      {enrollmentStatus === 'CHUA_GHI_DANH' ? (
+                        <span className="px-3 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-700 inline-flex items-center gap-1">
+                          <AlertCircle size={12} /> CHUA_GHI_DANH
+                        </span>
+                      ) : (
+                        <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700 inline-flex items-center gap-1">
+                          <CheckCircle2 size={12} /> DA_GHI_DANH
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      {canEnroll ? (
+                        <button onClick={() => openEnroll(student)} className="bg-indigo-600 text-white px-3 py-1.5 rounded text-xs font-bold hover:bg-indigo-700">Ghi danh</button>
+                      ) : (
+                        <span className="text-xs text-slate-400">
+                          {enrollmentStatus === 'DA_GHI_DANH' ? 'Da ghi danh' : hasPendingAdmission ? 'Dang cho duyet Admission' : 'Can Lock Quotation'}
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })
+            ) : (
+              <tr>
+                <td colSpan={5} className="text-center py-12 text-slate-500">Khong co hoc vien phu hop.</td>
+              </tr>
             )}
+          </tbody>
+        </table>
+      </div>
+
+      {showModal && selectedStudent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50">
+          <div className="bg-white rounded-xl shadow-2xl p-6 max-w-lg w-full">
+            <h3 className="text-lg font-bold text-slate-900 mb-1">Ghi danh hoc vien</h3>
+            <p className="text-sm text-slate-500 mb-4">Tao Admission CHO_DUYET cho {selectedStudent.name}</p>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-sm font-semibold block mb-1">SO LOCKED lien quan</label>
+                <select className="w-full border border-slate-300 rounded p-2" value={enrollData.quotationId} onChange={(e) => setEnrollData((p) => ({ ...p, quotationId: e.target.value }))}>
+                  <option value="">-- Chon SO --</option>
+                  {quotations.filter((q) => q.studentId === selectedStudent.id && q.status === QuotationStatus.LOCKED).map((q) => (
+                    <option key={q.id} value={q.id}>{q.soCode} - {q.customerName}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-sm font-semibold block mb-1">Co so *</label>
+                  <select className="w-full border border-slate-300 rounded p-2" value={enrollData.campusId} onChange={(e) => setEnrollData((p) => ({ ...p, campusId: e.target.value }))}>
+                    {MOCK_CAMPUSES.map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-sm font-semibold block mb-1">Lop *</label>
+                  <select className="w-full border border-slate-300 rounded p-2" value={enrollData.classId} onChange={(e) => setEnrollData((p) => ({ ...p, classId: e.target.value }))}>
+                    <option value="">-- Chon lop --</option>
+                    {MOCK_CLASSES.map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-sm font-semibold block mb-1">Ghi chu</label>
+                <textarea className="w-full border border-slate-300 rounded p-2 h-20" value={enrollData.note} onChange={(e) => setEnrollData((p) => ({ ...p, note: e.target.value }))} />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 mt-5">
+              <button onClick={() => setShowModal(false)} className="px-3 py-2 border border-slate-300 rounded">Huy</button>
+              <button onClick={submitEnroll} className="px-3 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700">Luu</button>
+            </div>
+          </div>
         </div>
-    );
+      )}
+    </div>
+  );
 };
 
 export default Students;

@@ -1,516 +1,869 @@
-
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useEffect, useMemo, useState } from 'react';
+import { ArrowRightLeft, FileSpreadsheet, NotebookPen, Plus, Save, Search, StickyNote } from 'lucide-react';
 import {
-    Search,
-    BookOpen,
-    MapPin,
-    Calendar,
-    MoreHorizontal,
-    Plus,
-    Users,
-    CheckCircle2,
-    Clock,
-    AlertTriangle,
-    GraduationCap,
-    ClipboardList,
-    BarChart2,
+  AttendanceStatus,
+  IAttendanceRecord,
+  IClassSession,
+  IClassStudent,
+  IStudent,
+  IStudentScore,
+  IStudyNote,
+  ITrainingClass
+} from '../types';
+import {
+  addClassLog,
+  addStudentToClass,
+  ensureDefaultSessionsForClass,
+  getAttendanceByClassId,
+  getClassStudents,
+  getLogNotes,
+  getSessionsByClassId,
+  getStudentScoresByClassId,
+  getStudents,
+  getStudyNotesByClassId,
+  getTrainingClasses,
+  markDebtTermPaid,
+  removeStudentFromClass,
+  saveClassStudents,
+  transferStudentClass,
+  updateClassStatus,
+  upsertAttendance,
+  upsertStudentScore,
+  upsertStudyNote
+} from '../utils/storage';
 
-    ArrowUpCircle,
-    CheckSquare,
-    XSquare,
-    AlertCircle,
-    MessageSquare,
-    Save,
-    FileText,
-    User,
-    ArrowLeft
-} from 'lucide-react';
-
-// --- MOCK DATA ---
-const CLASSES = [
-    {
-        id: 'C-001',
-        code: 'DE-A1-K24',
-        name: 'Tiếng Đức A1 - K24',
-        teacher: 'Cô Nguyễn Thị Lan',
-        teacherAvatar: 'https://i.pravatar.cc/150?u=a042581f4e29026024d',
-        room: 'Phòng 101 - Offline',
-        schedule: [
-            { day: 'Thứ 2', time: '18:30 - 20:30' },
-            { day: 'Thứ 4', time: '18:30 - 20:30' },
-            { day: 'Thứ 6', time: '18:30 - 20:30' },
-        ],
-        students: [
-            { id: 'S1', name: 'Nguyễn Văn Nam', status: 'Paid', note: 'Đã đóng đủ', level: 'A1' },
-            { id: 'S2', name: 'Trần Thị Bích', status: 'Partial', note: 'Thiếu 2tr', level: 'A1' },
-            { id: 'S3', name: 'Lê Hoàng', status: 'Overdue', note: 'Quá hạn 5 ngày', level: 'A1' },
-            { id: 'S4', name: 'Phạm Hương', status: 'Paid', note: 'Đã đóng đủ', level: 'A1' },
-        ],
-        price: '8.000.000 đ',
-        status: 'active',
-        startDate: '15/09/2025'
-    },
-    {
-        id: 'C-002',
-        code: 'CN-HSK3-K05',
-        name: 'Luyện thi HSK 3 - K05',
-        teacher: 'Cô Trần Mai',
-        teacherAvatar: 'https://i.pravatar.cc/150?u=a042581f4e29026704d',
-        room: 'Online (Zoom)',
-        schedule: [
-            { day: 'Thứ 7', time: '14:00 - 16:00' },
-            { day: 'Chủ Nhật', time: '14:00 - 16:00' },
-        ],
-        students: [
-            { id: 'S5', name: 'Vũ Minh Hiếu', status: 'Paid', note: 'Đã đóng đủ', level: 'HSK 3' },
-            { id: 'S6', name: 'Đặng Thu Thảo', status: 'Paid', note: 'Đã đóng đủ', level: 'HSK 3' },
-        ],
-        price: '4.500.000 đ',
-        status: 'upcoming',
-        startDate: '20/11/2025'
-    },
-    {
-        id: 'C-003',
-        code: 'DE-A2-K10',
-        name: 'Tiếng Đức A2 - K10',
-        teacher: 'Thầy Michael Đức',
-        teacherAvatar: 'https://i.pravatar.cc/150?u=a042581f4e29026024e',
-        room: 'Phòng 102 - Offline',
-        schedule: [
-            { day: 'Thứ 3', time: '08:30 - 10:30' },
-            { day: 'Thứ 5', time: '08:30 - 10:30' },
-        ],
-        students: [
-            { id: 'S7', name: 'Ngô Bá Khá', status: 'Overdue', note: 'Chưa đóng tiền', level: 'A2' },
-        ],
-        price: '9.000.000 đ',
-        status: 'completed',
-        startDate: '01/05/2025'
-    },
-];
-
-const CLASS_INFO = {
-    id: 'C-001',
-    code: 'DE-A1-K24',
-    name: 'Tiếng Đức A1 - K24',
-    status: 'Active',
-    branch: 'Cơ sở 1 - Hà Nội',
-    language: 'Tiếng Đức',
-    level: 'A1',
-    type: 'Offline',
-    schedule: 'T2-4-6 (18:30 - 20:30)',
-    startDate: '15/09/2025',
-    endDate: '15/12/2025',
-    totalSessions: 24,
-    completedSessions: 8,
-    teacher: 'Cô Nguyễn Thị Lan',
-    room: 'Phòng 101',
-    teacherAvatar: 'https://i.pravatar.cc/150?u=a042581f4e29026024d',
+const STATUS = ['DRAFT', 'ACTIVE', 'DONE', 'CANCELED'] as const;
+const STATUS_LABEL: Record<ITrainingClass['status'], string> = {
+  DRAFT: 'Nháp',
+  ACTIVE: 'Đang học',
+  DONE: 'Đã kết thúc',
+  CANCELED: 'Đã hủy'
+};
+const CLASS_TYPE_LABEL: Record<NonNullable<ITrainingClass['classType']>, string> = {
+  Offline: 'Offline',
+  Online: 'Online',
+  App: 'App'
+};
+const ATTENDANCE_LABEL: Record<AttendanceStatus, string> = {
+  PRESENT: 'Có mặt',
+  ABSENT: 'Vắng',
+  LATE: 'Muộn'
+};
+const ATTENDANCE_BADGE: Record<AttendanceStatus, string> = {
+  PRESENT: 'bg-emerald-100 text-emerald-700',
+  ABSENT: 'bg-rose-100 text-rose-700',
+  LATE: 'bg-amber-100 text-amber-700'
+};
+const rank = (v: number) => (v >= 8.5 ? 'A' : v >= 7 ? 'B' : v >= 5.5 ? 'C' : 'D');
+const fd = (v?: string) => (v ? new Date(v).toLocaleDateString('vi-VN') : '-');
+const formatMoney = (value: number) => value.toLocaleString('vi-VN') + ' đ';
+const DEBT_LABEL: Record<NonNullable<IClassStudent['debtStatus']>, string> = {
+  DA_DONG: 'Đã đóng',
+  THIEU: 'Thiếu',
+  QUA_HAN: 'Quá hạn'
+};
+const DEBT_BADGE: Record<NonNullable<IClassStudent['debtStatus']>, string> = {
+  DA_DONG: 'bg-emerald-100 text-emerald-700',
+  THIEU: 'bg-amber-100 text-amber-700',
+  QUA_HAN: 'bg-red-100 text-red-700'
 };
 
-const STUDENTS = [
-    { id: 'S1', name: 'Nguyễn Văn Nam', code: 'HV001', status: 'Active', tuition: 'Paid', tuitionNote: 'Đủ', tuitionDate: '15/09' },
-    { id: 'S2', name: 'Trần Thị Bích', code: 'HV002', status: 'Reserve', tuition: 'Partial', tuitionNote: 'Thiếu 2tr', tuitionDate: '16/09' },
-    { id: 'S3', name: 'Lê Hoàng', code: 'HV003', status: 'Drop', tuition: 'Overdue', tuitionNote: 'Quá hạn', tuitionDate: '10/09' },
-    { id: 'S4', name: 'Phạm Hương', code: 'HV004', status: 'Active', tuition: 'Paid', tuitionNote: 'Đủ', tuitionDate: '15/09' },
-    { id: 'S5', name: 'Hoàng Minh', code: 'HV005', status: 'Active', tuition: 'Paid', tuitionNote: 'Đủ', tuitionDate: '15/09' },
+type Row = { member: IClassStudent; student?: IStudent; score?: IStudentScore };
+type TabKey = 'overview' | 'attendance' | 'grades' | 'logs';
+type AttendanceDraft = Record<string, AttendanceStatus | ''>;
+type NoteModalState = { studentId: string; studentName: string; sessionId: string; note: string };
+const TAB_ITEMS: Array<{ key: TabKey; label: string }> = [
+  { key: 'overview', label: 'Thông tin & Học viên' },
+  { key: 'attendance', label: 'Điểm danh & Log Note' },
+  { key: 'grades', label: 'Bảng điểm' },
+  { key: 'logs', label: 'Log lớp' }
 ];
 
-const SESSIONS = [
-    { id: 1, date: '15/09', topic: 'Bài 1: Giới thiệu' },
-    { id: 2, date: '17/09', topic: 'Bài 2: Chào hỏi' },
-    { id: 3, date: '19/09', topic: 'Bài 3: Số đếm' },
-    { id: 4, date: '22/09', topic: 'Bài 4: Động từ' },
-    { id: 5, date: '24/09', topic: 'Bài 5: Gia đình' },
-];
+const attendanceKey = (studentId: string, sessionId: string) => `${studentId}__${sessionId}`;
+
+const normalizeSessionTitle = (value?: string) => {
+  const raw = (value || '').trim();
+  if (!raw) return '';
+  if (/[ÃÂ]/.test(raw) || raw.includes('\uFFFD')) return '';
+  return raw;
+};
+
+const getSessionLabel = (session?: IClassSession) => {
+  if (!session) return 'N/A';
+  const title = normalizeSessionTitle(session.title);
+  return title ? `Buổi ${session.order} - ${title}` : `Buổi ${session.order}`;
+};
+
+const getSessionShortTitle = (session: IClassSession) => {
+  const title = normalizeSessionTitle(session.title);
+  if (!title) return `Buổi ${session.order}`;
+  return title.length > 24 ? `${title.slice(0, 24)}...` : title;
+};
 
 const TrainingClassList: React.FC = () => {
-    const navigate = useNavigate();
-    const [selectedClassId, setSelectedClassId] = useState(CLASSES[0].id);
-    const [searchTerm, setSearchTerm] = useState('');
-    const selectedClass = CLASSES.find(c => c.id === selectedClassId) || CLASSES[0];
+  const [classes, setClasses] = useState<ITrainingClass[]>([]);
+  const [students, setStudents] = useState<IStudent[]>([]);
+  const [members, setMembers] = useState<IClassStudent[]>([]);
+  const [selectedClassId, setSelectedClassId] = useState('');
+  const [tab, setTab] = useState<TabKey>('overview');
+  const [search, setSearch] = useState('');
+  const [toClass, setToClass] = useState('');
+  const [newStudentId, setNewStudentId] = useState('');
+  const [note, setNote] = useState('');
+  const [debtModal, setDebtModal] = useState<IClassStudent | null>(null);
+  const [draft, setDraft] = useState<Record<string, { assignment: number; midterm: number; final: number }>>({});
+  const [sessions, setSessions] = useState<IClassSession[]>([]);
+  const [attendanceRecords, setAttendanceRecords] = useState<IAttendanceRecord[]>([]);
+  const [studyNotes, setStudyNotes] = useState<IStudyNote[]>([]);
+  const [attendanceDraft, setAttendanceDraft] = useState<AttendanceDraft>({});
+  const [attendanceSaveMessage, setAttendanceSaveMessage] = useState('');
+  const [noteModal, setNoteModal] = useState<NoteModalState | null>(null);
 
-    // Detail View State
-    const [activeTab, setActiveTab] = useState<'overview' | 'attendance' | 'grades'>('overview');
-    const [showLogModal, setShowLogModal] = useState(false);
-    const [selectedStudent, setSelectedStudent] = useState<any>(null);
-    const [logNote, setLogNote] = useState('');
+  const loadBaseData = () => {
+    setClasses(getTrainingClasses());
+    setStudents(getStudents() as IStudent[]);
+    setMembers(getClassStudents());
+  };
 
-    const handleOpenLog = (student: any) => {
-        setSelectedStudent(student);
-        setLogNote('');
-        setShowLogModal(true);
-    };
+  const loadClassStudyData = (classId: string) => {
+    ensureDefaultSessionsForClass(classId);
+    setSessions(getSessionsByClassId(classId));
+    setAttendanceRecords(getAttendanceByClassId(classId));
+    setStudyNotes(getStudyNotesByClassId(classId));
+  };
 
-    const handleSaveLog = () => {
-        alert(`Đã lưu ghi chú cho ${selectedStudent.name}: ${logNote}`);
-        setShowLogModal(false);
-    };
+  useEffect(() => {
+    loadBaseData();
+    const h = () => loadBaseData();
+    [
+      'educrm:training-classes-changed',
+      'educrm:students-changed',
+      'educrm:class-students-changed',
+      'educrm:student-scores-changed',
+      'educrm:log-notes-changed'
+    ].forEach((e) => window.addEventListener(e, h as EventListener));
+    return () =>
+      [
+        'educrm:training-classes-changed',
+        'educrm:students-changed',
+        'educrm:class-students-changed',
+        'educrm:student-scores-changed',
+        'educrm:log-notes-changed'
+      ].forEach((e) => window.removeEventListener(e, h as EventListener));
+  }, []);
+
+  useEffect(() => {
+    if (!selectedClassId && classes.length) {
+      setSelectedClassId(classes[0].id);
+    }
+  }, [classes, selectedClassId]);
+
+  const selected = classes.find((c) => c.id === selectedClassId) || classes[0];
+  const locked = !!selected && (selected.status === 'DONE' || selected.status === 'CANCELED');
+
+  useEffect(() => {
+    if (!selected?.id) {
+      setSessions([]);
+      setAttendanceRecords([]);
+      setStudyNotes([]);
+      setAttendanceDraft({});
+      setAttendanceSaveMessage('');
+      return;
+    }
+
+    loadClassStudyData(selected.id);
+    setAttendanceDraft({});
+    setAttendanceSaveMessage('');
+  }, [selected?.id]);
+
+  useEffect(() => {
+    if (!selected?.id) return;
+    const h = () => loadClassStudyData(selected.id);
+    ['educrm:class-sessions-changed', 'educrm:attendance-changed', 'educrm:study-notes-changed'].forEach((e) =>
+      window.addEventListener(e, h as EventListener)
+    );
+    return () =>
+      ['educrm:class-sessions-changed', 'educrm:attendance-changed', 'educrm:study-notes-changed'].forEach((e) =>
+        window.removeEventListener(e, h as EventListener)
+      );
+  }, [selected?.id]);
+
+  const rows = useMemo<Row[]>(() => {
+    if (!selected) return [];
+    const scoreMap = new Map(getStudentScoresByClassId(selected.id).map((s) => [s.studentId, s]));
+    return members
+      .filter((m) => m.classId === selected.id)
+      .map((m) => ({ member: m, student: students.find((s) => s.id === m.studentId), score: scoreMap.get(m.studentId) }));
+  }, [selected, members, students]);
+
+  const logs = useMemo(() => (selected ? getLogNotes('CLASS', selected.id) : []), [selected, members, classes]);
+  const classItems = classes.filter(
+    (c) => c.name.toLowerCase().includes(search.toLowerCase()) || c.code.toLowerCase().includes(search.toLowerCase())
+  );
+  const availableStudents = selected ? students.filter((s) => !rows.some((r) => r.member.studentId === s.id)) : [];
+  const transferTargets = selected ? classes.filter((c) => c.id !== selected.id) : [];
+  const inferredLevel = selected?.level || selected?.code.match(/(A1|A2|B1|B2|C1|C2)/i)?.[1]?.toUpperCase() || '-';
+  const scheduleRange = selected && (selected.startDate || selected.endDate) ? `${fd(selected.startDate)} - ${fd(selected.endDate)}` : '-';
+  const classSize = selected ? `${rows.length}/${selected.maxStudents ?? 25}` : '-';
+  const classType = selected?.classType ? CLASS_TYPE_LABEL[selected.classType] : '-';
+
+  const attendanceMap = useMemo(() => {
+    const map = new Map<string, IAttendanceRecord>();
+    attendanceRecords.forEach((record) => map.set(attendanceKey(record.studentId, record.sessionId), record));
+    return map;
+  }, [attendanceRecords]);
+
+  const studyNoteMap = useMemo(() => {
+    const map = new Map<string, IStudyNote>();
+    studyNotes.forEach((item) => map.set(attendanceKey(item.studentId, item.sessionId), item));
+    return map;
+  }, [studyNotes]);
+
+  const getDueLabel = (member: IClassStudent) => {
+    if (member.nearestDueDate) return fd(member.nearestDueDate);
+    if ((member.debtTerms || []).length > 0 && (member.debtTerms || []).every((t) => t.status === 'PAID')) {
+      return 'Không có kỳ thu';
+    }
+    return '-';
+  };
+
+  const renderDebtBadge = (status?: IClassStudent['debtStatus']) => {
+    if (!status) return <span>-</span>;
+    return <span className={`rounded-full px-2 py-1 text-xs font-bold ${DEBT_BADGE[status]}`}>{DEBT_LABEL[status]}</span>;
+  };
+
+  const changeMember = (m: IClassStudent, status: IClassStudent['status']) => {
+    saveClassStudents(members.map((x) => (x.id === m.id ? { ...x, status, studentStatus: status } : x)));
+    addClassLog(selected!.id, 'UPDATE_STUDENT_STATUS', `Cập nhật trạng thái ${m.studentId} -> ${status}`, 'training');
+  };
+
+  const getAttendanceCellValue = (studentId: string, sessionId: string): AttendanceStatus | '' => {
+    const key = attendanceKey(studentId, sessionId);
+    return attendanceDraft[key] ?? attendanceMap.get(key)?.status ?? '';
+  };
+
+  const setAttendanceCellValue = (studentId: string, sessionId: string, value: AttendanceStatus | '') => {
+    if (locked) return;
+    const key = attendanceKey(studentId, sessionId);
+    setAttendanceDraft((prev) => ({ ...prev, [key]: value }));
+    setAttendanceSaveMessage('');
+  };
+
+  const getStudentAttendanceSummary = (studentId: string) => {
+    if (!sessions.length) return '-';
+    let completed = 0;
+    let passCount = 0;
+    sessions.forEach((session) => {
+      const status = getAttendanceCellValue(studentId, session.id);
+      if (!status) return;
+      completed += 1;
+      if (status === 'PRESENT' || status === 'LATE') passCount += 1;
+    });
+    if (!completed) return '-';
+    return `${Math.round((passCount / completed) * 100)}%`;
+  };
+
+  const openNoteModal = (row: Row, sessionId: string) => {
+    const key = attendanceKey(row.member.studentId, sessionId);
+    setNoteModal({
+      studentId: row.member.studentId,
+      studentName: row.student?.name || row.member.studentId,
+      sessionId,
+      note: studyNoteMap.get(key)?.note || ''
+    });
+  };
+
+  const onChangeNoteSession = (sessionId: string) => {
+    setNoteModal((prev) => {
+      if (!prev) return prev;
+      const key = attendanceKey(prev.studentId, sessionId);
+      return {
+        ...prev,
+        sessionId,
+        note: studyNoteMap.get(key)?.note || ''
+      };
+    });
+  };
+
+  const saveAttendance = () => {
+    if (!selected || locked) return;
+
+    const changed = Object.entries(attendanceDraft)
+      .map(([key, status]) => {
+        if (!status) return null;
+        const [studentId, sessionId] = key.split('__');
+        if (!studentId || !sessionId) return null;
+        const current = attendanceMap.get(key)?.status;
+        if (current === status) return null;
+        return { studentId, sessionId, status };
+      })
+      .filter((item): item is { studentId: string; sessionId: string; status: AttendanceStatus } => !!item);
+
+    if (!changed.length) {
+      setAttendanceSaveMessage('Không có thay đổi để lưu.');
+      return;
+    }
+
+    const changedSessionIds = new Set<string>();
+    changed.forEach((item) => {
+      upsertAttendance({
+        classId: selected.id,
+        studentId: item.studentId,
+        sessionId: item.sessionId,
+        status: item.status,
+        updatedBy: 'training'
+      });
+      changedSessionIds.add(item.sessionId);
+    });
+
+    changedSessionIds.forEach((sessionId) => {
+      const session = sessions.find((item) => item.id === sessionId);
+      addClassLog(selected.id, 'ATTENDANCE_UPDATED', `Cập nhật điểm danh buổi ${getSessionLabel(session)}`, 'training');
+    });
+
+    setAttendanceDraft({});
+    setAttendanceRecords(getAttendanceByClassId(selected.id));
+    setAttendanceSaveMessage(`Đã lưu ${changed.length} ô điểm danh.`);
+  };
+
+  const saveStudyNote = () => {
+    if (!selected || !noteModal || locked) return;
+    const text = noteModal.note.trim();
+    if (!text) return;
+
+    upsertStudyNote({
+      classId: selected.id,
+      studentId: noteModal.studentId,
+      sessionId: noteModal.sessionId,
+      note: text,
+      createdBy: 'training',
+      updatedBy: 'training'
+    });
+
+    const session = sessions.find((item) => item.id === noteModal.sessionId);
+    addClassLog(
+      selected.id,
+      'STUDY_NOTE_ADDED',
+      `Thêm ghi chú cho ${noteModal.studentName} - buổi ${getSessionLabel(session)}`,
+      'training'
+    );
+
+    setStudyNotes(getStudyNotesByClassId(selected.id));
+    setNoteModal(null);
+  };
+
+  const renderTabContent = () => {
+    if (!selected) return null;
+
+    if (tab === 'overview') {
+      return (
+        <table className="w-full">
+          <thead>
+            <tr>
+              <th className="border-b py-2 text-left text-xs uppercase">Học viên</th>
+              <th className="border-b py-2 text-left text-xs uppercase">Trạng thái</th>
+              <th className="border-b py-2 text-left text-xs uppercase">Công nợ</th>
+              <th className="border-b py-2 text-left text-xs uppercase">Hạn đóng</th>
+              <th className="border-b py-2 text-right text-xs uppercase">Thao tác</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.member.id}>
+                <td className="border-b py-2">
+                  <div className="font-semibold">{r.student?.name || r.member.studentId}</div>
+                  <div className="text-xs text-slate-500">{r.student?.code || '-'}</div>
+                </td>
+                <td className="border-b py-2">
+                  <select
+                    value={r.member.status}
+                    onChange={(e) => changeMember(r.member, e.target.value as IClassStudent['status'])}
+                    disabled={locked}
+                    className="rounded-lg border px-2 py-1 text-xs"
+                  >
+                    <option value="ACTIVE">Active</option>
+                    <option value="BAO_LUU">Bảo lưu</option>
+                    <option value="NGHI_HOC">Nghỉ học</option>
+                  </select>
+                </td>
+                <td className="border-b py-2">{renderDebtBadge(r.member.debtStatus)}</td>
+                <td className="border-b py-2">{getDueLabel(r.member)}</td>
+                <td className="border-b py-2 text-right">
+                  <div className="flex justify-end gap-2">
+                    <select
+                      value={toClass}
+                      onChange={(e) => setToClass(e.target.value)}
+                      disabled={locked}
+                      className="rounded-lg border px-2 py-1 text-xs"
+                    >
+                      <option value="">Lớp đích</option>
+                      {transferTargets.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.code}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      disabled={locked || !toClass}
+                      onClick={() => {
+                        transferStudentClass(r.member.studentId, selected.id, toClass);
+                        addClassLog(selected.id, 'TRANSFER_OUT', `Chuyển ${r.member.studentId} sang ${toClass}`, 'training');
+                        addClassLog(toClass, 'TRANSFER_IN', `Nhận ${r.member.studentId} từ ${selected.code}`, 'training');
+                      }}
+                      className="inline-flex items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700 disabled:opacity-50"
+                    >
+                      <ArrowRightLeft size={12} /> Chuyển
+                    </button>
+                    <button onClick={() => setDebtModal(r.member)} className="rounded-lg border px-2 py-1 text-xs">
+                      Công nợ
+                    </button>
+                    <button
+                      disabled={locked}
+                      onClick={() => {
+                        removeStudentFromClass(selected.id, r.member.studentId);
+                        addClassLog(selected.id, 'REMOVE_STUDENT', `Bỏ ${r.member.studentId}`, 'training');
+                      }}
+                      className="rounded-lg border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-700 disabled:opacity-50"
+                    >
+                      Bỏ
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      );
+    }
+
+    if (tab === 'attendance') {
+      return (
+        <div className="min-w-0 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-slate-50 px-3 py-3">
+            <div className="flex flex-wrap items-center gap-2">
+              {(['PRESENT', 'ABSENT', 'LATE'] as const).map((status) => (
+                <span key={status} className={`rounded-full px-3 py-1 text-xs font-bold ${ATTENDANCE_BADGE[status]}`}>
+                  {ATTENDANCE_LABEL[status]}
+                </span>
+              ))}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {attendanceSaveMessage && <span className="text-xs text-slate-600">{attendanceSaveMessage}</span>}
+              <button
+                disabled={locked}
+                onClick={saveAttendance}
+                className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50"
+              >
+                <Save size={13} /> Lưu dữ liệu
+              </button>
+              <button
+                type="button"
+                title="TODO: thay bằng API export Excel backend"
+                className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-600"
+              >
+                <FileSpreadsheet size={13} /> Xuất Excel (TODO)
+              </button>
+            </div>
+          </div>
+
+          {!rows.length ? (
+            <div className="rounded-xl border border-dashed p-8 text-center text-sm text-slate-500">
+              Chưa có học viên để điểm danh
+            </div>
+          ) : (
+            <div className="max-w-full overflow-x-auto rounded-xl border">
+              <table className="min-w-[1040px] w-max">
+                <thead className="bg-slate-50">
+                  <tr>
+                    <th className="border-b px-3 py-2 text-left text-xs uppercase">Học viên</th>
+                    {sessions.map((session) => (
+                      <th key={session.id} className="border-b px-3 py-2 text-left text-xs uppercase">
+                        <div>{getSessionShortTitle(session)}</div>
+                        <div className="mt-1 text-[10px] font-medium normal-case text-slate-500">{fd(session.date)}</div>
+                      </th>
+                    ))}
+                    <th className="border-b px-3 py-2 text-left text-xs uppercase">Tổng kết (%)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r) => (
+                    <tr key={r.member.id}>
+                      <td className="border-b px-3 py-2">
+                        <div className="font-semibold">{r.student?.name || r.member.studentId}</div>
+                        <div className="text-xs text-slate-500">{r.student?.code || '-'}</div>
+                      </td>
+                      {sessions.map((session) => {
+                        const cellValue = getAttendanceCellValue(r.member.studentId, session.id);
+                        const noteKey = attendanceKey(r.member.studentId, session.id);
+                        const hasNote = !!studyNoteMap.get(noteKey)?.note?.trim();
+                        return (
+                          <td key={`${r.member.id}-${session.id}`} className="border-b px-3 py-2">
+                            <div className="flex items-center gap-2">
+                              <select
+                                value={cellValue}
+                                disabled={locked}
+                                onChange={(e) =>
+                                  setAttendanceCellValue(r.member.studentId, session.id, e.target.value as AttendanceStatus | '')
+                                }
+                                className="rounded-lg border px-2 py-1 text-xs"
+                              >
+                                <option value="">-- Chọn --</option>
+                                {(['PRESENT', 'ABSENT', 'LATE'] as const).map((status) => (
+                                  <option key={status} value={status}>
+                                    {ATTENDANCE_LABEL[status]}
+                                  </option>
+                                ))}
+                              </select>
+                              <button
+                                type="button"
+                                onClick={() => openNoteModal(r, session.id)}
+                                className={`rounded-lg border px-2 py-1 ${hasNote ? 'border-blue-200 bg-blue-50 text-blue-700' : 'text-slate-500'}`}
+                                title={`Ghi chú ${getSessionLabel(session)}`}
+                              >
+                                <StickyNote size={13} />
+                              </button>
+                            </div>
+                          </td>
+                        );
+                      })}
+                      <td className="border-b px-3 py-2 text-sm font-semibold text-slate-700">
+                        {getStudentAttendanceSummary(r.member.studentId)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    if (tab === 'grades') {
+      return (
+        <table className="w-full">
+          <thead>
+            <tr>
+              <th className="border-b py-2 text-left text-xs uppercase">Học viên</th>
+              <th className="border-b py-2 text-left text-xs uppercase">Bài tập</th>
+              <th className="border-b py-2 text-left text-xs uppercase">Giữa kỳ</th>
+              <th className="border-b py-2 text-left text-xs uppercase">Cuối kỳ</th>
+              <th className="border-b py-2 text-left text-xs uppercase">TB</th>
+              <th className="border-b py-2 text-left text-xs uppercase">Xếp loại</th>
+              <th className="border-b py-2 text-right text-xs uppercase">Thao tác</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => {
+              const d = draft[r.member.studentId] || {
+                assignment: r.score?.assignment || 0,
+                midterm: r.score?.midterm || 0,
+                final: r.score?.final || 0
+              };
+              const avg = Number(((d.assignment + d.midterm + d.final) / 3).toFixed(1));
+              const rk = rank(avg);
+              return (
+                <tr key={r.member.id}>
+                  <td className="border-b py-2 font-semibold">{r.student?.name || r.member.studentId}</td>
+                  {(['assignment', 'midterm', 'final'] as const).map((f) => (
+                    <td key={f} className="border-b py-2">
+                      <input
+                        type="number"
+                        min={0}
+                        max={10}
+                        step={0.1}
+                        value={d[f]}
+                        disabled={locked}
+                        onChange={(e) => setDraft((p) => ({ ...p, [r.member.studentId]: { ...d, [f]: Number(e.target.value) } }))}
+                        className="w-20 rounded-lg border px-2 py-1 text-sm"
+                      />
+                    </td>
+                  ))}
+                  <td className="border-b py-2">{avg}</td>
+                  <td className="border-b py-2">{rk}</td>
+                  <td className="border-b py-2 text-right">
+                    <button
+                      disabled={locked}
+                      onClick={() => {
+                        const prev = r.score;
+                        const next = upsertStudentScore(selected.id, r.member.studentId, d);
+                        addClassLog(
+                          selected.id,
+                          'UPDATE_SCORE',
+                          `GK ${prev?.midterm ?? 0}->${next.midterm}, CK ${prev?.final ?? 0}->${next.final}`,
+                          'training'
+                        );
+                      }}
+                      className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-2 py-1 text-xs font-semibold text-white disabled:opacity-50"
+                    >
+                      <Save size={12} /> Lưu
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      );
+    }
 
     return (
-        <div className="flex flex-col h-full bg-[#f8fafc] text-[#111418] font-sans overflow-hidden">
-            <div className="flex flex-1 justify-center py-5 px-6 gap-4 h-full overflow-hidden">
-
-                {/* LEFT SIDEBAR: LIST OF CLASSES */}
-                <div className="flex flex-col w-80 shrink-0 h-full overflow-hidden rounded-xl bg-white border border-[#cfdbe7] shadow-sm">
-                    <div className="flex flex-wrap justify-between gap-3 p-4 border-b border-[#cfdbe7]">
-                        <p className="text-[#111418] tracking-[-0.015em] text-xl font-bold leading-tight">Quản lý Lớp học</p>
-                    </div>
-                    {/* Search */}
-                    <div className="px-4 py-3 bg-[#f8fafc]">
-                        <label className="flex flex-col h-10 w-full">
-                            <div className="flex w-full flex-1 items-stretch rounded-lg h-full">
-                                <div className="text-[#4c739a] flex border-none bg-white items-center justify-center pl-3 rounded-l-lg border-r-0 border border-[#cfdbe7]">
-                                    <Search size={18} />
-                                </div>
-                                <input
-                                    placeholder="Tìm lớp..."
-                                    className="flex w-full min-w-0 flex-1 resize-none overflow-hidden rounded-r-lg text-[#111418] focus:outline-0 border border-l-0 border-[#cfdbe7] bg-white px-2 text-sm font-normal"
-                                    value={searchTerm}
-                                    onChange={(e) => setSearchTerm(e.target.value)}
-                                />
-                            </div>
-                        </label>
-                    </div>
-
-                    <div className="flex-1 overflow-y-auto custom-scrollbar p-2">
-                        {CLASSES.filter(c => c.name.toLowerCase().includes(searchTerm.toLowerCase())).map((cls) => (
-                            <div
-                                key={cls.id}
-                                onClick={() => setSelectedClassId(cls.id)}
-                                className={`flex flex-col gap-1 p-3 rounded-lg cursor-pointer transition-colors mb-1 ${selectedClassId === cls.id ? 'bg-blue-50 border border-blue-100' : 'hover:bg-slate-50 border border-transparent'}`}
-                            >
-                                <div className="flex justify-between items-start">
-                                    <h4 className={`text-sm font-bold leading-tight ${selectedClassId === cls.id ? 'text-blue-700' : 'text-[#111418]'}`}>{cls.name}</h4>
-                                    {cls.status === 'active' && <span className="w-2 h-2 rounded-full bg-green-500 mt-1 shrink-0"></span>}
-                                    {cls.status === 'upcoming' && <span className="w-2 h-2 rounded-full bg-blue-500 mt-1 shrink-0"></span>}
-                                    {cls.status === 'completed' && <span className="w-2 h-2 rounded-full bg-slate-400 mt-1 shrink-0"></span>}
-                                </div>
-                                <p className="text-[#64748b] text-xs line-clamp-1">{cls.code}</p>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-
-                {/* RIGHT CONTENT: CLASS DETAIL */}
-                <div className="flex flex-col flex-1 h-full overflow-hidden bg-white rounded-xl shadow-sm border border-[#cfdbe7]">
-
-                    {/* Header Card */}
-                    <div className="px-6 py-5 border-b border-[#e7edf3] flex justify-between items-start bg-white">
-                        <div>
-                            <div className="flex items-center gap-3 mb-2">
-                                <h1 className="text-2xl font-bold text-[#0d141b]">{CLASS_INFO.name}</h1>
-                                <span className="px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-700 text-xs font-bold border border-blue-200 uppercase tracking-wide">
-                                    {CLASS_INFO.status}
-                                </span>
-                            </div>
-                            <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-[#4c739a] font-medium">
-                                <span className="flex items-center gap-1.5"><Calendar size={15} /> {CLASS_INFO.schedule}</span>
-                                <span className="flex items-center gap-1.5"><MapPin size={15} /> {CLASS_INFO.branch} - {CLASS_INFO.room}</span>
-                                <span className="flex items-center gap-1.5"><GraduationCap size={15} /> {CLASS_INFO.teacher}</span>
-                            </div>
-                        </div>
-                        <div className="flex gap-3">
-                            {activeTab === 'overview' && (
-                                <>
-                                    <button className="flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm font-bold transition-colors">
-                                        <User size={16} /> Gán Giáo viên
-                                    </button>
-                                    <button className="flex items-center gap-2 px-4 py-2 bg-[#1380ec] hover:bg-blue-700 text-white rounded-lg text-sm font-bold transition-colors shadow-sm">
-                                        <Plus size={16} /> Thêm Học viên
-                                    </button>
-                                </>
-                            )}
-                            <button className="p-2 border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-500">
-                                <MoreHorizontal size={20} />
-                            </button>
-                        </div>
-                    </div>
-
-                    {/* Tabs */}
-                    <div className="flex px-6 border-b border-[#cfdbe7] bg-[#f8fafc]">
-                        <button
-                            onClick={() => setActiveTab('overview')}
-                            className={`px-4 py-3 text-sm font-bold border-b-2 transition-colors ${activeTab === 'overview' ? 'border-[#1380ec] text-[#1380ec] bg-white' : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50'}`}
-                        >
-                            Thông tin & Học viên
-                        </button>
-                        <button
-                            onClick={() => setActiveTab('attendance')}
-                            className={`px-4 py-3 text-sm font-bold border-b-2 transition-colors ${activeTab === 'attendance' ? 'border-[#1380ec] text-[#1380ec] bg-white' : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50'}`}
-                        >
-                            Điểm danh & Log Note
-                        </button>
-                        <button
-                            onClick={() => setActiveTab('grades')}
-                            className={`px-4 py-3 text-sm font-bold border-b-2 transition-colors ${activeTab === 'grades' ? 'border-[#1380ec] text-[#1380ec] bg-white' : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50'}`}
-                        >
-                            Bảng điểm
-                        </button>
-                    </div>
-
-                    {/* Content Area */}
-                    <div className="flex-1 overflow-y-auto p-6 bg-[#f8fafc]">
-
-                        {/* TAB: OVERVIEW */}
-                        {activeTab === 'overview' && (
-                            <div className="flex flex-col gap-6 max-w-[1200px] mx-auto">
-
-                                {/* Info Grid */}
-                                <div className="bg-white rounded-xl border border-[#cfdbe7] px-6 py-5 shadow-sm">
-                                    <h3 className="text-[#111418] text-base font-bold mb-4 flex items-center gap-2">
-                                        <AlertCircle size={18} className="text-blue-600" /> Thông tin chi tiết
-                                    </h3>
-                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-y-4 gap-x-8">
-                                        <div>
-                                            <p className="text-slate-500 text-xs font-semibold uppercase mb-1">Mã lớp</p>
-                                            <p className="text-[#0d141b] text-sm font-medium">{CLASS_INFO.code}</p>
-                                        </div>
-                                        <div>
-                                            <p className="text-slate-500 text-xs font-semibold uppercase mb-1">Trình độ</p>
-                                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-800">{CLASS_INFO.level}</span>
-                                        </div>
-                                        <div>
-                                            <p className="text-slate-500 text-xs font-semibold uppercase mb-1">Ngôn ngữ</p>
-                                            <p className="text-[#0d141b] text-sm font-medium">{CLASS_INFO.language}</p>
-                                        </div>
-                                        <div>
-                                            <p className="text-slate-500 text-xs font-semibold uppercase mb-1">Loại lớp</p>
-                                            <p className="text-[#0d141b] text-sm font-medium">{CLASS_INFO.type}</p>
-                                        </div>
-                                        <div>
-                                            <p className="text-slate-500 text-xs font-semibold uppercase mb-1">Ngày khai giảng</p>
-                                            <p className="text-[#0d141b] text-sm font-medium">{CLASS_INFO.startDate}</p>
-                                        </div>
-                                        <div>
-                                            <p className="text-slate-500 text-xs font-semibold uppercase mb-1">Dự kiến kết thúc</p>
-                                            <p className="text-[#0d141b] text-sm font-medium">{CLASS_INFO.endDate}</p>
-                                        </div>
-                                        <div>
-                                            <p className="text-slate-500 text-xs font-semibold uppercase mb-1">Tiến độ</p>
-                                            <div className="flex items-center gap-2">
-                                                <p className="text-[#0d141b] text-sm font-medium">{CLASS_INFO.completedSessions}/{CLASS_INFO.totalSessions} buổi</p>
-                                            </div>
-                                        </div>
-                                        <div>
-                                            <p className="text-slate-500 text-xs font-semibold uppercase mb-1">Sĩ số</p>
-                                            <p className="text-[#0d141b] text-sm font-medium">{STUDENTS.length} Học viên</p>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Student List */}
-                                <div className="bg-white rounded-xl border border-[#cfdbe7] shadow-sm flex flex-col">
-                                    <div className="px-6 py-4 border-b border-[#cfdbe7] flex justify-between items-center">
-                                        <h3 className="text-[#111418] text-base font-bold flex items-center gap-2">
-                                            <Users size={18} className="text-blue-600" /> Danh sách Học viên
-                                        </h3>
-                                        {/* Filters could go here */}
-                                    </div>
-                                    <div className="overflow-x-auto">
-                                        <table className="w-full text-left border-collapse">
-                                            <thead className="bg-[#f8fafc]">
-                                                <tr>
-                                                    <th className="px-6 py-3 text-xs font-bold text-slate-500 uppercase border-b border-[#cfdbe7]">Học viên</th>
-                                                    <th className="px-6 py-3 text-xs font-bold text-slate-500 uppercase border-b border-[#cfdbe7]">Trạng thái</th>
-                                                    <th className="px-6 py-3 text-xs font-bold text-slate-500 uppercase border-b border-[#cfdbe7]">Công nợ</th>
-                                                    <th className="px-6 py-3 text-xs font-bold text-slate-500 uppercase border-b border-[#cfdbe7]">Hạn đóng</th>
-                                                    <th className="px-6 py-3 text-xs font-bold text-slate-500 uppercase border-b border-[#cfdbe7] text-right">Hành động</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody className="divide-y divide-[#e7edf3]">
-                                                {STUDENTS.map(student => (
-                                                    <tr key={student.id} className="hover:bg-slate-50 transition-colors">
-                                                        <td className="px-6 py-4">
-                                                            <div className="flex flex-col">
-                                                                <span className="text-sm font-bold text-[#0d141b]">{student.name}</span>
-                                                                <span className="text-xs text-slate-500">{student.code}</span>
-                                                            </div>
-                                                        </td>
-                                                        <td className="px-6 py-4">
-                                                            <select
-                                                                className={`text-xs font-bold px-2 py-1 rounded border-0 cursor-pointer outline-none ring-1 ring-inset w-28
-                                                                    ${student.status === 'Active' ? 'bg-green-50 text-green-700 ring-green-600/20' : ''}
-                                                                    ${student.status === 'Reserve' ? 'bg-amber-50 text-amber-700 ring-amber-600/20' : ''}
-                                                                    ${student.status === 'Drop' ? 'bg-red-50 text-red-700 ring-red-600/20' : ''}
-                                                                `}
-                                                                defaultValue={student.status}
-                                                            >
-                                                                <option value="Active">Active</option>
-                                                                <option value="Reserve">Bảo lưu</option>
-                                                                <option value="Drop">Nghỉ học</option>
-                                                            </select>
-                                                        </td>
-                                                        <td className="px-6 py-4">
-                                                            {student.tuition === 'Paid' && (
-                                                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-[#e7edf3] text-slate-600">
-                                                                    <CheckCircle2 size={12} /> Đã đóng
-                                                                </span>
-                                                            )}
-                                                            {student.tuition === 'Partial' && (
-                                                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-700">
-                                                                    <AlertTriangle size={12} /> {student.tuitionNote}
-                                                                </span>
-                                                            )}
-                                                            {student.tuition === 'Overdue' && (
-                                                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-red-100 text-red-700">
-                                                                    <XSquare size={12} /> {student.tuitionNote}
-                                                                </span>
-                                                            )}
-                                                        </td>
-                                                        <td className="px-6 py-4 text-sm text-slate-600">
-                                                            {student.tuitionDate}
-                                                        </td>
-                                                        <td className="px-6 py-4 text-right">
-                                                            <div className="flex justify-end gap-2">
-                                                                <button title="Chuyển lớp" className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors">
-                                                                    <ArrowUpCircle size={18} />
-                                                                </button>
-                                                                <button title="Cập nhật điểm" className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors">
-                                                                    <BarChart2 size={18} />
-                                                                </button>
-                                                            </div>
-                                                        </td>
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-
-                        {/* TAB: ATTENDANCE & LOGS */}
-                        {activeTab === 'attendance' && (
-                            <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden flex flex-col max-w-[1400px] mx-auto">
-                                <div className="p-4 border-b border-slate-200 flex justify-between items-center bg-slate-50/50">
-                                    <div className="flex items-center gap-4">
-                                        <h3 className="font-bold text-slate-800 flex items-center gap-2">
-                                            <Calendar className="text-blue-600" size={20} />
-                                            Điểm danh & Ghi chú Hàng ngày
-                                        </h3>
-                                        <div className="flex gap-4 text-xs font-medium text-slate-500">
-                                            <span className="flex items-center gap-1.5"><CheckSquare size={14} className="text-blue-600" /> Có mặt</span>
-                                            <span className="flex items-center gap-1.5"><XSquare size={14} className="text-red-500" /> Vắng</span>
-                                            <span className="flex items-center gap-1.5"><AlertCircle size={14} className="text-amber-500" /> Muộn</span>
-                                        </div>
-                                    </div>
-                                    <div className="flex gap-2">
-                                        <button className="px-3 py-1.5 bg-white border border-slate-200 rounded text-xs font-bold text-slate-600 hover:bg-slate-50">Xuất Excel</button>
-                                        <button className="px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-bold hover:bg-blue-700 shadow-sm">Lưu Dữ liệu</button>
-                                    </div>
-                                </div>
-
-                                <div className="overflow-x-auto">
-                                    <table className="w-full text-left border-collapse">
-                                        <thead>
-                                            <tr className="bg-slate-50 text-slate-500 text-xs uppercase font-bold text-center">
-                                                <th className="px-4 py-3 text-left w-64 border-r border-slate-200 sticky left-0 bg-slate-50 z-10">Học viên</th>
-                                                {SESSIONS.map(session => (
-                                                    <th key={session.id} className="px-2 py-3 border-r border-slate-200 min-w-[100px]">
-                                                        <div className="flex flex-col items-center">
-                                                            <span className="text-slate-800">{session.date}</span>
-                                                            <span className="text-[10px] font-normal text-slate-500 line-clamp-1 max-w-[90px]">{session.topic}</span>
-                                                        </div>
-                                                    </th>
-                                                ))}
-                                                <th className="px-4 py-3 w-40 border-l border-slate-200">Tổng kết</th>
-                                                <th className="px-4 py-3 w-28">Log Note</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-slate-100 text-sm">
-                                            {STUDENTS.map((student, idx) => (
-                                                <tr key={student.id} className="hover:bg-blue-50/30 transition-colors group">
-                                                    <td className="px-4 py-3 font-medium text-slate-900 border-r border-slate-200 sticky left-0 bg-white group-hover:bg-blue-50/30">
-                                                        <div className="flex flex-col">
-                                                            <span>{student.name}</span>
-                                                            <span className="text-xs text-slate-400">{student.code}</span>
-                                                        </div>
-                                                    </td>
-
-                                                    {SESSIONS.map(session => (
-                                                        <td key={session.id} className="px-2 py-3 text-center border-r border-slate-200">
-                                                            <div className="flex justify-center gap-1">
-                                                                <input type="checkbox" className="w-5 h-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer" defaultChecked />
-                                                            </div>
-                                                        </td>
-                                                    ))}
-
-                                                    <td className="px-4 py-3 text-center border-l border-slate-200">
-                                                        <span className="px-2 py-1 bg-emerald-100 text-emerald-700 text-xs font-bold rounded">100%</span>
-                                                    </td>
-                                                    <td className="px-4 py-3 text-center">
-                                                        <button
-                                                            onClick={() => handleOpenLog(student)}
-                                                            className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors relative"
-                                                            title="Ghi chú buổi học"
-                                                        >
-                                                            <MessageSquare size={18} />
-                                                            {/* Indicator dot if has note */}
-                                                            {idx % 2 === 0 && <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border border-white"></span>}
-                                                        </button>
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        )}
-
-                    </div>
-
-                    {/* Log Note Modal */}
-                    {showLogModal && selectedStudent && (
-                        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-                            <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95">
-                                <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-                                    <div>
-                                        <h3 className="font-bold text-lg text-slate-800">Ghi chú học tập - {selectedStudent.name}</h3>
-                                        <p className="text-xs text-slate-500">Cập nhật tình hình học viên theo buổi</p>
-                                    </div>
-                                    <button onClick={() => setShowLogModal(false)} className="text-slate-400 hover:text-slate-600 text-2xl">&times;</button>
-                                </div>
-
-                                <div className="p-6">
-                                    <div className="mb-4">
-                                        <label className="block text-sm font-semibold text-slate-700 mb-2">Chọn buổi học để ghi nhận xét</label>
-                                        <select className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-slate-50">
-                                            {SESSIONS.map(s => <option key={s.id} value={s.id}>Buổi {s.id} - {s.date} - {s.topic}</option>)}
-                                        </select>
-                                    </div>
-
-                                    <div className="mb-4">
-                                        <label className="block text-sm font-semibold text-slate-700 mb-2">Nội dung ghi chú & đánh giá</label>
-                                        <textarea
-                                            rows={5}
-                                            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                                            placeholder="Ví dụ: Học viên tiếp thu tốt, nhưng cần làm bài tập đầy đủ hơn..."
-                                            value={logNote}
-                                            onChange={e => setLogNote(e.target.value)}
-                                        ></textarea>
-                                    </div>
-
-                                    <div className="flex gap-2 text-xs text-slate-500 bg-blue-50 p-3 rounded-lg border border-blue-100">
-                                        <AlertCircle size={14} className="text-blue-500 shrink-0 mt-0.5" />
-                                        <p>Log note giúp giáo viên và admin theo dõi sát sao tiến độ và thái độ học tập của từng học viên qua từng buổi.</p>
-                                    </div>
-                                </div>
-
-                                <div className="px-6 py-4 border-t border-slate-100 flex justify-end gap-3 bg-slate-50/50">
-                                    <button onClick={() => setShowLogModal(false)} className="px-4 py-2 rounded-lg border border-slate-200 text-slate-600 font-bold hover:bg-white transition-colors">Đóng</button>
-                                    <button onClick={handleSaveLog} className="px-4 py-2 rounded-lg bg-blue-600 text-white font-bold hover:bg-blue-700 transition-colors flex items-center gap-2">
-                                        <Save size={16} /> Lưu Ghi chú
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-                </div>
+      <div className="flex h-full flex-col gap-3">
+        <div className="rounded-xl border p-3">
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            rows={3}
+            className="w-full rounded-lg border p-2 text-sm"
+            placeholder="Nhập ghi chú lớp..."
+          />
+          <div className="mt-2 text-right">
+            <button
+              onClick={() => {
+                if (!note.trim()) return;
+                addClassLog(selected.id, 'MANUAL_NOTE', note.trim(), 'training');
+                setNote('');
+              }}
+              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white"
+            >
+              Thêm log
+            </button>
+          </div>
+        </div>
+        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto rounded-xl border p-3">
+          {logs.map((l) => (
+            <div key={l.id} className="rounded-lg border bg-[#f8fafc] p-3">
+              <p className="text-sm font-semibold">{l.action}</p>
+              <p className="text-sm text-slate-700">{l.message}</p>
+              <p className="text-xs text-slate-500">
+                {fd(l.createdAt)} - {l.createdBy}
+              </p>
             </div>
-        </div >
+          ))}
+          {!logs.length && <p className="text-sm text-slate-500">Chưa có log lớp.</p>}
+        </div>
+      </div>
     );
+  };
+
+  return (
+    <div className="flex h-full gap-4 overflow-x-hidden bg-[#f8fafc] px-6 py-5">
+      <div className="w-80 shrink-0 rounded-xl border bg-white p-3">
+        <div className="mb-3 text-lg font-bold">Quản lý lớp</div>
+        <div className="mb-3 flex items-center rounded-lg border px-3">
+          <Search size={16} className="text-slate-500" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full border-0 px-2 py-2 text-sm outline-none"
+            placeholder="Tìm lớp..."
+          />
+        </div>
+        <div className="space-y-2">
+          {classItems.map((c) => (
+            <button
+              key={c.id}
+              onClick={() => setSelectedClassId(c.id)}
+              className={`w-full rounded-lg border p-3 text-left ${selected?.id === c.id ? 'border-blue-200 bg-blue-50' : 'border-transparent hover:bg-slate-50'}`}
+            >
+              <div className="text-sm font-bold">{c.name}</div>
+              <div className="text-xs text-slate-500">{c.code}</div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="min-w-0 flex-1 rounded-xl border bg-white">
+        {selected && (
+          <>
+            <div className="border-b px-5 py-4">
+              <div className="mb-3 flex items-center justify-between">
+                <h1 className="text-2xl font-bold">{selected.name}</h1>
+                <select
+                  value={selected.status}
+                  onChange={(e) => {
+                    const s = e.target.value as ITrainingClass['status'];
+                    updateClassStatus(selected.id, s);
+                    addClassLog(selected.id, 'CLASS_STATUS_CHANGED', `${STATUS_LABEL[selected.status]} -> ${STATUS_LABEL[s]}`, 'training');
+                  }}
+                  className="rounded-lg border bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700"
+                >
+                  {STATUS.map((s) => (
+                    <option key={s} value={s}>
+                      {STATUS_LABEL[s]} ({s})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 text-sm text-slate-600 md:grid-cols-3 xl:grid-cols-4">
+                <div>
+                  Mã lớp: <span className="font-semibold text-slate-800">{selected.code}</span>
+                </div>
+                <div>
+                  Trình độ: <span className="font-semibold text-slate-800">{inferredLevel}</span>
+                </div>
+                <div>
+                  Cơ sở: <span className="font-semibold text-slate-800">{selected.campus || '-'}</span>
+                </div>
+                <div>
+                  Ngày dự kiến: <span className="whitespace-nowrap font-semibold text-slate-800">{scheduleRange}</span>
+                </div>
+                <div>
+                  Sĩ số: <span className="font-semibold text-slate-800">{classSize} học viên</span>
+                </div>
+                <div>
+                  Ca dạy: <span className="font-semibold text-slate-800">{selected.schedule || '-'}</span>
+                </div>
+                <div>
+                  Ngôn ngữ: <span className="font-semibold text-slate-800">{selected.language || '-'}</span>
+                </div>
+                <div>
+                  Loại lớp: <span className="font-semibold text-slate-800">{classType}</span>
+                </div>
+              </div>
+
+              <div className="mt-3 flex gap-2">
+                <select
+                  value={newStudentId}
+                  onChange={(e) => setNewStudentId(e.target.value)}
+                  disabled={locked}
+                  className="rounded-lg border px-3 py-2 text-sm"
+                >
+                  <option value="">-- Chọn học viên --</option>
+                  {availableStudents.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name} ({s.code})
+                    </option>
+                  ))}
+                </select>
+                <button
+                  disabled={locked || !newStudentId}
+                  onClick={() => {
+                    addStudentToClass(selected.id, newStudentId);
+                    addClassLog(selected.id, 'ADD_STUDENT', `Thêm ${newStudentId}`, 'training');
+                    setNewStudentId('');
+                  }}
+                  className="inline-flex items-center gap-1 rounded-lg bg-[#1380ec] px-3 py-2 text-sm font-bold text-white disabled:opacity-50"
+                >
+                  <Plus size={14} /> Thêm học viên
+                </button>
+              </div>
+            </div>
+
+            <div className="border-b px-5">
+              {TAB_ITEMS.map((item) => (
+                <button
+                  key={item.key}
+                  onClick={() => setTab(item.key)}
+                  className={`border-b-2 px-4 py-3 text-sm font-bold ${tab === item.key ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500'}`}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="h-[520px] overflow-y-auto overflow-x-hidden p-5">{renderTabContent()}</div>
+          </>
+        )}
+      </div>
+
+      {noteModal && selected && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4">
+          <div className="w-full max-w-2xl rounded-xl bg-white p-5">
+            <h3 className="mb-4 text-lg font-bold">Ghi chú học tập - {noteModal.studentName}</h3>
+            <div className="mb-3">
+              <label className="mb-1 block text-xs font-bold uppercase text-slate-600">Buổi học</label>
+              <select
+                value={noteModal.sessionId}
+                onChange={(e) => onChangeNoteSession(e.target.value)}
+                className="w-full rounded-lg border px-3 py-2 text-sm"
+              >
+                {sessions.map((session) => (
+                  <option key={session.id} value={session.id}>
+                    {getSessionLabel(session)} ({fd(session.date)})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-bold uppercase text-slate-600">Nội dung ghi chú & đánh giá</label>
+              <textarea
+                value={noteModal.note}
+                onChange={(e) => setNoteModal((prev) => (prev ? { ...prev, note: e.target.value } : prev))}
+                rows={6}
+                readOnly={locked}
+                className="w-full rounded-lg border p-3 text-sm"
+                placeholder="Nhập ghi chú học tập..."
+              />
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={() => setNoteModal(null)} className="rounded-lg border px-4 py-2 text-sm font-semibold">
+                Đóng
+              </button>
+              <button
+                disabled={locked || !noteModal.note.trim()}
+                onClick={saveStudyNote}
+                className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              >
+                <NotebookPen size={14} /> Lưu ghi chú
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {debtModal && selected && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/35 p-4">
+          <div className="w-full max-w-2xl rounded-xl bg-white p-5">
+            <h3 className="mb-2 text-lg font-bold">Chi tiết công nợ</h3>
+            <div className="mb-2 text-sm text-slate-600">Tổng nợ: {formatMoney(debtModal.totalDebt || 0)}</div>
+            <table className="w-full">
+              <thead>
+                <tr>
+                  <th className="border-b py-2 text-left text-xs uppercase">Kỳ</th>
+                  <th className="border-b py-2 text-left text-xs uppercase">Hạn đóng</th>
+                  <th className="border-b py-2 text-left text-xs uppercase">Số tiền</th>
+                  <th className="border-b py-2 text-left text-xs uppercase">Trạng thái</th>
+                  <th className="border-b py-2 text-right text-xs uppercase">Thao tác</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(debtModal.debtTerms || []).map((t) => (
+                  <tr key={t.termNo}>
+                    <td className="py-2 text-sm">Kỳ {t.termNo}</td>
+                    <td className="py-2 text-sm">{fd(t.dueDate)}</td>
+                    <td className="py-2 text-sm">{formatMoney(t.amount)}</td>
+                    <td className="py-2 text-sm">{t.status}</td>
+                    <td className="py-2 text-right">
+                      <button
+                        disabled={locked || t.status === 'PAID'}
+                        onClick={() => {
+                          const next = markDebtTermPaid(selected.id, debtModal.studentId, t.termNo);
+                          if (next) {
+                            addClassLog(selected.id, 'UPDATE_DEBT', `Đánh dấu đã thu kỳ ${t.termNo} cho ${debtModal.studentId}`, 'training');
+                            setDebtModal(next);
+                          }
+                        }}
+                        className="rounded-lg bg-emerald-600 px-3 py-1 text-xs font-semibold text-white disabled:opacity-50"
+                      >
+                        Đã đóng
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div className="mt-4 text-right">
+              <button onClick={() => setDebtModal(null)} className="rounded-lg border px-4 py-2 text-sm font-semibold">
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 };
 
 export default TrainingClassList;

@@ -729,7 +729,8 @@ const SalesLeadQuickProcess: React.FC = () => {
                                         console.log('[Convert] Contact created:', savedContact.id);
 
                                         // 2. Create Deal
-                                        const computedValue = (lead.productItems || []).reduce((sum, item) => {
+                                        const productItems = Array.isArray(lead.productItems) ? lead.productItems : [];
+                                        const computedValue = productItems.reduce((sum, item) => {
                                             return sum + (item.price * item.quantity);
                                         }, 0);
 
@@ -737,14 +738,14 @@ const SalesLeadQuickProcess: React.FC = () => {
                                             id: `D-${Date.now()}`,
                                             leadId: savedContact.id,
                                             title: `${lead.name} - ${lead.program || 'Chương trình'}`,
-                                            value: lead.value || computedValue || 0, // S? c?p nh?t sau khi ch?n s?n ph?m
-                                            stage: DealStage.NEW_OPP, // Giai do?n d?u ti�n
+                                            value: lead.value || computedValue || 0, // Sẽ cập nhật sau khi chọn sản phẩm
+                                            stage: DealStage.NEW_OPP, // Giai đoạn đầu tiên
                                             ownerId: lead.ownerId,
                                             expectedCloseDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // +30 days
                                             products: lead.program ? [lead.program] : [],
                                             probability: 20,
                                             createdAt: new Date().toISOString(),
-                                            activities: (lead.activities || []).map(a => ({...a, type: a.type === 'message' ? 'chat' : a.type === 'system' ? 'note' : a.type as any})) as any
+                                            activities: (Array.isArray(lead.activities) ? lead.activities : []).map(a => ({ ...a, type: a.type === 'message' ? 'chat' : a.type === 'system' ? 'note' : a.type as any })) as any
                                         };
 
                                         addDeal(newDeal);

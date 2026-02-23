@@ -1,4 +1,3 @@
-
 // Các vai trò trong hệ thống ULA
 export enum UserRole {
   ADMIN = 'Admin',
@@ -149,6 +148,7 @@ export interface IContact {
   dealIds?: string[]; // Danh sách Deal liên quan
   notes?: string; // Ghi chú tổng hợp
   activities?: any[]; // Nhật ký hoạt động (Sync từ Lead)
+  marketingData?: IMarketingData;
 }
 
 export interface ILead {
@@ -179,6 +179,7 @@ export interface ILead {
 
   // Additional fields for UI/Logic compatibility
   score?: number;
+  pickUpDate?: string;
   slaStatus?: 'normal' | 'warning' | 'danger';
   slaReason?: string; // Lý do cảnh báo SLA
   lastActivityDate?: string;
@@ -363,10 +364,19 @@ export interface IInstallment {
 // Entity: Giao dịch thực tế
 export interface ITransaction {
   id: string;
-  installmentId: string;
+  quotationId: string;
+  soCode: string;
+  customerId: string;
+  studentName?: string;
   amount: number;
-  date: string;
-  method: 'Transfer' | 'Cash';
+  method: 'CHUYEN_KHOAN' | 'TIEN_MAT' | 'THE' | 'OTHER';
+  proofType?: 'UNC' | 'PHIEU_THU' | 'NONE';
+  proofFiles?: { id: string; name: string; url: string }[];
+  bankRefCode?: string;
+  status: 'CHO_DUYET' | 'DA_DUYET' | 'TU_CHOI';
+  createdAt: number;
+  createdBy: string;
+  note?: string;
 }
 
 export interface AIAnalysisResult {
@@ -453,11 +463,204 @@ export interface IStudent {
   profileImage?: string;
   createdAt: string;
 }
+
+export interface IAdmission {
+  id: string;
+  code: string;
+  studentId: string;
+  quotationId?: string;
+  classId: string;
+  campusId: string;
+  status: 'DRAFT' | 'CHO_DUYET' | 'DA_DUYET' | 'TU_CHOI';
+  createdBy: string;
+  createdAt: string;
+  updatedAt?: string;
+  approvedAt?: string;
+  approvedBy?: string;
+  note?: string;
+}
+
+export interface IClassStudent {
+  id: string;
+  classId: string;
+  studentId: string;
+  status: 'ACTIVE' | 'BAO_LUU' | 'NGHI_HOC';
+  studentStatus?: 'ACTIVE' | 'BAO_LUU' | 'NGHI_HOC';
+  debtStatus?: 'DA_DONG' | 'THIEU' | 'QUA_HAN';
+  debtTerms?: IDebtTerm[];
+  nearestDueDate?: string;
+  totalDebt?: number;
+  startDate?: string;
+  createdAt: number;
+}
+
+export type ClassStatus = 'DRAFT' | 'ACTIVE' | 'DONE' | 'CANCELED';
+
+export type AttendanceStatus = 'PRESENT' | 'ABSENT' | 'LATE';
+
+export interface IClassSession {
+  id: string;
+  classId: string;
+  date: string; // 'YYYY-MM-DD' hoặc ISO string
+  title?: string;
+  order: number;
+}
+
+export interface IAttendanceRecord {
+  id: string;
+  classId: string;
+  studentId: string;
+  sessionId: string;
+  status: AttendanceStatus;
+  updatedAt: number;
+  updatedBy: string;
+}
+
+export interface IStudyNote {
+  id: string;
+  classId: string;
+  studentId: string;
+  sessionId: string;
+  note: string;
+  createdAt: number;
+  createdBy: string;
+  updatedAt?: number;
+  updatedBy?: string;
+}
+
+export type NormalizedStatus = 'UNPROCESSED' | 'PROCESSING' | 'DEPARTED';
+
+export type CaseRecord = {
+  id: string;
+  country?: string | null;
+  program?: string | null;
+  status: NormalizedStatus;
+  createdAt?: string;
+  branchId?: string;
+};
+
+export type CaseStatusBreakdown = {
+  unprocessed: number;
+  processing: number;
+  departed: number;
+};
+
+export type CountryCaseStat = { country: string } & CaseStatusBreakdown;
+export type ProgramCaseStat = { program: string } & CaseStatusBreakdown;
+
+export type DashboardCaseStats = {
+  byCountry: CountryCaseStat[];
+  byProgram: ProgramCaseStat[];
+};
+
+export type DashboardFilters = {
+  dateRange?: { from: string; to: string };
+  branchId?: string | 'all';
+};
+
+export interface ITrainingClass {
+  id: string;
+  code: string;
+  name: string;
+  campus?: string;
+  schedule?: string;
+  language?: string;
+  level?: string;
+  classType?: 'Online' | 'Offline' | 'App';
+  maxStudents?: number;
+  startDate?: string;
+  endDate?: string;
+  status: ClassStatus;
+  teacherId?: string;
+}
+
+export interface IDebtTerm {
+  termNo: number;
+  dueDate: string;
+  amount: number;
+  status: 'PAID' | 'UNPAID' | 'OVERDUE';
+}
+
+export interface IStudentScore {
+  id: string;
+  classId: string;
+  studentId: string;
+  assignment?: number;
+  midterm?: number;
+  final?: number;
+  average?: number;
+  rank?: 'A' | 'B' | 'C' | 'D';
+  updatedAt: number;
+}
+
+export interface ITeacher {
+  id: string;
+  code: string;
+  fullName: string;
+  phone: string;
+  dob?: string;
+  birthYear?: number;
+  email?: string;
+  address?: string;
+  contractType: 'Full-time' | 'Part-time' | 'CTV';
+  contractNote?: string;
+  startDate: string;
+  teachSubjects: string[];
+  teachLevels: string[];
+  certificates: string[];
+  status: 'ACTIVE' | 'INACTIVE';
+  assignedClassIds: string[];
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface ILogNote {
+  id: string;
+  entityType: 'TEACHER' | 'CLASS';
+  entityId: string;
+  action: string;
+  message: string;
+  createdAt: string;
+  createdBy: string;
+}
+
 export enum QuotationStatus {
   DRAFT = 'New Quote',
   SENT = 'Quotation Sent',
+  SALE_CONFIRMED = 'Sale Confirmed',
   SALE_ORDER = 'Sale Order',
   LOCKED = 'Locked'
+}
+
+export interface IQuotationLogNote {
+  id: string;
+  timestamp: string;
+  user: string;
+  action: string;
+  detail?: string;
+}
+
+export type ContractFlowStatus = 'quotation' | 'sale_confirmed' | 'signed_contract' | 'enrolled' | 'active';
+
+export interface IQuotationPaymentDocument {
+  method: 'CK' | 'CASH';
+  bankTransactionCode?: string;
+  bankConfirmationCode?: string;
+  cashReceiptImage?: string;
+  cashReceiptCode?: string;
+  note?: string;
+  loggedAt: string;
+  loggedBy?: string;
+}
+
+export interface IQuotationLineItem {
+  id: string;
+  productId?: string;
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  discount: number;
+  total: number;
 }
 
 export interface IQuotation {
@@ -472,21 +675,58 @@ export interface IQuotation {
 
   serviceType: 'StudyAbroad' | 'Training' | 'Combo';
   product: string; // Course name
+  lineItems?: IQuotationLineItem[];
   amount: number;
   discount?: number;
   finalAmount: number;
+  pricingNote?: string;
 
   createdAt: string;
   updatedAt: string;
   status: QuotationStatus;
+  saleConfirmedAt?: string;
+  saleConfirmedBy?: string;
+  transactionStatus?: 'NONE' | 'CHO_DUYET' | 'DA_DUYET' | 'TU_CHOI';
+  lockedAt?: string;
+  lockedBy?: string;
 
   // Class Info
   schedule?: string;
   classCode?: string;
+  studentPhone?: string;
+  studentEmail?: string;
+  studentDob?: string;
+  studentAddress?: string;
+  identityCard?: string;
+  guardianName?: string;
+  guardianPhone?: string;
+
+  // Study Abroad Case metadata (LocalStorage adapter; TODO replace with backend API).
+  country?: string;
+  targetCountry?: string;
+  programType?: string;
+  major?: string;
+  salespersonName?: string;
+  branchName?: string;
+  intakeTerm?: string;
+  caseStage?: string;
+  caseProfileStatus?: 'FULL' | 'MISSING';
+  certificateInfo?: string;
+  serviceProcessStatus?: 'UNPROCESSED' | 'PROCESSING';
+  invoiceState?: 'NONE' | 'HAS_INVOICE' | 'PAID';
+  cmtcStatus?: 'PENDING' | 'APPROVED' | 'REJECTED';
+  expectedFlightTerm?: string;
+  stageUpdatedAt?: string;
+  internalNote?: string;
+  internalNoteUpdatedAt?: string;
 
   // Payment Info (Log SO)
   paymentMethod?: 'CK' | 'CASH';
   paymentProof?: string; // Image URL or code
+  paymentDocuments?: IQuotationPaymentDocument;
+  needInvoice?: boolean;
+  logNotes?: IQuotationLogNote[];
+  contractStatus?: ContractFlowStatus;
 
   createdBy: string;
 }
@@ -515,6 +755,38 @@ export interface IActualTransaction {
   relatedId?: string; // SO ID, Student ID...
   createdBy: string;
   createdAt: string;
+}
+
+export interface IActualTransactionLog {
+  id: string;
+  transactionId: string;
+  action: 'CREATE' | 'UPDATE_STATUS' | 'UPDATE';
+  message: string;
+  createdAt: string;
+  createdBy: string;
+}
+
+export type RefundStatus = 'CHO_SALE_DUYET' | 'CHO_KE_TOAN_DUYET' | 'DA_HOAN_TIEN' | 'DA_TU_CHOI';
+
+export interface IRefundRequest {
+  id: string;
+  createdAt: string;
+  studentName: string;
+  contractCode: string;
+  program?: string;
+  paidAmount: number;
+  requestedAmount: number;
+  approvedAmount?: number | null;
+  reason: string;
+  status: RefundStatus;
+}
+
+export interface IRefundLog {
+  id: string;
+  refundId: string;
+  action: string;
+  createdAt: string;
+  createdBy: string;
 }
 
 // 5. INVOICE MANAGEMENT

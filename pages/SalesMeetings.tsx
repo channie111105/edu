@@ -1,57 +1,65 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useEffect, useMemo, useState } from 'react';
 import {
-    Calendar, Search, Filter, CheckCircle, XCircle,
-    FileText, User, MapPin, Clock, ChevronRight, MoreHorizontal,
-    Building2, ClipboardList
+    Calendar, Search, Filter, XCircle,
+    FileText, User, MapPin,
+    Building2, ClipboardList, Monitor, Plus
 } from 'lucide-react';
 import { IMeeting, MeetingStatus, MeetingType, UserRole } from '../types';
 import { getMeetings, updateMeeting, getLeadById, saveLead } from '../utils/storage';
 import { useAuth } from '../contexts/AuthContext';
+import CreateMeetingModal from '../components/CreateMeetingModal';
+import { MEETING_TEACHERS, hasTeacherConflict } from '../utils/meetingHelpers';
 
 const SalesMeetings: React.FC = () => {
     const { user } = useAuth();
     const [meetings, setMeetings] = useState<IMeeting[]>([]);
 
-    // Filters
     const [filterStatus, setFilterStatus] = useState<string>('all');
-    const [filterDate, setFilterDate] = useState<string>('all'); // today, tomorrow, week
-    const [filterBranch, setFilterBranch] = useState<string>('all'); // branch filter
+    const [filterDate, setFilterDate] = useState<string>('all');
+    const [filterBranch, setFilterBranch] = useState<string>('all');
+    const [filterType, setFilterType] = useState<string>('all');
     const [searchTerm, setSearchTerm] = useState('');
 
     const [selectedMeeting, setSelectedMeeting] = useState<IMeeting | null>(null);
     const [isResultModalOpen, setIsResultModalOpen] = useState(false);
+    const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
-    // Result Form State
     const [resultScore, setResultScore] = useState('');
     const [resultNotes, setResultNotes] = useState('');
+
+    const loadData = () => setMeetings(getMeetings());
 
     useEffect(() => {
         loadData();
     }, []);
 
-    const loadData = () => {
-        setMeetings(getMeetings());
-    };
+    useEffect(() => {
+        const syncMeetings = () => loadData();
+        window.addEventListener('educrm:meetings-changed', syncMeetings as EventListener);
+        window.addEventListener('storage', syncMeetings);
+        return () => {
+            window.removeEventListener('educrm:meetings-changed', syncMeetings as EventListener);
+            window.removeEventListener('storage', syncMeetings);
+        };
+    }, []);
 
     const handleConfirm = (id: string) => {
         const meeting = meetings.find(m => m.id === id);
-        if (meeting && meeting.status === MeetingStatus.DRAFT) {
-            const updated = { ...meeting, status: MeetingStatus.CONFIRMED };
-            updateMeeting(updated);
-            loadData();
-        }
+        if (!meeting || meeting.status !== MeetingStatus.DRAFT) return;
+
+        const canConfirmNow = new Date() >= new Date(meeting.datetime);
+        if (!canConfirmNow) return;
+
+        updateMeeting({ ...meeting, status: MeetingStatus.CONFIRMED });
+        loadData();
     };
 
     const handleCancel = (id: string) => {
-        if (window.confirm('Bạn có chắc chắn muốn hủy lịch hẹn này?')) {
-            const meeting = meetings.find(m => m.id === id);
-            if (meeting) {
-                // In a real app, we might ask for a reason here
-                const updated = { ...meeting, status: MeetingStatus.CANCELLED };
-                updateMeeting(updated);
-                loadData();
-            }
-        }
+        if (!window.confirm('Bạn có chắc chắn muốn hủy lịch hẹn này?')) return;
+        const meeting = meetings.find(m => m.id === id);
+        if (!meeting) return;
+        updateMeeting({ ...meeting, status: MeetingStatus.CANCELLED });
+        loadData();
     };
 
     const openResultModal = (meeting: IMeeting) => {
@@ -62,89 +70,59 @@ const SalesMeetings: React.FC = () => {
     };
 
     const submitResult = () => {
-        if (selectedMeeting) {
-            // 1. Update Meeting
-            const updated: IMeeting = {
-                ...selectedMeeting,
-                status: MeetingStatus.SUBMITTED,
-                result: resultScore,
-                feedback: resultNotes,
-                teacherId: user?.id,
-                teacherName: user?.name
+        if (!selectedMeeting) return;
+
+        const updated: IMeeting = {
+            ...selectedMeeting,
+            status: MeetingStatus.SUBMITTED,
+            result: resultScore,
+            feedback: resultNotes,
+            teacherId: user?.id,
+            teacherName: user?.name
+        };
+        updateMeeting(updated);
+
+        const lead = getLeadById(selectedMeeting.leadId);
+        if (lead) {
+            const logEntry: any = {
+                id: `res-${Date.now()}`,
+                type: 'system',
+                title: `KẾT QUẢ TEST: ${resultScore}`,
+                description: `GV ${user?.name || 'Giáo viên'} đánh giá: ${resultNotes}`,
+                timestamp: new Date().toISOString(),
+                user: user?.name || 'Teacher'
             };
-            updateMeeting(updated);
-
-            // 2. Sync to Lead's Activity Log
-            const lead = getLeadById(selectedMeeting.leadId);
-            if (lead) {
-                const newActivity = {
-                    id: `res-${Date.now()}`,
-                    type: 'system', // or 'note'
-                    content: `KẾT QUẢ TEST: ${resultScore}`,
-                    subContent: `GV ${user?.name || 'Giáo viên'} đánh giá: ${resultNotes}`,
-                    timestamp: new Date().toLocaleString('vi-VN'),
-                    isSystem: true
-                };
-                // Assuming lead.activities exists, if not initialize array
-                const currentActivities = lead.activities || [];
-                // We need to match the Activity interface in LeadDetails (or storage)
-                // In storage.ts, Activity is IActivityLog. LeadDetails uses local interface IActivity mapping. 
-                // Let's rely on storage.ts structure which usually mirrors IActivityLog in types.ts
-                // IActivityLog: { id, type, timestamp, title, description, user, ... }
-
-                // Let's look at types.ts IActivityLog definition again to be safe.
-                // It has: type: 'note' | 'message' | 'system' | 'activity'
-
-                const logEntry: any = { // Using any to bypass strict type check for now if slight mismatch
-                    id: `res-${Date.now()}`,
-                    type: 'system',
-                    title: `KẾT QUẢ TEST: ${resultScore}`,
-                    description: `GV ${user?.name || 'Giáo viên'} đánh giá: ${resultNotes}`,
-                    timestamp: new Date().toISOString(),
-                    user: user?.name || 'Teacher'
-                };
-
-                const updatedLead = {
-                    ...lead,
-                    activities: [logEntry, ...currentActivities] // Prepend
-                };
-                saveLead(updatedLead);
-            }
-
-            setIsResultModalOpen(false);
-            loadData();
+            saveLead({ ...lead, activities: [logEntry, ...(lead.activities || [])] });
         }
+
+        setIsResultModalOpen(false);
+        loadData();
     };
 
-    // Permission Helpers
     const isSales = user?.role === UserRole.SALES_REP || user?.role === UserRole.SALES_LEADER;
     const isTeacher = user?.role === UserRole.TEACHER || user?.role === UserRole.TRAINING;
     const isAdmin = user?.role === UserRole.ADMIN || user?.role === UserRole.FOUNDER;
 
     const canConfirm = isSales || isAdmin;
-    // EXTENDED: Allow Sales to convert/submit result for testing flow
     const canResult = isTeacher || isAdmin || isSales;
 
-    const MOCK_TEACHERS = [
-        { id: 'T01', name: 'Nguyễn Văn A (IELTS)' },
-        { id: 'T02', name: 'Trần Thị B (Tiếng Đức)' },
-        { id: 'T03', name: 'Lê Văn C (Tiếng Trung)' }
-    ];
-
     const assignTeacher = (meetingId: string, teacherId: string) => {
-        const teacher = MOCK_TEACHERS.find(t => t.id === teacherId);
+        const teacher = MEETING_TEACHERS.find(t => t.id === teacherId);
         const meeting = meetings.find(m => m.id === meetingId);
         if (meeting && teacher) {
-            const updated = { ...meeting, teacherId: teacher.id, teacherName: teacher.name };
-            updateMeeting(updated);
+            if (hasTeacherConflict(teacher.id, meeting.datetime, meeting.id)) {
+                window.alert('Giáo viên đã có lịch trùng giờ. Vui lòng cân nhắc đổi giờ hoặc đổi giáo viên.');
+            }
+            updateMeeting({ ...meeting, teacherId: teacher.id, teacherName: teacher.name });
             loadData();
         }
     };
 
-    const filteredMeetings = meetings.filter(m => {
+    const filteredMeetings = useMemo(() => meetings.filter(m => {
         const matchesSearch = m.leadName.toLowerCase().includes(searchTerm.toLowerCase()) || m.leadPhone.includes(searchTerm);
         const matchesStatus = filterStatus === 'all' || m.status === filterStatus;
         const matchesBranch = filterBranch === 'all' || (m.campus === filterBranch);
+        const matchesType = filterType === 'all' || m.type === filterType;
 
         let matchesDate = true;
         const mDate = new Date(m.datetime);
@@ -160,19 +138,19 @@ const SalesMeetings: React.FC = () => {
         } else if (filterDate === 'tomorrow') {
             matchesDate = mDate >= startOfTomorrow && mDate < endOfTomorrow;
         } else if (filterDate === 'week') {
-            const startOfWeek = new Date(now.setDate(now.getDate() - now.getDay())); // Sunday
+            const startOfWeek = new Date(now.setDate(now.getDate() - now.getDay()));
             matchesDate = mDate >= startOfWeek;
         }
 
-        return matchesSearch && matchesStatus && matchesDate && matchesBranch;
-    });
+        return matchesSearch && matchesStatus && matchesBranch && matchesType && matchesDate;
+    }), [meetings, searchTerm, filterStatus, filterBranch, filterType, filterDate]);
 
     const getStatusBadge = (status: MeetingStatus) => {
         switch (status) {
             case MeetingStatus.DRAFT:
                 return <span className="px-2 py-1 rounded text-xs font-bold bg-slate-100 text-slate-600 border border-slate-200">Draft</span>;
             case MeetingStatus.CONFIRMED:
-                return <span className="px-2 py-1 rounded text-xs font-bold bg-blue-100 text-blue-700 border border-blue-200">Waiting Test</span>;
+                return <span className="px-2 py-1 rounded text-xs font-bold bg-blue-100 text-blue-700 border border-blue-200">Confirm</span>;
             case MeetingStatus.SUBMITTED:
                 return <span className="px-2 py-1 rounded text-xs font-bold bg-green-100 text-green-700 border border-green-200">Submit</span>;
             case MeetingStatus.CANCELLED:
@@ -184,41 +162,34 @@ const SalesMeetings: React.FC = () => {
 
     return (
         <div className="flex flex-col h-full bg-[#f8fafc] p-6 font-inter">
-            {/* Header */}
             <div className="flex justify-between items-center mb-6">
                 <div>
                     <h1 className="text-2xl font-bold text-slate-900">Lịch hẹn & Test đầu vào</h1>
                     <p className="text-sm text-slate-500 mt-1">Quản lý lịch phỏng vấn, test trình độ học viên</p>
                 </div>
-                <div className="flex gap-3">
-                    <button onClick={loadData} className="px-3 py-2 bg-white border border-slate-200 rounded text-slate-600 text-sm font-medium hover:bg-slate-50 shadow-sm transition-all">
-                        Refresh
-                    </button>
-                    {/* Activity Creation will handle Adding Meetings */}
-                </div>
+                <button
+                    onClick={() => setIsCreateModalOpen(true)}
+                    className="px-3 py-2 bg-emerald-600 border border-emerald-700 rounded text-white text-sm font-bold hover:bg-emerald-700 shadow-sm transition-all flex items-center gap-1"
+                >
+                    <Plus size={14} /> Tạo lịch hẹn
+                </button>
             </div>
 
-            {/* Filters */}
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm mb-6 flex flex-wrap gap-4 items-center">
-                <div className="relative w-64">
+                <div className="relative flex-1 min-w-[300px]">
                     <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                     <input
                         type="text"
                         placeholder="Tìm tên, SĐT..."
-                        className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-blue-500 transition-all"
+                        className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:bg-white focus:border-blue-500 transition-all shadow-sm"
                         value={searchTerm}
                         onChange={e => setSearchTerm(e.target.value)}
                     />
                 </div>
 
-                {/* Filter Date */}
                 <div className="flex items-center gap-2 border-l border-slate-200 pl-4 h-full">
                     <Calendar size={16} className="text-slate-400" />
-                    <select
-                        className="text-sm outline-none text-slate-700 font-medium bg-transparent cursor-pointer hover:text-blue-600"
-                        value={filterDate}
-                        onChange={e => setFilterDate(e.target.value)}
-                    >
+                    <select className="text-sm outline-none text-slate-700 font-medium bg-transparent cursor-pointer hover:text-blue-600" value={filterDate} onChange={e => setFilterDate(e.target.value)}>
                         <option value="all">Tất cả thời gian</option>
                         <option value="today">Hôm nay</option>
                         <option value="tomorrow">Ngày mai</option>
@@ -226,14 +197,9 @@ const SalesMeetings: React.FC = () => {
                     </select>
                 </div>
 
-                {/* Filter Branch */}
                 <div className="flex items-center gap-2 border-l border-slate-200 pl-4 h-full">
                     <Building2 size={16} className="text-slate-400" />
-                    <select
-                        className="text-sm outline-none text-slate-700 font-medium bg-transparent cursor-pointer hover:text-blue-600"
-                        value={filterBranch}
-                        onChange={e => setFilterBranch(e.target.value)}
-                    >
+                    <select className="text-sm outline-none text-slate-700 font-medium bg-transparent cursor-pointer hover:text-blue-600" value={filterBranch} onChange={e => setFilterBranch(e.target.value)}>
                         <option value="all">Tất cả cơ sở</option>
                         <option value="Hanoi">Hà Nội</option>
                         <option value="HCMC">TP. HCM</option>
@@ -241,35 +207,40 @@ const SalesMeetings: React.FC = () => {
                     </select>
                 </div>
 
-                {/* Filter Status */}
                 <div className="flex items-center gap-2 border-l border-slate-200 pl-4 h-full">
                     <Filter size={16} className="text-slate-400" />
-                    <select
-                        className="text-sm outline-none text-slate-700 font-medium bg-transparent cursor-pointer hover:text-blue-600"
-                        value={filterStatus}
-                        onChange={e => setFilterStatus(e.target.value)}
-                    >
+                    <select className="text-sm outline-none text-slate-700 font-medium bg-transparent cursor-pointer hover:text-blue-600" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
                         <option value="all">Tất cả trạng thái</option>
                         <option value={MeetingStatus.DRAFT}>Draft</option>
-                        <option value={MeetingStatus.CONFIRMED}>Waiting Test</option>
+                        <option value={MeetingStatus.CONFIRMED}>Confirm</option>
                         <option value={MeetingStatus.SUBMITTED}>Submit</option>
                         <option value={MeetingStatus.CANCELLED}>Cancel</option>
                     </select>
                 </div>
+
+                <div className="flex items-center gap-2 border-l border-slate-200 pl-4 h-full">
+                    <Monitor size={16} className="text-slate-400" />
+                    <select className="text-sm outline-none text-slate-700 font-medium bg-transparent cursor-pointer hover:text-blue-600 appearance-none" value={filterType} onChange={e => setFilterType(e.target.value)}>
+                        <option value="all">Tất cả hình thức</option>
+                        <option value={MeetingType.OFFLINE}>Offline</option>
+                        <option value={MeetingType.ONLINE}>Online</option>
+                        <option value={MeetingType.CONSULTING}>Tư vấn trực tiếp</option>
+                    </select>
+                </div>
             </div>
 
-            {/* Table */}
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm flex-1 overflow-hidden flex flex-col">
                 <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse">
                         <thead className="bg-slate-50 text-slate-500 text-xs uppercase font-bold sticky top-0 border-b border-slate-200">
                             <tr>
-                                <th className="p-4 w-40">Thời gian</th>
-                                <th className="p-4 w-56">Thông tin khách</th>
-                                <th className="p-4 w-48">Địa chỉ</th>
-                                <th className="p-4 w-40">Phụ trách</th>
-                                <th className="p-4 w-40">Giáo viên</th>
-                                <th className="p-4 min-w-[180px]">Nội dung & Ghi chú</th>
+                                <th className="p-4 w-44">Thời gian & Ngày</th>
+                                <th className="p-4 w-56">Contact Name / SĐT</th>
+                                <th className="p-4 w-56">Địa chỉ</th>
+                                <th className="p-4 w-32">Cơ sở</th>
+                                <th className="p-4 w-44">Salesperson</th>
+                                <th className="p-4 w-44">Giáo viên test</th>
+                                <th className="p-4 min-w-[220px]">Hình thức hẹn & Notes</th>
                                 <th className="p-4 w-32">Trạng thái</th>
                                 <th className="p-4 w-36 text-right">Hành động</th>
                             </tr>
@@ -277,9 +248,8 @@ const SalesMeetings: React.FC = () => {
                         <tbody className="divide-y divide-slate-100 text-sm">
                             {filteredMeetings.length > 0 ? filteredMeetings.map(m => {
                                 const mDate = new Date(m.datetime);
-                                // Logic Overdue: Past time and NOT Submitted/Cancelled
+                                const canConfirmNow = new Date() >= mDate;
                                 const isOverdue = m.status !== MeetingStatus.SUBMITTED && m.status !== MeetingStatus.CANCELLED && mDate < new Date();
-                                // Logic Upcoming: Not overdue, but soon (e.g. today)
                                 const isToday = mDate.toDateString() === new Date().toDateString();
                                 const isUpcoming = !isOverdue && isToday;
 
@@ -312,12 +282,12 @@ const SalesMeetings: React.FC = () => {
                                             </div>
                                         </td>
                                         <td className="p-4 align-top">
-                                            <div className="flex flex-col gap-1">
-                                                <div className="text-sm font-medium text-slate-700">{m.salesPersonName || '-'}</div>
-                                                <div className="text-xs text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded w-fit">
-                                                    {m.campus || 'N/A'}
-                                                </div>
+                                            <div className="text-xs text-slate-600 font-semibold bg-slate-100 px-2 py-1 rounded w-fit">
+                                                {m.campus || 'N/A'}
                                             </div>
+                                        </td>
+                                        <td className="p-4 align-top">
+                                            <div className="text-sm font-medium text-slate-700">{m.salesPersonName || '-'}</div>
                                         </td>
                                         <td className="p-4 align-top">
                                             {m.teacherName ? (
@@ -329,7 +299,7 @@ const SalesMeetings: React.FC = () => {
                                                     defaultValue=""
                                                 >
                                                     <option value="" disabled>-- Chọn GV --</option>
-                                                    {MOCK_TEACHERS.map(t => (
+                                                    {MEETING_TEACHERS.map(t => (
                                                         <option key={t.id} value={t.id}>{t.name}</option>
                                                     ))}
                                                 </select>
@@ -343,12 +313,12 @@ const SalesMeetings: React.FC = () => {
                                                         {m.type}
                                                     </span>
                                                 </div>
-
-                                                {m.notes && <div className="text-xs text-slate-600 italic bg-yellow-50 p-2 rounded border border-yellow-100 flex gap-1">
-                                                    <FileText size={12} className="shrink-0 mt-0.5 text-yellow-600" />
-                                                    "{m.notes}"
-                                                </div>}
-
+                                                {m.notes && (
+                                                    <div className="text-xs text-slate-600 italic bg-yellow-50 p-2 rounded border border-yellow-100 flex gap-1">
+                                                        <FileText size={12} className="shrink-0 mt-0.5 text-yellow-600" />
+                                                        "{m.notes}"
+                                                    </div>
+                                                )}
                                                 {m.result && (
                                                     <div className="bg-green-50 p-2 rounded border border-green-100 mt-1">
                                                         <div className="flex justify-between items-center mb-1">
@@ -360,15 +330,15 @@ const SalesMeetings: React.FC = () => {
                                                 )}
                                             </div>
                                         </td>
-                                        <td className="p-4 align-top">
-                                            {getStatusBadge(m.status)}
-                                        </td>
+                                        <td className="p-4 align-top">{getStatusBadge(m.status)}</td>
                                         <td className="p-4 align-top text-right">
                                             <div className="flex justify-end gap-2 items-center">
                                                 {m.status === MeetingStatus.DRAFT && canConfirm && (
                                                     <button
                                                         onClick={() => handleConfirm(m.id)}
-                                                        className="p-1.5 px-3 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 shadow-sm transition-all whitespace-nowrap"
+                                                        disabled={!canConfirmNow}
+                                                        className={`p-1.5 px-3 rounded-lg text-xs font-bold shadow-sm transition-all whitespace-nowrap ${canConfirmNow ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}
+                                                        title={canConfirmNow ? 'Xác nhận khách đến' : 'Chỉ được Confirm đúng hoặc sau giờ hẹn'}
                                                     >
                                                         Confirm
                                                     </button>
@@ -383,7 +353,6 @@ const SalesMeetings: React.FC = () => {
                                                     </button>
                                                 )}
 
-                                                {/* Cancel Button - Always Visible for active meetings */}
                                                 {(m.status === MeetingStatus.DRAFT || m.status === MeetingStatus.CONFIRMED) && (
                                                     <button
                                                         onClick={() => handleCancel(m.id)}
@@ -397,17 +366,16 @@ const SalesMeetings: React.FC = () => {
                                                 {m.status === MeetingStatus.SUBMITTED && (
                                                     <button disabled className="text-slate-400 text-xs font-medium cursor-not-allowed whitespace-nowrap">Đã xong</button>
                                                 )}
-                                                {(m.status === MeetingStatus.CANCELLED) && (
+                                                {m.status === MeetingStatus.CANCELLED && (
                                                     <span className="text-slate-400 text-xs whitespace-nowrap">-</span>
                                                 )}
                                             </div>
                                         </td>
                                     </tr>
                                 );
-
                             }) : (
                                 <tr>
-                                    <td colSpan={8} className="p-12 text-center text-slate-400 italic">
+                                    <td colSpan={9} className="p-12 text-center text-slate-400 italic">
                                         <div className="flex flex-col items-center gap-2">
                                             <Calendar size={48} className="text-slate-200" />
                                             <p>Không tìm thấy lịch hẹn nào phù hợp.</p>
@@ -420,7 +388,6 @@ const SalesMeetings: React.FC = () => {
                 </div>
             </div>
 
-            {/* RESULT MODAL */}
             {isResultModalOpen && selectedMeeting && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
                     <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setIsResultModalOpen(false)}></div>
@@ -459,22 +426,20 @@ const SalesMeetings: React.FC = () => {
                         </div>
 
                         <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-slate-100">
-                            <button
-                                onClick={() => setIsResultModalOpen(false)}
-                                className="px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-100 rounded-lg"
-                            >
-                                Hủy bỏ
-                            </button>
-                            <button
-                                onClick={submitResult}
-                                className="px-6 py-2 text-sm font-bold text-white bg-green-600 hover:bg-green-700 rounded-lg shadow-sm shadow-green-200"
-                            >
-                                Lưu & Hoàn thành
-                            </button>
+                            <button onClick={() => setIsResultModalOpen(false)} className="px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-100 rounded-lg">Hủy bỏ</button>
+                            <button onClick={submitResult} className="px-6 py-2 text-sm font-bold text-white bg-green-600 hover:bg-green-700 rounded-lg shadow-sm shadow-green-200">Lưu & Hoàn thành</button>
                         </div>
                     </div>
                 </div>
             )}
+
+            <CreateMeetingModal
+                isOpen={isCreateModalOpen}
+                onClose={() => setIsCreateModalOpen(false)}
+                onCreated={() => loadData()}
+                salesPersonId={user?.id || 'u2'}
+                salesPersonName={user?.name || 'Sales Rep'}
+            />
         </div>
     );
 };

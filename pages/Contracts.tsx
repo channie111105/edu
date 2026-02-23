@@ -1,138 +1,335 @@
+﻿import React, { useEffect, useMemo, useState } from 'react';
+import { Search } from 'lucide-react';
+import { IAdmission, IQuotation, IStudent, QuotationStatus } from '../types';
+import { getAdmissions, getQuotations, getStudents } from '../utils/storage';
+import { createAdmission } from '../services/enrollmentFlow.service';
+import { useAuth } from '../contexts/AuthContext';
+import { useNavigate } from 'react-router-dom';
 
-import React, { useState, useEffect } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
-import { FileSignature, Plus, Search, X, CheckCircle2, ArrowRight } from 'lucide-react';
+const MOCK_CLASSES = ['GER-A1-K35', 'GER-A1-K36', 'GER-B1-K12', 'AUS-COOK-K01'];
+const MOCK_CAMPUSES = ['Hà Nội', 'HCM', 'Đà Nẵng'];
 
-// Mock Deals that are WON but don't have a contract yet
-const PENDING_DEALS = [
-  { id: 'D-102', customer: 'Nguyễn Thùy Linh', product: 'Combo Đức A1-B1', value: '45.000.000', date: '20/10/2023', owner: 'Sarah Miller' },
-  { id: 'D-105', customer: 'Phạm Văn Hùng', product: 'Du học nghề Điều dưỡng', value: '180.000.000', date: '22/10/2023', owner: 'David Clark' },
-  { id: 'D-108', customer: 'Trần Thị Mai', product: 'Tiếng Trung HSK 4', value: '12.000.000', date: '23/10/2023', owner: 'Sarah Miller' },
-];
+type StudentRow = {
+  student: IStudent;
+  lockedQuotation: IQuotation;
+  latestAdmission?: IAdmission;
+};
 
 const Contracts: React.FC = () => {
   const navigate = useNavigate();
-  const location = useLocation();
+  const { user } = useAuth();
+
+  const [admissions, setAdmissions] = useState<IAdmission[]>([]);
+  const [students, setStudents] = useState<IStudent[]>([]);
+  const [quotations, setQuotations] = useState<IQuotation[]>([]);
+  const [search, setSearch] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
 
-  // Effect: Tự động mở Modal nếu đường dẫn là /contracts/new
-  useEffect(() => {
-    if (location.pathname.endsWith('/new')) {
-      setShowCreateModal(true);
-    }
-  }, [location]);
+  const [form, setForm] = useState({
+    studentId: '',
+    quotationId: '',
+    campusId: 'Hà Nội',
+    classId: '',
+    note: ''
+  });
 
-  // Handle closing modal (and navigating back if needed)
-  const handleCloseModal = () => {
-    setShowCreateModal(false);
-    if (location.pathname.endsWith('/new')) {
-      navigate('/contracts'); // Reset URL về danh sách để tránh F5 lại mở modal
+  const loadData = () => {
+    setAdmissions(getAdmissions());
+    setStudents(getStudents() as IStudent[]);
+    setQuotations(getQuotations());
+  };
+
+  useEffect(() => {
+    loadData();
+    window.addEventListener('educrm:admissions-changed', loadData as EventListener);
+    window.addEventListener('educrm:students-changed', loadData as EventListener);
+    window.addEventListener('educrm:quotations-changed', loadData as EventListener);
+    return () => {
+      window.removeEventListener('educrm:admissions-changed', loadData as EventListener);
+      window.removeEventListener('educrm:students-changed', loadData as EventListener);
+      window.removeEventListener('educrm:quotations-changed', loadData as EventListener);
+    };
+  }, []);
+
+  const rows = useMemo<StudentRow[]>(() => {
+    return students
+      .map((student) => {
+        const lockedQuotation = quotations.find(
+          (q) =>
+            q.status === QuotationStatus.LOCKED &&
+            (q.studentId === student.id || (!!student.soId && q.id === student.soId))
+        );
+        if (!lockedQuotation) return null;
+
+        const latestAdmission = admissions
+          .filter((a) => a.studentId === student.id)
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+
+        return { student, lockedQuotation, latestAdmission };
+      })
+      .filter(Boolean)
+      .filter((row) => {
+        const r = row as StudentRow;
+        const q = search.trim().toLowerCase();
+        if (!q) return true;
+        const text = [
+          r.student.code,
+          r.student.name,
+          r.student.phone,
+          r.lockedQuotation.soCode,
+          r.latestAdmission?.classId,
+          r.latestAdmission?.campusId,
+          (r.student as any).enrollmentStatus,
+          r.latestAdmission?.status
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        return text.includes(q);
+      }) as StudentRow[];
+  }, [admissions, students, quotations, search]);
+
+  const admissionEligibleStudents = useMemo(() => {
+    return students.filter((s) => {
+      const linkedQuotation = quotations.find((q) => q.studentId === s.id && q.status === QuotationStatus.LOCKED);
+      if (!linkedQuotation) return false;
+      if ((s as any).enrollmentStatus === 'DA_GHI_DANH') return false;
+      return true;
+    });
+  }, [students, quotations]);
+
+  const linkedQuotationsForStudent = useMemo(() => {
+    if (!form.studentId) return [];
+    return quotations.filter((q) => q.studentId === form.studentId && q.status === QuotationStatus.LOCKED);
+  }, [form.studentId, quotations]);
+
+  const admissionStatusBadge = (status?: IAdmission['status']) => {
+    if (!status) return <span className="px-2 py-1 rounded-full bg-slate-100 text-slate-600 text-xs font-bold">CHƯA TẠO</span>;
+    if (status === 'CHO_DUYET') return <span className="px-2 py-1 rounded-full bg-amber-100 text-amber-700 text-xs font-bold">CHO_DUYET</span>;
+    if (status === 'DA_DUYET') return <span className="px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold">DA_DUYET</span>;
+    if (status === 'TU_CHOI') return <span className="px-2 py-1 rounded-full bg-rose-100 text-rose-700 text-xs font-bold">TU_CHOI</span>;
+    return <span className="px-2 py-1 rounded-full bg-slate-100 text-slate-700 text-xs font-bold">DRAFT</span>;
+  };
+
+  const enrollmentStatusBadge = (status?: string) => {
+    if (status === 'DA_GHI_DANH') return <span className="px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold">ĐÃ GHI DANH</span>;
+    return <span className="px-2 py-1 rounded-full bg-amber-100 text-amber-700 text-xs font-bold">CHƯA GHI DANH</span>;
+  };
+
+  const openEnroll = (student?: IStudent, quotationId?: string) => {
+    setForm({
+      studentId: student?.id || '',
+      quotationId: quotationId || '',
+      campusId: student?.campus || 'Hà Nội',
+      classId: '',
+      note: ''
+    });
+    setShowCreateModal(true);
+  };
+
+  const onStudentChange = (studentId: string) => {
+    const selectedStudent = students.find((s) => s.id === studentId);
+    const studentQuotations = quotations.filter((q) => q.studentId === studentId && q.status === QuotationStatus.LOCKED);
+    setForm((prev) => ({
+      ...prev,
+      studentId,
+      quotationId: studentQuotations[0]?.id || '',
+      campusId: selectedStudent?.campus || prev.campusId
+    }));
+  };
+
+  const handleCreate = () => {
+    if (!form.studentId || !form.classId || !form.campusId) {
+      alert('Vui lòng chọn học viên, cơ sở, lớp');
+      return;
     }
+    if (!form.quotationId) {
+      alert('Không tìm thấy báo giá đã Khóa để ghi danh');
+      return;
+    }
+
+    try {
+      createAdmission({
+        studentId: form.studentId,
+        quotationId: form.quotationId || undefined,
+        classId: form.classId,
+        campusId: form.campusId,
+        note: form.note,
+        createdBy: user?.id || 'system'
+      });
+    } catch (error: any) {
+      alert(error?.message || 'Không thể tạo ghi danh');
+      return;
+    }
+
+    setShowCreateModal(false);
+    loadData();
+    alert('Đã tạo ghi danh, trạng thái CHO_DUYET');
   };
 
   return (
-    <div className="relative flex h-full w-full flex-col bg-white group/design-root overflow-x-hidden font-sans text-[#111418]">
-      <div className="layout-container flex h-full grow flex-col">
-        <div className="px-4 md:px-8 flex flex-1 justify-center py-5">
-          <div className="layout-content-container flex flex-col max-w-[1200px] flex-1">
-
-            {/* Header Title & Action */}
-            <div className="flex flex-wrap justify-end gap-3 p-4">
-              <div className="flex gap-3">
-                <button
-                  onClick={() => navigate('/contracts/approvals')}
-                  className="flex min-w-[84px] cursor-pointer items-center justify-center overflow-hidden rounded-lg h-10 px-4 bg-orange-50 text-orange-700 text-sm font-bold leading-normal hover:bg-orange-100 transition-colors border border-orange-200"
-                >
-                  <FileSignature size={16} className="mr-2" />
-                  <span className="truncate">Hàng chờ Duyệt</span>
-                </button>
-                <button
-                  onClick={() => setShowCreateModal(true)}
-                  className="flex min-w-[84px] cursor-pointer items-center justify-center overflow-hidden rounded-lg h-10 px-4 bg-[#1380ec] text-white text-sm font-bold leading-normal hover:bg-blue-700 transition-colors shadow-sm"
-                >
-                  <Plus size={18} className="mr-2" />
-                  <span className="truncate">Tạo Ghi danh</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Filters */}
-            <div className="flex gap-3 p-3 flex-wrap pr-4">
-              <div className="flex h-8 shrink-0 items-center justify-center gap-x-2 rounded-lg bg-[#f0f2f4] pl-4 pr-4 cursor-pointer hover:bg-slate-200">
-                <p className="text-[#111418] text-sm font-medium leading-normal">Tất cả loại hình</p>
-              </div>
-              <div className="flex h-8 shrink-0 items-center justify-center gap-x-2 rounded-lg bg-[#f0f2f4] pl-4 pr-4 cursor-pointer hover:bg-slate-200">
-                <p className="text-[#111418] text-sm font-medium leading-normal">Tất cả trạng thái</p>
-              </div>
-              <div className="flex h-8 shrink-0 items-center justify-center gap-x-2 rounded-lg bg-[#f0f2f4] pl-4 pr-4 cursor-pointer hover:bg-slate-200">
-                <p className="text-[#111418] text-sm font-medium leading-normal">Ngày ký gần nhất</p>
-              </div>
-            </div>
-
-            {/* Table Area (Stitch Design) */}
-            <div className="px-4 py-3">
-              <div className="flex overflow-hidden rounded-lg border border-[#dbe0e6] bg-white shadow-sm">
-                <table className="flex-1">
-                  <thead>
-                    <tr className="bg-slate-50 border-b border-[#dbe0e6]">
-                      <th className="px-4 py-3 text-left text-[#111418] w-[150px] text-sm font-bold leading-normal">Mã Ghi danh</th>
-                      <th className="px-4 py-3 text-left text-[#111418] w-[250px] text-sm font-bold leading-normal">Học viên</th>
-                      <th className="px-4 py-3 text-left text-[#111418] w-[200px] text-sm font-bold leading-normal">Loại HĐ</th>
-                      <th className="px-4 py-3 text-left text-[#111418] w-[150px] text-sm font-bold leading-normal">Ngày tạo</th>
-                      <th className="px-4 py-3 text-left text-[#111418] w-[150px] text-sm font-bold leading-normal">Trạng thái</th>
-                      <th className="px-4 py-3 text-left text-[#111418] text-[#617589] text-sm font-bold leading-normal">Hành động</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td colSpan={6} className="text-center py-12 text-slate-400 italic">
-                        <div className="flex flex-col items-center gap-2">
-                          <span className="p-3 bg-slate-50 rounded-full"><FileSignature size={24} className="text-slate-300" /></span>
-                          <span>Hiện chưa có hồ sơ ghi danh nào.</span>
-                        </div>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
+    <div className="p-6 max-w-7xl mx-auto font-sans text-slate-800">
+      <div className="flex justify-between items-end gap-4 mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">Học viên</h1>
+          <p className="text-slate-500 text-sm mt-1">Tự động tạo hồ sơ sau khi SO được khóa. Sale bấm Ghi danh, Đào tạo duyệt ở Hàng chờ Duyệt.</p>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={() => navigate('/contracts/approvals')}
+            className="px-4 py-2 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 font-semibold"
+          >
+            Hàng chờ Duyệt
+          </button>
         </div>
       </div>
 
-      {/* MODAL: Select Deal to Create Contract */}
-      {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={handleCloseModal}></div>
-          <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95">
-            <div className="p-6 border-b border-slate-200 flex justify-between items-center bg-slate-50">
-              <div>
-                <h3 className="text-lg font-bold text-slate-900">Tạo Ghi danh Mới</h3>
-                <p className="text-sm text-slate-500">Vui lòng chọn Deal đã chốt (Won) để khởi tạo hồ sơ ghi danh.</p>
-              </div>
-              <button onClick={handleCloseModal} className="text-slate-400 hover:text-slate-600">
-                <X size={24} />
-              </button>
-            </div>
+      <div className="relative mb-4 max-w-lg">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+        <input
+          type="text"
+          placeholder="Tìm theo mã học viên, học viên, SO, lớp..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
+        />
+      </div>
 
-            <div className="p-4 border-b border-slate-100 bg-white sticky top-0 z-10">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                <input
-                  type="text"
-                  placeholder="Tìm kiếm theo tên khách hàng hoặc mã Deal..."
-                  className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+      <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+        <table className="w-full text-left text-sm">
+          <thead className="bg-slate-50 text-slate-500 font-bold uppercase text-xs border-b border-slate-200">
+            <tr>
+              <th className="px-4 py-3">Mã học viên</th>
+              <th className="px-4 py-3">Học viên</th>
+              <th className="px-4 py-3">SO (Đã khóa)</th>
+              <th className="px-4 py-3">Cơ sở / Lớp</th>
+              <th className="px-4 py-3">Trạng thái học viên</th>
+              <th className="px-4 py-3">Trạng thái Admission</th>
+              <th className="px-4 py-3 text-right">Thao tác</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {rows.length > 0 ? (
+              rows.map(({ student, lockedQuotation, latestAdmission }) => (
+                <tr key={student.id} className="hover:bg-slate-50">
+                  <td className="px-4 py-3 font-bold text-indigo-700">{student.code || '-'}</td>
+                  <td className="px-4 py-3">
+                    <div className="font-semibold">{student.name || 'N/A'}</div>
+                    <div className="text-xs text-slate-500">{student.phone || '-'}</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="font-medium">{lockedQuotation.soCode}</div>
+                    <div className="text-xs text-slate-500">{lockedQuotation.customerName || ''}</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div>{latestAdmission?.campusId || student.campus || '-'}</div>
+                    <div className="text-xs font-semibold text-indigo-700">{latestAdmission?.classId || student.className || '-'}</div>
+                  </td>
+                  <td className="px-4 py-3">{enrollmentStatusBadge((student as any).enrollmentStatus)}</td>
+                  <td className="px-4 py-3">{admissionStatusBadge(latestAdmission?.status)}</td>
+                  <td className="px-4 py-3 text-right">
+                    {(student as any).enrollmentStatus !== 'DA_GHI_DANH' && latestAdmission?.status !== 'CHO_DUYET' ? (
+                      <button
+                        onClick={() => openEnroll(student, lockedQuotation.id)}
+                        className="px-3 py-1.5 rounded bg-blue-600 text-white text-xs font-bold hover:bg-blue-700"
+                      >
+                        Ghi danh
+                      </button>
+                    ) : latestAdmission?.status === 'CHO_DUYET' ? (
+                      <span className="text-xs text-amber-700 font-semibold">Đang chờ duyệt</span>
+                    ) : (
+                      <span className="text-xs text-slate-500">Đã ghi danh</span>
+                    )}
+                  </td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colSpan={7} className="text-center py-12 text-slate-500">Chưa có học viên đủ điều kiện (cần SO đã khóa).</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {showCreateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50">
+          <div className="w-full max-w-lg bg-white rounded-xl shadow-xl p-6">
+            <h3 className="text-lg font-bold text-slate-900 mb-4">Ghi danh học viên</h3>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-semibold mb-1">Học viên (chỉ hiện khi Quotation đã LOCKED)</label>
+                <select
+                  value={form.studentId}
+                  onChange={(e) => onStudentChange(e.target.value)}
+                  className="w-full border border-slate-300 rounded p-2"
+                >
+                  <option value="">-- Chọn học viên --</option>
+                  {admissionEligibleStudents.map((s) => (
+                    <option key={s.id} value={s.id}>{s.code} - {s.name}</option>
+                  ))}
+                </select>
+                {admissionEligibleStudents.length === 0 && (
+                  <p className="text-xs text-amber-600 mt-1">Chưa có học viên nào đủ điều kiện (cần có báo giá đã Khóa).</p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold mb-1">SO liên quan</label>
+                <select
+                  value={form.quotationId}
+                  onChange={(e) => setForm((p) => ({ ...p, quotationId: e.target.value }))}
+                  className="w-full border border-slate-300 rounded p-2"
+                  disabled={!form.studentId}
+                >
+                  <option value="">-- Chọn SO --</option>
+                  {linkedQuotationsForStudent.map((q) => (
+                    <option key={q.id} value={q.id}>{q.soCode} - {q.customerName}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-semibold mb-1">Cơ sở *</label>
+                  <select
+                    value={form.campusId}
+                    onChange={(e) => setForm((p) => ({ ...p, campusId: e.target.value }))}
+                    className="w-full border border-slate-300 rounded p-2"
+                  >
+                    {MOCK_CAMPUSES.map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold mb-1">Lớp *</label>
+                  <select
+                    value={form.classId}
+                    onChange={(e) => setForm((p) => ({ ...p, classId: e.target.value }))}
+                    className="w-full border border-slate-300 rounded p-2"
+                  >
+                    <option value="">-- Chọn lớp --</option>
+                    {MOCK_CLASSES.map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold mb-1">Ghi chú</label>
+                <textarea
+                  value={form.note}
+                  onChange={(e) => setForm((p) => ({ ...p, note: e.target.value }))}
+                  className="w-full border border-slate-300 rounded p-2 h-20"
                 />
               </div>
             </div>
 
-            <div className="overflow-y-auto p-2 bg-slate-50 min-h-[300px] flex items-center justify-center text-slate-400 italic">
-              Chưa có dữ liệu.
+            <div className="flex justify-end gap-2 mt-5">
+              <button onClick={() => setShowCreateModal(false)} className="px-3 py-2 border rounded border-slate-300">Hủy</button>
+              <button onClick={handleCreate} className="px-3 py-2 rounded bg-blue-600 text-white hover:bg-blue-700">Lưu</button>
             </div>
           </div>
         </div>
       )}
-
     </div>
   );
 };

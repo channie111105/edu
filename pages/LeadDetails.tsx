@@ -34,7 +34,7 @@ const LeadDetails: React.FC = () => {
    const [noteContent, setNoteContent] = useState('');
    const [activityType, setActivityType] = useState<'note' | 'meeting'>('note');
    const [meetingDate, setMeetingDate] = useState('');
-   const [meetingType, setMeetingType] = useState<MeetingType>(MeetingType.OFFLINE);
+   const [meetingType, setMeetingType] = useState<MeetingType | ''>('');
 
    const [activeTab, setActiveTab] = useState<'timeline' | 'notes' | 'email'>('timeline');
    const [activities, setActivities] = useState<IActivity[]>([]);
@@ -102,6 +102,10 @@ const LeadDetails: React.FC = () => {
          alert('Vui lòng chọn thời gian lịch hẹn');
          return;
       }
+      if (activityType === 'meeting' && !meetingType) {
+         alert('Vui lòng chọn hình thức hẹn (Online/Offline)');
+         return;
+      }
 
       // 1. Logic Create Meeting
       if (activityType === 'meeting' && lead) {
@@ -116,7 +120,7 @@ const LeadDetails: React.FC = () => {
             campus: formData.company || 'Hanoi',
             address: lead.address || formData.address,
             datetime: meetingDate,
-            type: meetingType,
+            type: meetingType as MeetingType,
             status: MeetingStatus.DRAFT,
             notes: noteContent,
             createdAt: new Date().toISOString()
@@ -182,7 +186,8 @@ const LeadDetails: React.FC = () => {
 
          // 3. Create Deal
          const dealId = `D-${Date.now()}`;
-         const computedValue = lead.value || (lead.productItems || []).reduce((sum, item) => {
+         const productItems = Array.isArray(lead.productItems) ? lead.productItems : [];
+         const computedValue = lead.value || productItems.reduce((sum, item) => {
             return sum + (item.price * item.quantity);
          }, 0);
 
@@ -206,7 +211,7 @@ const LeadDetails: React.FC = () => {
                   status: 'scheduled',
                   userId: 'admin' // Or current user if available
                },
-               ...(lead.activities || []).map(a => ({
+               ...(Array.isArray(lead.activities) ? lead.activities : []).map(a => ({
                   ...a,
                   type: a.type === 'message' ? 'chat' : a.type === 'system' ? 'note' : a.type as any
                }))
@@ -587,8 +592,9 @@ const LeadDetails: React.FC = () => {
                               value={meetingType}
                               onChange={(e) => setMeetingType(e.target.value as MeetingType)}
                            >
-                              <option value={MeetingType.OFFLINE}>Test Offline (Tại trung tâm)</option>
-                              <option value={MeetingType.ONLINE}>Phỏng vấn Online</option>
+                              <option value="">-- Chọn hình thức --</option>
+                              <option value={MeetingType.OFFLINE}>Offline (Tại trung tâm)</option>
+                              <option value={MeetingType.ONLINE}>Online (Phóng vấn)</option>
                               <option value={MeetingType.CONSULTING}>Tư vấn trực tiếp</option>
                            </select>
                         </div>

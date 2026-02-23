@@ -7,7 +7,15 @@ import {
   Megaphone,
   MoreVertical,
   Table as TableIcon,
-  Columns
+  Columns,
+  BarChart3,
+  X,
+  Save,
+  Calendar,
+  DollarSign,
+  ToggleLeft,
+  ChevronRight,
+  UserPlus
 } from 'lucide-react';
 
 // --- MOCK DATA ---
@@ -88,6 +96,48 @@ const Campaigns: React.FC = () => {
   // State for Campaigns to support Drag & Drop updates
   const [campaigns, setCampaigns] = useState(CAMPAIGNS);
   const [draggedItem, setDraggedItem] = useState<string | null>(null);
+
+  // --- CREATE MODAL STATE ---
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [newCampaignData, setNewCampaignData] = useState({
+    name: '',
+    channel: 'Facebook',
+    status: 'Running',
+    startDate: new Date().toISOString().split('T')[0],
+    endDate: '',
+    budget: 0,
+    spent: 0,
+    revenue: 0
+  });
+
+  const handleSaveCampaign = () => {
+    if (!newCampaignData.name) {
+      alert('Vui lòng nhập tên chiến dịch');
+      return;
+    }
+    const newId = `camp_0${campaigns.length + 1}`;
+    const colors = [
+      'bg-blue-100 text-blue-700',
+      'bg-orange-100 text-orange-700',
+      'bg-purple-100 text-purple-700',
+      'bg-pink-100 text-pink-700',
+      'bg-slate-100 text-slate-700'
+    ];
+    const newEntry = {
+      ...newCampaignData,
+      id: newId,
+      leads: 0,
+      color: colors[campaigns.length % colors.length]
+    };
+    setCampaigns([newEntry, ...campaigns]);
+    setShowCreateModal(false);
+    // Reset form
+    setNewCampaignData({
+      name: '', channel: 'Facebook', status: 'Running',
+      startDate: new Date().toISOString().split('T')[0],
+      endDate: '', budget: 0, spent: 0, revenue: 0
+    });
+  };
 
   const filteredCampaigns = campaigns.filter(c => {
     const matchesSearch = c.name.toLowerCase().includes(searchTerm.toLowerCase());
@@ -302,9 +352,20 @@ const Campaigns: React.FC = () => {
             <h1 className="text-3xl font-bold text-slate-900">Chiến dịch Marketing</h1>
             <p className="text-slate-500 mt-1">Quản lý tập trung các chiến dịch, ngân sách và hiệu quả đầu tư.</p>
           </div>
-          <button className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg font-bold flex items-center gap-2 shadow-sm transition-all focus:ring-4 focus:ring-blue-100">
-            <Plus size={20} /> Tạo chiến dịch mới
-          </button>
+          <div className="flex gap-3">
+            <button
+              onClick={() => navigate('/campaigns/camp_01/evaluation')}
+              className="px-5 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-lg font-bold flex items-center gap-2 shadow-sm hover:bg-slate-50 transition-all"
+            >
+              <BarChart3 size={20} className="text-blue-600" /> Đánh giá
+            </button>
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg font-bold flex items-center gap-2 shadow-sm transition-all focus:ring-4 focus:ring-blue-100"
+            >
+              <Plus size={20} /> Tạo chiến dịch mới
+            </button>
+          </div>
         </div>
 
         {/* Controls Bar */}
@@ -366,6 +427,158 @@ const Campaigns: React.FC = () => {
         </div>
 
       </div>
+
+      {/* CREATE CAMPAIGN MODAL */}
+      {showCreateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowCreateModal(false)}></div>
+          <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in zoom-in-95 flex flex-col max-h-[90vh] font-inter">
+            {/* Modal Header */}
+            <div className="p-5 border-b border-slate-200 flex justify-between items-center bg-slate-50 shrink-0">
+              <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                <Megaphone size={20} className="text-blue-600" />
+                Thêm chiến dịch Marketing mới
+              </h3>
+              <button onClick={() => setShowCreateModal(false)} className="text-slate-400 hover:text-slate-600 transition-colors">
+                <X size={24} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="flex-1 overflow-y-auto p-6 md:p-8 custom-scrollbar space-y-6">
+              {/* Basic Info */}
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-slate-700 text-sm font-bold mb-2">Tên chiến dịch <span className="text-red-500">*</span></label>
+                  <input
+                    className="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm font-semibold focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none text-slate-800 transition-all"
+                    placeholder="VD: Trại Hè 2024, Khóa học IELTS Online..."
+                    value={newCampaignData.name}
+                    onChange={e => setNewCampaignData({ ...newCampaignData, name: e.target.value })}
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-slate-700 text-sm font-bold mb-2">Kênh quảng cáo <span className="text-red-500">*</span></label>
+                    <select
+                      className="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none bg-white font-medium text-slate-700 transition-all"
+                      value={newCampaignData.channel}
+                      onChange={e => setNewCampaignData({ ...newCampaignData, channel: e.target.value })}
+                    >
+                      <option value="Facebook">Facebook</option>
+                      <option value="Google Ads">Google Ads</option>
+                      <option value="TikTok">TikTok</option>
+                      <option value="Email">Email</option>
+                      <option value="Event/Offline">Sự kiện / Offline</option>
+                      <option value="Zalo">Zalo Ads</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-slate-700 text-sm font-bold mb-2">Trạng thái ban đầu</label>
+                    <div className="flex items-center gap-3 h-[42px]">
+                      <button
+                        onClick={() => setNewCampaignData({ ...newCampaignData, status: newCampaignData.status === 'Running' ? 'Paused' : 'Running' })}
+                        className={`w-12 h-6 rounded-full relative transition-colors ${newCampaignData.status === 'Running' ? 'bg-green-500' : 'bg-slate-300'}`}
+                      >
+                        <div className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow-sm transition-all ${newCampaignData.status === 'Running' ? 'left-7' : 'left-1'}`}></div>
+                      </button>
+                      <span className={`text-sm font-bold ${newCampaignData.status === 'Running' ? 'text-green-600' : 'text-slate-500'}`}>
+                        {newCampaignData.status === 'Running' ? 'Đang chạy' : 'Tạm dừng'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Timing */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-slate-700 text-sm font-bold mb-2 flex items-center gap-2">
+                    <Calendar size={16} className="text-slate-400" /> Ngày bắt đầu <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    className="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm focus:border-blue-500 outline-none text-slate-700"
+                    value={newCampaignData.startDate}
+                    onChange={e => setNewCampaignData({ ...newCampaignData, startDate: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-700 text-sm font-bold mb-2 flex items-center gap-2">
+                    <Calendar size={16} className="text-slate-400" /> Ngày kết thúc
+                  </label>
+                  <input
+                    type="date"
+                    className="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm focus:border-blue-500 outline-none text-slate-700"
+                    value={newCampaignData.endDate}
+                    onChange={e => setNewCampaignData({ ...newCampaignData, endDate: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              {/* Financials */}
+              <div className="space-y-4 pt-4 border-t border-slate-100">
+                <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest">Thông tin tài chính (VND)</h4>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-slate-600 text-xs font-bold mb-1.5">Ngân sách dự kiến</label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        className="w-full pl-4 pr-10 py-2 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-500"
+                        value={newCampaignData.budget}
+                        onChange={e => setNewCampaignData({ ...newCampaignData, budget: Number(e.target.value) })}
+                      />
+                      <span className="absolute right-3 top-2.5 text-slate-400 text-xs font-bold font-inter">đ</span>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-slate-600 text-xs font-bold mb-1.5">Đã chi tiêu (Mặc định)</label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        className="w-full pl-4 pr-10 py-2 border border-slate-200 rounded-lg text-sm font-bold outline-none bg-slate-50 text-slate-400 cursor-not-allowed"
+                        value={0}
+                        readOnly
+                      />
+                      <span className="absolute right-3 top-2.5 text-slate-300 text-xs font-bold font-inter">đ</span>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-slate-600 text-xs font-bold mb-1.5">Doanh thu (Mặc định)</label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        className="w-full pl-4 pr-10 py-2 border border-slate-200 rounded-lg text-sm font-bold outline-none bg-slate-50 text-slate-400 cursor-not-allowed"
+                        value={0}
+                        readOnly
+                      />
+                      <span className="absolute right-3 top-2.5 text-slate-300 text-xs font-bold font-inter">đ</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-3 shrink-0">
+              <button
+                onClick={() => setShowCreateModal(false)}
+                className="px-5 py-2 text-slate-600 font-bold hover:bg-slate-200 rounded-lg transition-colors"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                onClick={handleSaveCampaign}
+                className="px-8 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg flex items-center gap-2 shadow-lg shadow-blue-100 transition-all active:scale-95"
+              >
+                <Save size={18} /> Lưu chiến dịch
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

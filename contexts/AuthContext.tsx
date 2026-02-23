@@ -22,7 +22,7 @@ export const AuthProvider = ({ children }: { children?: ReactNode }) => {
     let demoUser = { ...MOCK_USER, role };
 
     if (role === UserRole.SALES_REP) {
-        // Nếu là Sales, đóng vai Sarah Miller (u2) để khớp dữ liệu mẫu
+                // If Sales role, use Sarah Miller (u2) demo account
         demoUser = {
             id: 'u2',
             name: 'Sarah Miller',
@@ -32,7 +32,7 @@ export const AuthProvider = ({ children }: { children?: ReactNode }) => {
     } else if (role === UserRole.MARKETING) {
         demoUser = {
             id: 'u1',
-            name: 'Trần Văn Quản Trị',
+            name: 'Tr\u1ea7n V\u0103n Qu\u1ea3n Tr\u1ecb',
             role: UserRole.MARKETING,
             avatar: 'https://picsum.photos/200'
         };

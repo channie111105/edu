@@ -1,10 +1,19 @@
 
 import { ILead } from '../types';
-import { SLAWarning } from '../components/SLAWarningBanner';
+
+export interface SLAWarning {
+    type: 'new_lead' | 'overdue_appointment' | 'manual_sla' | 'not_acknowledged' | 'slow_interaction' | 'neglected_interaction';
+    lead: ILead;
+    message: string;
+    severity: 'danger' | 'warning' | 'info';
+    timeLeft?: string;
+    minutesOverdue?: number;
+}
 
 export interface SLAConfig {
     ackTimeMinutes: number;
     firstActionTimeMinutes: number;
+    maxNeglectTimeHours: number; // New config for follow-up gap
 }
 
 /**
@@ -14,7 +23,7 @@ export interface SLAConfig {
 export function calculateSLAWarnings(
     leads: ILead[],
     currentUserId?: string,
-    config: SLAConfig = { ackTimeMinutes: 15, firstActionTimeMinutes: 60 }
+    config: SLAConfig = { ackTimeMinutes: 15, firstActionTimeMinutes: 60, maxNeglectTimeHours: 72 }
 ): SLAWarning[] {
     const warnings: SLAWarning[] = [];
     const now = new Date();
@@ -33,13 +42,6 @@ export function calculateSLAWarnings(
             const slaReason = (lead as any).slaReason || 'Cần xử lý';
             const detailedTime = calculateDetailedTimeLeft(lead);
 
-            // For manual SLA, we use a high 'minutesOverdue' to keep them top if they are critical,
-            // OR we can try to parse 'detailedTime' if possible. 
-            // Better to rely on severity or just push to top.
-            // But User wants "Waiting Time" sorting.
-            // If Manual SLA doesn't have a calculated waiting time, it breaks sorting.
-            // Let's assume Manual SLA implies very high urgency or we calculate actual wait time if createdAt exists.
-
             let minutesOverdue = 999999;
             if (lead.createdAt) {
                 const created = new Date(lead.createdAt);
@@ -56,6 +58,9 @@ export function calculateSLAWarnings(
                 timeLeft: detailedTime,
                 minutesOverdue: minutesOverdue
             });
+            // Continue checking other conditions? Usually manual overrides everything.
+            // But let's check strict time-based ones too if we want comprehensive tabs.
+            // For now, return to mimic previous behavior.
             return;
         }
 
@@ -67,11 +72,12 @@ export function calculateSLAWarnings(
         const totalMinutes = Math.floor((now.getTime() - createdAt.getTime()) / (1000 * 60));
 
         // Check for interactions
-        const userActivities = (lead.activities || []).filter((a: any) => a.type !== 'system');
+        const userActivities = (Array.isArray(lead.activities) ? lead.activities : []).filter((a: any) => a.type !== 'system');
         const hasInteractions = userActivities.length > 0;
-        const isNew = lead.status === 'NEW' || lead.status === 'new';
+        const isNew = lead.status === 'NEW' || lead.status === 'new' || lead.status === 'Mới';
 
         // CRITERIA 1: Not Acknowledged (Quá hạn nhận)
+        // Applies to NEW leads
         if (isNew) {
             if (totalMinutes > config.ackTimeMinutes) {
                 warnings.push({
@@ -85,16 +91,38 @@ export function calculateSLAWarnings(
             }
         }
         // CRITERIA 2: Slow Interaction (Chậm chăm sóc)
+        // Case A: No interactions at all (and not New/or passed New phase but ignored)
         else if (!hasInteractions) {
-            if (totalMinutes > config.firstActionTimeMinutes) {
-                const hoursWait = Math.floor(totalMinutes / 60);
+            const timerStart = lead.pickUpDate ? new Date(lead.pickUpDate) : createdAt;
+            const minsSinceStart = Math.floor((now.getTime() - timerStart.getTime()) / (1000 * 60));
+
+            if (minsSinceStart > config.firstActionTimeMinutes) {
+                const hoursWait = Math.floor(minsSinceStart / 60);
                 warnings.push({
                     type: 'slow_interaction',
                     lead,
-                    message: `Quá hạn ${hoursWait} giờ - Chưa có tương tác đầu tiên`,
+                    message: `Quá hạn ${hoursWait} giờ - Chưa có tương tác đầu tiên kể từ lúc nhận`,
                     severity: 'warning',
-                    timeLeft: formatOverdueTime(totalMinutes),
-                    minutesOverdue: totalMinutes
+                    timeLeft: formatOverdueTime(minsSinceStart),
+                    minutesOverdue: minsSinceStart
+                });
+            }
+        }
+        // Case B: Has interactions, but neglected recently (Chăm sóc gián đoạn)
+        else if (hasInteractions) {
+            const lastInteractionDate = lead.lastInteraction ? new Date(lead.lastInteraction) : createdAt;
+            const minutesSinceLast = Math.floor((now.getTime() - lastInteractionDate.getTime()) / (1000 * 60));
+
+            if (minutesSinceLast > config.maxNeglectTimeHours * 60) {
+                const hoursSince = Math.floor(minutesSinceLast / 60);
+                const daysSince = Math.floor(hoursSince / 24);
+                warnings.push({
+                    type: 'neglected_interaction',
+                    lead,
+                    message: `Đã bỏ quên ${daysSince} ngày - Cần chăm sóc lại`,
+                    severity: 'warning',
+                    timeLeft: `${daysSince} ngày`,
+                    minutesOverdue: minutesSinceLast
                 });
             }
         }
@@ -130,7 +158,6 @@ export function calculateSLAWarnings(
     });
 
     // Sort by minutesOverdue DESC (longest delay first)
-    // User explicitly requested to prioritize Waiting Time over Severity groupings.
     return warnings.sort((a, b) => {
         return (b.minutesOverdue || 0) - (a.minutesOverdue || 0);
     });
@@ -190,4 +217,3 @@ export function formatSLATime(createdAt: string): { text: string; color: string 
     }
 }
 
-export type { SLAWarning };

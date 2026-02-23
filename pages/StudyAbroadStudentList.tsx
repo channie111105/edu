@@ -1,175 +1,459 @@
-import React from 'react';
-import {
-    Search,
-    Filter,
-    Download,
-    MoreHorizontal,
-    GraduationCap,
-    MapPin,
-    CalendarClock,
-    CheckCircle2,
-    AlertCircle
-} from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { GraduationCap, Search, Settings2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import {
+  getStudyAbroadCaseList,
+  StudyAbroadCaseCompleteness,
+  StudyAbroadCaseRecord,
+  StudyAbroadCmtcStatus,
+  StudyAbroadInvoiceStatus,
+  StudyAbroadServiceStatus
+} from '../services/studyAbroadCases.local';
 
-const STUDENTS = [
-    {
-        id: 'DH001',
-        name: 'Nguyễn Thùy Linh',
-        program: 'Đại học (Kỹ thuật)',
-        country: 'Đức',
-        stage: 'Nộp hồ sơ trường',
-        status: 'Processing',
-        intake: '10/2026',
-        progress: 40
-    },
-    {
-        id: 'DH002',
-        name: 'Trần Văn Minh',
-        program: 'Hệ tiếng (A1-B1)',
-        country: 'Đức',
-        stage: 'Phỏng vấn Visa',
-        status: 'Urgent',
-        intake: '04/2026',
-        progress: 80
-    },
-    {
-        id: 'DH003',
-        name: 'Lê Hoàng Anh',
-        program: 'Thạc sĩ (Kinh tế)',
-        country: 'Úc',
-        stage: 'Chờ thư mời (Offer)',
-        status: 'Processing',
-        intake: '07/2026',
-        progress: 30
-    },
-    {
-        id: 'DH004',
-        name: 'Phạm Thị Mai',
-        program: 'Du nghề (Điều dưỡng)',
-        country: 'Đức',
-        stage: 'Đã có Visa',
-        status: 'Completed',
-        intake: '09/2025',
-        progress: 100
-    },
+type ColumnId =
+  | 'student'
+  | 'address'
+  | 'phone'
+  | 'country'
+  | 'program'
+  | 'major'
+  | 'salesperson'
+  | 'branch'
+  | 'intake'
+  | 'stage'
+  | 'caseCompleteness'
+  | 'certificate'
+  | 'serviceStatus'
+  | 'tuition'
+  | 'invoiceStatus'
+  | 'cmtc'
+  | 'expectedFlightTerm';
+
+interface ColumnConfig {
+  id: ColumnId;
+  label: string;
+}
+
+const COLUMN_CONFIGS: ColumnConfig[] = [
+  { id: 'student', label: 'Học viên' },
+  { id: 'address', label: 'Địa chỉ' },
+  { id: 'phone', label: 'SĐT' },
+  { id: 'country', label: 'Quốc gia' },
+  { id: 'program', label: 'Chương trình' },
+  { id: 'major', label: 'Ngành' },
+  { id: 'salesperson', label: 'Salesperson' },
+  { id: 'branch', label: 'Chi nhánh' },
+  { id: 'intake', label: 'Kỳ nhập học' },
+  { id: 'stage', label: 'Giai đoạn' },
+  { id: 'caseCompleteness', label: 'Trạng thái hồ sơ' },
+  { id: 'certificate', label: 'Chứng chỉ' },
+  { id: 'serviceStatus', label: 'Trạng thái dịch vụ' },
+  { id: 'tuition', label: 'Học phí' },
+  { id: 'invoiceStatus', label: 'Trạng thái invoice' },
+  { id: 'cmtc', label: 'CMTC' },
+  { id: 'expectedFlightTerm', label: 'Kỳ bay dự kiến' }
 ];
 
+const WATCHED_STORAGE_KEYS = new Set([
+  'educrm_quotations',
+  'educrm_leads_v2',
+  'educrm_students',
+  'educrm_admissions',
+  'educrm_transactions',
+  'educrm_invoices'
+]);
+
+const ALL_COLUMNS_VISIBLE = COLUMN_CONFIGS.reduce((acc, column) => {
+  acc[column.id] = true;
+  return acc;
+}, {} as Record<ColumnId, boolean>);
+
+const DEFAULT_VISIBLE_COLUMN_IDS: ColumnId[] = [
+  'student',
+  'phone',
+  'country',
+  'program',
+  'salesperson',
+  'stage',
+  'serviceStatus',
+  'invoiceStatus'
+];
+
+const DEFAULT_COLUMNS_VISIBLE = COLUMN_CONFIGS.reduce((acc, column) => {
+  acc[column.id] = DEFAULT_VISIBLE_COLUMN_IDS.includes(column.id);
+  return acc;
+}, {} as Record<ColumnId, boolean>);
+
+const formatCurrency = (value: number) =>
+  `${new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(Math.max(0, value || 0))} đ`;
+
+const normalizeForSearch = (value: string) =>
+  value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+
+const getCaseCompletenessMeta = (status: StudyAbroadCaseCompleteness) => {
+  if (status === 'FULL') return { label: 'Đủ hồ sơ', className: 'bg-emerald-50 text-emerald-700 border-emerald-100' };
+  return { label: 'Chưa đủ', className: 'bg-amber-50 text-amber-700 border-amber-100' };
+};
+
+const getServiceStatusMeta = (status: StudyAbroadServiceStatus) => {
+  if (status === 'UNPROCESSED') return { label: 'Chưa xử lý', className: 'bg-slate-100 text-slate-700 border-slate-200' };
+  return { label: 'Đang xử lý', className: 'bg-blue-50 text-blue-700 border-blue-100' };
+};
+
+const getInvoiceStatusMeta = (status: StudyAbroadInvoiceStatus) => {
+  if (status === 'PAID') return { label: 'Đã nộp', className: 'bg-emerald-50 text-emerald-700 border-emerald-100' };
+  if (status === 'HAS_INVOICE') return { label: 'Có invoice', className: 'bg-blue-50 text-blue-700 border-blue-100' };
+  return { label: 'Chưa có', className: 'bg-slate-100 text-slate-700 border-slate-200' };
+};
+
+const getCmtcMeta = (status: StudyAbroadCmtcStatus) => {
+  if (status === 'APPROVED') return { label: 'Đạt', className: 'bg-emerald-50 text-emerald-700 border-emerald-100' };
+  if (status === 'REJECTED') return { label: 'Cần bổ sung', className: 'bg-rose-50 text-rose-700 border-rose-100' };
+  return { label: 'Chưa nộp', className: 'bg-slate-100 text-slate-700 border-slate-200' };
+};
+
+const TableBadge: React.FC<{ label: string; className: string }> = ({ label, className }) => (
+  <span className={`inline-flex max-w-full items-center rounded-full border px-2 py-1 text-[10px] font-bold ${className}`}>
+    <span className="truncate">{label}</span>
+  </span>
+);
+
 const StudyAbroadStudentList: React.FC = () => {
-    const navigate = useNavigate();
+  const navigate = useNavigate();
+  const columnMenuRef = useRef<HTMLDivElement | null>(null);
+  const refreshTimerRef = useRef<number | null>(null);
 
-    return (
-        <div className="flex flex-col h-full bg-[#f8fafc] text-[#111418] font-sans overflow-hidden">
-            <div className="flex flex-col flex-1 overflow-y-auto p-6 lg:p-8 max-w-[1400px] mx-auto w-full">
+  const [rows, setRows] = useState<StudyAbroadCaseRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [countryFilter, setCountryFilter] = useState('ALL');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | StudyAbroadServiceStatus>('ALL');
+  const [visibleColumns, setVisibleColumns] = useState<Record<ColumnId, boolean>>(DEFAULT_COLUMNS_VISIBLE);
+  const [showColumnMenu, setShowColumnMenu] = useState(false);
 
-                {/* Header */}
-                <div className="flex flex-wrap justify-between items-end gap-3 mb-6">
-                    <div className="flex min-w-72 flex-col gap-1">
-                        <h1 className="text-[#111418] text-[32px] font-bold leading-tight tracking-[-0.015em] flex items-center gap-2">
-                            <GraduationCap size={32} className="text-blue-600" /> Hồ sơ Du học sinh
-                        </h1>
-                        <p className="text-[#4c739a] text-sm font-normal leading-normal">Quản lý danh sách và tiến độ hồ sơ du học.</p>
-                    </div>
-                    <div className="flex gap-2">
-                        <button className="flex items-center justify-center overflow-hidden rounded-lg h-10 px-4 bg-blue-600 text-white text-sm font-bold leading-normal hover:bg-blue-700 transition-colors shadow-sm">
-                            + Thêm hồ sơ
-                        </button>
-                    </div>
-                </div>
+  const reloadCases = useCallback(() => {
+    if (refreshTimerRef.current) {
+      window.clearTimeout(refreshTimerRef.current);
+    }
 
-                {/* Filters */}
-                <div className="px-4 py-3 mb-4 bg-white border border-[#cfdbe7] rounded-xl shadow-sm flex flex-wrap gap-4 items-center">
-                    <label className="flex flex-col min-w-40 h-10 flex-1">
-                        <div className="flex w-full flex-1 items-stretch rounded-lg h-full">
-                            <div className="text-[#4c739a] flex border-none bg-[#e7edf3] items-center justify-center pl-4 rounded-l-lg border-r-0">
-                                <Search size={20} />
-                            </div>
-                            <input
-                                placeholder="Tìm kiếm học viên, mã hồ sơ..."
-                                className="flex w-full min-w-0 flex-1 resize-none overflow-hidden rounded-lg text-[#111418] focus:outline-0 focus:ring-0 border-none bg-[#e7edf3] focus:border-none h-full placeholder:text-[#4c739a] px-4 rounded-l-none border-l-0 pl-2 text-sm font-normal leading-normal"
-                            />
-                        </div>
-                    </label>
-                    <div className="flex gap-2">
-                        <select className="h-10 px-4 rounded-lg bg-[#e7edf3] text-[#111418] text-sm font-medium border-none focus:ring-0 cursor-pointer outline-none">
-                            <option>Quốc gia: Tất cả</option>
-                            <option>Đức</option>
-                            <option>Úc</option>
-                            <option>Trung Quốc</option>
-                            <option>Canada</option>
-                        </select>
-                        <select className="h-10 px-4 rounded-lg bg-[#e7edf3] text-[#111418] text-sm font-medium border-none focus:ring-0 cursor-pointer outline-none">
-                            <option>Trạng thái: Tất cả</option>
-                            <option>Đang xử lý</option>
-                            <option>Đã có Visa</option>
-                            <option>Sắp bay</option>
-                        </select>
-                    </div>
-                </div>
+    setLoading(true);
+    refreshTimerRef.current = window.setTimeout(() => {
+      setRows(getStudyAbroadCaseList());
+      setLoading(false);
+    }, 120);
+  }, []);
 
-                {/* Table */}
-                <div className="flex overflow-hidden rounded-xl border border-[#cfdbe7] bg-white shadow-sm">
-                    <table className="flex-1 w-full text-left border-collapse">
-                        <thead className="bg-[#f8fafc] border-b border-[#cfdbe7]">
-                            <tr>
-                                <th className="px-6 py-4 text-[#111418] text-sm font-bold leading-normal">Học viên</th>
-                                <th className="px-6 py-4 text-[#111418] text-sm font-bold leading-normal">Chương trình</th>
-                                <th className="px-6 py-4 text-[#111418] text-sm font-bold leading-normal">Kỳ nhập học</th>
-                                <th className="px-6 py-4 text-[#111418] text-sm font-bold leading-normal">Giai đoạn</th>
-                                <th className="px-6 py-4 text-[#111418] w-10"></th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-[#cfdbe7]">
-                            {STUDENTS.map((stu) => (
-                                <tr key={stu.id} className="hover:bg-[#f8fafc] transition-colors cursor-pointer" onClick={() => navigate(`/study-abroad/cases/${stu.id}`)}>
-                                    <td className="px-6 py-4">
-                                        <div className="flex flex-col">
-                                            <p className="text-[#111418] text-sm font-bold leading-normal">{stu.name}</p>
-                                            <p className="text-[#4c739a] text-xs font-mono">{stu.id}</p>
-                                        </div>
-                                    </td>
-                                    <td className="px-6 py-4">
-                                        <div className="flex flex-col">
-                                            <p className="text-[#111418] text-sm font-medium">{stu.program}</p>
-                                            <div className="flex items-center gap-1 text-xs text-[#4c739a] mt-0.5">
-                                                <MapPin size={10} /> {stu.country}
-                                            </div>
-                                        </div>
-                                    </td>
-                                    <td className="px-6 py-4">
-                                        <div className="flex items-center gap-2 text-sm text-[#111418]">
-                                            <CalendarClock size={16} className="text-[#4c739a]" /> {stu.intake}
-                                        </div>
-                                    </td>
-                                    <td className="px-6 py-4">
-                                        {stu.status === 'Completed' ? (
-                                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-green-50 text-green-700 text-xs font-bold border border-green-100">
-                                                <CheckCircle2 size={12} /> {stu.stage}
-                                            </span>
-                                        ) : stu.status === 'Urgent' ? (
-                                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-red-50 text-red-700 text-xs font-bold border border-red-100 animate-pulse">
-                                                <AlertCircle size={12} /> {stu.stage}
-                                            </span>
-                                        ) : (
-                                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-50 text-blue-700 text-xs font-bold border border-blue-100">
-                                                <div className="w-1.5 h-1.5 rounded-full bg-blue-500"></div> {stu.stage}
-                                            </span>
-                                        )}
-                                    </td>
-                                    <td className="px-6 py-4 text-center">
-                                        <button className="text-[#4c739a] hover:text-[#111418]">
-                                            <MoreHorizontal size={20} />
-                                        </button>
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
+  useEffect(() => {
+    reloadCases();
+    return () => {
+      if (refreshTimerRef.current) {
+        window.clearTimeout(refreshTimerRef.current);
+      }
+    };
+  }, [reloadCases]);
 
-            </div>
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!columnMenuRef.current) return;
+      if (columnMenuRef.current.contains(event.target as Node)) return;
+      setShowColumnMenu(false);
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleStorage = (event: StorageEvent) => {
+      if (!event.key || WATCHED_STORAGE_KEYS.has(event.key)) {
+        reloadCases();
+      }
+    };
+    const handleClientRefresh = () => reloadCases();
+
+    const watchEvents = [
+      'educrm_cases_updated',
+      'educrm:study-abroad-cases-changed',
+      'educrm:quotations-changed',
+      'educrm:leads-changed',
+      'educrm:students-changed',
+      'educrm:admissions-changed'
+    ];
+
+    window.addEventListener('storage', handleStorage);
+    watchEvents.forEach((eventName) => window.addEventListener(eventName, handleClientRefresh));
+
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      watchEvents.forEach((eventName) => window.removeEventListener(eventName, handleClientRefresh));
+    };
+  }, [reloadCases]);
+
+  const countries = useMemo(() => {
+    const values = Array.from(new Set(rows.map((row) => row.country))).filter(Boolean);
+    return values.sort((a, b) => a.localeCompare(b, 'vi'));
+  }, [rows]);
+
+  const filteredRows = useMemo(() => {
+    const keyword = normalizeForSearch(searchTerm);
+    return rows.filter((row) => {
+      if (countryFilter !== 'ALL' && row.country !== countryFilter) return false;
+      if (statusFilter !== 'ALL' && row.serviceStatus !== statusFilter) return false;
+
+      if (!keyword) return true;
+      const searchable = normalizeForSearch(
+        [
+          row.soCode,
+          row.student,
+          row.address,
+          row.phone,
+          row.country,
+          row.program,
+          row.major,
+          row.salesperson,
+          row.branch,
+          row.intake,
+          row.stage,
+          row.certificate,
+          row.expectedFlightTerm
+        ].join(' ')
+      );
+      return searchable.includes(keyword);
+    });
+  }, [countryFilter, rows, searchTerm, statusFilter]);
+
+  const visibleColumnList = useMemo(
+    () => COLUMN_CONFIGS.filter((column) => visibleColumns[column.id]),
+    [visibleColumns]
+  );
+
+  const visibleCount = visibleColumnList.length;
+  const allChecked = visibleCount === COLUMN_CONFIGS.length;
+
+  const toggleColumn = (columnId: ColumnId) => {
+    setVisibleColumns((prev) => {
+      const currentVisible = COLUMN_CONFIGS.filter((item) => prev[item.id]).length;
+      if (prev[columnId] && currentVisible <= 1) return prev;
+      return { ...prev, [columnId]: !prev[columnId] };
+    });
+  };
+
+  const toggleAllColumns = (checked: boolean) => {
+    if (checked) {
+      setVisibleColumns({ ...ALL_COLUMNS_VISIBLE });
+      return;
+    }
+
+    const onlyStudent: Record<ColumnId, boolean> = { ...ALL_COLUMNS_VISIBLE };
+    COLUMN_CONFIGS.forEach((column) => {
+      onlyStudent[column.id] = column.id === 'student';
+    });
+    setVisibleColumns(onlyStudent);
+  };
+
+  const renderCell = (row: StudyAbroadCaseRecord, columnId: ColumnId) => {
+    if (columnId === 'student') return `${row.student} (${row.soCode})`;
+    if (columnId === 'address') return row.address;
+    if (columnId === 'phone') return row.phone;
+    if (columnId === 'country') return row.country;
+    if (columnId === 'program') return row.program;
+    if (columnId === 'major') return row.major;
+    if (columnId === 'salesperson') return row.salesperson;
+    if (columnId === 'branch') return row.branch;
+    if (columnId === 'intake') return row.intake;
+    if (columnId === 'stage') return row.stage;
+    if (columnId === 'certificate') return row.certificate;
+    if (columnId === 'expectedFlightTerm') return row.expectedFlightTerm;
+    if (columnId === 'tuition') return formatCurrency(row.tuition);
+
+    if (columnId === 'caseCompleteness') {
+      const meta = getCaseCompletenessMeta(row.caseCompleteness);
+      return <TableBadge label={meta.label} className={meta.className} />;
+    }
+    if (columnId === 'serviceStatus') {
+      const meta = getServiceStatusMeta(row.serviceStatus);
+      return <TableBadge label={meta.label} className={meta.className} />;
+    }
+    if (columnId === 'invoiceStatus') {
+      const meta = getInvoiceStatusMeta(row.invoiceStatus);
+      return <TableBadge label={meta.label} className={meta.className} />;
+    }
+
+    const meta = getCmtcMeta(row.cmtc);
+    return <TableBadge label={meta.label} className={meta.className} />;
+  };
+
+  const isBadgeColumn = (columnId: ColumnId) =>
+    columnId === 'caseCompleteness' ||
+    columnId === 'serviceStatus' ||
+    columnId === 'invoiceStatus' ||
+    columnId === 'cmtc';
+
+  return (
+    <div className="flex h-full flex-col overflow-hidden bg-[#f8fafc] text-[#111418]">
+      <div className="mx-auto flex h-full w-full max-w-[1500px] flex-1 flex-col overflow-y-auto p-6 lg:p-8">
+        <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
+          <div className="flex min-w-72 flex-col gap-1">
+            <h1 className="flex items-center gap-2 text-[32px] font-bold leading-tight tracking-[-0.015em] text-[#111418]">
+              <GraduationCap size={32} className="text-blue-600" /> Hồ sơ Du học sinh
+            </h1>
+            <p className="text-sm font-normal leading-normal text-[#4c739a]">
+              Quản lý danh sách hồ sơ du học tự sinh từ SO đã khóa. Mỗi khách hàng hiển thị 1 dòng.
+            </p>
+          </div>
+          <button className="h-10 rounded-lg bg-blue-600 px-4 text-sm font-bold text-white shadow-sm transition-colors hover:bg-blue-700">
+            + Thêm hồ sơ
+          </button>
         </div>
-    );
+
+        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-[#cfdbe7] bg-white px-4 py-3 shadow-sm">
+          <label className="h-10 min-w-72 flex-1">
+            <div className="flex h-full w-full items-stretch rounded-lg">
+              <div className="flex items-center justify-center rounded-l-lg bg-[#e7edf3] pl-4 text-[#4c739a]">
+                <Search size={18} />
+              </div>
+              <input
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+                placeholder="Tìm kiếm học viên, mã hồ sơ, sales, SĐT..."
+                className="h-full w-full rounded-r-lg border-none bg-[#e7edf3] px-3 text-sm text-[#111418] outline-none placeholder:text-[#4c739a]"
+              />
+            </div>
+          </label>
+
+          <select
+            value={countryFilter}
+            onChange={(event) => setCountryFilter(event.target.value)}
+            className="h-10 rounded-lg bg-[#e7edf3] px-3 text-sm font-medium text-[#111418] outline-none"
+          >
+            <option value="ALL">Quốc gia: Tất cả</option>
+            {countries.map((country) => (
+              <option key={country} value={country}>
+                {country}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={statusFilter}
+            onChange={(event) => setStatusFilter(event.target.value as 'ALL' | StudyAbroadServiceStatus)}
+            className="h-10 rounded-lg bg-[#e7edf3] px-3 text-sm font-medium text-[#111418] outline-none"
+          >
+            <option value="ALL">Trạng thái: Tất cả</option>
+            <option value="UNPROCESSED">Chưa xử lý</option>
+            <option value="PROCESSING">Đang xử lý</option>
+          </select>
+
+          <div className="relative" ref={columnMenuRef}>
+            <button
+              onClick={() => setShowColumnMenu((prev) => !prev)}
+              className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#dbe5ef] bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              <Settings2 size={16} />
+              Cột
+            </button>
+
+            {showColumnMenu && (
+              <div className="absolute right-0 top-12 z-20 max-h-96 w-72 overflow-y-auto rounded-xl border border-slate-200 bg-white p-3 shadow-xl">
+                <label className="mb-2 flex cursor-pointer items-center gap-2 border-b border-slate-100 pb-2 text-sm font-semibold text-slate-800">
+                  <input
+                    type="checkbox"
+                    checked={allChecked}
+                    onChange={(event) => toggleAllColumns(event.target.checked)}
+                  />
+                  Chọn tất cả cột
+                </label>
+                <div className="space-y-2">
+                  {COLUMN_CONFIGS.map((column) => (
+                    <label key={column.id} className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={visibleColumns[column.id]}
+                        onChange={() => toggleColumn(column.id)}
+                      />
+                      <span className="truncate">{column.label}</span>
+                    </label>
+                  ))}
+                </div>
+                <p className="mt-2 text-[11px] text-slate-500">Cần tối thiểu 1 cột được chọn.</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="mb-2 text-xs text-slate-500">
+          Đang hiển thị {loading ? '...' : filteredRows.length} hồ sơ, {visibleCount}/{COLUMN_CONFIGS.length} cột. Nguồn dữ liệu: SO đã khóa.
+        </div>
+
+        <div className="overflow-hidden rounded-xl border border-[#cfdbe7] bg-white shadow-sm">
+          <div className="w-full overflow-x-hidden">
+            <table className="w-full table-fixed border-collapse text-left">
+              <thead className="border-b border-[#cfdbe7] bg-[#f8fafc]">
+                <tr>
+                  {visibleColumnList.map((column) => (
+                    <th
+                      key={column.id}
+                      className="px-2 py-3 text-[11px] font-bold uppercase tracking-wide text-[#111418]"
+                    >
+                      <div className="min-w-0 truncate whitespace-nowrap">{column.label}</div>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#eef3f8]">
+                {loading &&
+                  Array.from({ length: 5 }).map((_, index) => (
+                    <tr key={`skeleton-${index}`}>
+                      <td colSpan={visibleColumnList.length} className="px-3 py-3">
+                        <div className="h-8 animate-pulse rounded bg-slate-100" />
+                      </td>
+                    </tr>
+                  ))}
+
+                {!loading &&
+                  filteredRows.map((row) => (
+                    <tr
+                      key={row.id}
+                      className="cursor-pointer transition-colors hover:bg-[#f8fafc]"
+                      onClick={() => navigate(`/study-abroad/cases/${row.id}`)}
+                    >
+                      {visibleColumnList.map((column) => {
+                        const value = renderCell(row, column.id);
+                        return (
+                          <td key={column.id} className="px-2 py-2.5 align-middle text-sm text-[#111418]">
+                            {isBadgeColumn(column.id) ? (
+                              <div className="min-w-0 truncate whitespace-nowrap">{value}</div>
+                            ) : (
+                              <div className="min-w-0 truncate whitespace-nowrap" title={String(value)}>
+                                {value}
+                              </div>
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+
+                {!loading && filteredRows.length === 0 && (
+                  <tr>
+                    <td colSpan={visibleColumnList.length} className="px-3 py-8 text-center text-sm font-medium text-slate-500">
+                      Không có dữ liệu theo bộ lọc hiện tại.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 };
 
 export default StudyAbroadStudentList;

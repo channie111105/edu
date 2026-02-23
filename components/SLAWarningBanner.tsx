@@ -2,15 +2,7 @@ import React from 'react';
 import { AlertCircle, Clock, UserPlus } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { ILead } from '../types';
-
-interface SLAWarning {
-    type: 'new_lead' | 'overdue_appointment' | 'manual_sla' | 'not_acknowledged' | 'slow_interaction';
-    lead: ILead;
-    message: string;
-    severity: 'danger' | 'warning' | 'info';
-    timeLeft?: string;
-    minutesOverdue?: number;
-}
+import type { SLAWarning } from '../utils/slaUtils';
 
 interface SLAWarningBannerProps {
     warnings: SLAWarning[];

@@ -1,7 +1,6 @@
-﻿
-import React, { useState, useEffect, useMemo } from 'react';
-import { ILead, LeadStatus, UserRole, Activity, DealStage, IContract, ContractStatus, IMeeting, MeetingStatus, MeetingType } from '../types';
-import { addContract, addMeeting } from '../utils/storage';
+﻿import React, { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { ILead, LeadStatus, UserRole, Activity, DealStage, IContract, ContractStatus, IMeeting, MeetingStatus, MeetingType, IQuotation, IQuotationLogNote, QuotationStatus } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import {
     X, User, Phone, Mail, MapPin, Globe, Calendar,
@@ -9,8 +8,12 @@ import {
     History, ArrowRight, ChevronDown, Building, FileText,
     DollarSign, CreditCard, MessageSquare, Bell, Star,
     MoreHorizontal, CalendarDays, Flag, CheckSquare, Plus, Trash2, Trophy,
-    ShieldCheck, FileSignature, Wallet, Lock, Activity as ActivityIcon, Ban, ArrowUpRight, Users
+    ShieldCheck, FileSignature, Wallet, Lock, Activity as ActivityIcon, Ban, ArrowUpRight, Users, XOctagon, Tag, Handshake, ChevronRight,
+    Save, Printer, RotateCcw, Monitor
 } from 'lucide-react';
+import { addContract, addMeeting, addQuotation, getLeadById, getLostReasons, getQuotations, getTags, saveTags, updateQuotation } from '../utils/storage';
+import CreateMeetingModal from './CreateMeetingModal';
+import { MeetingCustomerOption } from '../utils/meetingHelpers';
 
 interface UnifiedLeadDrawerProps {
     lead: ILead;
@@ -64,7 +67,10 @@ const STAGE_LABELS: Record<string, string> = {
 };
 
 const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead, isOpen, onClose, onUpdate, onConvert }) => {
+    if (!isOpen) return null;
+
     const { user } = useAuth();
+    const navigate = useNavigate();
     const [lead, setLead] = useState<ILead>(initialLead || {} as ILead);
 
     // UI States
@@ -75,11 +81,12 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
 
     // Meeting State
     const [meetingDate, setMeetingDate] = useState('');
-    const [meetingType, setMeetingType] = useState<MeetingType>(MeetingType.OFFLINE);
+    const [meetingType, setMeetingType] = useState<MeetingType | ''>('');
+    const [isCreateMeetingModalOpen, setIsCreateMeetingModalOpen] = useState(false);
 
     // Followers State
     const [showFollowersModal, setShowFollowersModal] = useState(false);
-    const [followers, setFollowers] = useState<any[]>((initialLead && initialLead.followers) || []);
+    const [followers, setFollowers] = useState<any[]>(Array.isArray(initialLead?.followers) ? initialLead.followers : []);
 
     // Ensure Owner is a follower
     useEffect(() => {
@@ -93,6 +100,8 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
     // Loss Modal State
     const [showLossModal, setShowLossModal] = useState(false);
     const [lossReason, setLossReason] = useState('');
+    const [customLossReason, setCustomLossReason] = useState('');
+    const lostReasonsList = useMemo(() => getLostReasons(), []);
 
     // Activity Schedule State
     const [activityType, setActivityType] = useState('call');
@@ -105,10 +114,39 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
     const [pendingConvertLead, setPendingConvertLead] = useState<ILead | null>(null);
     const [completingActivityId, setCompletingActivityId] = useState<string | null>(null);
     const [completionNote, setCompletionNote] = useState('');
-    const [scheduleNext, setScheduleNext] = useState(false); // New state for auto-schedule checkbox
+    const [scheduleNext, setScheduleNext] = useState(true); // Default to true to suggest next activity
+    const [showAssignModal, setShowAssignModal] = useState(false);
+    const [showQuotationCreator, setShowQuotationCreator] = useState(false);
+    const [quotationCreatorTab, setQuotationCreatorTab] = useState<'order_lines' | 'other_info'>('order_lines');
+    const [quotationWorkflowStatus, setQuotationWorkflowStatus] = useState<'draft' | 'sent' | 'sale_order' | 'cancelled'>('draft');
+    const [activeQuotationId, setActiveQuotationId] = useState<string | null>(null);
+    const [isSaving, setIsSaving] = useState(false); // Global saving indicator state
+    const lastLoggedValues = React.useRef<Record<string, any>>({}); // To prevent duplicate logs in rapid succession
+
+    // Mapping for logging internal notes
+    const INTERNAL_NOTE_LABELS: any = {
+        expectedStart: 'Thời gian tham gia',
+        parentOpinion: 'Ý kiến bố mẹ',
+        financial: 'Tài chính',
+        potential: 'Mức độ tiềm năng'
+    };
+
+    // Quotation Specific Fields
+    const [quotationData, setQuotationData] = useState({
+        paymentMethod: '',
+        expirationDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        pricelist: '[Center 11] Base Price (VND)',
+        orderMode: 'Normal',
+        serviceType: 'Training' as 'StudyAbroad' | 'Training' | 'Combo',
+        classCode: '',
+        schedule: '',
+        pricingNote: '',
+        internalNote: '',
+        needInvoice: false
+    });
 
     // Local State for Quotation Editing
-    const [productItems, setProductItems] = useState((initialLead && initialLead.productItems) || []);
+    const [productItems, setProductItems] = useState<any[]>(Array.isArray(initialLead?.productItems) ? initialLead.productItems : []);
     const [discount, setDiscount] = useState((initialLead && initialLead.discount) || 0);
 
     // Toast Notification State
@@ -119,21 +157,78 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
         setTimeout(() => setToast(null), 3000);
     };
 
+    // --- TAG MANAGEMENT ---
+    const [allAvailableTags, setAllAvailableTags] = useState<string[]>([]);
+    const [isAddingTag, setIsAddingTag] = useState(false);
+    const [newTagInput, setNewTagInput] = useState('');
+
+    useEffect(() => {
+        setAllAvailableTags(getTags());
+    }, []);
+
+    const handleAddTag = (tag: string) => {
+        if (!tag.trim()) return;
+        const currentTags = lead.marketingData?.tags || [];
+        if (currentTags.includes(tag)) return;
+
+        const updatedTags = [...currentTags, tag];
+        const updatedLead = {
+            ...lead,
+            marketingData: {
+                ...lead.marketingData,
+                tags: updatedTags
+            }
+        };
+        setLead(updatedLead);
+        onUpdate(updatedLead);
+
+        if (!allAvailableTags.includes(tag)) {
+            const nextAll = [...allAvailableTags, tag];
+            setAllAvailableTags(nextAll);
+            saveTags(nextAll);
+        }
+        setNewTagInput('');
+        setIsAddingTag(false);
+    };
+
+    const handleRemoveTag = (tag: string) => {
+        const currentTags = lead.marketingData?.tags || [];
+        const updatedTags = currentTags.filter(t => t !== tag);
+        const updatedLead = {
+            ...lead,
+            marketingData: {
+                ...lead.marketingData,
+                tags: updatedTags
+            }
+        };
+        setLead(updatedLead);
+        onUpdate(updatedLead);
+    };
+
     // --- STAGE HELPERS ---
     const isLeadStage = !lead.status || lead.status === LeadStatus.NEW || lead.status === LeadStatus.CONTACTED;
     const isQualified = lead.status === LeadStatus.QUALIFIED || Object.values(DealStage).includes(lead.status as any);
+    const isConverted = lead.status === LeadStatus.CONVERTED || lead.status === DealStage.CONTRACT || lead.status === DealStage.WON;
     const isPipeline = Object.values(DealStage).includes(lead.status as any);
     const isWon = lead.status === DealStage.WON;
     const isContract = lead.status === DealStage.CONTRACT;
     // @ts-ignore
     const isLost = lead.status === 'LOST' || lead.status === 'lost';
+    const isNotPickedUp = !lead.pickUpDate && lead.status !== LeadStatus.CONTACTED && lead.status !== LeadStatus.QUALIFIED && !isPipeline;
+    const lockedMsg = "Vui lòng nhấn 'Tiếp nhận Lead' để bắt đầu cập nhật thông tin";
 
     useEffect(() => {
         if (!initialLead) return;
-        setLead(initialLead);
-        setProductItems(initialLead.productItems || []);
-        setDiscount(initialLead.discount || 0);
-        setFollowers(initialLead.followers || []);
+        // Only sync if ID changed or we're not in the middle of a local update sync
+        if (initialLead.id !== lead.id) {
+            setLead(initialLead);
+            setProductItems(Array.isArray(initialLead.productItems) ? initialLead.productItems : []);
+            setDiscount(initialLead.discount || 0);
+            setFollowers(Array.isArray(initialLead.followers) ? initialLead.followers : []);
+        } else if ((initialLead.activities?.length || 0) > (lead.activities?.length || 0)) {
+            // Keep activities in sync if updated from outside (e.g. system)
+            setLead(prev => ({ ...prev, activities: initialLead.activities }));
+        }
     }, [initialLead]);
 
     const getDefaultActivityDate = (typeId: string) => {
@@ -142,6 +237,17 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
         const now = new Date();
         now.setHours(now.getHours() + delay);
         return new Date(now.getTime() - (now.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
+    };
+
+    const lockedMeetingCustomer: MeetingCustomerOption = {
+        key: `lead:${lead.id}`,
+        id: lead.id,
+        source: 'lead',
+        name: lead.name,
+        phone: lead.phone,
+        campus: lead.company || lead.city || 'Hanoi',
+        address: lead.address || 'N/A',
+        leadId: lead.id
     };
 
     // Set default time when activity type changes
@@ -181,6 +287,10 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
         if (!noteContent.trim() && chatterTab === 'note') return;
 
         if (chatterTab === 'meeting') {
+            if (!meetingType) {
+                showToast('Vui lòng chọn hình thức hẹn (Online/Offline)', 'error');
+                return;
+            }
             if (!meetingDate) {
                 showToast('Vui lòng chọn thời gian lịch hẹn', 'error');
                 return;
@@ -198,7 +308,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                 campus: (lead as any).company || 'Hanoi',
                 address: (lead as any).address || 'N/A',
                 datetime: meetingDate,
-                type: meetingType,
+                type: meetingType as MeetingType,
                 status: MeetingStatus.DRAFT,
                 notes: noteContent,
                 createdAt: new Date().toISOString()
@@ -218,12 +328,24 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
             // Normal Note
             addLog('note', noteContent);
             setNoteContent('');
+
+            if (scheduleNext) {
+                openNextActivityModal('Tạo lịch tiếp theo sau khi lưu note');
+            }
         }
     };
 
     const addLog = (type: 'note' | 'message' | 'system' | 'activity', content: string, extra?: any) => {
+        if (!content.trim()) return;
+
+        // Prevent duplicate logs for the same content within the same minute
+        const logKey = `log-${type}-${content}`;
+        const nowMinute = new Date().toISOString().slice(0, 16);
+        if (lastLoggedValues.current[logKey] === nowMinute) return;
+        lastLoggedValues.current[logKey] = nowMinute;
+
         const newActivity: any = {
-            id: `act-${Date.now()}`,
+            id: `act-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
             type,
             timestamp: new Date().toISOString(),
             title: extra?.title || '',
@@ -237,7 +359,13 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
         const currentActivities = lead.activities || [];
         const updatedActivities = [newActivity, ...currentActivities];
 
-        const updatedLead = { ...lead, activities: updatedActivities };
+        // AUTO STATUS: NEW/ASSIGNED -> CONTACTED
+        let newStatus = lead.status;
+        if (lead.status === LeadStatus.NEW || lead.status === LeadStatus.ASSIGNED || !lead.status) {
+            newStatus = LeadStatus.CONTACTED;
+        }
+
+        const updatedLead = { ...lead, activities: updatedActivities, status: newStatus as any };
         setLead(updatedLead);
         onUpdate(updatedLead);
     };
@@ -298,16 +426,41 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
 
     const handleFieldBlur = (field: keyof ILead, currentValue: any) => {
         if (JSON.stringify(lead[field]) !== JSON.stringify(currentValue)) {
-            addLog('system', `Cập nhật ${field}: ${currentValue}`);
-            const updatedLead = { ...lead, [field]: currentValue };
+            // Extra guard: Check ref to prevent rapid duplicate logs
+            const valStr = JSON.stringify(currentValue);
+            if (lastLoggedValues.current[`field-${field}`] === valStr) return;
+            lastLoggedValues.current[`field-${field}`] = valStr;
+
+            const fieldLabel = field.toString();
+            const logMsg = `Cập nhật ${fieldLabel}: ${currentValue}`;
+
+            // Create activity log
+            const newLogEntry: any = {
+                id: `act-${Date.now()}-${field}`,
+                type: 'system',
+                timestamp: new Date().toISOString(),
+                description: logMsg,
+                user: user?.name || 'Admin',
+                title: 'Cập nhật hệ thông'
+            };
+
+            const updatedLead = {
+                ...lead,
+                [field]: currentValue,
+                activities: [newLogEntry, ...(lead.activities || [])]
+            };
+
             setLead(updatedLead);
             onUpdate(updatedLead);
 
+            // Auto-save feedback
+            setIsSaving(true);
+            setTimeout(() => setIsSaving(false), 2000);
+
             // Sync Owner to Followers
             if (field === 'ownerId') {
-                const newOwner = MOCK_USERS.find(u => u.name === currentValue) || { id: 'u-ex', name: currentValue, avatar: 'EX', role: 'Sales Rep' };
+                const newOwner = MOCK_USERS.find(u => u.name === currentValue) || { id: 'u-ex', name: currentValue as string, avatar: 'EX', role: 'Sales Rep' };
                 if (!followers?.find(f => f.name === currentValue)) {
-                    // Add new owner to followers
                     handleAddFollower(newOwner, true);
                 }
             }
@@ -315,11 +468,36 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
     };
 
     const handleInternalNoteBlur = (field: keyof NonNullable<ILead['internalNotes']>, value: string) => {
-        const updatedInternalNotes = {
-            ...(lead.internalNotes || {}),
-            [field]: value
+        const currentVal = lead.internalNotes?.[field] || '';
+        if (currentVal === value) return;
+
+        // Extra guard: Check ref to prevent rapid duplicate logs
+        if (lastLoggedValues.current[`internal-${field}`] === value) return;
+        lastLoggedValues.current[`internal-${field}`] = value;
+
+        // Auto-save feedback
+        setIsSaving(true);
+        setTimeout(() => setIsSaving(false), 2000);
+
+        const fieldLabel = INTERNAL_NOTE_LABELS[field] || field;
+        const newLogEntry: any = {
+            id: `act-${Date.now()}-int-${field}`,
+            type: 'system',
+            timestamp: new Date().toISOString(),
+            description: `Sale đã cập nhật ${fieldLabel}: ${value || '(Trống)'}`,
+            user: user?.name || 'Admin',
+            title: 'Cập nhật ghi chú nội bộ'
         };
-        const updatedLead = { ...lead, internalNotes: updatedInternalNotes };
+
+        const updatedLead = {
+            ...lead,
+            internalNotes: {
+                ...(lead.internalNotes || {}),
+                [field]: value
+            },
+            activities: [newLogEntry, ...(lead.activities || [])]
+        };
+
         setLead(updatedLead);
         onUpdate(updatedLead);
     };
@@ -335,28 +513,22 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
             ? `Hệ thống đã thêm [${newFollower.name}] vào danh sách theo dõi.`
             : `${user?.name || 'Admin'} đã thêm [${newFollower.name}] vào danh sách theo dõi.`;
 
-        addLog('system', logMsg); // This updates Lead state too
-        // Note: addLog updates lead.activities, but we also need to update lead.followers
-        // So we should do:
-        const updatedLead = { ...lead, followers: updatedList };
-        // We will defer update until addLog is called? 
-        // Actually addLog calls setLead.
-        // We should manually update lead with both.
-
-        // Better implementation:
+        // Create log entry and update lead in one go to avoid race conditions
         const logEntry: any = {
-            id: `act-${Date.now()}`,
+            id: `act-${Date.now()}-follow`,
             type: 'system',
             timestamp: new Date().toISOString(),
             description: logMsg,
             user: isSystem ? 'System' : (user?.name || 'Admin'),
             title: 'Follower'
         };
+
         const finalLead = {
             ...lead,
             followers: updatedList,
             activities: [logEntry, ...(lead.activities || [])]
         };
+
         setLead(finalLead);
         onUpdate(finalLead);
         setShowFollowersModal(false);
@@ -440,23 +612,32 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
 
     const handleLossAction = () => {
         if (!lossReason) {
-            showToast("Vui lòng nhập lý do thất bại!", 'error');
+            showToast("Vui lòng chọn lý do thất bại!", 'error');
             return;
         }
+
+        const finalReason = lossReason === 'Lý do khác' ? customLossReason : lossReason;
+        if (lossReason === 'Lý do khác' && !customLossReason.trim()) {
+            showToast("Vui lòng nhập lý do cụ thể!", 'error');
+            return;
+        }
+
         const statusLog: any = {
             id: `act-${Date.now()}`,
             type: 'system',
             timestamp: new Date().toISOString(),
-            description: `Trạng thái: ${lead.status} → LOST. Lý do: ${lossReason}`,
+            description: `Trạng thái: ${lead.status} → LOST. Lý do: ${finalReason}`,
             user: user?.name || 'Admin',
             title: 'Thất bại'
         };
 
         // @ts-ignore
-        const updatedLead = { ...lead, status: 'LOST', lostReason: lossReason, activities: [statusLog, ...(lead.activities || [])] };
+        const updatedLead = { ...lead, status: 'LOST', lostReason: finalReason, activities: [statusLog, ...(lead.activities || [])] };
         setLead(updatedLead);
         onUpdate(updatedLead);
         setShowLossModal(false);
+        setLossReason('');
+        setCustomLossReason('');
     }
 
     const handleWonAction = () => {
@@ -486,6 +667,107 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
         onUpdate(updatedLead);
         setShowConfetti(true);
         showToast("Chốt WON thành công! Nút 'Tạo Hợp đồng' đã sẵn sàng.", 'success');
+    };
+
+    const handleDisqualifiedAction = () => {
+        const disqualifiedLog: any = {
+            id: `act-${Date.now()}`,
+            type: 'system',
+            timestamp: new Date().toISOString(),
+            description: `Trạng thái: ${lead.status || 'Mới'} → KHÔNG ĐẠT (Unqualified)`,
+            user: user?.name || 'Admin',
+            title: 'Không đạt'
+        };
+
+        const updatedLead = {
+            ...lead,
+            status: LeadStatus.DISQUALIFIED as any,
+            activities: [disqualifiedLog, ...(lead.activities || [])],
+        };
+
+        setLead(updatedLead);
+        onUpdate(updatedLead);
+        showToast("Đã phân loại: KHÔNG ĐẠT", 'info');
+    };
+
+    const handlePickUpAction = () => {
+        const now = new Date();
+        const createdAt = new Date(lead.createdAt);
+        const diffMins = Math.floor((now.getTime() - createdAt.getTime()) / (1000 * 60));
+        const slaMet = diffMins <= 15;
+
+        const pickUpLog: any = {
+            id: `act-${Date.now()}`,
+            type: 'system',
+            timestamp: now.toISOString(),
+            description: `Sale ${user?.name || 'Admin'} đã tiếp nhận Lead. SLA Pick-up: ${slaMet ? 'ĐẠT' : 'VI PHẠM'} (Phản hồi sau ${diffMins} phút).`,
+            user: user?.name || 'Admin',
+            title: 'Tiếp nhận Lead'
+        };
+
+        const updatedLead = {
+            ...lead,
+            status: LeadStatus.ASSIGNED as any,
+            ownerId: user?.name || lead.ownerId,
+            pickUpDate: now.toISOString(),
+            activities: [pickUpLog, ...(lead.activities || [])],
+        };
+
+        setLead(updatedLead);
+        onUpdate(updatedLead);
+        showToast(`Đã tiếp nhận Lead. SLA: ${slaMet ? 'Đạt' : 'Quá hạn'}`, slaMet ? 'success' : 'info');
+    };
+
+    const handleCallAction = () => {
+        const callLog: any = {
+            id: `act-${Date.now()}`,
+            type: 'system',
+            timestamp: new Date().toISOString(),
+            title: 'Thực hiện gọi điện',
+            description: `Sale ${user?.name || 'Tôi'} đã thực hiện gọi điện cho khách hàng.`,
+            user: user?.name || 'Admin',
+        };
+
+        if (lead.status === LeadStatus.NEW || lead.status === LeadStatus.ASSIGNED) {
+            const updatedLead = {
+                ...lead,
+                status: LeadStatus.CONTACTED as any,
+                activities: [callLog, ...(lead.activities || [])],
+            };
+            setLead(updatedLead);
+            onUpdate(updatedLead);
+        } else {
+            const updatedLead = {
+                ...lead,
+                activities: [callLog, ...(lead.activities || [])],
+            };
+            setLead(updatedLead);
+            onUpdate(updatedLead);
+        }
+        window.location.href = `tel:${lead.phone}`;
+    };
+
+    const handleAssignAction = (targetUser: any) => {
+        const assignLog: any = {
+            id: `act-${Date.now()}`,
+            type: 'system',
+            timestamp: new Date().toISOString(),
+            description: `Hệ thống phân bổ Lead cho: ${targetUser.name}`,
+            user: user?.name || 'Admin',
+            title: 'Phân bổ'
+        };
+
+        const updatedLead = {
+            ...lead,
+            status: LeadStatus.ASSIGNED as any,
+            ownerId: targetUser.name,
+            activities: [assignLog, ...(lead.activities || [])],
+        };
+
+        setLead(updatedLead);
+        onUpdate(updatedLead);
+        setShowAssignModal(false);
+        showToast(`Đã chuyển Lead cho ${targetUser.name}`, 'info');
     };
 
     const handleCreateContract = () => {
@@ -584,16 +866,144 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
     };
 
     const handleSendQuote = () => {
-        if (productItems.length === 0 || calculatedTotal <= 0) {
-            showToast("Cần có báo giá hợp lệ trước khi gửi.", 'error');
+        if (productItems.length === 0) {
+            showToast("Vui lòng thêm sản phẩm vào báo giá trước.", 'error');
             return;
         }
+        const existingQuotation = getQuotations().find(q => q.leadId === lead.id);
+        if (existingQuotation) {
+            setActiveQuotationId(existingQuotation.id);
+            setQuotationWorkflowStatus(
+                existingQuotation.status === QuotationStatus.SALE_ORDER
+                    ? 'sale_order'
+                    : existingQuotation.status === QuotationStatus.SENT
+                        ? 'sent'
+                        : 'draft'
+            );
+            setQuotationData(prev => ({
+                ...prev,
+                paymentMethod: existingQuotation.paymentMethod === 'CASH' ? 'Tiền mặt' : existingQuotation.paymentMethod === 'CK' ? 'Chuyển khoản' : prev.paymentMethod,
+                expirationDate: existingQuotation.updatedAt?.slice(0, 10) || prev.expirationDate,
+                classCode: existingQuotation.classCode || prev.classCode,
+                schedule: existingQuotation.schedule || prev.schedule,
+                pricingNote: existingQuotation.pricingNote || prev.pricingNote,
+                serviceType: existingQuotation.serviceType || prev.serviceType,
+                needInvoice: !!existingQuotation.needInvoice
+            }));
+        } else {
+            setActiveQuotationId(null);
+            setQuotationWorkflowStatus('draft');
+        }
+        setQuotationCreatorTab('order_lines');
+        setShowQuotationCreator(true);
+    };
 
+    const buildQuotationLogNote = (action: string, detail?: string): IQuotationLogNote => ({
+        id: `q-log-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        timestamp: new Date().toISOString(),
+        user: user?.name || 'System',
+        action,
+        detail
+    });
+
+    const mapPaymentMethod = (): 'CK' | 'CASH' | undefined => {
+        if (quotationData.paymentMethod === 'Chuyển khoản') return 'CK';
+        if (quotationData.paymentMethod === 'Tiền mặt') return 'CASH';
+        return undefined;
+    };
+
+    const upsertQuotation = (
+        status: QuotationStatus,
+        action: string,
+        detail?: string
+    ): IQuotation => {
+        const now = new Date().toISOString();
+        const existing = activeQuotationId ? getQuotations().find(q => q.id === activeQuotationId) : undefined;
+        const mappedPayment = mapPaymentMethod();
+        const subtotal = productItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+        const finalAmount = Math.max(subtotal - (discount || 0), 0);
+        const logNotes = [buildQuotationLogNote(action, detail), ...(existing?.logNotes || [])];
+
+        const payload: IQuotation = {
+            id: existing?.id || `Q-${Date.now()}`,
+            soCode: existing?.soCode || `SO${String(getQuotations().length + 1).padStart(4, '0')}`,
+            customerName: lead.name,
+            customerId: lead.id,
+            leadId: lead.id,
+            dealId: lead.id,
+            serviceType: quotationData.serviceType,
+            product: productItems.map(item => item.name).filter(Boolean).join(' + ') || lead.product || 'Dịch vụ tư vấn',
+            lineItems: productItems.map(item => ({
+                id: `line-${item.id}`,
+                productId: item.id,
+                name: item.name || 'Sản phẩm',
+                quantity: item.quantity || 1,
+                unitPrice: item.price || 0,
+                discount: 0,
+                total: (item.price || 0) * (item.quantity || 1)
+            })),
+            amount: subtotal,
+            discount: discount || 0,
+            finalAmount,
+            pricingNote: quotationData.pricingNote,
+            createdAt: existing?.createdAt || now,
+            updatedAt: now,
+            status,
+            contractStatus: status === QuotationStatus.SALE_ORDER
+                ? 'sale_confirmed'
+                : (existing?.contractStatus || 'quotation'),
+            schedule: quotationData.schedule || undefined,
+            classCode: quotationData.classCode || undefined,
+            studentPhone: lead.phone || '',
+            studentEmail: lead.email || '',
+            studentDob: lead.dob || '',
+            studentAddress: lead.address || '',
+            identityCard: lead.identityCard || '',
+            guardianName: lead.guardianName || '',
+            guardianPhone: lead.guardianPhone || '',
+            paymentMethod: mappedPayment,
+            paymentProof: quotationData.internalNote || undefined,
+            paymentDocuments: mappedPayment ? {
+                method: mappedPayment,
+                note: quotationData.internalNote || '',
+                loggedAt: now,
+                loggedBy: user?.name || 'System'
+            } : existing?.paymentDocuments,
+            needInvoice: quotationData.needInvoice,
+            logNotes,
+            createdBy: user?.name || 'System'
+        };
+
+        if (existing) {
+            updateQuotation(payload);
+        } else {
+            addQuotation(payload);
+            setActiveQuotationId(payload.id);
+        }
+        return payload;
+    };
+
+    const handleSaveQuotationDraft = () => {
+        upsertQuotation(QuotationStatus.DRAFT, 'Lưu báo giá nháp', `Bảng giá: ${quotationData.pricelist}`);
+        setQuotationWorkflowStatus('draft');
+        showToast("Đã lưu báo giá nháp.", 'success');
+    };
+
+    const finalizeQuotation = () => {
+        if (!quotationData.paymentMethod) {
+            showToast("Vui lòng chọn phương thức thanh toán trước khi gửi báo giá.", 'error');
+            return;
+        }
+        const savedQuotation = upsertQuotation(
+            QuotationStatus.SENT,
+            'Gửi báo giá qua Email',
+            `PTTT: ${quotationData.paymentMethod} | Hạn: ${quotationData.expirationDate}`
+        );
         const statusLog: any = {
             id: `act-${Date.now()}`,
             type: 'system',
             timestamp: new Date().toISOString(),
-            description: `Trạng thái: ${lead.status || 'Mới'} → ${DealStage.NEGOTIATION}`,
+            description: `Báo giá đã được gửi. Trạng thái: ${lead.status || 'Mới'} → ${DealStage.NEGOTIATION}`,
             user: user?.name || 'Admin',
             title: 'Gửi báo giá'
         };
@@ -603,13 +1013,50 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
             status: DealStage.NEGOTIATION as any,
             activities: [statusLog, ...(lead.activities || [])],
             productItems: productItems,
-            discount: discount
+            discount: discount,
+            paymentRoadmap: quotationData.internalNote || lead.paymentRoadmap
         };
 
         setLead(updatedLead);
         onUpdate(updatedLead);
-        showToast("Đã gửi báo giá, chuyển sang Đàm phán.", 'success');
+        setQuotationWorkflowStatus('sent');
+        setShowQuotationCreator(false);
+        showToast(`Đã gửi báo giá thành công (${savedQuotation.soCode})!`, 'success');
         openNextActivityModal('Theo dõi phản hồi báo giá');
+    };
+
+    const handleConfirmQuotation = () => {
+        if (!quotationData.paymentMethod) {
+            showToast("Phương thức thanh toán là bắt buộc trước khi xác nhận.", 'error');
+            return;
+        }
+        const savedQuotation = upsertQuotation(
+            QuotationStatus.SALE_ORDER,
+            'Confirm Sale',
+            `Đã xác nhận đơn bán hàng. PTTT: ${quotationData.paymentMethod}`
+        );
+        setQuotationWorkflowStatus('sale_order');
+        showToast(`Đã xác nhận ${savedQuotation.soCode} thành Sale Order.`, 'success');
+    };
+
+    const handleCancelQuotation = () => {
+        const savedQuotation = upsertQuotation(
+            QuotationStatus.DRAFT,
+            'Hủy báo giá',
+            'Sale hủy thao tác gửi/confirm từ popup pipeline.'
+        );
+        setQuotationWorkflowStatus('cancelled');
+        showToast(`Đã hủy thao tác báo giá (${savedQuotation.soCode}).`, 'info');
+    };
+
+    const handlePrintQuotation = () => {
+        const savedQuotation = upsertQuotation(
+            quotationWorkflowStatus === 'sale_order' ? QuotationStatus.SALE_ORDER : QuotationStatus.DRAFT,
+            'In báo giá',
+            'In nhanh từ popup pipeline'
+        );
+        showToast(`Đang mở bản in cho ${savedQuotation.soCode}.`, 'info');
+        window.print();
     };
 
     // --- QUOTATION HELPERS ---
@@ -664,79 +1111,112 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                 )}
 
                 {/* HEADER TOOLBAR */}
-                <div className="h-14 bg-white border-b border-slate-300 flex items-center justify-between px-6 shadow-sm z-20">
-                    <div className="flex items-center gap-2 text-sm text-slate-500">
-                        <span className="font-semibold cursor-pointer">Leads</span>
-                        <span className="text-slate-300">/</span>
-                        <span className="text-slate-800 font-bold">{lead.name}</span>
-                        {isWon && <span className="ml-2 bg-green-100 text-green-700 text-[10px] font-bold px-2 py-0.5 rounded border border-green-200 uppercase">Đã chốt hợp đồng</span>}
-                        {isLost && <span className="ml-2 bg-red-100 text-red-700 text-[10px] font-bold px-2 py-0.5 rounded border border-red-200 uppercase">Đã thất bại</span>}
+                <div className="bg-white border-b border-slate-300 flex flex-col z-20">
+                    {/* Auto-save status */}
+                    <div className={`absolute top-12 left-1/2 -translate-x-1/2 px-3 py-1 bg-slate-800 text-white text-[10px] font-bold rounded-full shadow-lg transition-all z-[100] flex items-center gap-1.5 ${isSaving ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2 pointer-events-none'}`}>
+                        <Monitor size={10} className="animate-pulse" /> ĐÃ LƯU HỆ THỐNG
                     </div>
 
-                    <div className="flex items-center gap-3">
-
-                        {/* STATUS FLOW */}
-                        {/* 1. LOSS BUTTON */}
-                        {!isContract && !isLost && (
-                            <button onClick={() => setShowLossModal(true)} className="px-3 py-1.5 text-xs font-bold text-red-600 border border-red-200 rounded hover:bg-red-50 flex items-center gap-1">
-                                <Ban size={14} /> THẤT BẠI
-                            </button>
-                        )}
-
-                        {/* 2. WON BUTTON */}
-                        {!isWon && !isContract && !isLost && (
-                            <button onClick={handleWonAction} className="px-3 py-1.5 text-xs font-bold text-green-600 border border-green-200 rounded hover:bg-green-50 flex items-center gap-1">
-                                <Trophy size={14} /> CHỐT WON
-                            </button>
-                        )}
-
-                        {/* 3. CONVERT BUTTON (Gateway to Pipeline) */}
-                        {isQualified && !isPipeline && !isWon && !isContract && !isLost && (
-                            <button onClick={handleConvertAction} className="px-3 py-1.5 text-xs font-bold text-blue-600 border border-blue-200 rounded hover:bg-blue-50 flex items-center gap-1">
-                                <ArrowUpRight size={14} /> CONVERT LEAD
-                            </button>
-                        )}
-
-                        <div className="h-6 w-px bg-slate-200"></div>
-
-                        <div className="flex items-center gap-2 bg-slate-50 p-1 rounded-lg border border-slate-200">
-                            <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wide px-2">Quy trình</span>
-                            <div className="relative">
-                                <button
-                                    disabled={isContract || isLost}
-                                    onClick={() => setShowStatusDropdown(!showStatusDropdown)}
-                                    className={`flex items-center gap-2 px-3 py-1 text-xs font-bold rounded transition-all border shadow-sm ${lead.status === DealStage.WON ? 'bg-green-600 text-white border-green-700' :
-                                        isPipeline ? 'bg-blue-600 text-white border-blue-700' :
-                                            'bg-white text-slate-700 border-slate-300 hover:border-blue-400'
-                                        }`}
-                                >
-                                    {lead.status === DealStage.WON && <Trophy size={14} className="text-white" />}
-                                    {lead.status || 'Mới'} {!isWon && !isLost && <ChevronDown size={12} />}
-                                </button>
-
-                                {showStatusDropdown && !isContract && !isLost && (
-                                    <>
-                                        <div className="fixed inset-0 z-40" onClick={() => setShowStatusDropdown(false)}></div>
-                                        <div className="absolute right-0 top-full mt-2 w-56 bg-white border border-slate-200 rounded shadow-xl z-50 p-1 animate-in zoom-in-95">
-                                            <div className="px-3 py-2 text-[10px] font-bold text-slate-400 bg-slate-50 uppercase border-b">1. Lead (Sàng lọc)</div>
-                                            {Object.values(LeadStatus).map(s => (
-                                                <button key={s} onClick={() => handleStatusChange(s)} className="w-full text-left px-3 py-2 text-xs hover:bg-slate-100 flex justify-between items-center text-slate-700">
-                                                    {s} {lead.status === s && <CheckCircle2 size={12} className="text-blue-600" />}
-                                                </button>
-                                            ))}
-                                            <div className="px-3 py-2 text-[10px] font-bold text-blue-400 bg-blue-50 uppercase border-t border-b mt-1">2. Pipeline (Cơ hội)</div>
-                                            {PIPELINE_STAGE_OPTIONS.map(s => (
-                                                <button key={s} onClick={() => handleStatusChange(s)} className="w-full text-left px-3 py-2 text-xs hover:bg-blue-100 text-blue-700 font-bold flex justify-between items-center">
-                                                    {STAGE_LABELS[s] || s} {lead.status === s && <CheckCircle2 size={12} className="text-blue-600" />}
-                                                </button>
-                                            ))}
+                    {/* Status Bar Indicator */}
+                    <div className="h-10 px-6 flex items-center bg-slate-50 border-b border-slate-200 overflow-x-auto no-scrollbar">
+                        {[LeadStatus.NEW, LeadStatus.ASSIGNED, LeadStatus.CONTACTED, LeadStatus.QUALIFIED, LeadStatus.CONVERTED].map((st, idx, arr) => {
+                            const isCurrent = lead.status === st;
+                            const isPast = arr.indexOf(lead.status as LeadStatus) >= idx;
+                            return (
+                                <React.Fragment key={st}>
+                                    <div className={`flex items-center gap-2 whitespace-nowrap ${isCurrent ? 'opacity-100' : 'opacity-60'}`}>
+                                        <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${isPast ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-500'}`}>
+                                            {isPast ? <CheckCircle2 size={12} /> : idx + 1}
                                         </div>
-                                    </>
-                                )}
-                            </div>
+                                        <span className={`text-[11px] font-bold uppercase tracking-tight ${isCurrent ? 'text-blue-700' : isPast ? 'text-slate-700' : 'text-slate-400'}`}>
+                                            {st}
+                                        </span>
+                                    </div>
+                                    {idx < arr.length - 1 && <ChevronRight size={14} className="mx-2 text-slate-300 flex-shrink-0" />}
+                                </React.Fragment>
+                            );
+                        })}
+                    </div>
+
+                    <div className="h-14 flex items-center justify-between px-6 shadow-sm">
+                        <div className="flex items-center gap-2 text-sm text-slate-500">
+                            <span className="font-semibold cursor-pointer">Leads</span>
+                            <span className="text-slate-300">/</span>
+                            <span className="text-slate-800 font-bold">{lead.name}</span>
+                            {isWon && <span className="ml-2 bg-green-100 text-green-700 text-[10px] font-bold px-2 py-0.5 rounded border border-green-200 uppercase">Đã chốt hợp đồng</span>}
+                            {isLost && <span className="ml-2 bg-red-100 text-red-700 text-[10px] font-bold px-2 py-0.5 rounded border border-red-200 uppercase">Đã thất bại</span>}
                         </div>
-                        <div className="h-6 w-px bg-slate-200"></div>
-                        <button onClick={onClose} className="text-slate-400 hover:text-red-500 transition-colors"><X size={20} /></button>
+
+                        <div className="flex items-center gap-2">
+                            {/* 1. PICK UP BUTTON - Prominent if not yet picked up */}
+                            {((lead.status === LeadStatus.NEW || lead.status === LeadStatus.ASSIGNED) && !lead.pickUpDate) && user?.role !== UserRole.MARKETING && (
+                                <button
+                                    onClick={handlePickUpAction}
+                                    className="px-6 py-2 text-sm font-black text-white bg-blue-600 border border-blue-700 rounded-lg hover:bg-blue-700 flex items-center gap-2 shadow-lg shadow-blue-200 transition-all animate-pulse"
+                                >
+                                    <Handshake size={20} /> TIẾP NHẬN LEAD NGAY
+                                </button>
+                            )}
+
+                            {/* OTHER ACTIONS - ONLY IF PICKED UP OR ADVANCED STATUS */}
+                            {(lead.pickUpDate || (![LeadStatus.NEW, LeadStatus.ASSIGNED].includes(lead.status as LeadStatus))) && (
+                                <div className="flex items-center gap-2 bg-blue-50/50 p-1 rounded-lg border border-blue-100/50 mr-2">
+                                    {/* 0. CALL BUTTON - Light Blue Theme */}
+                                    <button
+                                        onClick={handleCallAction}
+                                        className="px-4 py-1.5 text-[11px] font-black text-blue-700 bg-white border border-blue-200 rounded hover:bg-blue-50 flex items-center gap-2 shadow-sm transition-all active:scale-95"
+                                    >
+                                        <Phone size={13} className="fill-blue-100" /> GỌI ĐIỆN
+                                    </button>
+
+                                    {/* 2. ASSIGN BUTTON - Matching Style */}
+                                    {!isWon && !isContract && !isLost && user?.role !== UserRole.MARKETING && (
+                                        <button
+                                            onClick={() => setShowAssignModal(true)}
+                                            className="px-4 py-1.5 text-[11px] font-bold text-slate-600 bg-white border border-slate-200 rounded hover:bg-slate-50 flex items-center gap-2 shadow-sm transition-all active:scale-95"
+                                        >
+                                            <Users size={13} /> PHÂN BỔ
+                                        </button>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* PRIMARY ACTIONS - ONLY IF PICKED UP */}
+                            {(lead.pickUpDate || (![LeadStatus.NEW, LeadStatus.ASSIGNED].includes(lead.status as LeadStatus))) && (
+                                <>
+                                    {/* 3. CONVERT BUTTON */}
+                                    {!isWon && !isContract && !isLost && !isPipeline && user?.role !== UserRole.MARKETING && (
+                                        <button onClick={handleConvertAction} className="px-3 py-1.5 text-xs font-bold text-blue-600 border border-blue-600 rounded hover:bg-blue-50 flex items-center gap-1 transition-all">
+                                            <ArrowUpRight size={14} /> CONVERT
+                                        </button>
+                                    )}
+
+                                    {/* 4. WON BUTTON */}
+                                    {!isWon && !isContract && !isLost && user?.role !== UserRole.MARKETING && (
+                                        <button onClick={handleWonAction} className="px-4 py-1.5 text-xs font-bold text-white bg-green-600 border border-green-600 rounded hover:bg-green-700 flex items-center gap-1 shadow-md shadow-green-100 transition-all active:scale-95">
+                                            <Trophy size={14} /> CHỐT WON
+                                        </button>
+                                    )}
+
+                                    {/* 5. LOSS BUTTON */}
+                                    {!isContract && !isLost && user?.role !== UserRole.MARKETING && (
+                                        <button onClick={() => setShowLossModal(true)} className="px-3 py-1.5 text-xs font-bold text-red-600 border border-red-200 rounded hover:bg-red-50 flex items-center gap-1">
+                                            <Ban size={14} /> THẤT BẠI
+                                        </button>
+                                    )}
+
+                                    {/* 6. UNQUALIFIED BUTTON */}
+                                    {!isWon && !isContract && !isLost && lead.status !== LeadStatus.DISQUALIFIED && user?.role !== UserRole.MARKETING && (
+                                        <button onClick={handleDisqualifiedAction} className="px-3 py-1.5 text-xs font-bold text-slate-400 border border-slate-200 rounded hover:bg-slate-50 flex items-center gap-1">
+                                            <XOctagon size={14} /> KHÔNG ĐẠT
+                                        </button>
+                                    )}
+                                </>
+                            )}
+
+                            <div className="h-6 w-px bg-slate-200 mx-1"></div>
+                            <button onClick={onClose} className="text-slate-400 hover:text-red-500 transition-colors p-2"><X size={20} /></button>
+                        </div>
                     </div>
                 </div>
 
@@ -759,6 +1239,13 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                     .badge-section { background: #dbeafe; color: #1e40af; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; }
                     .dimmed-section { opacity: 0.5; pointer-events: none; filter: grayscale(100%); transition: all 0.3s; }
                     .active-section { opacity: 1; pointer-events: auto; filter: none; }
+                    @keyframes bounce-subtle {
+                        0%, 100% { transform: translateY(0); }
+                        50% { transform: translateY(-3px); }
+                    }
+                    .animate-bounce-subtle {
+                        animation: bounce-subtle 2s infinite ease-in-out;
+                    }
                 `}</style>
 
                         {/* SECTION 1: LEAD INFO (MARKETING) - Locked after Qualified */}
@@ -780,37 +1267,89 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                                         <option value="Facebook">Facebook</option><option value="TikTok">TikTok</option><option value="Google">Google Search</option><option value="Hotline">Hotline</option><option value="Referral">Giới thiệu</option>
                                     </select>
                                 </div>
+                                <div className="col-span-2">
+                                    <label className="field-label flex items-center justify-between">
+                                        <span>Tags (Phân loại)</span>
+                                        <button onClick={() => setIsAddingTag(!isAddingTag)} className="text-blue-600 hover:text-blue-800 flex items-center gap-1 normal-case">
+                                            <Plus size={12} /> {isAddingTag ? 'Đóng' : 'Thêm Tag'}
+                                        </button>
+                                    </label>
+
+                                    <div className="flex flex-wrap gap-2 mb-2 p-3 bg-slate-50 border border-dashed border-slate-300 rounded-lg min-h-[40px]">
+                                        {(lead.marketingData?.tags || []).length > 0 ? (
+                                            (lead.marketingData?.tags || []).map((t, idx) => (
+                                                <span key={idx} className="flex items-center gap-1 bg-white border border-blue-200 text-blue-700 px-2 py-1 rounded text-[11px] font-bold shadow-sm group">
+                                                    {t}
+                                                    <button onClick={() => handleRemoveTag(t)} className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 ml-1">
+                                                        <X size={10} />
+                                                    </button>
+                                                </span>
+                                            ))
+                                        ) : (
+                                            <span className="text-slate-400 text-xs italic">Chưa có tag nào...</span>
+                                        )}
+                                    </div>
+
+                                    {isAddingTag && (
+                                        <div className="p-3 bg-white border border-slate-200 rounded-lg shadow-lg mb-4 animate-in fade-in zoom-in-95">
+                                            <div className="flex gap-2 mb-3">
+                                                <input
+                                                    className="flex-1 field-input"
+                                                    placeholder="Tạo tag mới..."
+                                                    value={newTagInput}
+                                                    onChange={e => setNewTagInput(e.target.value)}
+                                                    onKeyDown={e => e.key === 'Enter' && handleAddTag(newTagInput)}
+                                                />
+                                                <button onClick={() => handleAddTag(newTagInput)} className="bg-blue-600 text-white px-3 py-1 rounded text-xs font-bold hover:bg-blue-700">Tạo</button>
+                                            </div>
+                                            <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto pr-1">
+                                                {allAvailableTags.filter(t => !(lead.marketingData?.tags || []).includes(t)).map((t, idx) => (
+                                                    <button
+                                                        key={idx}
+                                                        onClick={() => handleAddTag(t)}
+                                                        className="text-[10px] px-2 py-1 rounded bg-slate-100 text-slate-600 hover:bg-blue-50 hover:text-blue-600 border border-slate-200 transition-colors"
+                                                    >
+                                                        + {t}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         </div>
 
                         {/* Internal Notes */}
                         <div className="mb-10 p-4 border rounded-lg bg-slate-50 border-slate-200">
-                            <h3 className="section-title"><span className="badge-section">1.1</span> GHI CHÚ NỘI BỘ (INTERNAL NOTES)</h3>
+                            <h3 className="section-title">
+                                <span className="badge-section">1.1</span> GHI CHÚ NỘI BỘ (INTERNAL NOTES)
+                                {isNotPickedUp && <span className="ml-3 text-[10px] text-red-500 font-bold animate-pulse inline-flex items-center gap-1"><Lock size={10} /> {lockedMsg}</span>}
+                            </h3>
                             <div className="grid grid-cols-2 gap-x-6 gap-y-4">
-                                <div>
+                                <div title={isNotPickedUp ? lockedMsg : ""}>
                                     <label className="field-label">Thời gian dự kiến tham gia</label>
-                                    <input className="field-input" placeholder="VD: 06/2026" defaultValue={lead.internalNotes?.expectedStart || ''} onBlur={e => handleInternalNoteBlur('expectedStart', e.target.value)} disabled={isQualified || isContract || isLost} />
+                                    <input className="field-input" placeholder="VD: 06/2026" defaultValue={lead.internalNotes?.expectedStart || ''} onBlur={e => handleInternalNoteBlur('expectedStart', e.target.value)} disabled={isNotPickedUp || isConverted || isLost} />
                                 </div>
-                                <div>
+                                <div title={isNotPickedUp ? lockedMsg : ""}>
                                     <label className="field-label">Ý kiến bố mẹ</label>
-                                    <input className="field-input" placeholder="Đồng ý / Cần cân nhắc..." defaultValue={lead.internalNotes?.parentOpinion || ''} onBlur={e => handleInternalNoteBlur('parentOpinion', e.target.value)} disabled={isQualified || isContract || isLost} />
+                                    <input className="field-input" placeholder="Đồng ý / Cần cân nhắc..." defaultValue={lead.internalNotes?.parentOpinion || ''} onBlur={e => handleInternalNoteBlur('parentOpinion', e.target.value)} disabled={isNotPickedUp || isConverted || isLost} />
                                 </div>
-                                <div>
+                                <div title={isNotPickedUp ? lockedMsg : ""}>
                                     <label className="field-label">Tài chính</label>
-                                    <input className="field-input" placeholder="Đủ / Thiếu / Cần hỗ trợ" defaultValue={lead.internalNotes?.financial || ''} onBlur={e => handleInternalNoteBlur('financial', e.target.value)} disabled={isQualified || isContract || isLost} />
+                                    <input className="field-input" placeholder="Đủ / Thiếu / Cần hỗ trợ" defaultValue={lead.internalNotes?.financial || ''} onBlur={e => handleInternalNoteBlur('financial', e.target.value)} disabled={isNotPickedUp || isConverted || isLost} />
                                 </div>
-                                <div>
+                                <div title={isNotPickedUp ? lockedMsg : ""}>
                                     <label className="field-label">Mức độ tiềm năng</label>
-                                    <select className="field-input" defaultValue={lead.internalNotes?.potential || ''} onChange={e => handleInternalNoteBlur('potential', e.target.value as any)} disabled={isQualified || isContract || isLost}>
+                                    <select className="field-input" value={lead.internalNotes?.potential || ''} onChange={e => handleInternalNoteBlur('potential', e.target.value as any)} disabled={isNotPickedUp || isConverted || isLost}>
                                         <option value="">-- Chọn --</option>
                                         <option value="Nóng">Nóng</option>
                                         <option value="Tiềm năng">Tiềm năng</option>
                                         <option value="Tham khảo">Tham khảo</option>
                                     </select>
                                 </div>
-                                <div className="col-span-2">
+                                <div className="col-span-2" title={isNotPickedUp ? lockedMsg : ""}>
                                     <label className="field-label">Ghi chú khác</label>
-                                    <textarea className={`field-input h-20 resize-none ${isQualified ? 'locked' : ''}`} defaultValue={lead.notes || ''} onBlur={e => handleFieldBlur('notes', e.target.value)} disabled={isQualified || isContract || isLost} />
+                                    <textarea className={`field-input h-20 resize-none ${isConverted ? 'locked' : ''}`} defaultValue={lead.notes || ''} onBlur={e => handleFieldBlur('notes', e.target.value)} disabled={isNotPickedUp || isConverted || isLost} />
                                 </div>
                             </div>
                         </div>
@@ -1089,6 +1628,12 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                         <div className="p-4 border-b border-slate-200 bg-white">
                             {chatterTab === 'activity' ? (
                                 <div className="space-y-3">
+                                    <button
+                                        onClick={() => setIsCreateMeetingModalOpen(true)}
+                                        className="w-full bg-emerald-600 text-white py-2 rounded text-xs font-bold hover:bg-emerald-700 flex items-center justify-center gap-2"
+                                    >
+                                        <Plus size={14} /> Tạo lịch hẹn
+                                    </button>
                                     <div className="flex gap-2 mb-2">
                                         {ACTIVITY_TYPES.map(t => (
                                             <button key={t.id} onClick={() => setActivityType(t.id)} className={`p-2 rounded border text-[10px] font-bold uppercase flex flex-col items-center gap-1 w-1/4 ${activityType === t.id ? 'bg-purple-50 border-purple-400 text-purple-700' : 'border-slate-200 text-slate-500'}`}>
@@ -1119,8 +1664,9 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                                                 value={meetingType}
                                                 onChange={(e) => setMeetingType(e.target.value as MeetingType)}
                                             >
-                                                <option value={MeetingType.OFFLINE}>Test Offline (Tại trung tâm)</option>
-                                                <option value={MeetingType.ONLINE}>Phỏng vấn Online</option>
+                                                <option value="">-- Chọn hình thức --</option>
+                                                <option value={MeetingType.OFFLINE}>Offline (Tại trung tâm)</option>
+                                                <option value={MeetingType.ONLINE}>Online (Phóng vấn)</option>
                                                 <option value={MeetingType.CONSULTING}>Tư vấn trực tiếp</option>
                                             </select>
                                         </div>
@@ -1233,88 +1779,409 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                 </div>
 
                 {/* NEXT ACTIVITY MODAL */}
-                {showNextActivityModal && (
-                    <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm">
-                        <div className="bg-white p-6 rounded-lg shadow-2xl w-[420px] animate-in zoom-in-95">
-                            <h3 className="text-lg font-bold text-slate-900 mb-2">Tạo hoạt động tiếp theo</h3>
-                            <p className="text-sm text-slate-600 mb-4">Hãy tạo hoạt động tiếp theo để tiếp tục chăm sóc.</p>
+                {
+                    showNextActivityModal && (
+                        <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm">
+                            <div className="bg-white p-6 rounded-lg shadow-2xl w-[420px] animate-in zoom-in-95">
+                                <h3 className="text-lg font-bold text-slate-900 mb-2">Tạo hoạt động tiếp theo</h3>
+                                <p className="text-sm text-slate-600 mb-4">Hãy tạo hoạt động tiếp theo để tiếp tục chăm sóc.</p>
 
-                            <div className="flex gap-2 mb-3">
-                                {ACTIVITY_TYPES.map(t => (
+                                <div className="flex gap-2 mb-3">
+                                    {ACTIVITY_TYPES.map(t => (
+                                        <button
+                                            key={t.id}
+                                            onClick={() => setNextActivityType(t.id)}
+                                            className={`flex-1 p-2 rounded border text-[10px] font-bold uppercase ${nextActivityType === t.id ? 'bg-purple-50 border-purple-400 text-purple-700' : 'border-slate-200 text-slate-500'}`}
+                                        >
+                                            <t.icon size={12} /> {t.label}
+                                        </button>
+                                    ))}
+                                </div>
+
+                                <input type="datetime-local" className="w-full text-xs p-2 border rounded font-bold mb-2" value={nextActivityDate} onChange={e => setNextActivityDate(e.target.value)} />
+                                <input className="w-full text-xs p-2 border rounded mb-4" placeholder="Tiêu đề công việc..." value={nextActivitySummary} onChange={e => setNextActivitySummary(e.target.value)} />
+
+                                <div className="flex justify-end gap-2">
                                     <button
-                                        key={t.id}
-                                        onClick={() => setNextActivityType(t.id)}
-                                        className={`flex-1 p-2 rounded border text-[10px] font-bold uppercase ${nextActivityType === t.id ? 'bg-purple-50 border-purple-400 text-purple-700' : 'border-slate-200 text-slate-500'}`}
+                                        onClick={() => { setShowNextActivityModal(false); finalizePendingConvert(); }}
+                                        className="px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-100 rounded"
                                     >
-                                        <t.icon size={12} /> {t.label}
+                                        Bỏ qua
                                     </button>
-                                ))}
-                            </div>
-
-                            <input type="datetime-local" className="w-full text-xs p-2 border rounded font-bold mb-2" value={nextActivityDate} onChange={e => setNextActivityDate(e.target.value)} />
-                            <input className="w-full text-xs p-2 border rounded mb-4" placeholder="Tiêu đề công việc..." value={nextActivitySummary} onChange={e => setNextActivitySummary(e.target.value)} />
-
-                            <div className="flex justify-end gap-2">
-                                <button
-                                    onClick={() => { setShowNextActivityModal(false); finalizePendingConvert(); }}
-                                    className="px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-100 rounded"
-                                >
-                                    Bỏ qua
-                                </button>
-                                <button
-                                    onClick={() => {
-                                        if (!nextActivitySummary) return;
-                                        addScheduledActivity(nextActivityType, nextActivitySummary, nextActivityDate);
-                                        setNextActivitySummary('');
-                                        setShowNextActivityModal(false);
-                                        finalizePendingConvert();
-                                    }}
-                                    className="px-4 py-2 text-sm font-bold text-white bg-purple-600 hover:bg-purple-700 rounded"
-                                >
-                                    Tạo hoạt động
-                                </button>
+                                    <button
+                                        onClick={() => {
+                                            if (!nextActivitySummary) return;
+                                            addScheduledActivity(nextActivityType, nextActivitySummary, nextActivityDate);
+                                            setNextActivitySummary('');
+                                            setShowNextActivityModal(false);
+                                            finalizePendingConvert();
+                                        }}
+                                        className="px-4 py-2 text-sm font-bold text-white bg-purple-600 hover:bg-purple-700 rounded"
+                                    >
+                                        Tạo hoạt động
+                                    </button>
+                                </div>
                             </div>
                         </div>
-                    </div>
-                )}
+                    )
+                }
 
                 {/* COMPLETE ACTIVITY MODAL */}
-                {completingActivityId && (
-                    <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm">
-                        <div className="bg-white p-6 rounded-lg shadow-2xl w-[420px] animate-in zoom-in-95">
-                            <h3 className="text-lg font-bold text-slate-900 mb-2">Cập nhật kết quả</h3>
-                            <p className="text-sm text-slate-600 mb-4">Nhập nội dung thực tế để lưu vào Log Note.</p>
+                {
+                    completingActivityId && (
+                        <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm">
+                            <div className="bg-white p-6 rounded-lg shadow-2xl w-[420px] animate-in zoom-in-95">
+                                <h3 className="text-lg font-bold text-slate-900 mb-2">Cập nhật kết quả</h3>
+                                <p className="text-sm text-slate-600 mb-4">Nhập nội dung thực tế để lưu vào Log Note.</p>
 
-                            <textarea
-                                className="w-full p-2 border border-slate-300 rounded text-sm mb-4 h-24"
-                                placeholder="VD: Đã gọi, khách hẹn gặp lại..."
-                                value={completionNote}
-                                onChange={e => setCompletionNote(e.target.value)}
-                            ></textarea>
+                                <textarea
+                                    className="w-full p-2 border border-slate-300 rounded text-sm mb-4 h-24"
+                                    placeholder="VD: Đã gọi, khách hẹn gặp lại..."
+                                    value={completionNote}
+                                    onChange={e => setCompletionNote(e.target.value)}
+                                ></textarea>
 
-                            <div className="flex justify-end gap-2">
-                                <button onClick={() => setCompletingActivityId(null)} className="px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-100 rounded">Hủy</button>
-                                <button onClick={completeActivity} className="px-4 py-2 text-sm font-bold text-white bg-green-600 hover:bg-green-700 rounded">Lưu</button>
+                                <div className="flex justify-end gap-2">
+                                    <button onClick={() => setCompletingActivityId(null)} className="px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-100 rounded">Hủy</button>
+                                    <button onClick={completeActivity} className="px-4 py-2 text-sm font-bold text-white bg-green-600 hover:bg-green-700 rounded">Lưu</button>
+                                </div>
+                            </div>
+                        </div>
+                    )
+                }
+
+                {/* QUOTATION CREATOR MODAL (ODOO STYLE) */}
+                {showQuotationCreator && (
+                    <div className="fixed inset-0 z-[100] bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+                        <div className="bg-white rounded-lg shadow-2xl w-full max-w-6xl h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
+                            {/* Breadcrumbs & Actions Area */}
+                            <div className="bg-slate-50 border-b border-slate-200 px-6 py-2 flex items-center justify-between">
+                                <div className="flex items-center gap-2 text-xs text-slate-500 font-medium">
+                                    <span>Quy trình</span>
+                                    <ChevronRight size={14} />
+                                    <span>[Center-2]Groupclass</span>
+                                    <ChevronRight size={14} />
+                                    <span className="text-slate-900 font-bold">Mới</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <button onClick={handleSaveQuotationDraft} className="px-5 py-1.5 bg-blue-600 text-white text-xs font-bold rounded shadow-sm hover:bg-blue-700 flex items-center gap-2 group transition-all uppercase">
+                                        <Save size={14} className="group-hover:scale-110" /> LƯU
+                                    </button>
+                                    <button onClick={() => setShowQuotationCreator(false)} className="px-5 py-1.5 bg-white border border-slate-300 text-slate-600 text-xs font-bold rounded shadow-sm hover:bg-slate-50 uppercase">
+                                        BỎ QUA
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Status Bar (Odoo Style) */}
+                            <div className="bg-white border-b border-slate-200 px-6 py-2 flex items-center justify-between">
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={finalizeQuotation}
+                                        className="px-3 py-1 bg-[#2b5a83] text-white text-[10px] font-bold rounded uppercase hover:bg-[#1f4463] shadow-sm transition-colors"
+                                    >
+                                        Gửi qua Email
+                                    </button>
+                                    <button onClick={handlePrintQuotation} className="px-3 py-1 border border-slate-300 text-slate-600 text-[10px] font-bold rounded uppercase hover:bg-slate-50 transition-colors">In</button>
+                                    <button onClick={handleConfirmQuotation} className="px-3 py-1 border border-slate-300 text-slate-600 text-[10px] font-bold rounded uppercase hover:bg-slate-50 transition-colors">Xác nhận</button>
+                                    <button onClick={handleCancelQuotation} className="px-3 py-1 border border-slate-300 text-slate-600 text-[10px] font-bold rounded uppercase hover:bg-slate-50 transition-colors">Hủy</button>
+                                </div>
+                                <div className="flex h-8">
+                                    <div className="flex items-center">
+                                        <div className={`px-5 py-1.5 text-[10px] font-extrabold uppercase border-l border-t border-b border-slate-200 rounded-l-md ${quotationWorkflowStatus === 'draft' ? 'bg-blue-50 text-[#2b5a83]' : 'bg-white text-slate-400'}`}>Báo giá</div>
+                                        <div className="relative h-full w-[16px] overflow-hidden">
+                                            <div className={`absolute top-[-8px] left-[-8px] w-[32px] h-[32px] border border-slate-200 rotate-45 ${quotationWorkflowStatus === 'draft' ? 'bg-blue-50' : 'bg-white'}`}></div>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center ml-[-12px]">
+                                        <div className={`px-5 py-1.5 text-[10px] font-bold uppercase border-t border-b border-slate-200 ${quotationWorkflowStatus === 'sent' ? 'bg-blue-50 text-[#2b5a83]' : 'bg-white text-slate-400'}`}>Đã gửi báo giá</div>
+                                        <div className="relative h-full w-[16px] overflow-hidden">
+                                            <div className={`absolute top-[-8px] left-[-8px] w-[32px] h-[32px] border border-slate-200 rotate-45 ${quotationWorkflowStatus === 'sent' ? 'bg-blue-50' : 'bg-white'}`}></div>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center ml-[-12px]">
+                                        <div className={`px-5 py-1.5 text-[10px] font-bold uppercase border-t border-b border-r border-slate-200 rounded-r-md ${quotationWorkflowStatus === 'sale_order' ? 'bg-blue-50 text-[#2b5a83]' : 'bg-white text-slate-400'}`}>Đơn bán hàng</div>
+                                    </div>
+                                    {quotationWorkflowStatus === 'cancelled' && (
+                                        <div className="ml-2 px-3 py-1.5 bg-red-50 text-red-600 text-[10px] font-bold uppercase border border-red-200 rounded-md">Đã hủy</div>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Content Area */}
+                            <div className="flex-1 overflow-y-auto p-12 bg-white">
+                                <div className="max-w-4xl mx-auto">
+                                    <h2 className="text-3xl font-bold text-slate-800 mb-8 tracking-tight">Mới</h2>
+
+                                    <div className="grid grid-cols-2 gap-x-20 gap-y-5 mb-12">
+                                        <div className="space-y-4">
+                                            <div className="flex min-h-[32px] items-center">
+                                                <label className="w-40 text-[13px] font-bold text-slate-700">Khách hàng</label>
+                                                <div className="flex-1 px-3 py-1.5 bg-blue-50 border border-slate-300 rounded text-[13px] font-bold text-blue-900">
+                                                    {lead.name}
+                                                </div>
+                                            </div>
+                                            <div className="flex min-h-[32px] items-center">
+                                                <label className="w-40 text-[13px] font-bold text-slate-700">Phương thức thanh toán</label>
+                                                <select
+                                                    className={`flex-1 px-3 py-1.5 bg-blue-50 border rounded text-[13px] outline-none transition-colors ${quotationData.paymentMethod ? 'border-slate-300 focus:border-blue-500' : 'border-red-300 focus:border-red-500'}`}
+                                                    value={quotationData.paymentMethod}
+                                                    onChange={e => setQuotationData({ ...quotationData, paymentMethod: e.target.value })}
+                                                >
+                                                    <option value="">-- Chọn phương thức --</option>
+                                                    <option value="Tiền mặt">Tiền mặt</option>
+                                                    <option value="Chuyển khoản">Chuyển khoản</option>
+                                                </select>
+                                            </div>
+                                            {!quotationData.paymentMethod && (
+                                                <div className="text-[11px] text-red-600 font-bold pl-40">* Bắt buộc chọn trước khi gửi báo giá</div>
+                                            )}
+                                        </div>
+
+                                        <div className="space-y-4">
+                                            <div className="flex min-h-[32px] items-center">
+                                                <label className="w-40 text-[13px] font-bold text-slate-700">Ngày hết hạn</label>
+                                                <div className="flex-1 relative">
+                                                    <input
+                                                        type="date"
+                                                        className="w-full px-3 py-1.5 border border-slate-300 rounded text-[13px] outline-none focus:border-blue-500 transition-colors bg-white"
+                                                        value={quotationData.expirationDate}
+                                                        onChange={e => setQuotationData({ ...quotationData, expirationDate: e.target.value })}
+                                                    />
+                                                </div>
+                                            </div>
+                                            <div className="flex min-h-[32px] items-center">
+                                                <label className="w-40 text-[13px] font-bold text-slate-700">Bảng giá</label>
+                                                <div className="flex-1 flex gap-2">
+                                                    <select
+                                                        className="flex-1 px-3 py-1.5 bg-blue-50 border border-slate-300 rounded text-[13px] outline-none focus:border-blue-500 transition-colors"
+                                                        value={quotationData.pricelist}
+                                                        onChange={e => setQuotationData({ ...quotationData, pricelist: e.target.value })}
+                                                    >
+                                                        <option value="[Center 11] Base Price (VND)">[Center 11] Base Price (VND)</option>
+                                                        <option value="VIP Pricelist">VIP Pricelist</option>
+                                                    </select>
+                                                    <button className="p-1 px-2 text-blue-700 hover:bg-slate-100 border border-slate-300 rounded transition-colors shadow-sm"><Monitor size={16} /></button>
+                                                </div>
+                                            </div>
+                                            <div className="flex min-h-[32px] items-center">
+                                                <label className="w-40 text-[13px] font-bold text-slate-700">Chế độ đơn hàng</label>
+                                                <div className="flex-1">
+                                                    <select
+                                                        className="w-full px-3 py-1.5 bg-blue-50 border border-slate-300 rounded text-[13px] outline-none focus:border-blue-500 appearance-none"
+                                                        value={quotationData.orderMode}
+                                                        onChange={e => setQuotationData({ ...quotationData, orderMode: e.target.value })}
+                                                    >
+                                                        <option value="Normal">Bình thường</option>
+                                                        <option value="Urgent">Khẩn cấp</option>
+                                                        <option value="Promotion">Khuyến mãi</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Tabs */}
+                                    <div className="flex gap-8 border-b border-slate-200 mb-6 px-2">
+                                        <button onClick={() => setQuotationCreatorTab('order_lines')} className={`pb-3 text-[11px] font-extrabold uppercase tracking-wider ${quotationCreatorTab === 'order_lines' ? 'text-blue-700 border-b-2 border-blue-700' : 'text-slate-400 hover:text-slate-600 transition-colors'}`}>Chi tiết đơn hàng</button>
+                                        <button onClick={() => setQuotationCreatorTab('other_info')} className={`pb-3 text-[11px] font-extrabold uppercase tracking-wider ${quotationCreatorTab === 'other_info' ? 'text-blue-700 border-b-2 border-blue-700' : 'text-slate-400 hover:text-slate-600 transition-colors'}`}>Thông tin khác</button>
+                                    </div>
+
+                                    {/* Order Lines Table */}
+                                    {quotationCreatorTab === 'order_lines' && (
+                                        <div className="overflow-x-auto">
+                                        <table className="w-full text-[12px] text-left border-collapse">
+                                            <thead className="bg-[#f8f9fa] text-slate-700 font-bold uppercase">
+                                                <tr className="border-b border-slate-200">
+                                                    <th className="p-3 w-40">Sản phẩm</th>
+                                                    <th className="p-3 min-w-[140px]">Tên học viên</th>
+                                                    <th className="p-3 min-w-[100px]">Ngày sinh</th>
+                                                    <th className="p-3">Mô tả</th>
+                                                    <th className="p-3 text-center w-24">SL Đặt</th>
+                                                    <th className="p-3 text-right w-32">Đơn giá</th>
+                                                    <th className="p-3 text-center w-20">CK (%)</th>
+                                                    <th className="p-3 text-right w-40">Thành tiền</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-100">
+                                                {productItems.map((item, idx) => (
+                                                    <tr key={idx} className="hover:bg-slate-50 transition-colors border-b border-slate-100">
+                                                        <td className="p-3 text-blue-700 font-bold">{item.name}</td>
+                                                        <td className="p-3 text-slate-900">{lead.name}</td>
+                                                        <td className="p-3 text-slate-600">{lead.dob ? new Date(lead.dob).toLocaleDateString('vi-VN') : '--/--/----'}</td>
+                                                        <td className="p-3 text-slate-500 italic font-light">{item.name} - {quotationData.orderMode}</td>
+                                                        <td className="p-3 text-center text-slate-700">{item.quantity}</td>
+                                                        <td className="p-3 text-right text-slate-700">{item.price.toLocaleString()}</td>
+                                                        <td className="p-3 text-center text-slate-700">0</td>
+                                                        <td className="p-3 text-right font-bold text-slate-900">{(item.price * item.quantity).toLocaleString()}</td>
+                                                    </tr>
+                                                ))}
+                                                <tr className="bg-slate-50/30">
+                                                    <td colSpan={8} className="p-3">
+                                                        <button onClick={addProductItem} className="text-blue-600 font-bold hover:underline transition-all flex items-center gap-1"><Plus size={14} /> Thêm một dòng</button>
+                                                    </td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                        </div>
+                                    )}
+
+                                    {quotationCreatorTab === 'other_info' && (
+                                        <div className="grid grid-cols-2 gap-5 border border-slate-200 rounded-lg p-5 bg-slate-50">
+                                            <div>
+                                                <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Loại dịch vụ</label>
+                                                <select
+                                                    value={quotationData.serviceType}
+                                                    onChange={e => setQuotationData({ ...quotationData, serviceType: e.target.value as 'StudyAbroad' | 'Training' | 'Combo' })}
+                                                    className="w-full px-3 py-2 border border-slate-300 rounded text-sm bg-white"
+                                                >
+                                                    <option value="Training">Đào tạo</option>
+                                                    <option value="StudyAbroad">Du học</option>
+                                                    <option value="Combo">Combo</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Mã lớp dự kiến</label>
+                                                <input
+                                                    value={quotationData.classCode}
+                                                    onChange={e => setQuotationData({ ...quotationData, classCode: e.target.value })}
+                                                    className="w-full px-3 py-2 border border-slate-300 rounded text-sm bg-white"
+                                                    placeholder="VD: DE-A1-02/2026"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Lịch học mong muốn</label>
+                                                <input
+                                                    value={quotationData.schedule}
+                                                    onChange={e => setQuotationData({ ...quotationData, schedule: e.target.value })}
+                                                    className="w-full px-3 py-2 border border-slate-300 rounded text-sm bg-white"
+                                                    placeholder="VD: T2-T4-T6, 19:00-21:00"
+                                                />
+                                            </div>
+                                            <div className="flex items-end">
+                                                <label className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={quotationData.needInvoice}
+                                                        onChange={e => setQuotationData({ ...quotationData, needInvoice: e.target.checked })}
+                                                        className="rounded border-slate-300"
+                                                    />
+                                                    KH cần in hóa đơn VAT
+                                                </label>
+                                            </div>
+                                            <div className="col-span-2">
+                                                <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Ghi chú chính sách giá</label>
+                                                <textarea
+                                                    value={quotationData.pricingNote}
+                                                    onChange={e => setQuotationData({ ...quotationData, pricingNote: e.target.value })}
+                                                    className="w-full px-3 py-2 border border-slate-300 rounded text-sm bg-white h-20 resize-none"
+                                                    placeholder="Nêu lý do giảm giá/chính sách áp dụng..."
+                                                />
+                                            </div>
+                                            <div className="col-span-2">
+                                                <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Thông tin khác / Chứng từ</label>
+                                                <textarea
+                                                    value={quotationData.internalNote}
+                                                    onChange={e => setQuotationData({ ...quotationData, internalNote: e.target.value })}
+                                                    className="w-full px-3 py-2 border border-slate-300 rounded text-sm bg-white h-20 resize-none"
+                                                    placeholder="Mã bill, ghi chú nội bộ, yêu cầu kế toán..."
+                                                />
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Total Summary */}
+                                    <div className="mt-16 flex justify-end">
+                                        <div className="w-80 space-y-2 border-t border-slate-800 pt-4">
+                                            <div className="flex justify-between text-[13px] py-1">
+                                                <span className="text-slate-500 font-bold">Số tiền trước thuế:</span>
+                                                <span className="font-bold text-slate-900 border-b border-slate-200 px-6">{calculatedTotal.toLocaleString()} ₫</span>
+                                            </div>
+                                            <div className="flex justify-between text-[13px] py-1">
+                                                <span className="text-slate-500 font-bold">Thuế:</span>
+                                                <span className="font-bold text-slate-900 border-b border-slate-200 px-6">0 ₫</span>
+                                            </div>
+                                            <div className="flex justify-between items-center py-5 border-t border-slate-200 mt-2">
+                                                <span className="text-lg font-black text-slate-800 uppercase tracking-tighter">Tổng cộng:</span>
+                                                <span className="text-2xl font-black text-blue-700 tracking-tight border-b-2 border-slate-800 px-6">{calculatedTotal.toLocaleString()} ₫</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
                 )}
 
                 {/* LOSS MODAL */}
-                {showLossModal && (
-                    <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm">
-                        <div className="bg-white p-6 rounded-lg shadow-2xl w-96 animate-in zoom-in-95">
-                            <h3 className="text-lg font-bold text-red-600 mb-4 flex items-center gap-2"><Ban /> Xác nhận thất bại Lead?</h3>
-                            <p className="text-sm text-slate-600 mb-4">Vui lòng cho biết lý do để hệ thống ghi nhận:</p>
-                            <textarea
-                                className="w-full p-2 border border-slate-300 rounded text-sm mb-4 h-24"
-                                placeholder="VD: Khách thấy đắt, đã chốt bên khác..."
-                                value={lossReason}
-                                onChange={e => setLossReason(e.target.value)}
-                            ></textarea>
-                            <div className="flex justify-end gap-2">
-                                <button onClick={() => setShowLossModal(false)} className="px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-100 rounded">Hủy</button>
-                                <button onClick={handleLossAction} className="px-4 py-2 text-sm font-bold text-white bg-red-600 hover:bg-red-700 rounded">Xác nhận LOST</button>
+                {
+                    showLossModal && (
+                        <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm">
+                            <div className="bg-white p-6 rounded-lg shadow-2xl w-96 animate-in zoom-in-95">
+                                <h3 className="text-lg font-bold text-red-600 mb-4 flex items-center gap-2"><Ban /> Xác nhận thất bại Lead?</h3>
+                                <p className="text-sm text-slate-600 mb-4">Vui lòng chọn lý do để hệ thống ghi nhận:</p>
+
+                                <select
+                                    className="w-full p-2 border border-slate-300 rounded text-sm mb-4 bg-white font-bold"
+                                    value={lossReason}
+                                    onChange={e => setLossReason(e.target.value)}
+                                >
+                                    <option value="">-- Chọn lý do --</option>
+                                    {lostReasonsList.map(reason => (
+                                        <option key={reason} value={reason}>{reason}</option>
+                                    ))}
+                                </select>
+
+                                {lossReason === 'Lý do khác' && (
+                                    <textarea
+                                        className="w-full p-2 border border-slate-300 rounded text-sm mb-4 h-24 animate-in slide-in-from-top-2"
+                                        placeholder="Vui lòng nhập lý do cụ thể..."
+                                        value={customLossReason}
+                                        onChange={e => setCustomLossReason(e.target.value)}
+                                    ></textarea>
+                                )}
+
+                                <div className="flex justify-end gap-2 text-sm">
+                                    <button onClick={() => { setShowLossModal(false); setLossReason(''); setCustomLossReason(''); }} className="px-4 py-2 font-bold text-slate-600 hover:bg-slate-100 rounded">Hủy</button>
+                                    <button onClick={handleLossAction} className="px-4 py-2 font-bold text-white bg-red-600 hover:bg-red-700 rounded shadow-lg shadow-red-200">Xác nhận LOST</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                {/* ASSIGN MODAL */}
+                {showAssignModal && (
+                    <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
+                        <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95">
+                            <div className="bg-slate-50 px-6 py-4 border-b border-slate-200 flex justify-between items-center">
+                                <h3 className="font-bold text-slate-800 flex items-center gap-2"><Users size={18} className="text-blue-600" /> Phân bổ Lead</h3>
+                                <button onClick={() => setShowAssignModal(false)}><X size={20} className="text-slate-400 hover:text-red-500" /></button>
+                            </div>
+                            <div className="p-6">
+                                <p className="text-sm text-slate-500 mb-6">Chọn nhân viên Sales để chuyển quyền xử lý Lead này.</p>
+                                <div className="space-y-3 max-h-[400px] overflow-y-auto pr-1 custom-scrollbar">
+                                    {MOCK_USERS.filter(u => u.name !== lead.ownerId).map(u => (
+                                        <button
+                                            key={u.id}
+                                            onClick={() => handleAssignAction(u)}
+                                            className="w-full flex items-center justify-between p-3 border border-slate-200 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all group"
+                                        >
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center font-bold text-slate-600 border-2 border-white overflow-hidden shadow-sm">
+                                                    {u.avatar || u.name.charAt(0)}
+                                                </div>
+                                                <div className="text-left">
+                                                    <div className="text-sm font-bold text-slate-800 group-hover:text-blue-700">{u.name}</div>
+                                                    <div className="text-xs text-slate-500">{u.role}</div>
+                                                </div>
+                                            </div>
+                                            <ChevronRight size={18} className="text-slate-300 group-hover:text-blue-500 transition-transform group-hover:translate-x-1" />
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                            <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex justify-end">
+                                <button onClick={() => setShowAssignModal(false)} className="px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-200 rounded-lg">Đóng</button>
                             </div>
                         </div>
                     </div>
@@ -1363,8 +2230,23 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                     </div>
                 )}
 
+                <CreateMeetingModal
+                    isOpen={isCreateMeetingModalOpen}
+                    onClose={() => setIsCreateMeetingModalOpen(false)}
+                    salesPersonId={user?.id || 'u2'}
+                    salesPersonName={user?.name || 'Sales Rep'}
+                    lockedCustomer={lockedMeetingCustomer}
+                    onCreated={() => {
+                        const refreshedLead = getLeadById(lead.id);
+                        if (refreshedLead) {
+                            setLead(refreshedLead);
+                            onUpdate(refreshedLead);
+                        }
+                    }}
+                />
+
             </div>
-        </div >
+        </div>
     );
 };
 

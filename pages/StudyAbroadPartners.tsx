@@ -10,11 +10,42 @@ import {
   MapPin,
   Users,
   Wallet,
-  StickyNote
+  StickyNote,
+  BookOpen,
+  School
 } from 'lucide-react';
 
+type PartnerLevel = 'GOLD' | 'SILVER' | 'PREMIUM';
+
+interface IPartnerDetails {
+  tuition: string;
+  requirements: string[];
+  address: string;
+  quota: string;
+  cmtc: string;
+  note: string;
+  majors?: string[];
+  overview?: string;
+  website?: string;
+  schoolType?: string;
+  rankingGlobal?: string;
+}
+
+interface IStudyAbroadPartner {
+  id: number;
+  name: string;
+  type: string;
+  country: 'Germany' | 'China';
+  flag: string;
+  ranking: string;
+  intake: string;
+  applicants: number;
+  level: PartnerLevel;
+  details: IPartnerDetails;
+}
+
 // Mock Data
-const PARTNERS = [
+const PARTNERS: IStudyAbroadPartner[] = [
   {
     id: 1,
     name: 'Đại học Kỹ thuật Munich (TUM)',
@@ -31,6 +62,11 @@ const PARTNERS = [
       address: 'Arcisstraße 21, 80333 München, Đức',
       quota: '50 sinh viên/năm',
       cmtc: 'Tài khoản phong tỏa 11.208 Euro',
+      majors: ['Kỹ thuật', 'Công nghệ thông tin', 'Kinh tế', 'Điều dưỡng'],
+      overview: 'Đại học Kỹ thuật Munich là một trong các trường nghiên cứu hàng đầu tại Đức, nổi bật ở khối ngành kỹ thuật, công nghệ và khoa học ứng dụng với mạng lưới hợp tác doanh nghiệp mạnh.',
+      website: 'https://www.tum.de',
+      schoolType: 'Công lập',
+      rankingGlobal: '#1 Đức',
       note: 'Ưu tiên hồ sơ nộp sớm trước 3 tháng. Trường yêu cầu phỏng vấn kỹ thuật online.'
     }
   },
@@ -50,6 +86,9 @@ const PARTNERS = [
       address: 'Haidian District, Beijing, Trung Quốc',
       quota: '30 sinh viên/năm',
       cmtc: 'Sổ tiết kiệm tối thiểu 30.000 USD',
+      majors: ['Kinh tế', 'Ngôn ngữ Trung', 'Khoa học dữ liệu'],
+      website: 'https://www.pku.edu.cn',
+      schoolType: 'Top ranking',
       note: 'Học bổng CSC thường đóng đơn vào tháng 1.'
     }
   },
@@ -69,6 +108,10 @@ const PARTNERS = [
       address: 'Grabengasse 1, 69117 Heidelberg, Đức',
       quota: '20 sinh viên/năm',
       cmtc: 'Tài khoản phong tỏa 11.208 Euro',
+      overview: 'Đại học Heidelberg có thế mạnh nghiên cứu liên ngành, đặc biệt trong y sinh và khoa học xã hội, phù hợp với hồ sơ học thuật định hướng nghiên cứu.',
+      website: 'https://www.uni-heidelberg.de',
+      schoolType: 'Research University',
+      rankingGlobal: 'Top 50 thế giới',
       note: 'Yêu cầu TestAS (Core + Subject Module)'
     }
   },
@@ -88,6 +131,11 @@ const PARTNERS = [
       address: '220 Handan Rd, Yangpu District, Shanghai, Trung Quốc',
       quota: '15 sinh viên/năm',
       cmtc: 'Chứng minh thu nhập người bảo lãnh',
+      majors: ['Y khoa', 'CNTT', 'Tài chính'],
+      overview: 'Đại học Phục Đán thuộc nhóm C9 League, nổi bật về chương trình đào tạo quốc tế và các ngành cạnh tranh cao tại Trung Quốc.',
+      website: 'https://www.fudan.edu.cn',
+      schoolType: 'Top ranking',
+      rankingGlobal: 'Top 100 thế giới',
       note: 'Chương trình MBBS (Y khoa) yêu cầu phỏng vấn trực tiếp.'
     }
   },
@@ -273,8 +321,64 @@ const StudyAbroadPartners: React.FC = () => {
                             </div>
                           </div>
 
+                          {/* Majors */}
+                          <div className="pt-4 border-t border-slate-100">
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1">
+                              <BookOpen size={12} /> Ngành tuyển sinh
+                            </p>
+                            {partner.details.majors && partner.details.majors.length > 0 ? (
+                              <div className="flex flex-wrap gap-2">
+                                {partner.details.majors.map((major) => (
+                                  <span
+                                    key={`${partner.id}-${major}`}
+                                    className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-50 text-[#0d47a1]"
+                                  >
+                                    {major}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-sm text-slate-500 italic">Chưa cập nhật ngành tuyển</p>
+                            )}
+                          </div>
+
+                          {/* School Overview */}
+                          <div className="mt-4 pt-4 border-t border-slate-100">
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1">
+                              <School size={12} /> Thông tin về trường
+                            </p>
+                            <p className="text-sm text-slate-700 leading-relaxed">
+                              {partner.details.overview || 'Chưa cập nhật thông tin tổng quan'}
+                            </p>
+                            <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+                              <div>
+                                <span className="text-slate-500">Website: </span>
+                                {partner.details.website ? (
+                                  <a
+                                    href={partner.details.website}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="font-semibold text-[#0d47a1] hover:underline break-all"
+                                  >
+                                    {partner.details.website.replace(/^https?:\/\//, '')}
+                                  </a>
+                                ) : (
+                                  <span className="text-slate-500 italic">Chưa cập nhật</span>
+                                )}
+                              </div>
+                              <div>
+                                <span className="text-slate-500">Loại trường: </span>
+                                <span className="font-medium text-slate-800">{partner.details.schoolType || 'Chưa cập nhật'}</span>
+                              </div>
+                              <div>
+                                <span className="text-slate-500">Xếp hạng: </span>
+                                <span className="font-medium text-slate-800">{partner.details.rankingGlobal || 'Chưa cập nhật'}</span>
+                              </div>
+                            </div>
+                          </div>
+
                           {/* Notes */}
-                          <div className="pt-4 border-t border-slate-100 bg-amber-50/50 p-3 rounded-md -mx-2">
+                          <div className="mt-4 pt-4 border-t border-slate-100 bg-amber-50/50 p-3 rounded-md -mx-2">
                             <p className="text-[10px] font-bold text-amber-600 uppercase tracking-widest mb-1 flex items-center gap-1">
                               <StickyNote size={12} /> Ghi chú nội bộ
                             </p>

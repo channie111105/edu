@@ -1,23 +1,14 @@
 
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { getLeadById, saveLead } from '../utils/storage';
+import { getLeadById, saveLead, getTags, saveTags } from '../utils/storage';
 import { useAuth } from '../contexts/AuthContext';
 import {
     ArrowLeft, Phone, Mail, MessageCircle, Clock,
     Tag, MapPin, TrendingUp, Database, Calendar,
-    Send, FileText, Save, ExternalLink, Hash
+    Send, FileText, Save, ExternalLink, Hash, X, User, Building, AlertTriangle, Plus, CheckCircle
 } from 'lucide-react';
-import { LeadStatus, ILead, UserRole } from '../types';
-
-interface IActivity {
-    id: string;
-    type: 'system' | 'note' | 'email' | 'call';
-    content: string;
-    subContent?: string;
-    timestamp: string;
-    isSystem?: boolean;
-}
+import { LeadStatus, ILead, UserRole, DealStage } from '../types';
 
 const MarketingLeadDetails: React.FC = () => {
     const { id } = useParams();
@@ -25,397 +16,438 @@ const MarketingLeadDetails: React.FC = () => {
     const { user } = useAuth();
 
     const [lead, setLead] = useState<ILead | null>(null);
-    const [formData, setFormData] = useState<Partial<ILead>>({});
-    const [studentInfo, setStudentInfo] = useState<any>({});
 
-    // Marketing-specific fields
-    const [marketingData, setMarketingData] = useState({
-        batch: '',
+    // Flat state like Leads.tsx to handle the form easily
+    const [editData, setEditData] = useState({
+        name: '',
+        phone: '',
+        email: '',
+        source: '',
+        program: '' as any,
+        notes: '',
+        title: '',
+        company: '',
+        province: '',
+        city: '',
+        ward: '',
+        street: '',
+        salesperson: '',
+        campaign: '',
         tags: [] as string[],
-        profileLink: '',
-        region: '',
-        message: ''
+        referredBy: '',
+        status: '' as any
     });
 
-    const [noteContent, setNoteContent] = useState('');
-    const [activeTab, setActiveTab] = useState<'timeline' | 'notes' | 'email'>('timeline');
-    const [activities, setActivities] = useState<IActivity[]>([]);
+    const [activeTab, setActiveTab] = useState<'notes' | 'extra'>('notes');
+    const [availableTags, setAvailableTags] = useState<string[]>([]);
+    const [isAddingTag, setIsAddingTag] = useState(false);
 
-    // Check if user is Marketing
-    const isMarketing = user && user.role === UserRole.MARKETING;
+    // Activity state for timeline
+    const [activities, setActivities] = useState<any[]>([]);
 
-    // Load Lead
+    // Load Data
     useEffect(() => {
+        setAvailableTags(getTags());
         if (id) {
             const foundLead = getLeadById(id);
             if (foundLead) {
                 setLead(foundLead);
-                setFormData(foundLead);
-                setStudentInfo(foundLead.studentInfo || {});
+                setActivities(foundLead.activities || []);
 
-                // Load marketing-specific data if exists
-                const mktData = (foundLead as any).marketingData || {};
-                setMarketingData({
-                    batch: mktData.batch || '',
-                    tags: mktData.tags || [],
-                    profileLink: mktData.profileLink || '',
-                    region: mktData.region || '',
-                    message: mktData.message || ''
+                // Initialize flat state
+                setEditData({
+                    name: foundLead.name,
+                    phone: foundLead.phone,
+                    email: foundLead.email || '',
+                    source: foundLead.source || '',
+                    program: foundLead.program || 'Tiếng Đức',
+                    notes: foundLead.notes || '',
+                    title: foundLead.title || '',
+                    company: foundLead.company || '',
+                    province: (foundLead as any).province || '',
+                    city: foundLead.city || '',
+                    ward: foundLead.ward || '',
+                    street: foundLead.address || '',
+                    salesperson: foundLead.ownerId || '',
+                    campaign: foundLead.campaign || '',
+                    tags: Array.isArray(foundLead.marketingData?.tags)
+                        ? foundLead.marketingData.tags
+                        : (typeof foundLead.marketingData?.tags === 'string'
+                            ? (foundLead.marketingData.tags as string).split(',').map(t => t.trim()).filter(Boolean)
+                            : []),
+                    referredBy: foundLead.referredBy || '',
+                    status: foundLead.status || 'NEW'
                 });
-
-                setActivities([
-                    {
-                        id: 'sys-1',
-                        type: 'system',
-                        content: 'Lead được tạo từ Marketing',
-                        subContent: `Nguồn: ${foundLead.source} | Chiến dịch: ${foundLead.campaign || 'N/A'}`,
-                        timestamp: new Date(foundLead.createdAt).toLocaleString(),
-                        isSystem: true
-                    }
-                ]);
             }
         }
     }, [id]);
 
-    const handleInputChange = (field: keyof ILead, value: any) => {
-        setFormData(prev => ({ ...prev, [field]: value }));
-    };
-
-    const handleMarketingDataChange = (field: string, value: any) => {
-        setMarketingData(prev => ({ ...prev, [field]: value }));
-    };
-
-    const handleSaveInfo = () => {
+    const handleSave = () => {
         if (lead) {
-            const updatedLead = {
+            const updatedLead: ILead = {
                 ...lead,
-                ...formData,
-                studentInfo,
-                marketingData // Save marketing-specific data
+                name: editData.name,
+                phone: editData.phone,
+                email: editData.email,
+                source: editData.source,
+                program: editData.program,
+                notes: editData.notes,
+                title: editData.title,
+                company: editData.company,
+                city: editData.city,
+                ward: editData.ward,
+                address: editData.street,
+                ownerId: editData.salesperson,
+                campaign: editData.campaign,
+                referredBy: editData.referredBy,
+                status: editData.status,
+                marketingData: {
+                    ...lead.marketingData,
+                    tags: editData.tags,
+                    campaign: editData.campaign,
+                    source: editData.source
+                },
+                // @ts-ignore
+                province: editData.province
             };
             saveLead(updatedLead);
             setLead(updatedLead);
-            alert('✅ Đã lưu thông tin Lead (Marketing) thành công!');
+            alert('✅ Đã lưu thông tin Lead thành công!');
         }
     };
 
-    const handleAddTag = (tag: string) => {
-        if (tag && !marketingData.tags.includes(tag)) {
-            setMarketingData(prev => ({
-                ...prev,
-                tags: [...prev.tags, tag]
-            }));
-        }
-    };
+    if (!lead) return <div className="p-10 text-center text-slate-500">Đang tải thông tin Lead...</div>;
 
-    const handleRemoveTag = (tag: string) => {
-        setMarketingData(prev => ({
-            ...prev,
-            tags: prev.tags.filter(t => t !== tag)
-        }));
-    };
+    const SALES_REPS = [
+        { id: 'u1', name: 'Sarah Miller' },
+        { id: 'u2', name: 'Minh Khôi' },
+        { id: 'u3', name: 'Hải Yến' }
+    ];
 
-    const handleSendNote = () => {
-        if (!noteContent.trim()) return;
-        const newNote: IActivity = {
-            id: `note-${Date.now()}`,
-            type: 'note',
-            content: 'Ghi chú Marketing',
-            subContent: noteContent,
-            timestamp: 'Vừa xong',
-            isSystem: false
-        };
-        setActivities([newNote, ...activities]);
-        setNoteContent('');
-    };
-
-    if (!lead) return <div className="p-10 text-center">Loading Lead...</div>;
-
-    // --- MARKETING VIEW ---
     return (
-        <div className="flex flex-col h-screen bg-slate-50 text-[#111418] font-sans overflow-hidden">
-
+        <div className="flex flex-col h-screen bg-white text-slate-900 font-sans overflow-hidden">
             {/* HEADER */}
-            <header className="flex items-center justify-between px-6 py-3 border-b border-slate-200 bg-white shrink-0 z-20 shadow-sm">
+            <header className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-white shrink-0 z-20">
                 <div className="flex items-center gap-4">
-                    <button onClick={() => navigate(-1)} className="text-slate-500 hover:text-slate-800 transition-colors">
-                        <ArrowLeft size={20} />
+                    <button onClick={() => navigate(-1)} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
+                        <ArrowLeft size={20} className="text-slate-600" />
                     </button>
-                    <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-purple-600 flex items-center justify-center text-white font-bold text-sm">
-                            {lead.name.charAt(0)}
-                        </div>
-                        <div>
-                            <h1 className="text-base font-bold leading-none text-slate-900">{lead.name}</h1>
-                            <p className="text-xs text-slate-500 mt-1">Lead ID: {lead.id} | Marketing View</p>
-                        </div>
+                    <div>
+                        <h1 className="text-xl font-bold text-slate-900 flex items-center gap-3">
+                            {editData.name || 'Chi tiết Lead'}
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-700 border border-purple-200 uppercase tracking-widest">Marketing</span>
+                        </h1>
+                        <p className="text-xs text-slate-500 mt-1">ID: {lead.id} | Ngày tạo: {new Date(lead.createdAt).toLocaleDateString('vi-VN')}</p>
                     </div>
                 </div>
                 <div className="flex items-center gap-3">
                     <button
-                        onClick={handleSaveInfo}
-                        className="flex items-center gap-2 px-4 py-2 rounded-lg bg-purple-600 text-white text-sm font-bold hover:bg-purple-700 transition-colors shadow-sm"
+                        onClick={handleSave}
+                        className="flex items-center gap-2 px-6 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-100"
                     >
-                        <Save size={16} /> Lưu thông tin
+                        <Save size={18} /> Lưu thay đổi
                     </button>
                 </div>
             </header>
 
-            {/* MAIN LAYOUT (3 COLUMNS) */}
-            <div className="flex flex-1 overflow-hidden">
+            {/* MAIN CONTENT AREA */}
+            <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+                <div className="max-w-6xl mx-auto bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden p-8">
 
-                {/* COL 1: MARKETING INFO (Left) */}
-                <aside className="w-[380px] bg-white border-r border-slate-200 flex flex-col shrink-0 h-full overflow-hidden">
-                    <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-purple-50/50">
-                        <h3 className="text-xs font-bold text-purple-700 uppercase tracking-wider">📊 THÔNG TIN MARKETING</h3>
+                    {/* TITLE SECTION (FORM STYLE) */}
+                    <div className="mb-10">
+                        <label className="block text-slate-600 text-sm font-bold mb-3 uppercase tracking-wide">Mô tả / Tên khách hàng <span className="text-red-500">*</span></label>
+                        <div className="flex gap-4">
+                            <select
+                                className="w-36 px-4 py-3 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-100 focus:border-blue-500 outline-none bg-slate-50 font-bold text-slate-700"
+                                value={editData.title}
+                                onChange={e => setEditData({ ...editData, title: e.target.value })}
+                            >
+                                <option value="">Danh xưng</option>
+                                <option value="Mr.">Anh</option>
+                                <option value="Ms.">Chị</option>
+                                <option value="Phụ huynh">Phụ huynh</option>
+                                <option value="Học sinh">Học sinh</option>
+                            </select>
+                            <input
+                                className="flex-1 px-4 py-3 border border-slate-300 rounded-xl text-lg font-bold focus:ring-2 focus:ring-blue-100 focus:border-blue-500 outline-none text-slate-800 placeholder:text-slate-400 bg-slate-50"
+                                placeholder="VD: Nguyen Van A..."
+                                value={editData.name}
+                                onChange={e => setEditData({ ...editData, name: e.target.value })}
+                            />
+                        </div>
                     </div>
 
-                    <div className="flex-1 overflow-y-auto p-5 space-y-6 custom-scrollbar">
+                    {/* MAIN GRID */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-16 gap-y-8">
 
-                        {/* 1. ĐỊNH DANH & LIÊN HỆ */}
-                        <div>
-                            <h4 className="text-xs font-bold text-slate-700 mb-3 uppercase tracking-wide">1. Thông tin định danh</h4>
-                            <div className="space-y-3">
-                                {/* Phone */}
-                                <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg border border-slate-100">
-                                    <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center shrink-0">
-                                        <Phone size={16} className="text-blue-600" />
-                                    </div>
-                                    <div className="flex-1">
-                                        <p className="text-[10px] text-slate-500 font-medium mb-0.5">Số điện thoại (Unique ID)</p>
+                        {/* LEFT COLUMN */}
+                        <div className="space-y-6">
+                            <h3 className="text-xs font-bold text-blue-600 uppercase tracking-widest flex items-center gap-2 mb-2">
+                                <User size={14} /> Thông tin căn bản
+                            </h3>
+
+                            {/* Company */}
+                            <div className="flex items-center gap-6">
+                                <label className="w-28 shrink-0 text-slate-500 text-sm font-medium">Cơ sở</label>
+                                <select
+                                    className="flex-1 px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-semibold text-slate-700 outline-none focus:border-blue-500"
+                                    value={editData.company}
+                                    onChange={e => setEditData({ ...editData, company: e.target.value })}
+                                >
+                                    <option value="">-- Chọn cơ sở --</option>
+                                    <option value="Hanoi">Hà Nội</option>
+                                    <option value="HCMC">TP. HCM</option>
+                                    <option value="DaNang">Đà Nẵng</option>
+                                    <option value="HaiPhong">Hải Phòng</option>
+                                </select>
+                            </div>
+
+                            {/* Address Group */}
+                            <div className="flex items-start gap-6">
+                                <label className="w-28 shrink-0 text-slate-500 text-sm font-medium pt-2">Địa chỉ</label>
+                                <div className="flex-1 space-y-3">
+                                    <input
+                                        className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:border-blue-500"
+                                        placeholder="Số nhà, đường..."
+                                        value={editData.street}
+                                        onChange={e => setEditData({ ...editData, street: e.target.value })}
+                                    />
+                                    <div className="grid grid-cols-3 gap-3">
                                         <input
-                                            className="w-full bg-transparent text-sm font-bold text-slate-900 focus:outline-none"
-                                            placeholder="0901 234 567"
-                                            value={formData.phone || ''}
-                                            onChange={(e) => handleInputChange('phone', e.target.value)}
+                                            className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:border-blue-500"
+                                            placeholder="Tỉnh/TP"
+                                            value={editData.province}
+                                            onChange={e => setEditData({ ...editData, province: e.target.value })}
                                         />
-                                    </div>
-                                </div>
-
-                                {/* Email */}
-                                <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg border border-slate-100">
-                                    <div className="w-8 h-8 rounded-full bg-purple-100 flex items-center justify-center shrink-0">
-                                        <Mail size={16} className="text-purple-600" />
-                                    </div>
-                                    <div className="flex-1">
-                                        <p className="text-[10px] text-slate-500 font-medium mb-0.5">Email</p>
                                         <input
-                                            className="w-full bg-transparent text-sm text-slate-700 focus:outline-none"
-                                            placeholder="nam.nguyen@example.com"
-                                            value={formData.email || ''}
-                                            onChange={(e) => handleInputChange('email', e.target.value)}
+                                            className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:border-blue-500"
+                                            placeholder="Quận/Huyện"
+                                            value={editData.city}
+                                            onChange={e => setEditData({ ...editData, city: e.target.value })}
                                         />
-                                    </div>
-                                </div>
-
-                                {/* Profile Link */}
-                                <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg border border-slate-100">
-                                    <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center shrink-0">
-                                        <ExternalLink size={16} className="text-blue-600" />
-                                    </div>
-                                    <div className="flex-1">
-                                        <p className="text-[10px] text-slate-500 font-medium mb-0.5">Link Profile (FB/TikTok)</p>
                                         <input
-                                            className="w-full bg-transparent text-sm text-blue-600 focus:outline-none"
-                                            placeholder="facebook.com/..."
-                                            value={marketingData.profileLink}
-                                            onChange={(e) => handleMarketingDataChange('profileLink', e.target.value)}
-                                        />
-                                    </div>
-                                </div>
-
-                                {/* Region */}
-                                <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg border border-slate-100">
-                                    <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center shrink-0">
-                                        <MapPin size={16} className="text-green-600" />
-                                    </div>
-                                    <div className="flex-1">
-                                        <p className="text-[10px] text-slate-500 font-medium mb-0.5">Địa chỉ/Khu vực</p>
-                                        <input
-                                            className="w-full bg-transparent text-sm text-slate-700 focus:outline-none"
-                                            placeholder="Hà Nội, TP.HCM..."
-                                            value={marketingData.region}
-                                            onChange={(e) => handleMarketingDataChange('region', e.target.value)}
+                                            className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:border-blue-500"
+                                            placeholder="P/Xã"
+                                            value={editData.ward}
+                                            onChange={e => setEditData({ ...editData, ward: e.target.value })}
                                         />
                                     </div>
                                 </div>
                             </div>
+
+                            {/* Product */}
+                            <div className="flex items-center gap-6">
+                                <label className="w-28 shrink-0 text-slate-500 text-sm font-medium">Sản phẩm</label>
+                                <select
+                                    className="flex-1 px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-semibold text-slate-700 outline-none focus:border-blue-500"
+                                    value={editData.program}
+                                    onChange={e => setEditData({ ...editData, program: e.target.value })}
+                                >
+                                    <option value="">-- Chọn sản phẩm --</option>
+                                    <option value="Tiếng Đức">Tiếng Đức</option>
+                                    <option value="Du học Đức">Du học Đức</option>
+                                    <option value="Du học Nghề">Du học Nghề</option>
+                                    <option value="XKLĐ">Xuất khẩu lao động</option>
+                                </select>
+                            </div>
+
                         </div>
 
-                        {/* 2. NGUỒN GỐC (TRACKING INFO) */}
-                        <div className="bg-purple-50/50 p-4 rounded-lg border border-purple-100">
-                            <h4 className="text-xs font-bold text-purple-700 mb-3 uppercase tracking-wide flex items-center gap-1">
-                                <TrendingUp size={14} /> 2. Nguồn gốc (Tracking)
-                            </h4>
-                            <div className="space-y-3">
-                                <div>
-                                    <label className="text-[10px] text-slate-500 font-bold block mb-1.5">Nguồn (Source)</label>
-                                    <select
-                                        className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-900 outline-none focus:border-purple-500"
-                                        value={formData.source}
-                                        onChange={(e) => handleInputChange('source', e.target.value)}
-                                    >
-                                        <option value="fb_lead_form">Facebook Ads</option>
-                                        <option value="tiktok">TikTok</option>
-                                        <option value="google">Google Ads</option>
-                                        <option value="hotline">Hotline</option>
-                                        <option value="event">Sự kiện trường THPT</option>
-                                        <option value="b2b">B2B/Agent</option>
-                                    </select>
-                                </div>
+                        {/* RIGHT COLUMN */}
+                        <div className="space-y-6">
+                            <h3 className="text-xs font-bold text-blue-600 uppercase tracking-widest flex items-center gap-2 mb-2">
+                                <Phone size={14} /> Liên hệ & Phụ trách
+                            </h3>
 
-                                <div>
-                                    <label className="text-[10px] text-slate-500 font-bold block mb-1.5">Chiến dịch (Campaign)</label>
-                                    <input
-                                        className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm font-medium text-purple-600 outline-none focus:border-purple-500"
-                                        placeholder="VD: Du-hoc-Duc-2026"
-                                        value={formData.campaign || ''}
-                                        onChange={(e) => handleInputChange('campaign', e.target.value)}
-                                    />
-                                </div>
+                            {/* Phone */}
+                            <div className="flex items-center gap-6">
+                                <label className="w-28 shrink-0 text-slate-500 text-sm font-medium">Điện thoại <span className="text-red-500">*</span></label>
+                                <input
+                                    className="flex-1 px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-bold text-slate-800 outline-none focus:border-blue-500"
+                                    placeholder="0912..."
+                                    value={editData.phone}
+                                    onChange={e => setEditData({ ...editData, phone: e.target.value })}
+                                />
+                            </div>
 
-                                <div>
-                                    <label className="text-[10px] text-slate-500 font-bold block mb-1.5">Lô dữ liệu (Batch Name)</label>
-                                    <input
-                                        className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 outline-none focus:border-purple-500"
-                                        placeholder="VD: Batch_THPT_01"
-                                        value={marketingData.batch}
-                                        onChange={(e) => handleMarketingDataChange('batch', e.target.value)}
-                                    />
-                                </div>
+                            {/* Email */}
+                            <div className="flex items-center gap-6">
+                                <label className="w-28 shrink-0 text-slate-500 text-sm font-medium">Email</label>
+                                <input
+                                    className="flex-1 px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:border-blue-500"
+                                    placeholder="email@example.com"
+                                    value={editData.email}
+                                    onChange={e => setEditData({ ...editData, email: e.target.value })}
+                                />
+                            </div>
 
-                                {/* Tags */}
-                                <div>
-                                    <label className="text-[10px] text-slate-500 font-bold block mb-1.5">Thẻ (Tags)</label>
-                                    <div className="flex flex-wrap gap-2 mb-2">
-                                        {marketingData.tags.map(tag => (
-                                            <span
-                                                key={tag}
-                                                className="inline-flex items-center gap-1 px-2 py-1 bg-purple-100 text-purple-700 text-xs font-medium rounded-full"
+                            {/* Salesperson */}
+                            <div className="flex items-center gap-6">
+                                <label className="w-28 shrink-0 text-slate-500 text-sm font-medium">Phụ trách</label>
+                                <select
+                                    className="flex-1 px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-semibold text-slate-700 outline-none focus:border-blue-500"
+                                    value={editData.salesperson}
+                                    onChange={e => setEditData({ ...editData, salesperson: e.target.value })}
+                                >
+                                    <option value="">-- Sale phụ trách --</option>
+                                    {SALES_REPS.map(rep => (
+                                        <option key={rep.id} value={rep.id}>{rep.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            {/* Status */}
+                            <div className="flex items-center gap-6">
+                                <label className="w-28 shrink-0 text-slate-500 text-sm font-medium">Trạng thái</label>
+                                <select
+                                    className="flex-1 px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-bold text-slate-700 outline-none focus:border-blue-500"
+                                    value={editData.status}
+                                    onChange={e => setEditData({ ...editData, status: e.target.value as any })}
+                                >
+                                    <option value="NEW">Mới</option>
+                                    <option value="CONTACTED">Đã liên hệ</option>
+                                    <option value="QUALIFIED">Tiềm năng</option>
+                                    <option value="LOST">Thất bại</option>
+                                </select>
+                            </div>
+
+                            {/* Tags Input (Marketing specialized) */}
+                            <div className="flex items-start gap-6">
+                                <label className="w-28 shrink-0 text-slate-500 text-sm font-medium mt-2">Gắn thẻ (Tags)</label>
+                                <div className="flex-1 flex flex-col gap-2">
+                                    <div className="flex gap-2">
+                                        {!isAddingTag ? (
+                                            <select
+                                                className="flex-1 px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm outline-none focus:border-blue-500"
+                                                onChange={(e) => {
+                                                    if (e.target.value === 'khác') {
+                                                        setIsAddingTag(true);
+                                                    } else if (e.target.value) {
+                                                        if (!editData.tags.includes(e.target.value)) {
+                                                            setEditData({ ...editData, tags: [...editData.tags, e.target.value] });
+                                                        }
+                                                    }
+                                                    e.target.value = "";
+                                                }}
                                             >
-                                                <Hash size={10} />
+                                                <option value="">-- Chọn Tag --</option>
+                                                {availableTags.filter(t => !editData.tags.includes(t)).map(t => (
+                                                    <option key={t} value={t}>{t}</option>
+                                                ))}
+                                                <option value="khác" className="font-bold text-blue-600">+ Thêm mới...</option>
+                                            </select>
+                                        ) : (
+                                            <input
+                                                autoFocus
+                                                className="flex-1 px-4 py-2 border border-blue-400 rounded-lg text-sm outline-none ring-2 ring-blue-50"
+                                                placeholder="Tạo tag mới rồi nhấn Enter..."
+                                                onBlur={() => setIsAddingTag(false)}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Enter') {
+                                                        e.preventDefault();
+                                                        const val = (e.target as HTMLInputElement).value.trim();
+                                                        if (val) {
+                                                            if (!editData.tags.includes(val)) {
+                                                                setEditData({ ...editData, tags: [...editData.tags, val] });
+                                                            }
+                                                            if (!availableTags.includes(val)) {
+                                                                const newAvailable = [...availableTags, val];
+                                                                setAvailableTags(newAvailable);
+                                                                saveTags(newAvailable);
+                                                            }
+                                                            setIsAddingTag(false);
+                                                        }
+                                                    } else if (e.key === 'Escape') {
+                                                        setIsAddingTag(false);
+                                                    }
+                                                }}
+                                            />
+                                        )}
+                                    </div>
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {editData.tags.map(tag => (
+                                            <span key={tag} className="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-50 text-blue-700 text-[10px] font-extrabold rounded-full border border-blue-100">
                                                 {tag}
-                                                <button
-                                                    onClick={() => handleRemoveTag(tag)}
-                                                    className="ml-1 hover:text-purple-900"
-                                                >
-                                                    ×
+                                                <button onClick={() => setEditData({ ...editData, tags: editData.tags.filter(t => t !== tag) })} className="hover:text-blue-900 transition-colors">
+                                                    <X size={12} />
                                                 </button>
                                             </span>
                                         ))}
                                     </div>
-                                    <div className="flex gap-2">
-                                        <input
-                                            id="tag-input"
-                                            className="flex-1 px-2 py-1.5 bg-white border border-slate-200 rounded text-xs outline-none"
-                                            placeholder="Nhập tag..."
-                                            onKeyDown={(e) => {
-                                                if (e.key === 'Enter') {
-                                                    handleAddTag((e.target as HTMLInputElement).value);
-                                                    (e.target as HTMLInputElement).value = '';
-                                                }
-                                            }}
-                                        />
-                                        <button
-                                            onClick={() => {
-                                                const input = document.getElementById('tag-input') as HTMLInputElement;
-                                                handleAddTag(input.value);
-                                                input.value = '';
-                                            }}
-                                            className="px-3 py-1.5 bg-purple-600 text-white text-xs font-bold rounded hover:bg-purple-700"
-                                        >
-                                            +
-                                        </button>
-                                    </div>
-                                    <p className="text-[9px] text-slate-400 mt-1">VD: #HotLead, #VuaTotNghiep, #CoTiengDuc</p>
                                 </div>
                             </div>
-                        </div>
 
-                    </div>
-                </aside>
-
-                {/* COL 2: TIMELINE & NOTES (Center) */}
-                <main className="flex-1 flex flex-col min-w-0 bg-white border-r border-slate-200">
-
-                    {/* Tabs Header */}
-                    <div className="flex border-b border-slate-200 px-6 pt-2">
-                        <button
-                            onClick={() => setActiveTab('timeline')}
-                            className={`py-3 px-4 text-sm font-medium border-b-2 transition-colors ${activeTab === 'timeline' ? 'border-purple-600 text-purple-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
-                        >
-                            Dòng thời gian
-                        </button>
-                        <button
-                            onClick={() => setActiveTab('notes')}
-                            className={`py-3 px-4 text-sm font-medium border-b-2 transition-colors ${activeTab === 'notes' ? 'border-purple-600 text-purple-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
-                        >
-                            Ghi chú
-                        </button>
-                        <button
-                            onClick={() => setActiveTab('email')}
-                            className={`py-3 px-4 text-sm font-medium border-b-2 transition-colors ${activeTab === 'email' ? 'border-purple-600 text-purple-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
-                        >
-                            Email
-                        </button>
-                    </div>
-
-                    {/* Timeline Content */}
-                    <div className="flex-1 overflow-y-auto p-6 bg-slate-50/50 custom-scrollbar">
-                        <div className="max-w-3xl space-y-6">
-                            {activities.length === 0 ? (
-                                <div className="text-center text-slate-400 py-10">
-                                    Chưa có hoạt động nào. Hãy thêm ghi chú đầu tiên.
-                                </div>
-                            ) : activities.map((act) => (
-                                <div key={act.id} className="flex gap-4 group">
-                                    <div className={`mt-1 w-8 h-8 rounded-full flex items-center justify-center shrink-0 border-2 border-white shadow-sm 
-                              ${act.type === 'call' ? 'bg-green-100 text-green-600' :
-                                            act.type === 'note' ? 'bg-purple-100 text-purple-600' :
-                                                act.isSystem ? 'bg-slate-200 text-slate-500' : 'bg-blue-100 text-blue-600'}
-                           `}>
-                                        {act.type === 'call' ? <Phone size={14} /> :
-                                            act.type === 'note' ? <FileText size={14} /> :
-                                                act.isSystem ? <Database size={14} /> : <MessageCircle size={14} />}
-                                    </div>
-                                    <div className="flex-1 bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
-                                        <div className="flex justify-between mb-1">
-                                            <p className="text-sm font-bold text-slate-900">{act.content} <span className="text-xs font-normal text-slate-400 ml-1">{act.timestamp}</span></p>
-                                        </div>
-                                        {act.subContent && (
-                                            <div className={`text-sm mt-1 p-2 rounded-lg ${act.type === 'system' ? 'bg-white text-slate-600' : 'bg-slate-50 text-slate-800 border border-slate-100'}`}>
-                                                {act.subContent}
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            ))}
                         </div>
                     </div>
 
-                    {/* Footer Note Input */}
-                    <div className="p-4 border-t border-slate-200 bg-white">
-                        <label className="text-xs font-bold text-slate-500 uppercase mb-2 block">GHI CHÚ MARKETING</label>
-                        <div className="flex gap-2">
-                            <textarea
-                                rows={2}
-                                className="flex-1 border border-slate-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-purple-500 outline-none resize-none"
-                                placeholder="Nhập ghi chú về Lead này..."
-                                value={noteContent}
-                                onChange={(e) => setNoteContent(e.target.value)}
-                                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendNote(); } }}
-                            />
+                    {/* TABS SECTION */}
+                    <div className="mt-12 border-t border-slate-100 pt-8">
+                        <div className="flex border-b border-slate-200 mb-6">
                             <button
-                                onClick={handleSendNote}
-                                className="bg-purple-600 text-white px-4 rounded-lg font-bold hover:bg-purple-700 shadow-sm flex flex-col items-center justify-center min-w-[80px]"
+                                onClick={() => setActiveTab('notes')}
+                                className={`px-6 py-3 text-sm font-bold border-b-2 transition-all flex items-center gap-2 ${activeTab === 'notes' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
                             >
-                                <Send size={18} className="mb-1" />
-                                <span className="text-xs">Lưu Note</span>
+                                <FileText size={16} /> Ghi chú nội bộ
+                            </button>
+                            <button
+                                onClick={() => setActiveTab('extra')}
+                                className={`px-6 py-3 text-sm font-bold border-b-2 transition-all flex items-center gap-2 ${activeTab === 'extra' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
+                            >
+                                <MapPin size={16} /> Thông tin Marketing & Nguồn
                             </button>
                         </div>
-                    </div>
-                </main>
 
+                        <div className="min-h-[250px]">
+                            {activeTab === 'notes' && (
+                                <div className="space-y-4 animate-in fade-in slide-in-from-top-2">
+                                    <textarea
+                                        className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-700 min-h-[180px] focus:ring-2 focus:ring-blue-100 focus:border-blue-500 outline-none"
+                                        placeholder="Nhập ghi chú quan trọng về Lead này..."
+                                        value={editData.notes}
+                                        onChange={e => setEditData({ ...editData, notes: e.target.value })}
+                                    />
+                                </div>
+                            )}
+
+                            {activeTab === 'extra' && (
+                                <div className="grid grid-cols-2 gap-x-12 gap-y-6 animate-in fade-in slide-in-from-top-2">
+                                    <div className="flex items-center gap-6">
+                                        <label className="w-28 shrink-0 text-slate-500 text-sm font-medium">Chiến dịch</label>
+                                        <input
+                                            className="flex-1 px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-bold text-slate-800 outline-none focus:border-blue-500"
+                                            value={editData.campaign}
+                                            onChange={e => setEditData({ ...editData, campaign: e.target.value })}
+                                        />
+                                    </div>
+                                    <div className="flex items-center gap-6">
+                                        <label className="w-28 shrink-0 text-slate-500 text-sm font-medium">Nguồn</label>
+                                        <select
+                                            className="flex-1 px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-bold text-slate-800 outline-none focus:border-blue-500"
+                                            value={editData.source}
+                                            onChange={e => setEditData({ ...editData, source: e.target.value })}
+                                        >
+                                            <option value="facebook">Facebook Ads</option>
+                                            <option value="google">Google Search</option>
+                                            <option value="hotline">Hotline</option>
+                                            <option value="referral">Giới thiệu</option>
+                                            <option value="tiktok">TikTok</option>
+                                        </select>
+                                    </div>
+                                    <div className="flex items-center gap-6">
+                                        <label className="w-28 shrink-0 text-slate-500 text-sm font-medium">Người giới thiệu</label>
+                                        <input
+                                            className="flex-1 px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:border-blue-500"
+                                            value={editData.referredBy}
+                                            onChange={e => setEditData({ ...editData, referredBy: e.target.value })}
+                                        />
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                </div>
             </div>
         </div>
     );

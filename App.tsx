@@ -18,6 +18,7 @@ import DealDetails from './pages/DealDetails';
 import DuplicateDetection from './pages/DuplicateDetection';
 import Campaigns from './pages/Campaigns';
 import CampaignDetails from './pages/CampaignDetails';
+import CampaignEvaluation from './pages/CampaignEvaluation';
 import Students from './pages/Students';
 import StudentList from './pages/StudentList';
 import StudentProfile from './pages/StudentProfile';
@@ -25,6 +26,7 @@ import Contracts from './pages/Contracts';
 import ContractDashboard from './pages/ContractDashboard';
 import Quotations from './pages/Quotations';
 import QuotationDetails from './pages/QuotationDetails';
+import ContractPreview from './pages/ContractPreview';
 import ContractDetails from './pages/ContractDetails';
 import ContractTemplates from './pages/ContractTemplates';
 import ContractApprovalQueue from './pages/ContractApprovalQueue';
@@ -36,6 +38,7 @@ import FinanceInvoices from './pages/FinanceInvoices';
 import FinanceServiceRules from './pages/FinanceServiceRules';
 import FinanceGatewayLogs from './pages/FinanceGatewayLogs';
 import FinanceMoneyOut from './pages/FinanceMoneyOut';
+import FinanceDebtList from './pages/FinanceDebtList';
 import FinanceInventory from './pages/FinanceInventory';
 import FinancePayroll from './pages/FinancePayroll';
 import FinancePeriodClosing from './pages/FinancePeriodClosing';
@@ -47,6 +50,7 @@ import TrainingGradebook from './pages/TrainingGradebook';
 import TrainingResources from './pages/TrainingResources';
 import TrainingAppProgress from './pages/TrainingAppProgress';
 import TrainingTeachers from './pages/TrainingTeachers';
+import TeacherDetails from './pages/TeacherDetails';
 import TeacherDashboard from './pages/TeacherDashboard';
 import StudyAbroadDashboard from './pages/StudyAbroadDashboard';
 import StudyAbroadPipelineBoard from './pages/StudyAbroadPipelineBoard';
@@ -139,6 +143,7 @@ const AppRoutes = () => {
           <Route path="leads/:id/sla" element={<LeadSLAPage />} />
           <Route path="campaigns" element={<Campaigns />} />
           <Route path="campaigns/:id" element={<CampaignDetails />} />
+          <Route path="campaigns/:id/evaluation" element={<CampaignEvaluation />} />
           <Route path="pipeline" element={<Pipeline />} />
           <Route path="pipeline/:id" element={<DealDetails />} />
 
@@ -146,6 +151,7 @@ const AppRoutes = () => {
           <Route path="contracts/dashboard" element={<ContractDashboard />} />
           <Route path="contracts" element={<Contracts />} />
           <Route path="contracts/quotations" element={<Quotations />} />
+          <Route path="contracts/quotations/:id/contract" element={<ContractPreview />} />
           <Route path="contracts/quotations/:id" element={<QuotationDetails />} />
           <Route path="/enrollment/students" element={<Students />} />
           <Route path="contracts/new" element={<Contracts />} />
@@ -166,6 +172,7 @@ const AppRoutes = () => {
           <Route path="training/schedule" element={<TrainingSchedule />} />
           <Route path="training/students/:id/app-progress" element={<TrainingAppProgress />} />
           <Route path="training/teachers" element={<TrainingTeachers />} />
+          <Route path="training/teachers/:id" element={<TeacherDetails />} />
 
           {/* Library (Formerly Teacher Portal) */}
           <Route path="library" element={<DocumentLibrary />} />
@@ -173,25 +180,27 @@ const AppRoutes = () => {
           {/* Study Abroad Routes */}
           <Route path="study-abroad" element={<StudyAbroadDashboard />} />
           <Route path="study-abroad/pipeline" element={<StudyAbroadPipelineBoard />} />
+          <Route path="study-abroad/cases" element={<StudyAbroadStudentList />} />
           <Route path="study-abroad/cases/:id" element={<StudyAbroadCaseDetail />} />
           <Route path="study-abroad/partners" element={<StudyAbroadPartners />} />
           <Route path="study-abroad/interviews" element={<StudyAbroadInterviews />} />
-          <Route path="study-abroad/students" element={<StudyAbroadStudentList />} />
+          <Route path="study-abroad/students" element={<Navigate to="/study-abroad/cases" replace />} />
 
           {/* Finance Routes */}
           <Route path="refunds" element={<FinanceRefunds />} />
-          <Route path="finance/transactions" element={<FinanceTransactionQueue />} />
+          <Route path="finance/transactions" element={<FinanceTransactions />} />
           <Route path="finance/invoices" element={<FinanceInvoices />} />
           <Route path="finance/rules" element={<FinanceServiceRules />} />
           <Route path="finance/gateway-logs" element={<FinanceGatewayLogs />} />
           <Route path="finance/money-out" element={<FinanceMoneyOut />} />
+          <Route path="finance/debts" element={<FinanceDebtList />} />
           <Route path="finance/inventory" element={<FinanceInventory />} />
           <Route path="finance/payroll" element={<FinancePayroll />} />
           <Route path="finance/closing" element={<FinancePeriodClosing />} />
           <Route path="finance/integration" element={<FinanceIntegration />} />
           <Route path="payment-plans/:id" element={<FinancePaymentPlan />} />
           <Route path="finance/transaction/new" element={<FinanceNewTransaction />} />
-          <Route path="finance/transactions-list" element={<FinanceTransactions />} />
+          <Route path="finance/transactions-list" element={<FinanceMoneyOut />} />
 
           <Route path="reports" element={<PlaceholderPage title="Advanced Reports" />} />
           <Route path="settings" element={<Navigate to="/settings/assignment-rules" replace />} />

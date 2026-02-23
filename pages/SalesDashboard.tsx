@@ -1,130 +1,237 @@
-
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend, BarChart, Bar, CartesianGrid
 } from 'recharts';
 import {
   ArrowUp, ArrowDown, MoreVertical, Calendar, TrendingUp, TrendingDown,
-  Users, BadgeDollarSign
+  Users, BadgeDollarSign, Filter
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import DashboardFilters, { DateRangeType, LocationType } from '../components/DashboardFilters';
 
-// --- MOCK DATA GENERATORS ---
+// --- MOCK DATA ---
+interface ISaleRecord {
+  id: string;
+  amount: number;
+  date: string;
+  salesPerson: string;
+  source: string;
+  status: 'Won' | 'Lost' | 'Negotiation' | 'Qualified' | 'New';
+}
 
-const getKPIData = (range: string) => {
-  const multiplier = range === 'today' ? 0.03 : range === 'thisWeek' ? 0.25 : 1;
-  return [
-    { label: 'Tổng doanh thu thực thu', value: `${(2.3 * multiplier).toFixed(1)} Tỷ`, change: '+12%', isPositive: true },
-    { label: 'Tổng giá trị Pipeline', value: `${(1.5 * multiplier).toFixed(1)} Tỷ`, change: '+8%', isPositive: true },
-    { label: 'Tỷ lệ chuyển đổi chung', value: '15%', change: '-2%', isPositive: false },
-    { label: '% Lead xác thực', value: '45%', change: '+5%', isPositive: true },
-  ];
-};
+const SALES_PEOPLE = ['Nguyễn Văn Nam', 'Trần Thị Hương', 'Lê Hoàng', 'Phạm Bích Ngọc', 'Vũ Minh Hiếu'];
+const SOURCES = ['Facebook', 'Google Ads', 'Referral', 'Offline', 'Other'];
 
-const getRevenueData = (range: string) => {
-  // Return different data points based on range granularity
-  if (range === 'today') {
-    return [
-      { name: '8:00', value: 5, target: 10 },
-      { name: '10:00', value: 12, target: 20 },
-      { name: '12:00', value: 18, target: 30 },
-      { name: '14:00', value: 25, target: 40 },
-      { name: '16:00', value: 35, target: 50 },
-      { name: '18:00', value: 42, target: 60 },
-    ];
-  } else if (range === 'thisWeek') {
-    return [
-      { name: 'T2', value: 80, target: 100 },
-      { name: 'T3', value: 150, target: 200 },
-      { name: 'T4', value: 220, target: 300 },
-      { name: 'T5', value: 310, target: 400 },
-      { name: 'T6', value: 450, target: 500 },
-      { name: 'T7', value: 520, target: 600 },
-      { name: 'CN', value: 580, target: 700 },
-    ];
-  } else {
-    // Month
-    return [
-      { name: 'Tuần 1', value: 400, target: 350 },
-      { name: 'Tuần 2', value: 700, target: 600 },
-      { name: 'Tuần 3', value: 1200, target: 1000 },
-      { name: 'Tuần 4', value: 1600, target: 1400 },
-    ];
+const generateMockSalesData = (): ISaleRecord[] => {
+  const data: ISaleRecord[] = [];
+  const now = new Date();
+
+  // Generate 500 sales records over last 3 months
+  for (let i = 0; i < 500; i++) {
+    const date = new Date(now);
+    date.setDate(date.getDate() - Math.floor(Math.random() * 90));
+
+    // Weighted random source
+    const rand = Math.random();
+    let source = 'Other';
+    if (rand < 0.4) source = 'Facebook';
+    else if (rand < 0.65) source = 'Google Ads';
+    else if (rand < 0.8) source = 'Referral';
+    else if (rand < 0.9) source = 'Offline';
+
+    data.push({
+      id: `sale-${i}`,
+      amount: Math.floor(Math.random() * 50) + 10, // 10-60 Trieu
+      date: date.toISOString(),
+      salesPerson: SALES_PEOPLE[Math.floor(Math.random() * SALES_PEOPLE.length)],
+      source,
+      status: Math.random() > 0.7 ? 'Won' : Math.random() > 0.4 ? 'Negotiation' : 'New'
+    });
   }
+  return data;
 };
 
-const getSalesComparison = (range: string) => {
-  const multiplier = range === 'today' ? 0.05 : range === 'thisWeek' ? 0.2 : 1;
-  return [
-    { name: 'Nguyễn Văn Nam', revenue: Math.round(500 * multiplier), deals: Math.round(25 * multiplier) },
-    { name: 'Trần Thị Hương', revenue: Math.round(400 * multiplier), deals: Math.round(20 * multiplier) },
-    { name: 'Lê Hoàng', revenue: Math.round(350 * multiplier), deals: Math.round(18 * multiplier) },
-    { name: 'Phạm Bích Ngọc', revenue: Math.round(300 * multiplier), deals: Math.round(15 * multiplier) },
-    { name: 'Vũ Minh Hiếu', revenue: Math.round(250 * multiplier), deals: Math.round(12 * multiplier) },
-  ];
+// Colors (Soft Palette)
+const COLORS = {
+  Facebook: '#60a5fa', // Blue 400
+  'Google Ads': '#818cf8', // Indigo 400
+  Referral: '#2dd4bf', // Teal 400
+  Offline: '#fbbf24', // Amber 400
+  Other: '#cbd5e1', // Slate 300
 };
-
-const SOURCE_DISTRIBUTION = [
-  { name: 'Facebook', value: 45, color: '#6366f1' },
-  { name: 'Google Ads', value: 25, color: '#3b82f6' },
-  { name: 'Referral', value: 15, color: '#10b981' },
-  { name: 'Offline', value: 10, color: '#f59e0b' },
-  { name: 'Other', value: 5, color: '#94a3b8' },
-];
-
-const CONVERSION_BY_SOURCE = [
-  { name: 'Facebook', rate: 12 },
-  { name: 'Google', rate: 18 },
-  { name: 'Referral', rate: 35 },
-  { name: 'Offline', rate: 25 },
-  { name: 'Other', rate: 8 },
-];
-
-const STATUS_BY_SOURCE = [
-  { source: 'Facebook', NEW: 40, CONTACTED: 30, QUALIFIED: 20, WON: 10 },
-  { source: 'Google', NEW: 30, CONTACTED: 30, QUALIFIED: 25, WON: 15 },
-  { source: 'Referral', NEW: 10, CONTACTED: 20, QUALIFIED: 30, WON: 40 },
-  { source: 'Offline', NEW: 20, CONTACTED: 25, QUALIFIED: 30, WON: 25 },
-];
 
 const SalesDashboard: React.FC = () => {
   const navigate = useNavigate();
-  const [dateRange, setDateRange] = useState('thisMonth');
+  const [dateRange, setDateRange] = useState<DateRangeType>('thisMonth');
+  const [customDate, setCustomDate] = useState<string>('');
+  const [location, setLocation] = useState<LocationType>('all');
 
-  // Dynamic Data
-  const kpiData = useMemo(() => getKPIData(dateRange), [dateRange]);
-  const revenueData = useMemo(() => getRevenueData(dateRange), [dateRange]);
-  const salesComparison = useMemo(() => getSalesComparison(dateRange), [dateRange]);
+  // Filtering State
+  const [selectedSource, setSelectedSource] = useState<string | null>(null);
+
+  // Raw Data
+  const [allSales, setAllSales] = useState<ISaleRecord[]>([]);
+
+  useEffect(() => {
+    setAllSales(generateMockSalesData());
+  }, []);
+
+  // Filtered Data Logic
+  const filteredSales = useMemo(() => {
+    let result = [...allSales];
+    const now = new Date();
+
+    // Date Filter
+    if (dateRange === 'thisMonth') {
+      result = result.filter(s => new Date(s.date).getMonth() === now.getMonth() && new Date(s.date).getFullYear() === now.getFullYear());
+    } else if (dateRange === 'thisQuarter') {
+      const q = Math.floor(now.getMonth() / 3);
+      result = result.filter(s => Math.floor(new Date(s.date).getMonth() / 3) === q && new Date(s.date).getFullYear() === now.getFullYear());
+    }
+    // (Simplified date logic for demo)
+
+    // Source Filter
+    if (selectedSource) {
+      result = result.filter(s => s.source === selectedSource);
+    }
+
+    return result;
+  }, [allSales, dateRange, selectedSource]);
+
+  // --- DERIVED CHART DATA ---
+
+  // 1. KPIs
+  const kpiData = useMemo(() => {
+    const totalRevenue = filteredSales.filter(s => s.status === 'Won').reduce((sum, s) => sum + s.amount, 0);
+    const pipelineValue = filteredSales.filter(s => s.status !== 'Won' && s.status !== 'Lost').reduce((sum, s) => sum + s.amount, 0);
+    const wonCount = filteredSales.filter(s => s.status === 'Won').length;
+    const totalCount = filteredSales.length;
+
+    return [
+      { label: 'Tổng doanh thu thực thu', value: `${(totalRevenue / 1000).toFixed(1)} Tỷ`, change: '+12%', isPositive: true },
+      { label: 'Tổng giá trị Pipeline', value: `${(pipelineValue / 1000).toFixed(1)} Tỷ`, change: '+8%', isPositive: true },
+      { label: 'Tỷ lệ chuyển đổi chung', value: totalCount ? `${((wonCount / totalCount) * 100).toFixed(1)}%` : '0%', change: '-2%', isPositive: false },
+      { label: '% Lead xác thực', value: '45%', change: '+5%', isPositive: true }, // Static for demo
+    ];
+  }, [filteredSales]);
+
+  // 2. Revenue Graph (Time Series)
+  const revenueData = useMemo(() => {
+    // Bucket by week/day (Simplified: Just bucket by index for area chart shape)
+    // Real impl would bucket by date.
+    // Let's create dummy buckets based on filtered sales count to show change
+    const buckets = 6;
+    const data = [];
+    for (let i = 0; i < buckets; i++) {
+      const val = filteredSales.length * (Math.random() * 0.5 + 0.5) * 10;
+      data.push({ name: `Tuần ${i + 1}`, value: Math.round(val), target: Math.round(val * 0.9) });
+    }
+    return data;
+  }, [filteredSales]);
+
+  // 3. Top Sales
+  const salesComparison = useMemo(() => {
+    const stats: Record<string, number> = {};
+    filteredSales.filter(s => s.status === 'Won').forEach(s => {
+      stats[s.salesPerson] = (stats[s.salesPerson] || 0) + s.amount;
+    });
+    return Object.entries(stats)
+      .map(([name, revenue]) => ({ name, revenue }))
+      .sort((a, b) => b.revenue - a.revenue)
+      .slice(0, 5);
+  }, [filteredSales]);
+
+  // 4. Source Distribution (For Pie Chart) - THIS CONTROLS THE FILTER
+  // Note: Pie chart should usually show ALL sources even if filtered? 
+  // Standard UI pattern: Pie shows global distribution. Clicking filters others.
+  // If we filter the Pie chart itself, it becomes 100% of 1 slice.
+  // So we derive this from `allSales` (filtered by DATE only, NOT Source).
+  const sourceDistribution = useMemo(() => {
+    const dateFiltered = allSales.filter(s => {
+      // Apply same date logic as main filter
+      if (dateRange === 'thisMonth') {
+        const now = new Date();
+        return new Date(s.date).getMonth() === now.getMonth();
+      }
+      return true;
+    });
+
+    const counts: Record<string, number> = {};
+    dateFiltered.forEach(s => counts[s.source] = (counts[s.source] || 0) + 1);
+
+    return Object.entries(counts).map(([name, value]) => ({
+      name,
+      value,
+      color: COLORS[name as keyof typeof COLORS] || COLORS.Other
+    }));
+  }, [allSales, dateRange]);
+
+  // 5. Conversion Rate
+  const conversionBySource = useMemo(() => {
+    // If filtered by source, show only that source or breakdown?
+    // Let's show breakdown of valid sources in current view
+    const dataToUse = selectedSource ? filteredSales : allSales; // Simplify for demo
+
+    // Actually, usually Bar charts react to filter.
+    const sources = selectedSource ? [selectedSource] : SOURCES;
+
+    return sources.map(source => ({
+      name: source,
+      rate: Math.floor(Math.random() * 30) + 10 // Mock rate
+    }));
+  }, [selectedSource, filteredSales, allSales]);
+
+  // 6. Status Stacked
+  const statusBySource = useMemo(() => {
+    const sources = selectedSource ? [selectedSource] : SOURCES;
+    return sources.map(source => ({
+      source,
+      NEW: Math.floor(Math.random() * 50),
+      CONTACTED: Math.floor(Math.random() * 40),
+      QUALIFIED: Math.floor(Math.random() * 30),
+      WON: Math.floor(Math.random() * 20),
+    }));
+  }, [selectedSource]);
+
 
   return (
     <div className="flex flex-col h-full bg-[#f8fafc] text-[#0d141b] font-sans">
       <div className="flex flex-col flex-1 p-6 lg:p-8 max-w-[1600px] mx-auto w-full gap-6">
 
         {/* Header Title & Controls */}
-        <div className="flex flex-wrap justify-between items-center gap-4">
-          <div>
-            <h1 className="text-3xl font-bold text-slate-900">Tổng quan Kinh doanh (Sales)</h1>
-            <p className="text-slate-500 mt-1">Theo dõi hiệu suất bán hàng, doanh thu và tỷ lệ chuyển đổi.</p>
-          </div>
+        <DashboardFilters
+          dateRange={dateRange}
+          onDateRangeChange={setDateRange}
+          location={location}
+          onLocationChange={setLocation}
+          customDate={customDate}
+          onCustomDateChange={setCustomDate}
+          title="Tổng quan Kinh doanh (Sales)"
+          subtitle="Theo dõi hiệu suất bán hàng, doanh thu và tỷ lệ chuyển đổi."
+        />
 
-          {/* Filter Controls - UPDATED */}
-          <div className="flex items-center gap-4 bg-white border border-slate-200 px-4 py-2 rounded-full shadow-sm">
-            <div className="flex items-center gap-2">
-              <Calendar size={16} className="text-slate-500" />
-              <select
-                value={dateRange}
-                onChange={(e) => setDateRange(e.target.value)}
-                className="bg-transparent border-none text-sm font-bold focus:ring-0 cursor-pointer outline-none text-slate-700"
+        {/* --- SELECTED FILTER CHIP --- */}
+        {selectedSource && (
+          <div className="flex items-center gap-2 mb-2 animate-in fade-in slide-in-from-top-2">
+            <span className="text-sm text-slate-500 font-medium">Đang lọc theo nguồn:</span>
+            <div className="flex items-center gap-2 bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-sm font-bold shadow-sm">
+              <span>{selectedSource}</span>
+              <button
+                onClick={() => setSelectedSource(null)}
+                className="hover:bg-blue-200 rounded-full p-0.5 transition-colors"
               >
-                <option value="today">Hôm nay</option>
-                <option value="thisWeek">Tuần này</option>
-                <option value="thisMonth">Tháng này</option>
-                <option value="thisYear">Năm nay</option>
-              </select>
+                <Filter size={12} />
+              </button>
             </div>
+            <button
+              onClick={() => setSelectedSource(null)}
+              className="text-xs text-slate-400 underline hover:text-slate-600"
+            >
+              Xóa lọc
+            </button>
           </div>
-        </div>
+        )}
 
         {/* KPI CARDS */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -159,16 +266,16 @@ const SalesDashboard: React.FC = () => {
                 <AreaChart data={revenueData}>
                   <defs>
                     <linearGradient id="colorRev" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8} />
-                      <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                      <stop offset="5%" stopColor="#60a5fa" stopOpacity={0.8} />
+                      <stop offset="95%" stopColor="#60a5fa" stopOpacity={0} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                   <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b' }} dy={10} />
                   <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b' }} />
                   <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
-                  <Area type="monotone" dataKey="value" stroke="#3b82f6" fillOpacity={1} fill="url(#colorRev)" name="Thực tế" />
-                  <Area type="monotone" dataKey="target" stroke="#94a3b8" strokeDasharray="5 5" fill="none" name="Mục tiêu" />
+                  <Area type="monotone" dataKey="value" stroke="#60a5fa" fillOpacity={1} fill="url(#colorRev)" name="Thực tế" />
+                  <Area type="monotone" dataKey="target" stroke="#cbd5e1" strokeDasharray="5 5" fill="none" name="Mục tiêu" />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
@@ -187,7 +294,7 @@ const SalesDashboard: React.FC = () => {
                   <XAxis type="number" axisLine={false} tickLine={false} tick={{ fill: '#64748b' }} />
                   <YAxis dataKey="name" type="category" width={120} axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12, fontWeight: 500 }} />
                   <Tooltip cursor={{ fill: '#f1f5f9' }} contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
-                  <Bar dataKey="revenue" fill="#10b981" radius={[0, 4, 4, 0]} name="Doanh số (Tr)" />
+                  <Bar dataKey="revenue" fill="#818cf8" radius={[0, 4, 4, 0]} name="Doanh số (Tr)" />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -207,14 +314,26 @@ const SalesDashboard: React.FC = () => {
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
-                    data={SOURCE_DISTRIBUTION}
+                    data={sourceDistribution}
                     cx="50%" cy="50%"
                     innerRadius={60} outerRadius={80}
                     paddingAngle={5}
                     dataKey="value"
+                    onClick={(data) => {
+                      if (data && data.name) {
+                        setSelectedSource(data.name === selectedSource ? null : data.name);
+                      }
+                    }}
+                    className="cursor-pointer"
                   >
-                    {SOURCE_DISTRIBUTION.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    {sourceDistribution.map((entry, index) => (
+                      <Cell
+                        key={`cell-${index}`}
+                        fill={entry.color}
+                        stroke={selectedSource === entry.name ? '#1e293b' : 'none'}
+                        strokeWidth={2}
+                        opacity={selectedSource && selectedSource !== entry.name ? 0.3 : 1}
+                      />
                     ))}
                   </Pie>
                   <Tooltip contentStyle={{ borderRadius: '8px', border: 'none' }} />
@@ -222,7 +341,14 @@ const SalesDashboard: React.FC = () => {
                 </PieChart>
               </ResponsiveContainer>
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none pb-8">
-                <span className="text-2xl font-bold text-slate-800">100%</span>
+                <div className="text-center">
+                  <span className="block text-2xl font-bold text-slate-800">
+                    {selectedSource ? 'Lọc' : '100%'}
+                  </span>
+                  <span className="text-xs text-slate-400">
+                    {selectedSource ? selectedSource : 'Tổng quan'}
+                  </span>
+                </div>
               </div>
             </div>
           </div>
@@ -232,12 +358,12 @@ const SalesDashboard: React.FC = () => {
             <h3 className="font-bold text-lg text-slate-900 mb-6">% Chuyển đổi ra Hợp đồng theo Nguồn</h3>
             <div className="h-[250px]">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={CONVERSION_BY_SOURCE} barSize={40}>
+                <BarChart data={conversionBySource} barSize={40}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                   <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b' }} dy={10} />
                   <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b' }} unit="%" />
                   <Tooltip cursor={{ fill: '#f1f5f9' }} contentStyle={{ borderRadius: '8px', border: 'none' }} />
-                  <Bar dataKey="rate" fill="#8b5cf6" radius={[4, 4, 0, 0]} name="Tỷ lệ CĐ (%)" />
+                  <Bar dataKey="rate" fill="#60a5fa" radius={[4, 4, 0, 0]} name="Tỷ lệ CĐ (%)" />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -249,16 +375,16 @@ const SalesDashboard: React.FC = () => {
           <h3 className="font-bold text-lg text-slate-900 mb-6">Tỷ trọng Trạng thái theo Nguồn</h3>
           <div className="h-[300px]">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={STATUS_BY_SOURCE} barSize={50}>
+              <BarChart data={statusBySource} barSize={50}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                 <XAxis dataKey="source" axisLine={false} tickLine={false} tick={{ fill: '#64748b' }} dy={10} />
                 <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b' }} />
                 <Tooltip cursor={{ fill: '#f1f5f9' }} contentStyle={{ borderRadius: '8px', border: 'none' }} />
                 <Legend wrapperStyle={{ paddingTop: '20px' }} />
-                <Bar dataKey="NEW" stackId="a" fill="#94a3b8" name="Mới" />
-                <Bar dataKey="CONTACTED" stackId="a" fill="#3b82f6" name="Đang LH" />
-                <Bar dataKey="QUALIFIED" stackId="a" fill="#f59e0b" name="Đạt chuẩn/Xác thực" />
-                <Bar dataKey="WON" stackId="a" fill="#10b981" name="Đã chốt (Won)" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="NEW" stackId="a" fill="#cbd5e1" name="Mới" />
+                <Bar dataKey="CONTACTED" stackId="a" fill="#a5b4fc" name="Đang LH" />
+                <Bar dataKey="QUALIFIED" stackId="a" fill="#818cf8" name="Đạt chuẩn/Xác thực" />
+                <Bar dataKey="WON" stackId="a" fill="#4f46e5" name="Đã chốt (Won)" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>

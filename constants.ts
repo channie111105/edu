@@ -123,9 +123,9 @@ export const NAV_ITEMS = [
   { label: 'Báo giá (Quotations)', path: '/contracts/quotations', icon: Receipt, roles: [UserRole.SALES_LEADER] }, // Remove SALES_REP
 
   // NEW ENROLLMENT FLOW
-  { label: 'Học viên (Students)', path: '/enrollment/students', icon: GraduationCap, roles: [UserRole.SALES_LEADER, UserRole.SALES_REP] },
+  { label: 'Học viên (Students)', path: '/enrollment/students', icon: GraduationCap, roles: [UserRole.ADMIN, UserRole.FOUNDER] },
 
-  { label: 'Quản lý Ghi danh', path: '/contracts', icon: FileSignature, roles: [UserRole.SALES_LEADER] },
+  { label: 'Học viên', path: '/contracts', icon: FileSignature, roles: [UserRole.SALES_LEADER] },
   // { label: 'Thư viện Mẫu', path: '/contracts/templates', icon: Files, roles: [UserRole.SALES_LEADER] }, // Removed per request
 
   // --- ROLE MARKETING --- (Removed ADMIN)
@@ -139,17 +139,17 @@ export const NAV_ITEMS = [
   { label: 'My Contacts', path: '/sales/my-contacts', icon: Contact2, roles: [UserRole.SALES_REP] }, // NEW
   { label: 'Pipeline (Kinh doanh)', path: '/pipeline', icon: KanbanSquare, roles: [UserRole.SALES_REP] },
 
-  { label: 'KPIs & Mục tiêu', path: '/sales/kpis', icon: Target, roles: [UserRole.SALES_REP] }, // NEW KPI PAGE 
-  { label: 'Lịch hẹn (Test/Visit)', path: '/sales/meetings', icon: CalendarClock, roles: [UserRole.SALES_REP, UserRole.FOUNDER, UserRole.ADMIN] }, // Removed SALES_LEADER and TEACHER 
+  { label: 'KPIs & Mục tiêu', path: '/sales/kpis', icon: Target, roles: [UserRole.SALES_REP] }, // NEW KPI PAGE
+  { label: 'Lịch hẹn (Test/Visit)', path: '/sales/meetings', icon: CalendarClock, roles: [UserRole.SALES_REP, UserRole.FOUNDER, UserRole.ADMIN] }, // Removed SALES_LEADER and TEACHER
 
   // --- ROLE ĐÀO TẠO --- (Removed ADMIN)
 
   { label: 'Lịch biểu', path: '/training/schedule', icon: CalendarDays, roles: [UserRole.TRAINING] },
-  { label: 'Lớp học', path: '/training/classes', icon: BookOpen, roles: [UserRole.TRAINING] },
+  { label: 'Quản lý lớp', path: '/training/classes', icon: BookOpen, roles: [UserRole.TRAINING] },
   { label: 'Giáo viên', path: '/training/teachers', icon: Users, roles: [UserRole.TRAINING] },
 
   // --- ROLE DU HỌC (STUDY ABROAD) --- (Removed ADMIN)
-  { label: 'Danh sách hồ sơ', path: '/study-abroad/students', icon: GraduationCap, roles: [UserRole.STUDY_ABROAD] },
+  { label: 'Danh sách hồ sơ', path: '/study-abroad/cases', icon: GraduationCap, roles: [UserRole.STUDY_ABROAD] },
   { label: 'Tiến độ', path: '/study-abroad/pipeline', icon: KanbanSquare, roles: [UserRole.STUDY_ABROAD] },
 
   { label: 'Lịch Phỏng vấn', path: '/study-abroad/interviews', icon: CalendarClock, roles: [UserRole.STUDY_ABROAD] },
@@ -157,7 +157,8 @@ export const NAV_ITEMS = [
 
   // --- FINANCE GROUP --- (Removed ADMIN)
   { label: 'Duyệt Giao dịch', path: '/finance/transactions', icon: Receipt, roles: [UserRole.ACCOUNTANT, UserRole.FOUNDER] },
-  { label: 'Thu Chi (Transactions)', path: '/finance/transactions-list', icon: ArrowRightLeft, roles: [UserRole.ACCOUNTANT, UserRole.FOUNDER] },
+  { label: 'Thu Chi (Transactions)', path: '/finance/money-out', icon: ArrowRightLeft, roles: [UserRole.ACCOUNTANT, UserRole.FOUNDER] },
+  { label: 'Công nợ', path: '/finance/debts', icon: Landmark, roles: [UserRole.ACCOUNTANT, UserRole.FOUNDER] },
   { label: 'Hóa đơn VAT (e-Invoice)', path: '/finance/invoices', icon: Receipt, roles: [UserRole.ACCOUNTANT] },
   { label: 'Hoàn tiền', path: '/refunds', icon: Undo2, roles: [UserRole.ACCOUNTANT, UserRole.FOUNDER] },
 
