@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom'; // Add import
 import { useAuth } from '../contexts/AuthContext';
-import { getLeads, addContact, addDeal, deleteLead, convertLeadToContact } from '../utils/storage';
+import { getLeads, saveLead, addContact, addDeal, convertLeadToContact, getTags, saveTags } from '../utils/storage';
 import { LeadStatus, ILead, IDeal, DealStage } from '../types';
 import UnifiedLeadDrawer from '../components/UnifiedLeadDrawer';
 import LeadPivotTable from '../components/LeadPivotTable';
@@ -15,12 +15,43 @@ import {
    ListFilter, Star, Grid, List as ListIcon, ChevronLeft, ChevronRight,
    ChevronDown, ChevronRight as ChevronRightIcon,
    Layout, LayoutGrid, Cog, Download, Archive, Mail, MessageSquare, Trash2,
-   UserPlus, Shuffle, XCircle, FileSpreadsheet, Settings, Calendar, Users
+   UserPlus, Shuffle, XCircle, X, Save, FileSpreadsheet, Settings, Calendar, Users
 } from 'lucide-react';
 
 const MyLeads: React.FC = () => {
    const { user } = useAuth();
    const navigate = useNavigate();
+
+   const SALES_REPS = [
+      { id: 'u1', name: 'Trần Văn Quản Trị' },
+      { id: 'u2', name: 'Sarah Miller' },
+      { id: 'u3', name: 'David Clark' },
+      { id: 'u4', name: 'Alex Rivera' },
+   ];
+
+   const NEW_LEAD_INITIAL_STATE = {
+      name: '',
+      phone: '',
+      email: '',
+      source: 'hotline',
+      program: 'Tiếng Đức',
+      notes: '',
+      title: '',
+      company: '',
+      province: '',
+      city: '',
+      ward: '',
+      street: '',
+      salesperson: user?.id || '',
+      campaign: '',
+      tags: [] as string[],
+      referredBy: '',
+      product: '',
+      market: '',
+      channel: '',
+      medium: '',
+      status: 'NEW'
+   };
 
    // Data State
    const [leads, setLeads] = useState<ILead[]>([]);
@@ -29,12 +60,16 @@ const MyLeads: React.FC = () => {
    const [statusFilter, setStatusFilter] = useState<string>('all');
 
    // UI State
-   const [isActionMenuOpen, setIsActionMenuOpen] = useState(false);
    const [showConfetti, setShowConfetti] = useState(false);
+   const [showCreateLeadModal, setShowCreateLeadModal] = useState(false);
+   const [newLeadData, setNewLeadData] = useState(NEW_LEAD_INITIAL_STATE);
+   const [createModalActiveTab, setCreateModalActiveTab] = useState<'notes' | 'extra'>('notes');
+   const [availableTags, setAvailableTags] = useState<string[]>([]);
+   const [isAddingTag, setIsAddingTag] = useState(false);
 
    // Pivot/Group State
    const [groupBy, setGroupBy] = useState<'none' | 'source' | 'status' | 'program' | 'city'>('none');
-   const [viewMode, setViewMode] = useState<'list' | 'pivot'>('list');
+   const [viewMode, setViewMode] = useState<'list' | 'pivot' | 'kanban'>('list');
    const [filterType, setFilterType] = useState('all');
 
    // Drawer State
@@ -109,15 +144,161 @@ const MyLeads: React.FC = () => {
       { field: 'city', label: 'Nhóm theo Thành phố', category: 'Nhóm dữ liệu', type: 'groupby' },
    ];
 
-   useEffect(() => {
+   const reloadMyLeads = useCallback(() => {
+      if (!user?.id) {
+         setLeads([]);
+         return;
+      }
       const allLeads = getLeads();
-      const myActiveLeads = allLeads.filter(l =>
-         l.ownerId === user?.id &&
-         l.status !== LeadStatus.CONVERTED &&
-         l.status !== LeadStatus.DISQUALIFIED
-      );
-      setLeads(myActiveLeads);
-   }, [user]);
+      const myLeads = allLeads.filter(l => l.ownerId === user.id);
+      setLeads(myLeads);
+   }, [user?.id]);
+
+   const handleCreateMyLead = () => {
+      if (!user?.id) {
+         alert('Không xác định được tài khoản sale.');
+         return;
+      }
+
+      if (!newLeadData.name || !newLeadData.phone) {
+         alert("Vui lòng nhập Tên và SĐT");
+         return;
+      }
+      if (!newLeadData.company) {
+         alert("Vui lòng chọn Cơ sở / Company Base");
+         return;
+      }
+
+      const statusMap: Record<string, string> = {
+         NEW: LeadStatus.NEW,
+         CONTACTED: LeadStatus.CONTACTED,
+         QUALIFIED: LeadStatus.QUALIFIED,
+         LOST: DealStage.LOST
+      };
+      const mappedStatus = statusMap[newLeadData.status] || LeadStatus.NEW;
+
+      const program = (newLeadData.product && ['Tiếng Đức', 'Tiếng Trung', 'Du học Đức', 'Du học Trung', 'Du học nghề Úc'].includes(newLeadData.product))
+         ? newLeadData.product as ILead['program']
+         : newLeadData.program as ILead['program'];
+
+      const nowIso = new Date().toISOString();
+      const lead: ILead = {
+         id: `l-${Date.now()}`,
+         ...newLeadData,
+         program,
+         ownerId: newLeadData.salesperson || user.id,
+         marketingData: {
+            tags: newLeadData.tags,
+            campaign: newLeadData.campaign,
+            channel: newLeadData.channel,
+            medium: newLeadData.medium,
+            market: newLeadData.market
+         },
+         status: mappedStatus,
+         createdAt: nowIso,
+         score: 10,
+         lastActivityDate: nowIso,
+         lastInteraction: nowIso,
+         slaStatus: 'normal',
+         activities: [{
+            id: `act-${Date.now()}`,
+            type: 'system',
+            timestamp: nowIso,
+            title: 'Tạo lead thủ công',
+            description: `Sale ${user.name || 'Tôi'} tạo lead từ My Leads.`,
+            user: user.name || 'System'
+         }]
+      };
+
+      saveLead(lead);
+      reloadMyLeads();
+      setShowCreateLeadModal(false);
+      setCreateModalActiveTab('notes');
+      setNewLeadData({
+         ...NEW_LEAD_INITIAL_STATE,
+         salesperson: user.id
+      });
+      alert('Tạo Lead thành công!');
+   };
+
+   const openCreateLeadModal = () => {
+      setCreateModalActiveTab('notes');
+      setIsAddingTag(false);
+      setNewLeadData({
+         ...NEW_LEAD_INITIAL_STATE,
+         salesperson: user?.id || ''
+      });
+      setShowCreateLeadModal(true);
+   };
+
+   useEffect(() => {
+      reloadMyLeads();
+      setAvailableTags(getTags());
+      setNewLeadData((prev) => ({
+         ...prev,
+         salesperson: user?.id || ''
+      }));
+   }, [user, reloadMyLeads]);
+
+   useEffect(() => {
+      const handleLeadsChanged = () => {
+         reloadMyLeads();
+      };
+
+      const handleStorageChanged = (event: StorageEvent) => {
+         if (!event.key || event.key === 'educrm_leads_v2') {
+            reloadMyLeads();
+         }
+      };
+
+      window.addEventListener('educrm:leads-changed', handleLeadsChanged);
+      window.addEventListener('storage', handleStorageChanged);
+
+      return () => {
+         window.removeEventListener('educrm:leads-changed', handleLeadsChanged);
+         window.removeEventListener('storage', handleStorageChanged);
+      };
+   }, [reloadMyLeads]);
+
+   const getDateRangeToday = () => {
+      const now = new Date();
+      const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const end = new Date(start);
+      end.setHours(23, 59, 59, 999);
+      return { start, end };
+   };
+
+   const isOverdueLead = (lead: ILead) => {
+      const dueDateRaw = (lead as any).deadline || lead.expectedClosingDate;
+      if (!dueDateRaw) return false;
+      const dueDate = new Date(dueDateRaw);
+      if (Number.isNaN(dueDate.getTime())) return false;
+      const { start } = getDateRangeToday();
+      return dueDate < start;
+   };
+
+   const isTodayCareLead = (lead: ILead) => {
+      const { start, end } = getDateRangeToday();
+      const getTime = (value?: string) => {
+         if (!value) return null;
+         const t = new Date(value).getTime();
+         return Number.isNaN(t) ? null : t;
+      };
+
+      const hasScheduledToday = (lead.activities || []).some((activity: any) => {
+         const activityTime = getTime(activity?.datetime || activity?.timestamp);
+         if (!activityTime) return false;
+         return activityTime >= start.getTime() && activityTime <= end.getTime();
+      });
+      if (hasScheduledToday) return true;
+
+      const lastInteractionTime = getTime(lead.lastInteraction);
+      if (!lastInteractionTime) return false;
+      return lastInteractionTime >= start.getTime() && lastInteractionTime <= end.getTime();
+   };
+
+   const overdueLeadsCount = useMemo(() => leads.filter(isOverdueLead).length, [leads]);
+   const todayCareLeadsCount = useMemo(() => leads.filter(isTodayCareLead).length, [leads]);
 
    const filteredLeads = useMemo(() => {
       let result = leads;
@@ -150,7 +331,11 @@ const MyLeads: React.FC = () => {
          });
       }
 
-      if (statusFilter !== 'all') {
+      if (statusFilter === 'overdue') {
+         result = result.filter(isOverdueLead);
+      } else if (statusFilter === 'today_care') {
+         result = result.filter(isTodayCareLead);
+      } else if (statusFilter !== 'all') {
          result = result.filter(l => l.status === statusFilter);
       }
 
@@ -247,7 +432,7 @@ const MyLeads: React.FC = () => {
       };
 
       handleLeadUpdate(updated);
-      alert(`Đã tiếp nhận Lead: ${lead.name}. SLA: ${slaMet ? 'Đạt ✅' : 'Quá hạn ❌'}`);
+      alert(`Tiếp nhận Lead: ${lead.name}. SLA: ${slaMet ? 'Đạt' : 'Quá hạn'}`);
    };
 
    const handleCall = (e: React.MouseEvent, lead: ILead) => {
@@ -308,7 +493,7 @@ const MyLeads: React.FC = () => {
             // Update local state: remove from "My Leads" since owner changed
             setLeads(prev => prev.filter(l => !selectedIds.includes(l.id)));
             setSelectedIds([]);
-            alert(`Đã bàn giao ${selectedIds.length} lead cho ${target}`);
+            alert(`? b?n giao ${selectedIds.length} lead cho ${target}`);
          });
       }
    };
@@ -374,9 +559,6 @@ const MyLeads: React.FC = () => {
             ] as any
          };
          addDeal(deal);
-         deleteLead(lead.id);
-
-         setLeads(prev => prev.filter(l => l.id !== lead.id));
          setSelectedLead(null);
 
          navigate(`/pipeline?newDeal=${deal.id}`);
@@ -437,17 +619,53 @@ const MyLeads: React.FC = () => {
                   ] as any
                };
                addDeal(deal);
-               deleteLead(lead.id);
                lastDealId = deal.id;
             } catch (error) {
                console.error("Bulk Convert Individual Error", error);
             }
          });
 
-         setLeads(prev => prev.filter(l => !selectedIds.includes(l.id)));
          setSelectedIds([]);
-         alert(`Đã chuyển đổi thành công ${selectedIds.length} lead!`);
+         alert(`Chuyển đổi thành công ${selectedIds.length} lead!`);
          if (lastDealId) navigate(`/pipeline?newDeal=${lastDealId}`);
+      }
+   };
+
+   const handleBulkWon = () => {
+      if (selectedIds.length > 0) {
+         if (confirm(`Xác nhận đánh dấu thắng (Won) cho ${selectedIds.length} lead?`)) {
+            const updatedLeads = leads.map(l => selectedIds.includes(l.id) ? { ...l, status: DealStage.WON } : l);
+            setLeads(updatedLeads);
+            import('../utils/storage').then(({ saveLeads }) => saveLeads(updatedLeads));
+            setSelectedIds([]);
+            alert("Cập nhật thành công!");
+         }
+      } else {
+         alert("Chưa chọn lead!");
+      }
+   };
+
+   const handleBulkDelete = () => {
+      if (selectedIds.length > 0) {
+         if (confirm(`Xóa ${selectedIds.length} lead đã chọn?`)) {
+            const remainingLeads = leads.filter(l => !selectedIds.includes(l.id));
+            setLeads(remainingLeads);
+            const allLeads = JSON.parse(localStorage.getItem('leads') || '[]');
+            const filteredAllLeads = allLeads.filter((l: any) => !selectedIds.includes(l.id));
+            import('../utils/storage').then(({ saveLeads }) => saveLeads(filteredAllLeads));
+            setSelectedIds([]);
+         }
+      } else {
+         alert("Chưa chọn lead!");
+      }
+   };
+
+   const handleBulkEdit = () => {
+      if (selectedIds.length > 0) {
+         const lead = leads.find(l => l.id === selectedIds[0]);
+         if (lead) setSelectedLead(lead);
+      } else {
+         alert("Chưa chọn lead!");
       }
    };
 
@@ -468,6 +686,38 @@ const MyLeads: React.FC = () => {
          return groups;
       }, {} as Record<string, ILead[]>);
    }, [filteredLeads, groupBy]);
+
+   const normalizeLeadStatus = (status: string) => {
+      if (status === LeadStatus.NEW || status === 'NEW') return 'new';
+      if (status === LeadStatus.ASSIGNED || status === 'ASSIGNED') return 'assigned';
+      if (status === LeadStatus.CONTACTED || status === 'CONTACTED') return 'contacted';
+      if (status === LeadStatus.QUALIFIED || status === 'QUALIFIED') return 'qualified';
+      if (status === DealStage.LOST || status === 'LOST') return 'lost';
+      return 'other';
+   };
+
+   const kanbanColumns = useMemo(() => {
+      const columns: Array<{
+         key: string;
+         title: string;
+         color: string;
+         leads: ILead[];
+      }> = [
+            { key: 'new', title: 'Chờ tiếp nhận', color: 'bg-blue-50 border-blue-200', leads: [] },
+            { key: 'assigned', title: 'Đã nhận', color: 'bg-amber-50 border-amber-200', leads: [] },
+            { key: 'contacted', title: 'Đang liên hệ', color: 'bg-purple-50 border-purple-200', leads: [] },
+            { key: 'qualified', title: 'Tiềm năng', color: 'bg-cyan-50 border-cyan-200', leads: [] },
+            { key: 'lost', title: 'Thất bại', color: 'bg-red-50 border-red-200', leads: [] },
+         ];
+
+      filteredLeads.forEach((lead) => {
+         const normalized = normalizeLeadStatus(String(lead.status || ''));
+         const col = columns.find((item) => item.key === normalized);
+         if (col) col.leads.push(lead);
+      });
+
+      return columns;
+   }, [filteredLeads]);
 
    const currentSLAStatus = (created: string) => {
       const diff = new Date().getTime() - new Date(created).getTime();
@@ -530,7 +780,16 @@ const MyLeads: React.FC = () => {
                {visibleColumns.includes('opportunity') && (
                   <td className="p-3 align-middle max-w-[200px]">
                      <div className="flex flex-col gap-0.5 overflow-hidden">
-                        <div className="font-bold text-slate-900 group-hover:text-blue-600 truncate">{lead.name}</div>
+                        <div className="flex items-center gap-2">
+                           <div className="font-bold text-slate-900 group-hover:text-blue-600 truncate">{lead.name}</div>
+                           <button
+                              onClick={(e) => handleCall(e, lead)}
+                              className="shrink-0 p-1 rounded bg-green-100 text-green-700 hover:bg-green-200"
+                              title="Gọi ngay"
+                           >
+                              <Phone size={12} />
+                           </button>
+                        </div>
                         {lead.program && (
                            <span className="text-xs text-blue-600 hover:underline truncate">{lead.program}</span>
                         )}
@@ -625,189 +884,50 @@ const MyLeads: React.FC = () => {
 
    return (
       <div className="flex flex-col h-full bg-[#f8fafc] font-sans text-slate-900 relative max-w-[1400px] mx-auto">
-
          {/* TOOLBAR */}
-         <div className="bg-white border-b border-slate-200 px-4 py-3 sticky top-0 z-20 shadow-sm flex justify-between items-center">
-            <div className="flex items-center gap-4">
+         <div className="bg-white border-b border-slate-200 px-4 py-3 sticky top-0 z-20 shadow-sm flex justify-between items-center gap-3">
+            <div className="flex items-center gap-4 flex-wrap">
                <h1 className="text-xl font-bold flex items-center gap-2 text-slate-800">
                   <Inbox size={20} className="text-blue-600" /> Lead của tôi
                </h1>
                <div className="flex items-center gap-2 border-l border-slate-200 pl-4">
-                  {['all', LeadStatus.NEW, LeadStatus.ASSIGNED, LeadStatus.CONTACTED].map(s => (
-                     <button key={s} onClick={() => setStatusFilter(s)} className={`px-3 py-1 text-sm rounded-md font-bold transition-colors ${statusFilter === s ? 'bg-slate-800 text-white' : 'text-slate-500 hover:bg-slate-100'}`}>
-                        {s === 'all' ? 'Tất cả' : s === LeadStatus.NEW ? 'Chờ tiếp nhận' : s === LeadStatus.ASSIGNED ? 'Đã nhận' : 'Đang liên hệ'}
+                  {[
+                     { id: 'all', label: 'Tất cả', count: leads.length },
+                     { id: LeadStatus.NEW, label: 'Chờ tiếp nhận', count: leads.filter(l => l.status === LeadStatus.NEW).length },
+                     { id: LeadStatus.ASSIGNED, label: 'Đã nhận', count: leads.filter(l => l.status === LeadStatus.ASSIGNED).length },
+                     { id: 'overdue', label: 'DS quá hạn', count: overdueLeadsCount },
+                     { id: 'today_care', label: 'Chăm sóc hôm nay', count: todayCareLeadsCount },
+                  ].map((tab) => (
+                     <button
+                        key={tab.id}
+                        onClick={() => setStatusFilter(tab.id)}
+                        className={`px-3 py-1 text-sm rounded-md font-bold transition-colors border ${statusFilter === tab.id ? 'bg-slate-100 text-slate-800 border-slate-300' : 'text-slate-500 border-transparent hover:bg-slate-100 hover:border-slate-200'}`}
+                     >
+                        {tab.label}
+                        <span className={`ml-1 text-[11px] ${statusFilter === tab.id ? 'text-slate-500' : 'text-slate-400'}`}>{tab.count}</span>
                      </button>
                   ))}
                </div>
             </div>
-         </div>
-
-         {/* NEW TOOLBAR (Replacing Pivot Bar) */}
-         <div className="bg-slate-50 border-b border-slate-200 px-4 py-2 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3 w-1/3">
-               <OdooSearchBar
-                  filters={searchFilters}
-                  onAddFilter={(filter) => setSearchFilters([...searchFilters, filter])}
-                  onRemoveFilter={(index) => setSearchFilters(searchFilters.filter((_, i) => i !== index))}
-                  onClearAll={() => setSearchFilters([])}
-                  searchFields={searchFields}
-               />
-            </div>
-
-            <div className="ml-auto flex items-center gap-2">
-               {/* View Switcher */}
+            <div className="flex items-center gap-2">
                <div className="flex bg-white p-1 rounded-lg border border-slate-200 shadow-sm">
-                  <button onClick={() => setViewMode('list')} className={`p-1.5 rounded ${viewMode === 'list' ? 'bg-blue-50 text-blue-600 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-700'}`} title="Dạng Danh sách"><ListIcon size={16} /></button>
-                  <button onClick={() => setViewMode('pivot')} className={`p-1.5 rounded ${viewMode === 'pivot' ? 'bg-blue-50 text-blue-600 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-700'}`} title="Báo cáo Pivot"><LayoutGrid size={16} /></button>
+                  <button onClick={() => setViewMode('list')} className={`p-1.5 rounded ${viewMode === 'list' ? 'bg-blue-50 text-blue-600 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-700'}`} title="Dạng danh sách"><ListIcon size={16} /></button>
+                  <button onClick={() => setViewMode('kanban')} className={`p-1.5 rounded ${viewMode === 'kanban' ? 'bg-blue-50 text-blue-600 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-700'}`} title="Dạng kanban"><Layout size={16} /></button>
+                  <button onClick={() => setViewMode('pivot')} className={`p-1.5 rounded ${viewMode === 'pivot' ? 'bg-blue-50 text-blue-600 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-700'}`} title="Báo cáo pivot"><LayoutGrid size={16} /></button>
                </div>
 
-               {/* Column Settings Button (Marketing Style) */}
-               <div className="relative">
-                  <button
-                     onClick={() => setShowColumnDropdown(!showColumnDropdown)}
-                     className="flex items-center gap-2 px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-bold hover:bg-white text-slate-600 bg-slate-100 shadow-sm transition-all"
-                  >
-                     <Settings size={14} /> Cột
-                  </button>
-                  {showColumnDropdown && (
-                     <>
-                        <div className="fixed inset-0 z-30" onClick={() => setShowColumnDropdown(false)}></div>
-                        <div className="absolute right-0 top-full mt-2 w-[400px] bg-white border border-slate-200 rounded-xl shadow-xl z-40 p-3 animate-in fade-in zoom-in-95">
-                           <div className="text-xs font-bold text-slate-500 uppercase px-2 py-1 mb-2 border-b border-slate-100 pb-2">Hiển thị cột</div>
-                           <div className="grid grid-cols-2 gap-x-2 gap-y-1 max-h-[300px] overflow-y-auto custom-scrollbar">
-                              {ALL_COLUMNS.map(col => (
-                                 <div key={col.id} onClick={() => toggleColumn(col.id)} className="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-50 rounded cursor-pointer text-sm">
-                                    <div className={`w-4 h-4 rounded border flex items-center justify-center ${visibleColumns.includes(col.id) ? 'bg-blue-600 border-blue-600 text-white' : 'border-slate-300'}`}>
-                                       {visibleColumns.includes(col.id) && <CheckCircle2 size={10} strokeWidth={4} />}
-                                    </div>
-                                    <span className={visibleColumns.includes(col.id) ? 'text-slate-900 font-medium' : 'text-slate-500'}>{col.label}</span>
-                                 </div>
-                              ))}
-                           </div>
-                        </div>
-                     </>
-                  )}
-               </div>
-
-               {/* Time Range Filter (Marketing Style) */}
-               <div className="relative">
-                  <div className="flex items-center border border-slate-200 rounded-lg overflow-hidden bg-white shadow-sm hover:border-blue-300 transition-all">
-                     <select
-                        value={timeFilterField}
-                        onChange={(e) => setTimeFilterField(e.target.value as any)}
-                        className="bg-slate-50 border-r border-slate-200 px-2 py-1.5 text-xs font-bold text-slate-600 outline-none cursor-pointer hover:bg-slate-100"
-                     >
-                        <option value="createdAt">Ngày tạo</option>
-                        <option value="expectedClosingDate">Hạn chót</option>
-                     </select>
-                     <button
-                        onClick={() => setShowTimePicker(!showTimePicker)}
-                        className={`flex items-center gap-2 px-3 py-2 text-xs font-bold whitespace-nowrap ${timeRangeType !== 'all' ? 'text-blue-600 bg-blue-50' : 'text-slate-500'}`}
-                     >
-                        <Calendar size={14} />
-                        {timePresets.find(p => p.id === timeRangeType)?.label}
-                        {timeRangeType === 'custom' && customRange && (
-                           <span className="text-[10px] bg-blue-100 px-1 rounded ml-1">
-                              {customRange.start ? new Date(customRange.start).toLocaleDateString('vi-VN') : '...'} - {customRange.end ? new Date(customRange.end).toLocaleDateString('vi-VN') : '...'}
-                           </span>
-                        )}
-                        <ChevronDown size={14} className={`transition-transform ${showTimePicker ? 'rotate-180' : ''}`} />
-                     </button>
-                  </div>
-
-                  {showTimePicker && (
-                     <>
-                        <div className="fixed inset-0 z-30" onClick={() => setShowTimePicker(false)}></div>
-                        <div className="absolute right-0 top-full mt-2 w-[600px] bg-white border border-slate-200 rounded-xl shadow-2xl z-40 overflow-hidden flex animate-in slide-in-from-top-2">
-                           <div className="w-48 bg-slate-50 border-r border-slate-100 p-2 space-y-1 shrink-0">
-                              {timePresets.map(preset => (
-                                 <button
-                                    key={preset.id}
-                                    onClick={() => {
-                                       setTimeRangeType(preset.id);
-                                       // Don't close if custom, otherwise close
-                                       if (preset.id !== 'custom') setShowTimePicker(false);
-                                    }}
-                                    className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium transition-all ${timeRangeType === preset.id ? 'bg-blue-600 text-white shadow-md' : 'text-slate-600 hover:bg-slate-200'}`}
-                                 >
-                                    {preset.label}
-                                 </button>
-                              ))}
-                           </div>
-                           <div className="flex-1 p-6 flex flex-col">
-                              <div className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-6">KHOẢNG THỜI GIAN TÙY CHỈNH</div>
-                              <div className="grid grid-cols-2 gap-6">
-                                 <div>
-                                    <label className="block text-xs font-bold text-slate-500 mb-2">Từ ngày</label>
-                                    <div className="relative">
-                                       <input
-                                          type="date"
-                                          className="w-full pl-3 pr-10 py-2 border border-slate-200 rounded-lg text-sm font-medium focus:border-blue-500 outline-none text-slate-700"
-                                          value={customRange?.start || ''}
-                                          onChange={(e) => setCustomRange(prev => ({ start: e.target.value, end: prev?.end || '' }))}
-                                       />
-                                       <Calendar size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                                    </div>
-                                 </div>
-                                 <div>
-                                    <label className="block text-xs font-bold text-slate-500 mb-2">Đến ngày</label>
-                                    <div className="relative">
-                                       <input
-                                          type="date"
-                                          className="w-full pl-3 pr-10 py-2 border border-slate-200 rounded-lg text-sm font-medium focus:border-blue-500 outline-none text-slate-700"
-                                          value={customRange?.end || ''}
-                                          onChange={(e) => setCustomRange(prev => ({ start: prev?.start || '', end: e.target.value }))}
-                                       />
-                                       <Calendar size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                                    </div>
-                                 </div>
-                              </div>
-                              <div className="mt-auto pt-8 flex justify-between items-center">
-                                 <button
-                                    onClick={() => {
-                                       setTimeRangeType('all');
-                                       setCustomRange(null);
-                                    }}
-                                    className="text-sm font-bold text-slate-400 hover:text-slate-600"
-                                 >
-                                    Làm lại
-                                 </button>
-                                 <div className="flex items-center gap-3">
-                                    <button
-                                       onClick={() => setShowTimePicker(false)}
-                                       className="px-4 py-2 text-sm font-bold text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg"
-                                    >
-                                       Hủy
-                                    </button>
-                                    <button
-                                       onClick={() => setShowTimePicker(false)}
-                                       className="bg-blue-600 text-white px-6 py-2 rounded-lg text-sm font-bold hover:bg-blue-700 shadow-sm shadow-blue-200"
-                                    >
-                                       Áp dụng
-                                    </button>
-                                 </div>
-                              </div>
-                           </div>
-                        </div>
-                     </>
-                  )}
-               </div>
-
-               {/* Advanced Filter Button */}
-               <div className="relative">
+               <div className="relative shrink-0">
                   <button
                      onClick={() => setShowAdvancedFilter(!showAdvancedFilter)}
-                     className={`flex items-center gap-2 px-3 py-2 border rounded-lg text-xs font-bold transition-all ${showAdvancedFilter ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+                     className={`flex items-center gap-2 px-3 py-1.5 border rounded-lg text-xs font-bold whitespace-nowrap transition-all ${showAdvancedFilter ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}
                   >
                      <Filter size={14} /> Lọc nâng cao
                   </button>
 
-                  {/* Advanced Filter UI (Image 2) */}
                   {showAdvancedFilter && (
                      <>
                         <div className="fixed inset-0 z-30" onClick={() => setShowAdvancedFilter(false)}></div>
                         <div className="absolute right-0 top-full mt-2 w-[800px] bg-white border border-slate-200 rounded-xl shadow-2xl z-40 flex animate-in fade-in zoom-in-95 overflow-hidden font-sans">
-                           {/* Column 1: Filter */}
                            <div className="w-1/3 border-r border-slate-100 p-4">
                               <div className="flex items-center gap-2 mb-4 text-sm font-bold text-slate-800">
                                  <Filter size={16} /> Bộ lọc
@@ -832,7 +952,6 @@ const MyLeads: React.FC = () => {
                               </div>
                            </div>
 
-                           {/* Column 2: Group By */}
                            <div className="w-1/3 border-r border-slate-100 p-4 bg-slate-50/50">
                               <div className="flex items-center gap-2 mb-4 text-sm font-bold text-slate-800">
                                  <Users size={16} /> Nhóm theo
@@ -862,7 +981,6 @@ const MyLeads: React.FC = () => {
                               </div>
                            </div>
 
-                           {/* Column 3: Favorites */}
                            <div className="w-1/3 p-4">
                               <div className="flex items-center gap-2 mb-4 text-sm font-bold text-slate-800">
                                  <FileSpreadsheet size={16} /> Danh sách yêu thích
@@ -885,137 +1003,174 @@ const MyLeads: React.FC = () => {
                   )}
                </div>
 
-
-            </div>
-
-            <div className="ml-auto flex items-center gap-2">
-               <button
-                  onClick={() => {
-                     if (selectedIds.length > 0) {
-                        const lead = filteredLeads.find(l => l.id === selectedIds[0]);
-                        if (lead) window.location.href = `tel:${lead.phone}`;
-                     } else {
-                        alert("Vui lòng chọn ít nhất 1 lead để gọi");
-                     }
-                  }}
-                  className="flex items-center gap-2 px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded text-xs font-bold transition-all shadow-sm"
-               >
-                  <Phone size={14} /> Call
-               </button>
-
-               <div className="relative">
-                  <button
-                     onClick={() => setIsActionMenuOpen(!isActionMenuOpen)}
-                     className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-bold transition-all shadow-sm"
+               <div className="flex items-center gap-2 border border-slate-200 rounded-lg bg-white px-2 py-1.5 text-xs shrink-0">
+                  <span className="font-bold text-slate-600 whitespace-nowrap">Ngày tạo</span>
+                  <select
+                     value={timeRangeType}
+                     onChange={(e) => {
+                        setTimeFilterField('createdAt');
+                        setTimeRangeType(e.target.value);
+                     }}
+                     className="outline-none bg-transparent font-semibold text-slate-600"
                   >
-                     Action <ChevronDown size={14} />
-                  </button>
+                     <option value="all">Tất cả thời gian</option>
+                     <option value="today">Hôm nay</option>
+                     <option value="yesterday">Hôm qua</option>
+                     <option value="thisWeek">Tuần này</option>
+                     <option value="last7Days">7 ngày qua</option>
+                     <option value="last30Days">30 ngày qua</option>
+                     <option value="thisMonth">Tháng này</option>
+                     <option value="lastMonth">Tháng trước</option>
+                  </select>
+               </div>
 
-                  {isActionMenuOpen && (
+               <div className="relative shrink-0">
+                  <button
+                     onClick={() => setShowColumnDropdown(!showColumnDropdown)}
+                     className="flex items-center gap-2 px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-bold hover:bg-white text-slate-600 bg-slate-100 shadow-sm transition-all whitespace-nowrap"
+                  >
+                     <Settings size={14} /> Cột
+                  </button>
+                  {showColumnDropdown && (
                      <>
-                        <div className="fixed inset-0 z-40" onClick={() => setIsActionMenuOpen(false)}></div>
-                        <div className="absolute right-0 top-full mt-1 w-48 bg-white border border-slate-200 rounded-md shadow-lg z-50 py-1 overflow-hidden animate-in fade-in slide-in-from-top-1">
-                           <button
-                              onClick={() => { setIsActionMenuOpen(false); handleBulkAssign(); }}
-                              className="w-full text-left px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                           >
-                              <UserPlus size={14} /> Phân bổ
-                           </button>
-                           <button
-                              onClick={() => { setIsActionMenuOpen(false); handleBulkMarkLost(); }}
-                              className="w-full text-left px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                           >
-                              <XCircle size={14} /> Lost
-                           </button>
-                           <button
-                              onClick={() => {
-                                 setIsActionMenuOpen(false);
-                                 if (selectedIds.length > 0) {
-                                    if (confirm(`Xác nhận đánh dấu thắng (Won) cho ${selectedIds.length} lead?`)) {
-                                       const updatedLeads = leads.map(l => selectedIds.includes(l.id) ? { ...l, status: DealStage.WON } : l);
-                                       setLeads(updatedLeads);
-                                       import('../utils/storage').then(({ saveLeads }) => saveLeads(updatedLeads));
-                                       setSelectedIds([]);
-                                       alert("Cập nhật thành công!");
-                                    }
-                                 } else alert("Chưa chọn lead!");
-                              }}
-                              className="w-full text-left px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                           >
-                              <CheckCircle2 size={14} /> Won
-                           </button>
-                           <button
-                              onClick={() => {
-                                 setIsActionMenuOpen(false);
-                                 if (selectedIds.length > 0) {
-                                    if (confirm(`Xóa ${selectedIds.length} lead đã chọn?`)) {
-                                       const remainingLeads = leads.filter(l => !selectedIds.includes(l.id));
-                                       setLeads(remainingLeads);
-                                       const allLeads = JSON.parse(localStorage.getItem('leads') || '[]');
-                                       const filteredAllLeads = allLeads.filter((l: any) => !selectedIds.includes(l.id));
-                                       import('../utils/storage').then(({ saveLeads }) => saveLeads(filteredAllLeads));
-                                       setSelectedIds([]);
-                                    }
-                                 } else alert("Chưa chọn lead!");
-                              }}
-                              className="w-full text-left px-4 py-2 text-xs font-medium text-red-600 hover:bg-red-50 flex items-center gap-2"
-                           >
-                              <Trash2 size={14} /> Delete
-                           </button>
-                           <button
-                              onClick={() => {
-                                 setIsActionMenuOpen(false);
-                                 if (selectedIds.length > 0) {
-                                    const lead = leads.find(l => l.id === selectedIds[0]);
-                                    if (lead) setSelectedLead(lead);
-                                 } else alert("Chưa chọn lead!");
-                              }}
-                              className="w-full text-left px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                           >
-                              <Settings size={14} /> Edit
-                           </button>
-                           <div className="border-t border-slate-100 my-1"></div>
-                           <button
-                              onClick={() => { setIsActionMenuOpen(false); navigate('/leads/import'); }}
-                              className="w-full text-left px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                           >
-                              <FileSpreadsheet size={14} /> Import
-                           </button>
-                           <button
-                              onClick={() => {
-                                 setIsActionMenuOpen(false);
-                                 if (selectedIds.length > 0) {
-                                    handleBulkConvert();
-                                 } else alert("Hãy chọn ít nhất 1 lead để convert.");
-                              }}
-                              className="w-full text-left px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                           >
-                              <Shuffle size={14} /> Convert
-                           </button>
-                           <button
-                              onClick={() => { setIsActionMenuOpen(false); alert("Chức năng gửi tin hàng loạt đang phát triển."); }}
-                              className="w-full text-left px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                           >
-                              <MessageSquare size={14} /> Gửi tin hàng loạt
-                           </button>
+                        <div className="fixed inset-0 z-30" onClick={() => setShowColumnDropdown(false)}></div>
+                        <div className="absolute right-0 top-full mt-2 w-[400px] bg-white border border-slate-200 rounded-xl shadow-xl z-40 p-3 animate-in fade-in zoom-in-95">
+                           <div className="text-xs font-bold text-slate-500 uppercase px-2 py-1 mb-2 border-b border-slate-100 pb-2">Hiển thị cột</div>
+                           <div className="grid grid-cols-2 gap-x-2 gap-y-1 max-h-[300px] overflow-y-auto custom-scrollbar">
+                              {ALL_COLUMNS.map(col => (
+                                 <div key={col.id} onClick={() => toggleColumn(col.id)} className="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-50 rounded cursor-pointer text-sm">
+                                    <div className={`w-4 h-4 rounded border flex items-center justify-center ${visibleColumns.includes(col.id) ? 'bg-blue-600 border-blue-600 text-white' : 'border-slate-300'}`}>
+                                       {visibleColumns.includes(col.id) && <CheckCircle2 size={10} strokeWidth={4} />}
+                                    </div>
+                                    <span className={visibleColumns.includes(col.id) ? 'text-slate-900 font-medium' : 'text-slate-500'}>{col.label}</span>
+                                 </div>
+                              ))}
+                           </div>
                         </div>
                      </>
                   )}
                </div>
+            </div>
+         </div>
 
-               <div className="ml-2 text-xs text-slate-500 font-mono">
+         {/* ACTION + FILTER BAR */}
+         <div className="bg-slate-50 border-b border-slate-200 px-4 py-2 overflow-x-auto">
+            <div className="flex items-center gap-2 flex-nowrap min-w-max w-full">
+               <div className="flex-1 min-w-[320px]">
+                  <OdooSearchBar
+                     filters={searchFilters}
+                     onAddFilter={(filter) => setSearchFilters([...searchFilters, filter])}
+                     onRemoveFilter={(index) => setSearchFilters(searchFilters.filter((_, i) => i !== index))}
+                     onClearAll={() => setSearchFilters([])}
+                     searchFields={searchFields}
+                  />
+               </div>
+
+               <button
+                  onClick={openCreateLeadModal}
+                  className="flex items-center gap-1 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded text-xs font-bold transition-all whitespace-nowrap shrink-0"
+               >
+                  <UserPlus size={14} /> Tạo lead
+               </button>
+
+               <div className="flex items-center gap-2 shrink-0">
+                  <button
+                     onClick={() => {
+                        if (selectedIds.length > 0) {
+                           const lead = filteredLeads.find(l => l.id === selectedIds[0]);
+                           if (lead) window.location.href = `tel:${lead.phone}`;
+                        } else {
+                           alert("Vui lòng chọn ít nhất 1 lead để gọi");
+                        }
+                     }}
+                     className="flex items-center gap-1 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded text-xs font-bold transition-all whitespace-nowrap"
+                  >
+                     <Phone size={14} /> Call
+                  </button>
+                  <button onClick={handleBulkAssign} className="px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded text-xs font-bold whitespace-nowrap">Phân bổ</button>
+                  <button onClick={handleBulkMarkLost} className="px-2.5 py-1.5 bg-orange-50 hover:bg-orange-100 text-orange-700 border border-orange-200 rounded text-xs font-bold whitespace-nowrap">Lost</button>
+                  <button onClick={handleBulkWon} className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded text-xs font-bold whitespace-nowrap">Won</button>
+                  <button onClick={handleBulkEdit} className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded text-xs font-bold whitespace-nowrap">Edit</button>
+                  <button onClick={handleBulkDelete} className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded text-xs font-bold whitespace-nowrap">Delete</button>
+                  <button onClick={() => navigate('/leads/import')} className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded text-xs font-bold whitespace-nowrap">Import</button>
+                  <button
+                     onClick={() => {
+                        if (selectedIds.length > 0) {
+                           handleBulkConvert();
+                        } else {
+                           alert("Hãy chọn ít nhất 1 lead để convert.");
+                        }
+                     }}
+                     className="px-2.5 py-1.5 bg-violet-50 hover:bg-violet-100 text-violet-700 border border-violet-200 rounded text-xs font-bold whitespace-nowrap"
+                  >
+                     Convert
+                  </button>
+                  <button
+                     onClick={() => alert("Chức năng gửi tin hàng loạt đang phát triển.")}
+                     className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded text-xs font-bold whitespace-nowrap"
+                  >
+                     Gửi tin
+                  </button>
+               </div>
+
+               <div className="ml-auto text-xs text-slate-500 font-mono whitespace-nowrap shrink-0">
                   Tổng số: <span className="font-bold text-slate-900">{filteredLeads.length}</span> records
                </div>
             </div>
          </div>
-
-
 
          {/* DATA GRID */}
          <div className="flex-1 overflow-auto bg-white custom-scrollbar relative">
             {viewMode === 'pivot' ? (
                <div className="p-4 h-full overflow-auto animate-in fade-in">
                   <LeadPivotTable leads={filteredLeads} />
+               </div>
+            ) : viewMode === 'kanban' ? (
+               <div className="p-4 h-full overflow-auto animate-in fade-in">
+                  {filteredLeads.length === 0 ? (
+                     <div className="h-full flex flex-col items-center justify-center text-slate-500 gap-3">
+                        <Inbox size={36} className="text-slate-300" />
+                        <p>Chưa có lead trong chế độ Kanban.</p>
+                     </div>
+                  ) : (
+                     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4 h-full min-h-[520px]">
+                        {kanbanColumns.map((column) => (
+                           <div key={column.key} className={`rounded-xl border p-3 h-full min-h-[280px] flex flex-col ${column.color}`}>
+                              <div className="flex items-center justify-between mb-3">
+                                 <h4 className="text-sm font-bold text-slate-700">{column.title}</h4>
+                                 <span className="text-xs px-2 py-0.5 rounded-full bg-white border border-slate-200 text-slate-600 font-semibold">{column.leads.length}</span>
+                              </div>
+                              <div className="space-y-2 flex-1 overflow-auto pr-1">
+                                 {column.leads.map((lead) => (
+                                    <div
+                                       key={lead.id}
+                                       onClick={() => setSelectedLead(lead)}
+                                       className="bg-white border border-slate-200 rounded-lg p-3 cursor-pointer hover:shadow-sm transition"
+                                    >
+                                       <div className="flex items-start justify-between gap-2">
+                                          <div className="min-w-0">
+                                             <p className="text-sm font-bold text-slate-800 truncate">{lead.name}</p>
+                                             <p className="text-xs text-slate-500 truncate">{lead.phone}</p>
+                                          </div>
+                                          <button
+                                             onClick={(e) => handleCall(e, lead)}
+                                             className="p-1 rounded bg-green-100 text-green-700 hover:bg-green-200 shrink-0"
+                                             title="Gọi ngay"
+                                          >
+                                             <Phone size={13} />
+                                          </button>
+                                       </div>
+                                       <div className="mt-2 flex items-center gap-2 text-[11px] text-slate-500">
+                                          <span className="px-1.5 py-0.5 rounded bg-slate-100">{lead.source || '-'}</span>
+                                          <span className="truncate">{(lead as any).company || (lead as any).city || '-'}</span>
+                                       </div>
+                                    </div>
+                                 ))}
+                              </div>
+                           </div>
+                        ))}
+                     </div>
+                  )}
                </div>
             ) : (
                <table className="w-full text-left border-collapse text-sm table-fixed">
@@ -1047,11 +1202,28 @@ const MyLeads: React.FC = () => {
                      </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                     {groupBy === 'none' ? renderTableRows(filteredLeads) : (
+                     {filteredLeads.length === 0 ? (
+                        <tr>
+                           <td colSpan={Math.max(visibleColumns.length + 1, 2)} className="px-6 py-14 text-center text-slate-500">
+                              <div className="flex flex-col items-center gap-3">
+                                 <Inbox size={34} className="text-slate-300" />
+                                 <p>Chưa có lead trong danh sách hiện tại.</p>
+                                 {leads.length === 0 && (
+                                    <button
+                                       onClick={openCreateLeadModal}
+                                       className="inline-flex items-center gap-2 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded text-xs font-bold transition-all shadow-sm"
+                                    >
+                                       <UserPlus size={14} /> Tạo lead cho tôi
+                                    </button>
+                                 )}
+                              </div>
+                           </td>
+                        </tr>
+                     ) : groupBy === 'none' ? renderTableRows(filteredLeads) : (
                         Object.entries(groupedLeads).map(([groupName, items]) => (
                            <React.Fragment key={groupName}>
                               <tr className="bg-slate-100 border-y border-slate-200">
-                                 <td colSpan={9} className="px-4 py-2 font-bold text-slate-700 text-xs uppercase flex items-center gap-2">
+                                 <td colSpan={Math.max(visibleColumns.length + 1, 2)} className="px-4 py-2 font-bold text-slate-700 text-xs uppercase flex items-center gap-2">
                                     <ChevronDown size={14} /> {groupName}
                                     <span className="bg-slate-200 px-2 py-0.5 rounded-full text-[10px]">{items.length}</span>
                                  </td>
@@ -1064,6 +1236,344 @@ const MyLeads: React.FC = () => {
                </table>
             )}
          </div>
+
+         {showCreateLeadModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+               <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowCreateLeadModal(false)}></div>
+               <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-4xl overflow-hidden animate-in zoom-in-95 flex flex-col max-h-[90vh]">
+                  <div className="p-5 border-b border-slate-200 flex justify-between items-center bg-slate-50 shrink-0">
+                     <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                        <UserPlus size={20} className="text-blue-600" />
+                        Thêm Cơ hội / Lead Mới
+                     </h3>
+                     <div className="flex items-center gap-3">
+                        <button className="px-3 py-1.5 bg-white border border-slate-300 rounded text-slate-600 flex items-center gap-2 text-sm font-semibold hover:bg-slate-50">
+                           <Phone size={16} /> Cuộc gọi
+                        </button>
+                        <button onClick={() => setShowCreateLeadModal(false)} className="text-slate-400 hover:text-slate-600"><X size={24} /></button>
+                     </div>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto bg-white p-6 md:p-8 custom-scrollbar">
+                     <div className="mb-6">
+                        <label className="block text-slate-700 text-sm font-bold mb-2">Mô tả / Tên khách hàng <span className="text-red-500">*</span></label>
+                        <div className="flex gap-3">
+                           <select
+                              className="w-28 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white font-medium text-slate-700"
+                              value={newLeadData.title}
+                              onChange={e => setNewLeadData({ ...newLeadData, title: e.target.value })}
+                           >
+                              <option value="">Danh xưng</option>
+                              <option value="Mr.">Anh</option>
+                              <option value="Ms.">Chị</option>
+                              <option value="Phụ huynh">Phụ huynh</option>
+                              <option value="Học sinh">Học sinh</option>
+                           </select>
+                           <input
+                              className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm font-semibold focus:border-purple-500 outline-none text-slate-800 placeholder:text-slate-400"
+                              placeholder="VD: Nguyen Van A..."
+                              value={newLeadData.name}
+                              onChange={e => setNewLeadData({ ...newLeadData, name: e.target.value })}
+                           />
+                        </div>
+                     </div>
+
+                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-12 gap-y-5">
+                        <div className="space-y-4">
+                           <div className="flex items-center gap-4">
+                              <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Cơ sở</label>
+                              <select
+                                 className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
+                                 value={newLeadData.company}
+                                 onChange={e => setNewLeadData({ ...newLeadData, company: e.target.value })}
+                              >
+                                 <option value="">-- Chọn cơ sở --</option>
+                                 <option value="Hanoi">Hà Nội</option>
+                                 <option value="HCMC">TP. HCM</option>
+                                 <option value="DaNang">Đà Nẵng</option>
+                                 <option value="HaiPhong">Hải Phòng</option>
+                              </select>
+                           </div>
+
+                           <div className="flex items-start gap-4">
+                              <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold pt-2">Địa chỉ</label>
+                              <div className="flex-1 space-y-2">
+                                 <input
+                                    className="w-full px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none text-slate-700 placeholder:text-slate-400"
+                                    placeholder="Số nhà, đường..."
+                                    value={newLeadData.street}
+                                    onChange={e => setNewLeadData({ ...newLeadData, street: e.target.value })}
+                                 />
+                                 <div className="grid grid-cols-3 gap-2">
+                                    <input
+                                       className="px-2 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none text-slate-700 placeholder:text-slate-400"
+                                       placeholder="Tỉnh/TP"
+                                       value={newLeadData.province}
+                                       onChange={e => setNewLeadData({ ...newLeadData, province: e.target.value })}
+                                    />
+                                    <input
+                                       className="px-2 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none text-slate-700 placeholder:text-slate-400"
+                                       placeholder="Quận/Huyện"
+                                       value={newLeadData.city}
+                                       onChange={e => setNewLeadData({ ...newLeadData, city: e.target.value })}
+                                    />
+                                    <input
+                                       className="px-2 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none text-slate-700 placeholder:text-slate-400"
+                                       placeholder="P/Xã"
+                                       value={newLeadData.ward}
+                                       onChange={e => setNewLeadData({ ...newLeadData, ward: e.target.value })}
+                                    />
+                                 </div>
+                              </div>
+                           </div>
+
+                           <div className="flex items-center gap-4">
+                              <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Sản phẩm</label>
+                              <select
+                                 className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
+                                 value={newLeadData.product}
+                                 onChange={e => setNewLeadData({ ...newLeadData, product: e.target.value })}
+                              >
+                                 <option value="">-- Chọn sản phẩm --</option>
+                                 <option value="Tiếng Đức">Tiếng Đức</option>
+                                 <option value="Du học Đức">Du học Đức</option>
+                                 <option value="Du học Nghề">Du học Nghề</option>
+                                 <option value="XKLĐ">Xuất khẩu lao động</option>
+                              </select>
+                           </div>
+
+                           <div className="flex items-center gap-4">
+                              <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Thị trường</label>
+                              <select
+                                 className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
+                                 value={newLeadData.market}
+                                 onChange={e => setNewLeadData({ ...newLeadData, market: e.target.value })}
+                              >
+                                 <option value="">-- Chọn --</option>
+                                 <option value="Vinh">Vinh</option>
+                                 <option value="Hà Tĩnh">Hà Tĩnh</option>
+                                 <option value="Hà Nội">Hà Nội</option>
+                                 <option value="Online">Online</option>
+                              </select>
+                           </div>
+                        </div>
+
+                        <div className="space-y-4">
+                           <div className="flex items-center gap-4">
+                              <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Điện thoại <span className="text-red-500">*</span></label>
+                              <input
+                                 className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none text-slate-800 font-medium"
+                                 placeholder="0912..."
+                                 value={newLeadData.phone}
+                                 onChange={e => setNewLeadData({ ...newLeadData, phone: e.target.value })}
+                              />
+                           </div>
+
+                           <div className="flex items-center gap-4">
+                              <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Email</label>
+                              <input
+                                 className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none text-slate-700 placeholder:text-slate-400"
+                                 placeholder="email@example.com"
+                                 value={newLeadData.email}
+                                 onChange={e => setNewLeadData({ ...newLeadData, email: e.target.value })}
+                              />
+                           </div>
+
+                           <div className="flex items-center gap-4">
+                              <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Phụ trách</label>
+                              <select
+                                 className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
+                                 value={newLeadData.salesperson}
+                                 onChange={e => setNewLeadData({ ...newLeadData, salesperson: e.target.value })}
+                              >
+                                 <option value="">-- Sale phụ trách --</option>
+                                 {SALES_REPS.map(rep => (
+                                    <option key={rep.id} value={rep.id}>{rep.name}</option>
+                                 ))}
+                              </select>
+                           </div>
+
+                           <div className="flex items-center gap-4">
+                              <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Trạng thái</label>
+                              <select
+                                 className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
+                                 value={newLeadData.status}
+                                 onChange={e => setNewLeadData({ ...newLeadData, status: e.target.value })}
+                              >
+                                 <option value="NEW">Mới</option>
+                                 <option value="CONTACTED">Đã liên hệ</option>
+                                 <option value="QUALIFIED">Tiềm năng</option>
+                                 <option value="LOST">Thất bại</option>
+                              </select>
+                           </div>
+
+                           <div className="flex items-start gap-4">
+                              <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold mt-1.5">Tags</label>
+                              <div className="flex-1 flex flex-col gap-1.5">
+                                 <div className="flex gap-2">
+                                    {!isAddingTag ? (
+                                       <select
+                                          className="flex-1 px-2 py-1.5 border border-slate-300 rounded text-xs bg-white outline-none focus:border-purple-500"
+                                          onChange={(e) => {
+                                             if (e.target.value === 'khác') {
+                                                setIsAddingTag(true);
+                                             } else if (e.target.value && !newLeadData.tags.includes(e.target.value)) {
+                                                setNewLeadData({ ...newLeadData, tags: [...newLeadData.tags, e.target.value] });
+                                             }
+                                             e.target.value = "";
+                                          }}
+                                       >
+                                          <option value="">-- Chọn Tag --</option>
+                                          {availableTags.filter(t => !newLeadData.tags.includes(t)).map(t => (
+                                             <option key={t} value={t}>{t}</option>
+                                          ))}
+                                          <option value="khác" className="font-bold text-blue-600">+ Khác</option>
+                                       </select>
+                                    ) : (
+                                       <input
+                                          autoFocus
+                                          className="flex-1 px-2 py-1.5 border border-purple-400 rounded text-xs outline-none ring-2 ring-purple-100"
+                                          placeholder="Nhập tag mới rồi ấn Enter..."
+                                          onBlur={() => setIsAddingTag(false)}
+                                          onKeyDown={(e) => {
+                                             if (e.key === 'Enter') {
+                                                e.preventDefault();
+                                                const val = (e.target as HTMLInputElement).value.trim();
+                                                if (val) {
+                                                   if (!newLeadData.tags.includes(val)) {
+                                                      setNewLeadData({ ...newLeadData, tags: [...newLeadData.tags, val] });
+                                                   }
+                                                   if (!availableTags.includes(val)) {
+                                                      const newAvailable = [...availableTags, val];
+                                                      setAvailableTags(newAvailable);
+                                                      saveTags(newAvailable);
+                                                   }
+                                                   setIsAddingTag(false);
+                                                }
+                                             } else if (e.key === 'Escape') {
+                                                setIsAddingTag(false);
+                                             }
+                                          }}
+                                       />
+                                    )}
+                                 </div>
+                                 {newLeadData.tags.length > 0 && (
+                                    <div className="flex flex-wrap gap-1">
+                                       {newLeadData.tags.map(tag => (
+                                          <span key={tag} className="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-50 text-purple-700 text-[10px] font-bold rounded border border-purple-100">
+                                             {tag}
+                                             <button onClick={() => setNewLeadData({ ...newLeadData, tags: newLeadData.tags.filter(t => t !== tag) })} className="hover:text-purple-900 transition-colors">
+                                                <X size={10} strokeWidth={3} />
+                                             </button>
+                                          </span>
+                                       ))}
+                                    </div>
+                                 )}
+                              </div>
+                           </div>
+                        </div>
+                     </div>
+
+                     <div className="mt-8 border-t border-slate-200 pt-4">
+                        <div className="flex border-b border-slate-200 mb-4">
+                           <button
+                              onClick={() => setCreateModalActiveTab('notes')}
+                              className={`px-4 py-2 text-sm font-medium border-b-2 transition-all ${createModalActiveTab === 'notes' ? 'border-purple-600 text-purple-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                           >
+                              Ghi chú nội bộ
+                           </button>
+                           <button
+                              onClick={() => setCreateModalActiveTab('extra')}
+                              className={`px-4 py-2 text-sm font-medium border-b-2 transition-all ${createModalActiveTab === 'extra' ? 'border-purple-600 text-purple-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                           >
+                              Thông tin thêm (Marketing)
+                           </button>
+                        </div>
+
+                        <div className="min-h-[200px]">
+                           {createModalActiveTab === 'notes' && (
+                              <div className="animate-in fade-in duration-200">
+                                 <textarea
+                                    className="w-full p-3 border border-slate-200 rounded text-sm focus:border-purple-500 outline-none text-slate-700 h-40"
+                                    placeholder="Viết ghi chú..."
+                                    value={newLeadData.notes}
+                                    onChange={e => setNewLeadData({ ...newLeadData, notes: e.target.value })}
+                                 />
+                              </div>
+                           )}
+
+                           {createModalActiveTab === 'extra' && (
+                              <div className="grid grid-cols-2 gap-x-12 gap-y-4 animate-in fade-in duration-200">
+                                 <div className="flex items-center gap-4">
+                                    <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Chiến dịch</label>
+                                    <input
+                                       className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none text-slate-700"
+                                       value={newLeadData.campaign}
+                                       onChange={e => setNewLeadData({ ...newLeadData, campaign: e.target.value })}
+                                    />
+                                 </div>
+                                 <div className="flex items-center gap-4">
+                                    <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Nguồn</label>
+                                    <select
+                                       className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
+                                       value={newLeadData.source}
+                                       onChange={e => setNewLeadData({ ...newLeadData, source: e.target.value })}
+                                    >
+                                       <option value="hotline">Hotline</option>
+                                       <option value="facebook">Facebook</option>
+                                       <option value="google">Google Ads</option>
+                                       <option value="referral">Giới thiệu</option>
+                                    </select>
+                                 </div>
+                                 <div className="flex items-center gap-4">
+                                    <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Kênh</label>
+                                    <select
+                                       className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
+                                       value={newLeadData.channel}
+                                       onChange={e => setNewLeadData({ ...newLeadData, channel: e.target.value })}
+                                    >
+                                       <option value="">-- Chọn kênh --</option>
+                                       <option value="facebook">Facebook</option>
+                                       <option value="zalo">Zalo</option>
+                                       <option value="tiktok">TikTok</option>
+                                       <option value="google">Google</option>
+                                       <option value="hotline">Hotline</option>
+                                       <option value="referral">Giới thiệu</option>
+                                    </select>
+                                 </div>
+                                 <div className="flex items-center gap-4">
+                                    <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Medium</label>
+                                    <select
+                                       className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
+                                       value={newLeadData.medium}
+                                       onChange={e => setNewLeadData({ ...newLeadData, medium: e.target.value })}
+                                    >
+                                       <option value="">-- Chọn --</option>
+                                       <option value="cpc">CPC</option>
+                                       <option value="social">Social</option>
+                                    </select>
+                                 </div>
+                                 <div className="flex items-center gap-4">
+                                    <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Người GT</label>
+                                    <input
+                                       className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none text-slate-700"
+                                       value={newLeadData.referredBy}
+                                       onChange={e => setNewLeadData({ ...newLeadData, referredBy: e.target.value })}
+                                    />
+                                 </div>
+                              </div>
+                           )}
+                        </div>
+                     </div>
+                  </div>
+
+                  <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-3 shrink-0">
+                     <button onClick={() => setShowCreateLeadModal(false)} className="px-4 py-2 text-slate-600 font-medium hover:bg-slate-200 rounded-lg">Hủy bỏ</button>
+                     <button onClick={handleCreateMyLead} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg flex items-center gap-2 shadow-sm"><Save size={18} /> Lưu Lead mới</button>
+                  </div>
+               </div>
+            </div>
+         )}
 
          {/* UNIFIED DRAWER */}
          {selectedLead && (

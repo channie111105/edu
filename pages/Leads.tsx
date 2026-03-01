@@ -7,7 +7,7 @@ import UnifiedLeadDrawer from '../components/UnifiedLeadDrawer';
 import LeadPivotTable from '../components/LeadPivotTable'; // Import Pivot Component
 import SmartSearchBar, { SearchFilter } from '../components/SmartSearchBar';
 import { useAuth } from '../contexts/AuthContext';
-import { getLeads, saveLead, saveLeads, addDeal, addContact, deleteLead, convertLeadToContact, getTags, saveTags, getLostReasons } from '../utils/storage';
+import { getLeads, saveLead, saveLeads, addDeal, addContact, deleteLead, convertLeadToContact, getTags, saveTags, getLostReasons, getLeadDistributionConfig, allocateLeadOwnersRoundRobin } from '../utils/storage';
 import {
   Plus,
   Phone,
@@ -26,7 +26,6 @@ import {
   CheckCircle2,
   Search,
   Users,
-  Shuffle,
   UserPlus,
   Calculator,
   LayoutGrid, // Pivot Icon
@@ -67,14 +66,12 @@ const Leads: React.FC = () => {
   // Selection & Assignment State
   const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
   const [showAssignModal, setShowAssignModal] = useState(false);
-  const [assignMethod, setAssignMethod] = useState<'auto' | 'manual'>('auto');
   const [selectedRep, setSelectedRep] = useState('');
 
   // Tab state for Create Modal (Odoo Style)
   const [createModalActiveTab, setCreateModalActiveTab] = useState<'notes' | 'extra'>('notes');
 
-  // Auto Distribution (Store quantities)
-  const [distribution, setDistribution] = useState<Record<string, number>>({});
+  const [systemDistributionMode, setSystemDistributionMode] = useState<'auto' | 'manual'>(() => getLeadDistributionConfig().mode);
 
   // Mock Sales Reps
   const SALES_REPS = [
@@ -82,6 +79,16 @@ const Leads: React.FC = () => {
     { id: 'u3', name: 'David Clark', team: 'Team Trung', avatar: 'DC', color: 'bg-blue-100 text-blue-700' },
     { id: 'u4', name: 'Alex Rivera', team: 'Team Du học', avatar: 'AR', color: 'bg-green-100 text-green-700' },
   ];
+
+  const assignOwnersBySystemMode = (incomingLeads: ILead[]) => {
+    if (systemDistributionMode !== 'auto') return incomingLeads;
+    const ownerIds = allocateLeadOwnersRoundRobin(incomingLeads.length, SALES_REPS.map(rep => rep.id));
+    return incomingLeads.map((lead, index) => ({
+      ...lead,
+      ownerId: ownerIds[index] || lead.ownerId || '',
+      status: LeadStatus.NEW
+    }));
+  };
 
   // Loss Modal State
   const [showLossModal, setShowLossModal] = useState(false);
@@ -98,28 +105,21 @@ const Leads: React.FC = () => {
     setAvailableTags(getTags());
   }, []);
 
-  // Initialize distribution with equal quantities
   useEffect(() => {
-    if (showAssignModal && selectedLeadIds.length > 0) {
-      const count = selectedLeadIds.length;
-      const repCount = SALES_REPS.length;
-      const base = Math.floor(count / repCount);
-      const remainder = count % repCount;
-
-      const newDist: Record<string, number> = {};
-      SALES_REPS.forEach((rep, index) => {
-        newDist[rep.id] = base + (index < remainder ? 1 : 0);
-      });
-      setDistribution(newDist);
-    }
-  }, [showAssignModal, selectedLeadIds.length]);
+    const syncDistributionMode = () => {
+      setSystemDistributionMode(getLeadDistributionConfig().mode);
+    };
+    syncDistributionMode();
+    window.addEventListener('educrm:lead-distribution-config-changed', syncDistributionMode as EventListener);
+    return () => window.removeEventListener('educrm:lead-distribution-config-changed', syncDistributionMode as EventListener);
+  }, []);
 
   // Create Modal State
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newLeadData, setNewLeadData] = useState({
     name: '', phone: '', email: '', source: 'hotline', program: 'Tiếng Đức', notes: '',
     title: '', company: '', province: '', city: '', ward: '', street: '', salesperson: '', campaign: '', tags: [] as string[], referredBy: '',
-    product: '', market: '', medium: '', status: 'NEW'
+    product: '', market: '', channel: '', medium: '', status: 'NEW'
   });
   const [availableTags, setAvailableTags] = useState<string[]>([]);
   const [isAddingTag, setIsAddingTag] = useState(false);
@@ -361,31 +361,6 @@ const Leads: React.FC = () => {
   const [importTags, setImportTags] = useState<string[]>([]);
   const [newTagInput, setNewTagInput] = useState('');
 
-  // Re-use allocation state for Import
-  const [importAssignMethod, setImportAssignMethod] = useState<'round-robin' | 'manual'>('round-robin');
-  const [importDistribution, setImportDistribution] = useState<Record<string, number>>({});
-  const [importManualOwnerId, setImportManualOwnerId] = useState<string>('');
-
-  // Auto-calculate distribution when valid rows change
-  useEffect(() => {
-    if (validImportRows.length > 0 && importAssignMethod === 'round-robin') {
-      // Default to all reps initially if empty? Or just use SALES_REPS global
-      const activeReps = SALES_REPS;
-      const totalLeads = validImportRows.length;
-      const baseCount = Math.floor(totalLeads / activeReps.length);
-      const remainder = totalLeads % activeReps.length;
-
-      const newDist: Record<string, number> = {};
-      activeReps.forEach((rep, index) => {
-        newDist[rep.id] = baseCount + (index < remainder ? 1 : 0);
-      });
-      setImportDistribution(newDist);
-    }
-  }, [validImportRows.length, importAssignMethod]);
-
-  const currentImportDistTotal = Object.values(importDistribution).reduce((a, b) => a + b, 0);
-  const isImportDistValid = currentImportDistTotal === validImportRows.length;
-
   // Handle File Select
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -514,13 +489,10 @@ const Leads: React.FC = () => {
     let assignedLeads: ILead[] = [];
     const now = new Date().toISOString();
 
-    // 3. Assign Owners based on Distribution
-    let leadIndex = 0;
-
     // Normalize data structure first
-    assignedLeads = validImportRows.map((row) => {
+    assignedLeads = validImportRows.map((row, index) => {
       return {
-        id: `l-import-${Date.now()}-${leadIndex}-${Math.random().toString(36).substr(2, 9)}`,
+        id: `l-import-${Date.now()}-${index}-${Math.random().toString(36).substr(2, 9)}`,
         name: row.name,
         phone: row.phone,
         email: row.email,
@@ -544,31 +516,7 @@ const Leads: React.FC = () => {
       } as ILead;
     });
 
-    if (importAssignMethod === 'round-robin') {
-      // Validate total
-      const totalDistributed = Object.values(importDistribution).reduce((a, b) => a + b, 0);
-      if (totalDistributed !== assignedLeads.length) {
-        alert(`Tổng số lượng phân bổ (${totalDistributed}) không khớp với số Lead (${assignedLeads.length})`);
-        return;
-      }
-
-      Object.entries(importDistribution).forEach(([repId, count]) => {
-        for (let i = 0; i < count; i++) {
-          if (leadIndex < assignedLeads.length) {
-            assignedLeads[leadIndex].ownerId = repId;
-            assignedLeads[leadIndex].status = LeadStatus.NEW;
-            leadIndex++;
-          }
-        }
-      });
-    } else if (importAssignMethod === 'manual') {
-      if (importManualOwnerId) {
-        assignedLeads.forEach(l => {
-          l.ownerId = importManualOwnerId;
-          l.status = LeadStatus.NEW;
-        });
-      }
-    }
+    assignedLeads = assignOwnersBySystemMode(assignedLeads);
 
     saveLeads([...leads, ...assignedLeads]);
     setLeads([...leads, ...assignedLeads]); // Optimistic update
@@ -883,6 +831,7 @@ const Leads: React.FC = () => {
       marketingData: {
         tags: newLeadData.tags,
         campaign: newLeadData.campaign,
+        channel: newLeadData.channel,
         medium: newLeadData.medium,
         market: newLeadData.market
       },
@@ -893,13 +842,15 @@ const Leads: React.FC = () => {
       lastInteraction: new Date().toISOString(),
       slaStatus: 'normal'
     };
-    if (saveLead(newLead)) {
-      setLeads([newLead, ...leads]);
+    const finalLead = assignOwnersBySystemMode([newLead])[0];
+
+    if (saveLead(finalLead)) {
+      setLeads([finalLead, ...leads]);
       setShowCreateModal(false);
       setNewLeadData({
         name: '', phone: '', email: '', source: 'hotline', program: 'Tiếng Đức', notes: '',
         title: '', company: '', province: '', city: '', ward: '', street: '', salesperson: '', campaign: '', tags: [], referredBy: '',
-        product: '', market: '', medium: '', status: 'NEW'
+        product: '', market: '', channel: '', medium: '', status: 'NEW'
       });
       alert("Tạo Lead thành công!");
     } else {
@@ -908,97 +859,22 @@ const Leads: React.FC = () => {
   };
 
   const handleAssignSubmit = () => {
-    let updatedLeads = [...leads];
-    if (assignMethod === 'manual') {
-      if (!selectedRep) {
-        alert("Vui lòng chọn nhân viên Sale");
-        return;
-      }
-      updatedLeads = updatedLeads.map(l =>
-        selectedLeadIds.includes(l.id) ? { ...l, ownerId: selectedRep, status: LeadStatus.NEW } : l
-      );
-    } else {
-      // Validate total quantity
-      const totalDistributed = Object.values(distribution).reduce((a, b) => a + b, 0);
-      if (totalDistributed !== selectedLeadIds.length) {
-        alert(`Tổng số lượng phân bổ (${totalDistributed}) không khớp với số Lead đã chọn (${selectedLeadIds.length})`);
-        return;
-      }
-
-      let leadIndex = 0;
-      Object.entries(distribution).forEach(([repId, count]) => {
-        for (let i = 0; i < count; i++) {
-          if (leadIndex < selectedLeadIds.length) {
-            const leadId = selectedLeadIds[leadIndex];
-            const leadToUpdateIndex = updatedLeads.findIndex(l => l.id === leadId);
-            if (leadToUpdateIndex !== -1) {
-              updatedLeads[leadToUpdateIndex] = { ...updatedLeads[leadToUpdateIndex], ownerId: repId, status: LeadStatus.NEW };
-            }
-            leadIndex++;
-          }
-        }
-      });
+    if (!selectedRep) {
+      alert("Vui lòng chọn nhân viên Sale");
+      return;
     }
+
+    const updatedLeads = leads.map(l =>
+      selectedLeadIds.includes(l.id) ? { ...l, ownerId: selectedRep, status: LeadStatus.NEW } : l
+    );
+
     saveLeads(updatedLeads);
     setLeads(updatedLeads);
     setShowAssignModal(false);
     setSelectedLeadIds([]);
+    setSelectedRep('');
     alert(`Đã phân bổ thành công ${selectedLeadIds.length} lead!`);
   };
-
-  const updateDistribution = (repId: string, val: number) => {
-    // 1. Validate: Negative check
-    if (val < 0) return;
-
-    // 2. Prepare data
-    const totalLeads = selectedLeadIds.length;
-    let newValue = val;
-    // Cap at total
-    if (newValue > totalLeads) newValue = totalLeads;
-
-    const currentDist = { ...distribution };
-    const oldValue = currentDist[repId] || 0;
-    const diff = newValue - oldValue;
-
-    if (diff === 0) return;
-
-    // Update target
-    currentDist[repId] = newValue;
-
-    // 3. Balance the difference
-    const otherRepIds = SALES_REPS.map(r => r.id).filter(id => id !== repId);
-    let remaining = Math.abs(diff);
-
-    if (diff > 0) {
-      // INCREASE: Must SUBTRACT from others
-      for (const otherId of otherRepIds) {
-        if (remaining === 0) break;
-        const otherVal = currentDist[otherId] || 0;
-        if (otherVal > 0) {
-          const deduct = Math.min(otherVal, remaining);
-          currentDist[otherId] -= deduct;
-          remaining -= deduct;
-        }
-      }
-      // If still remaining (cannot borrow from anyone), revert the increase
-      if (remaining > 0) {
-        currentDist[repId] -= remaining;
-      }
-    } else {
-      // DECREASE: Must ADD to others (to keep Total constant)
-      // We pour the excess into the first available other rep
-      for (const otherId of otherRepIds) {
-        if (remaining === 0) break;
-        currentDist[otherId] += remaining;
-        remaining = 0; // Filled all into one.
-      }
-    }
-
-    setDistribution(currentDist);
-  };
-
-  const currentDistTotal = Object.values(distribution).reduce((a, b) => a + b, 0);
-  const isDistValid = currentDistTotal === selectedLeadIds.length;
 
   // --- BULK ACTIONS ---
   const handleBulkDelete = () => {
@@ -1665,12 +1541,21 @@ const Leads: React.FC = () => {
 
                 <div className="h-6 w-px bg-slate-300 mx-1"></div>
 
-                <button
-                  onClick={() => setShowAssignModal(true)}
-                  className="px-3 py-2 bg-blue-100 text-blue-700 rounded-lg text-sm font-bold hover:bg-blue-200 flex items-center gap-2"
-                >
-                  <UserPlus size={16} /> Phân bổ
-                </button>
+                {systemDistributionMode === 'manual' ? (
+                  <button
+                    onClick={() => {
+                      setSelectedRep('');
+                      setShowAssignModal(true);
+                    }}
+                    className="px-3 py-2 bg-blue-100 text-blue-700 rounded-lg text-sm font-bold hover:bg-blue-200 flex items-center gap-2"
+                  >
+                    <UserPlus size={16} /> Phân bổ
+                  </button>
+                ) : (
+                  <div className="px-3 py-2 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-bold border border-emerald-200">
+                    Auto-Assign đang bật
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -2439,6 +2324,22 @@ const Leads: React.FC = () => {
                           </select>
                         </div>
                         <div className="flex items-center gap-4">
+                          <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Kênh</label>
+                          <select
+                            className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
+                            value={newLeadData.channel}
+                            onChange={e => setNewLeadData({ ...newLeadData, channel: e.target.value })}
+                          >
+                            <option value="">-- Chọn kênh --</option>
+                            <option value="facebook">Facebook</option>
+                            <option value="zalo">Zalo</option>
+                            <option value="tiktok">TikTok</option>
+                            <option value="google">Google</option>
+                            <option value="hotline">Hotline</option>
+                            <option value="referral">Giới thiệu</option>
+                          </select>
+                        </div>
+                        <div className="flex items-center gap-4">
                           <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Medium</label>
                           <select
                             className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
@@ -2491,111 +2392,34 @@ const Leads: React.FC = () => {
                   <p>Bạn đang phân bổ <span className="font-bold">{selectedLeadIds.length}</span> lead cho nhân viên kinh doanh.</p>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-3">Phương thức phân bổ</label>
-                  <div className="grid grid-cols-2 gap-4">
-                    <button
-                      onClick={() => setAssignMethod('auto')}
-                      className={`p-4 rounded-xl border-2 text-left transition-all ${assignMethod === 'auto' ? 'border-blue-500 bg-blue-50 ring-1 ring-blue-200' : 'border-slate-200 hover:border-slate-300'}`}
-                    >
-                      <div className="flex items-center gap-2 mb-2 font-bold text-slate-900">
-                        <Shuffle size={18} className={assignMethod === 'auto' ? 'text-blue-600' : 'text-slate-400'} /> Tự động
+                <div className="animate-in slide-in-from-top-2">
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Chọn nhân viên</label>
+                  <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar border border-slate-200 rounded-lg p-2">
+                    {SALES_REPS.map(rep => (
+                      <div
+                        key={rep.id}
+                        onClick={() => setSelectedRep(rep.id)}
+                        className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors ${selectedRep === rep.id ? 'bg-blue-50 border border-blue-200' : 'hover:bg-slate-50 border border-transparent'}`}
+                      >
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${rep.color}`}>
+                          {rep.avatar}
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-sm font-medium text-slate-900">{rep.name}</p>
+                          <p className="text-xs text-slate-500">{rep.team}</p>
+                        </div>
+                        {selectedRep === rep.id && <CheckCircle2 size={18} className="text-blue-600" />}
                       </div>
-                      <p className="text-xs text-slate-500">Chia theo số lượng (Chỉ định số lượng cho từng Sale).</p>
-                    </button>
-                    <button
-                      onClick={() => setAssignMethod('manual')}
-                      className={`p-4 rounded-xl border-2 text-left transition-all ${assignMethod === 'manual' ? 'border-blue-500 bg-blue-50 ring-1 ring-blue-200' : 'border-slate-200 hover:border-slate-300'}`}
-                    >
-                      <div className="flex items-center gap-2 mb-2 font-bold text-slate-900">
-                        <Users size={18} className={assignMethod === 'manual' ? 'text-blue-600' : 'text-slate-400'} /> Thủ công
-                      </div>
-                      <p className="text-xs text-slate-500">Chọn đích danh một nhân viên để gán toàn bộ.</p>
-                    </button>
+                    ))}
                   </div>
                 </div>
-
-                {/* AUTO DISTRIBUTION TABLE */}
-                {assignMethod === 'auto' && (
-                  <div className="animate-in slide-in-from-top-2">
-                    <div className="flex justify-between items-center mb-2">
-                      <label className="block text-sm font-bold text-slate-700">Chia số lượng Lead</label>
-                      <span className={`text-xs font-bold ${isDistValid ? 'text-green-600' : 'text-red-500'}`}>
-                        Tổng: {currentDistTotal} / {selectedLeadIds.length}
-                      </span>
-                    </div>
-                    <div className="border border-slate-200 rounded-lg overflow-hidden">
-                      <table className="w-full text-sm">
-                        <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200">
-                          <tr>
-                            <th className="p-2 text-left pl-3">Nhân viên</th>
-                            <th className="p-2 text-center w-24">Tỷ lệ</th>
-                            <th className="p-2 text-right w-24 pr-3">Số lượng</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                          {SALES_REPS.map(rep => {
-                            const count = distribution[rep.id] || 0;
-                            const percent = selectedLeadIds.length > 0 ? ((count / selectedLeadIds.length) * 100).toFixed(1) : '0.0';
-                            return (
-                              <tr key={rep.id}>
-                                <td className="p-2 pl-3">
-                                  <div className="flex items-center gap-2">
-                                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold ${rep.color}`}>{rep.avatar}</div>
-                                    <span className="font-medium text-slate-700">{rep.name}</span>
-                                  </div>
-                                </td>
-                                <td className="p-2 text-center text-slate-500 text-xs font-mono">{percent}%</td>
-                                <td className="p-2 pr-3">
-                                  <input
-                                    type="number"
-                                    min="0"
-                                    className="w-full border border-slate-300 rounded px-2 py-1 text-right font-bold text-slate-900 outline-none focus:border-blue-500"
-                                    value={count}
-                                    onChange={(e) => updateDistribution(rep.id, Number(e.target.value))}
-                                  />
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                    {!isDistValid && <p className="text-xs text-red-500 mt-2 font-medium text-right">Tổng số lượng chưa khớp. Vui lòng điều chỉnh.</p>}
-                  </div>
-                )}
-
-                {assignMethod === 'manual' && (
-                  <div className="animate-in slide-in-from-top-2">
-                    <label className="block text-sm font-bold text-slate-700 mb-2">Chọn nhân viên</label>
-                    <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar border border-slate-200 rounded-lg p-2">
-                      {SALES_REPS.map(rep => (
-                        <div
-                          key={rep.id}
-                          onClick={() => setSelectedRep(rep.id)}
-                          className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors ${selectedRep === rep.id ? 'bg-blue-50 border border-blue-200' : 'hover:bg-slate-50 border border-transparent'}`}
-                        >
-                          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${rep.color}`}>
-                            {rep.avatar}
-                          </div>
-                          <div className="flex-1">
-                            <p className="text-sm font-medium text-slate-900">{rep.name}</p>
-                            <p className="text-xs text-slate-500">{rep.team}</p>
-                          </div>
-                          {selectedRep === rep.id && <CheckCircle2 size={18} className="text-blue-600" />}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
               </div>
 
               <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-3">
                 <button onClick={() => setShowAssignModal(false)} className="px-4 py-2 text-slate-600 font-bold hover:bg-slate-200 rounded-lg text-sm">Hủy</button>
                 <button
                   onClick={handleAssignSubmit}
-                  disabled={assignMethod === 'auto' && !isDistValid}
-                  className={`px-6 py-2 text-white font-bold rounded-lg shadow-sm text-sm transition-all ${assignMethod === 'auto' && !isDistValid ? 'bg-slate-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}
+                  className="px-6 py-2 text-white font-bold rounded-lg shadow-sm text-sm transition-all bg-blue-600 hover:bg-blue-700"
                 >
                   Xác nhận Phân bổ
                 </button>
@@ -2726,102 +2550,30 @@ const Leads: React.FC = () => {
                         <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><Users size={18} className="text-blue-600" /> Cấu hình phân bổ</h3>
 
                         <div className="space-y-4">
-                          <div className="space-y-2">
-                            <label className="text-sm font-semibold text-slate-600">Chiến lược phân công</label>
-                            <div className="grid grid-cols-2 gap-3">
-                              <button
-                                onClick={() => setImportAssignMethod('round-robin')}
-                                className={`p-3 rounded-lg border text-sm font-medium text-center transition-all ${importAssignMethod === 'round-robin' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}
-                              >
-                                Xoay vòng (Round-robin)
-                              </button>
-                              <button
-                                onClick={() => setImportAssignMethod('manual')}
-                                className={`p-3 rounded-lg border text-sm font-medium text-center transition-all ${importAssignMethod === 'manual' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}
-                              >
-                                Phân bổ thủ công
-                              </button>
+                          <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                            <p className="text-sm font-bold text-slate-800 mb-1">Chế độ phân bổ từ Admin</p>
+                            <div className="flex items-center gap-2">
+                              <span className={`inline-flex px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-widest border ${systemDistributionMode === 'auto'
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                : 'bg-slate-100 text-slate-600 border-slate-200'
+                                }`}>
+                                {systemDistributionMode === 'auto' ? 'Tự động' : 'Thủ công'}
+                              </span>
+                              <span className="text-xs text-slate-500">
+                                Cấu hình tại Admin &gt; Quy tắc tự động hóa.
+                              </span>
                             </div>
                           </div>
 
-                          {/* DISTRIBUTION TABLE */}
-                          {importAssignMethod === 'round-robin' && (
-                            <div className="animate-in slide-in-from-top-2">
-                              <div className="flex justify-between items-center mb-3">
-                                <label className="block text-sm font-bold text-slate-700">Chia số lượng Lead</label>
-                                <span className={`text-xs font-bold ${isImportDistValid ? 'text-green-600' : 'text-red-500'}`}>
-                                  Tổng: {currentImportDistTotal} / {validImportRows.length}
-                                </span>
-                              </div>
-                              <div className="border border-slate-200 rounded-lg overflow-hidden">
-                                <div className="max-h-64 overflow-y-auto custom-scrollbar">
-                                  <table className="w-full text-sm">
-                                    <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200 sticky top-0 z-10">
-                                      <tr>
-                                        <th className="p-3 text-left pl-4">Nhân viên</th>
-                                        <th className="p-3 text-center w-24">Tỷ lệ</th>
-                                        <th className="p-3 text-right w-24 pr-4">Số lượng</th>
-                                      </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-100 bg-white">
-                                      {SALES_REPS.map(rep => {
-                                        const count = importDistribution[rep.id] || 0;
-                                        const percent = validImportRows.length > 0 ? ((count / validImportRows.length) * 100).toFixed(1) : '0.0';
-                                        return (
-                                          <tr key={rep.id} className="hover:bg-slate-50 transition-colors">
-                                            <td className="p-3 pl-4">
-                                              <div className="flex items-center gap-3">
-                                                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shadow-sm ${rep.color}`}>{rep.avatar}</div>
-                                                <span className="font-medium text-slate-700">{rep.name}</span>
-                                              </div>
-                                            </td>
-                                            <td className="p-3 text-center text-slate-500 font-medium">{percent}%</td>
-                                            <td className="p-3 text-right pr-4">
-                                              <input
-                                                type="number"
-                                                className="w-16 py-1.5 px-1 border border-slate-300 rounded-md text-center text-slate-800 font-bold focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition-all"
-                                                value={count}
-                                                onChange={(e) => {
-                                                  const val = parseInt(e.target.value) || 0;
-                                                  setImportDistribution({ ...importDistribution, [rep.id]: val >= 0 ? val : 0 });
-                                                }}
-                                              />
-                                            </td>
-                                          </tr>
-                                        );
-                                      })}
-                                    </tbody>
-                                  </table>
-                                </div>
-                              </div>
+                          {systemDistributionMode === 'auto' ? (
+                            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
+                              Lead hợp lệ sau import sẽ được tự động chia ngay theo vòng tròn cho đội Sales.
+                              Không cần thao tác chọn/chia thủ công.
                             </div>
-                          )}
-
-                          {/* MANUAL SELECTION LIST */}
-                          {importAssignMethod === 'manual' && (
-                            <div className="animate-in slide-in-from-top-2">
-                              <label className="block text-sm font-bold text-slate-700 mb-2">Chọn nhân viên phụ trách</label>
-                              <div className="border border-slate-200 rounded-lg overflow-hidden bg-white">
-                                <div className="max-h-64 overflow-y-auto custom-scrollbar p-2">
-                                  {SALES_REPS.map(rep => (
-                                    <div
-                                      key={rep.id}
-                                      className={`flex items-center gap-3 p-3 rounded-lg border mb-2 cursor-pointer transition-all ${importManualOwnerId === rep.id ? 'border-blue-500 bg-blue-50' : 'border-transparent hover:bg-slate-50'}`}
-                                      onClick={() => setImportManualOwnerId(rep.id)}
-                                    >
-                                      <div className={`w-5 h-5 rounded-full border flex items-center justify-center ${importManualOwnerId === rep.id ? 'border-blue-600 bg-blue-600' : 'border-slate-300 bg-white'}`}>
-                                        {importManualOwnerId === rep.id && <CheckCircle size={12} className="text-white" />}
-                                      </div>
-                                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${rep.color}`}>{rep.avatar}</div>
-                                      <div className="flex-1">
-                                        <p className={`text-sm font-bold ${importManualOwnerId === rep.id ? 'text-blue-700' : 'text-slate-700'}`}>{rep.name}</p>
-                                        <p className="text-xs text-slate-500">{rep.team}</p>
-                                      </div>
-                                      {importManualOwnerId === rep.id && <span className="text-xs font-bold text-blue-600 bg-white px-2 py-1 rounded-full shadow-sm">Đã chọn</span>}
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
+                          ) : (
+                            <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+                              Chế độ thủ công đang bật: lead hợp lệ sẽ được nhập vào hệ thống nhưng chưa phân bổ.
+                              Admin/Leader sẽ phân công sau.
                             </div>
                           )}
                         </div>

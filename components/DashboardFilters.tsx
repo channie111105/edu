@@ -1,5 +1,5 @@
 ﻿import React from 'react';
-import { Calendar, MapPin } from 'lucide-react';
+import { Calendar, MapPin, Package, ShieldCheck } from 'lucide-react';
 
 export type DateRangeType =
     | 'today'
@@ -12,9 +12,16 @@ export type DateRangeType =
     | 'custom';
 
 export type LocationType = 'all' | 'hanoi' | 'hcm' | 'danang';
+export type ProductFilterType = 'all' | string;
+export type VerificationFilterType = 'all' | 'verified' | 'unverified';
 
 export interface DateOption {
     value: DateRangeType;
+    label: string;
+}
+
+export interface SelectOption {
+    value: string;
     label: string;
 }
 
@@ -28,6 +35,12 @@ interface DashboardFiltersProps {
     title?: string;
     subtitle?: string;
     dateOptions?: DateOption[];
+    product?: ProductFilterType;
+    onProductChange?: (product: ProductFilterType) => void;
+    productOptions?: SelectOption[];
+    verification?: VerificationFilterType;
+    onVerificationChange?: (verification: VerificationFilterType) => void;
+    verificationOptions?: SelectOption[];
     compact?: boolean;
 }
 
@@ -41,6 +54,12 @@ const DashboardFilters: React.FC<DashboardFiltersProps> = ({
     title,
     subtitle,
     dateOptions,
+    product = 'all',
+    onProductChange,
+    productOptions,
+    verification = 'all',
+    onVerificationChange,
+    verificationOptions,
     compact
 }) => {
     const defaultDateOptions: DateOption[] = [
@@ -54,6 +73,18 @@ const DashboardFilters: React.FC<DashboardFiltersProps> = ({
     ];
 
     const renderedDateOptions = dateOptions && dateOptions.length > 0 ? dateOptions : defaultDateOptions;
+    const renderedProductOptions = productOptions && productOptions.length > 0
+        ? productOptions
+        : [{ value: 'all', label: 'Tất cả sản phẩm' }];
+    const renderedVerificationOptions = verificationOptions && verificationOptions.length > 0
+        ? verificationOptions
+        : [
+            { value: 'all', label: 'Tất cả xác thực' },
+            { value: 'verified', label: 'Đã xác thực' },
+            { value: 'unverified', label: 'Chưa xác thực' }
+        ];
+    const showProductFilter = Boolean(onProductChange);
+    const showVerificationFilter = Boolean(onVerificationChange);
 
     return (
         <div className={`flex flex-col md:flex-row justify-between items-start gap-4 w-full ${compact ? 'mb-4' : 'mb-8'}`}>
@@ -87,7 +118,7 @@ const DashboardFilters: React.FC<DashboardFiltersProps> = ({
                             )}
                         </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className={`flex items-center gap-2 ${showProductFilter || showVerificationFilter ? 'border-r border-slate-200 pr-4' : ''}`}>
                         <MapPin size={16} className="text-slate-500" />
                         <select
                             value={location}
@@ -95,11 +126,41 @@ const DashboardFilters: React.FC<DashboardFiltersProps> = ({
                             className="bg-transparent border-none text-sm font-bold focus:ring-0 cursor-pointer outline-none text-slate-700"
                         >
                             <option value="all">Tất cả chi nhánh</option>
-                            <option value="hanoi">Trụ sở Hà Nội</option>
-                            <option value="hcm">Chi nhánh HCM</option>
-                            <option value="danang">Văn phòng Đà Nẵng</option>
+                            <option value="hanoi">Hà Nội</option>
+                            <option value="hcm">Hồ Chí Minh</option>
+                            <option value="danang">Đà Nẵng</option>
                         </select>
                     </div>
+
+                    {showProductFilter && (
+                        <div className={`flex items-center gap-2 ${showVerificationFilter ? 'border-r border-slate-200 pr-4' : ''}`}>
+                            <Package size={16} className="text-slate-500" />
+                            <select
+                                value={product}
+                                onChange={(e) => onProductChange?.(e.target.value as ProductFilterType)}
+                                className="bg-transparent border-none text-sm font-bold focus:ring-0 cursor-pointer outline-none text-slate-700"
+                            >
+                                {renderedProductOptions.map(option => (
+                                    <option key={option.value} value={option.value}>{option.label}</option>
+                                ))}
+                            </select>
+                        </div>
+                    )}
+
+                    {showVerificationFilter && (
+                        <div className="flex items-center gap-2">
+                            <ShieldCheck size={16} className="text-slate-500" />
+                            <select
+                                value={verification}
+                                onChange={(e) => onVerificationChange?.(e.target.value as VerificationFilterType)}
+                                className="bg-transparent border-none text-sm font-bold focus:ring-0 cursor-pointer outline-none text-slate-700"
+                            >
+                                {renderedVerificationOptions.map(option => (
+                                    <option key={option.value} value={option.value}>{option.label}</option>
+                                ))}
+                            </select>
+                        </div>
+                    )}
                 </div>
             </div>
         </div>

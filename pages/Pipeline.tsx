@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 import { DealStage, IDeal, ILead, LeadStatus, IContact, Activity, ActivityType } from '../types';
-import { getDeals, saveDeals, getContacts, addContact, updateDeal } from '../utils/storage';
+import { getDeals, saveDeals, getContacts, addContact, updateDeal, saveContact } from '../utils/storage';
 import { useAuth } from '../contexts/AuthContext';
 import { useLocation, useNavigate, Link } from 'react-router-dom';
 import UnifiedLeadDrawer from '../components/UnifiedLeadDrawer';
@@ -13,13 +13,13 @@ import {
   TrendingUp, Package, Sparkles, LayoutGrid, Kanban, List as ListIcon, Columns, Check
 } from 'lucide-react';
 
-// Pipeline Stages với hoạt động cụ thể
+// Pipeline stages with specific activities
 const PIPELINE_STAGES = [
   {
     id: DealStage.NEW_OPP,
     title: 'New Opp',
     color: 'blue',
-    activities: ['Tiếp nhận Lead', 'Xác nhận thông tin', 'Phân công Sales']
+    activities: ['Tiếp nhận lead', 'Xác nhận thông tin', 'Phân công sales']
   },
   {
     id: DealStage.DEEP_CONSULTING,
@@ -43,7 +43,7 @@ const PIPELINE_STAGES = [
     id: DealStage.WON,
     title: 'Won',
     color: 'green',
-    activities: ['Chốt Deal', 'Bàn giao', 'Xác nhận kết quả']
+    activities: ['Chốt deal', 'Bàn giao', 'Xác nhận kết quả']
   },
   {
     id: DealStage.LOST,
@@ -65,6 +65,18 @@ const NEXT_ACTIVITY_TYPES: { id: ActivityType; label: string }[] = [
   { id: 'email', label: 'Email' }
 ];
 
+interface IConvertLeadDraft {
+  dealId: string;
+  contactId: string;
+  name: string;
+  phone: string;
+  demand: string;
+  source: string;
+  tagsText: string;
+  ownerId: string;
+  newNote: string;
+}
+
 const Pipeline: React.FC = () => {
   const { user } = useAuth();
   const location = useLocation();
@@ -80,6 +92,8 @@ const Pipeline: React.FC = () => {
   const [nextActivityType, setNextActivityType] = useState<ActivityType>('call');
   const [nextActivityDate, setNextActivityDate] = useState('');
   const [nextActivitySummary, setNextActivitySummary] = useState('');
+  const [showConvertLeadModal, setShowConvertLeadModal] = useState(false);
+  const [convertLeadDraft, setConvertLeadDraft] = useState<IConvertLeadDraft | null>(null);
 
   // Drawer & Selection
   const [selectedDeal, setSelectedDeal] = useState<IDeal | null>(null);
@@ -108,23 +122,32 @@ const Pipeline: React.FC = () => {
   // Load deals and handle highlight
   useEffect(() => {
     const loadedDeals = getDeals();
+    const loadedContacts = getContacts();
     setDeals(loadedDeals);
-    setContacts(getContacts());
+    setContacts(loadedContacts);
 
     // Check for newDeal param
     const params = new URLSearchParams(location.search);
     const newDealId = params.get('newDeal');
     if (newDealId) {
       setHighlightDealId(newDealId);
-      setNextActivityDealId(newDealId);
-      setNextActivityType('call');
-      setNextActivityDate(getDefaultActivityDate('call'));
-      setNextActivitySummary('');
-      setShowNextActivityModal(true);
+      const opened = openConvertLeadModal(newDealId, loadedDeals, loadedContacts);
+      if (!opened) {
+        setNextActivityDealId(newDealId);
+        setNextActivityType('call');
+        setNextActivityDate(getDefaultActivityDate('call'));
+        setNextActivitySummary('');
+        setShowNextActivityModal(true);
+      }
+      params.delete('newDeal');
+      navigate({
+        pathname: location.pathname,
+        search: params.toString() ? `?${params.toString()}` : ''
+      }, { replace: true });
       // Remove highlight after 3 seconds
       setTimeout(() => setHighlightDealId(null), 3000);
     }
-  }, [location]);
+  }, [location, navigate]);
 
   useEffect(() => {
     if (!showNextActivityModal) return;
@@ -200,14 +223,6 @@ const Pipeline: React.FC = () => {
     }
   };
 
-  const getExpectedValue = (deal: IDeal) => {
-    if (deal.value > 0) return deal.value;
-    if (deal.productItems && deal.productItems.length > 0) {
-      return deal.productItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-    }
-    return 0;
-  };
-
   const getNextActivityDate = (deal: IDeal, contact?: IContact) => {
     const allActivities = [
       ...(deal.activities || []),
@@ -232,21 +247,137 @@ const Pipeline: React.FC = () => {
     return parsed.toLocaleDateString('vi-VN');
   };
 
-  const getPotentialTag = (probability: number) => {
-    if (probability >= 70) return { label: 'Nóng', className: 'bg-red-50 text-red-700 border-red-200' };
-    if (probability >= 40) return { label: 'Tiềm năng', className: 'bg-amber-50 text-amber-700 border-amber-200' };
-    return { label: 'Lạnh', className: 'bg-slate-100 text-slate-600 border-slate-200' };
+  const OWNER_LABELS: Record<string, string> = {
+    u1: 'Tran Van Quan Tri',
+    u2: 'Sarah Miller',
+    u3: 'David Clark',
+    u4: 'Alex Rivera',
+    admin: 'Admin'
+  };
+
+  const getOwnerDisplayName = (ownerId?: string) => {
+    if (!ownerId) return 'Chưa phân công';
+    return OWNER_LABELS[ownerId] || ownerId;
+  };
+
+  const parseTags = (raw: unknown): string[] => {
+    if (Array.isArray(raw)) {
+      return raw.map(item => String(item || '').trim()).filter(Boolean);
+    }
+    if (typeof raw === 'string') {
+      return raw.split(',').map(item => item.trim()).filter(Boolean);
+    }
+    return [];
+  };
+
+  const getDealDemand = (deal: IDeal, contact?: IContact) => {
+    const fromProductItem = Array.isArray(deal.productItems)
+      ? deal.productItems.find(item => item?.name)?.name
+      : '';
+    const fromProducts = Array.isArray(deal.products) ? deal.products.find(Boolean) : '';
+    const fromTitle = deal.title.includes(' - ')
+      ? deal.title.split(' - ').slice(1).join(' - ').trim()
+      : '';
+    const fromContact = String((contact as any)?.product || contact?.targetCountry || '').trim();
+    return fromProductItem || fromProducts || fromTitle || fromContact || 'Chưa rõ nhu cầu';
+  };
+
+  const openNextActivityModal = (dealId: string) => {
+    setNextActivityDealId(dealId);
+    setNextActivityType('call');
+    setNextActivityDate(getDefaultActivityDate('call'));
+    setNextActivitySummary('');
+    setShowNextActivityModal(true);
+  };
+
+  const openConvertLeadModal = (dealId: string, loadedDeals: IDeal[], loadedContacts: IContact[]) => {
+    const deal = loadedDeals.find(item => item.id === dealId);
+    if (!deal) return false;
+
+    const contact = loadedContacts.find(item => item.id === deal.leadId);
+    if (!contact) return false;
+
+    const tags = parseTags(contact.marketingData?.tags);
+    setConvertLeadDraft({
+      dealId: deal.id,
+      contactId: contact.id,
+      name: contact.name || deal.title.split(' - ')[0] || '',
+      phone: contact.phone || '',
+      demand: getDealDemand(deal, contact),
+      source: contact.source || '',
+      tagsText: tags.join(', '),
+      ownerId: deal.ownerId || contact.ownerId || '',
+      newNote: ''
+    });
+    setShowConvertLeadModal(true);
+    return true;
+  };
+
+  const handleSaveConvertedLeadInfo = () => {
+    if (!convertLeadDraft) return;
+
+    const currentDeal = deals.find(item => item.id === convertLeadDraft.dealId);
+    const currentContact = contacts.find(item => item.id === convertLeadDraft.contactId);
+    if (!currentDeal || !currentContact) return;
+
+    const parsedTags = parseTags(convertLeadDraft.tagsText);
+    const noteLine = convertLeadDraft.newNote.trim()
+      ? `[${new Date().toLocaleString('vi-VN')}] ${convertLeadDraft.newNote.trim()}`
+      : '';
+    const mergedNotes = [String(currentContact.notes || '').trim(), noteLine].filter(Boolean).join('\n');
+
+    const updatedContact: IContact = {
+      ...currentContact,
+      name: convertLeadDraft.name.trim() || currentContact.name,
+      phone: convertLeadDraft.phone.trim() || currentContact.phone,
+      source: convertLeadDraft.source.trim() || currentContact.source,
+      ownerId: convertLeadDraft.ownerId || currentContact.ownerId,
+      notes: mergedNotes,
+      marketingData: {
+        ...(currentContact.marketingData || {}),
+        tags: parsedTags
+      },
+      updatedAt: new Date().toISOString()
+    };
+
+    const savedContact = saveContact(updatedContact);
+
+    const demand = convertLeadDraft.demand.trim() || getDealDemand(currentDeal, savedContact);
+    const updatedDeal: IDeal = {
+      ...currentDeal,
+      ownerId: convertLeadDraft.ownerId || currentDeal.ownerId,
+      title: `${savedContact.name} - ${demand}`,
+      products: demand ? [demand] : currentDeal.products
+    };
+
+    const updatedDeals = deals.map(item => (item.id === updatedDeal.id ? updatedDeal : item));
+    setDeals(updatedDeals);
+    saveDeals(updatedDeals);
+    updateDeal(updatedDeal);
+    setContacts(getContacts());
+
+    setShowConvertLeadModal(false);
+    setConvertLeadDraft(null);
+    openNextActivityModal(updatedDeal.id);
+  };
+
+  const handleSkipConvertedLeadInfo = () => {
+    if (!convertLeadDraft) return;
+    const dealId = convertLeadDraft.dealId;
+    setShowConvertLeadModal(false);
+    setConvertLeadDraft(null);
+    openNextActivityModal(dealId);
   };
 
   const filteredDeals = deals.filter(deal => {
-    // Nếu chưa chọn filter (initial) -> hiện hết hoặc theo default logic
+    // Nếu chưa chọn filter thì hiển thị toàn bộ
     if (!dateFilter.startDate && !dateFilter.endDate) return true;
 
-    // Lấy Next Activity Date
+    // Lấy ngày hoạt động tiếp theo
     const contact = contactsById[deal.leadId];
     const nextActivityDateStr = getNextActivityDate(deal, contact);
 
-    // Nếu filter theo thời gian mà Deal không có lịch hẹn -> Ẩn
+    // Nếu lọc theo thời gian mà deal không có lịch hẹn thì ẩn
     if (!nextActivityDateStr) {
       return false;
     }
@@ -265,11 +396,6 @@ const Pipeline: React.FC = () => {
   // Group deals by stage bucket
   const getDealsByStage = (stage: DealStage) => {
     return filteredDeals.filter(deal => getPipelineBucket(deal.stage) === stage);
-  };
-
-  // Format currency
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
   };
 
   function getDefaultActivityDate(typeId: ActivityType) {
@@ -333,13 +459,14 @@ const Pipeline: React.FC = () => {
       setDrawerLead(unifiedLead);
       setSelectedDeal(deal);
     } else {
-      alert("Không tìm thấy thông tin Contact gốc của Deal này.");
+      alert("Không tìm thấy thông tin contact gốc của deal này.");
     }
   };
 
   const handleDrawerUpdate = (updatedLead: ILead) => {
     // 1. Update Contact
     if (drawerLead && selectedDeal) {
+      const existingContact = getContacts().find(contact => contact.id === drawerLead.id);
       const contactUpdate = {
         id: drawerLead.id,
         name: updatedLead.name,
@@ -357,7 +484,14 @@ const Pipeline: React.FC = () => {
         activities: updatedLead.activities // Pass activities back
       };
       // Update contact in storage
-      addContact(contactUpdate as any); // addContact handles merge/update
+      if (existingContact) {
+        saveContact({
+          ...existingContact,
+          ...contactUpdate
+        } as IContact);
+      } else {
+        addContact(contactUpdate as any);
+      }
 
       // 2. Update Deal status/stage if changed
       const newStage = updatedLead.status as unknown as DealStage;
@@ -375,6 +509,7 @@ const Pipeline: React.FC = () => {
 
       // 3. Update UI State
       setDeals(prev => prev.map(d => d.id === updatedDeal.id ? updatedDeal : d));
+      setContacts(getContacts());
       setDrawerLead(updatedLead);
     }
   };
@@ -384,7 +519,7 @@ const Pipeline: React.FC = () => {
       {/* Header */}
       <header className="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Pipeline - Quy trình chốt Deal</h1>
+          <h1 className="text-2xl font-bold text-slate-900">Pipeline - Quy trình chốt deal</h1>
           <p className="text-sm text-slate-600 mt-1">
             Quản lý hành trình từ tư vấn đến chốt thành công
           </p>
@@ -435,7 +570,7 @@ const Pipeline: React.FC = () => {
           <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200 transition-all">
             <button onClick={() => setViewMode('kanban')} className={`p-2 rounded ${viewMode === 'kanban' ? 'bg-white shadow text-blue-600' : 'text-slate-500 hover:text-slate-700'}`} title="Kanban"><Kanban size={18} /></button>
             <button onClick={() => setViewMode('list')} className={`p-2 rounded ${viewMode === 'list' ? 'bg-white shadow text-blue-600' : 'text-slate-500 hover:text-slate-700'}`} title="Danh sách"><ListIcon size={18} /></button>
-            <button onClick={() => setViewMode('pivot')} className={`p-2 rounded ${viewMode === 'pivot' ? 'bg-white shadow text-blue-600' : 'text-slate-500 hover:text-slate-700'}`} title="Báo cáo Pivot"><LayoutGrid size={18} /></button>
+            <button onClick={() => setViewMode('pivot')} className={`p-2 rounded ${viewMode === 'pivot' ? 'bg-white shadow text-blue-600' : 'text-slate-500 hover:text-slate-700'}`} title="Báo cáo pivot"><LayoutGrid size={18} /></button>
           </div>
         </div>
       </header>
@@ -472,8 +607,10 @@ const Pipeline: React.FC = () => {
                             {stageDeals.map((deal, index) => {
                               const contact = contactsById[deal.leadId];
                               const nextDate = getNextActivityDate(deal, contact) || deal.expectedCloseDate;
-                              const expectedValue = getExpectedValue(deal);
-                              const potential = getPotentialTag(deal.probability || 0);
+                              const demand = getDealDemand(deal, contact);
+                              const tags = parseTags(contact?.marketingData?.tags);
+                              const isOverdueNextActivity = nextDate ? new Date(nextDate) < new Date() : false;
+                              const contactName = contact?.name || deal.title.split(' - ')[0] || deal.title;
 
                               return (
                                 <Draggable key={deal.id} draggableId={deal.id} index={index}>
@@ -491,89 +628,46 @@ const Pipeline: React.FC = () => {
                                     >
                                       {/* Deal Card Content */}
                                       <div className="space-y-2">
-                                        {/* Title */}
-                                        <h4 className="font-bold text-sm text-slate-900 line-clamp-2">
-                                          {deal.title}
-                                        </h4>
-
-                                        {/* Value */}
-                                        <div className="flex items-center gap-2">
-                                          <DollarSign size={14} className="text-green-600" />
-                                          <span className="text-sm font-bold text-green-600">
-                                            {formatCurrency(expectedValue)}
+                                        <div className="flex items-start justify-between gap-2">
+                                          <h4 className="font-bold text-sm text-slate-900 line-clamp-2">
+                                            {contactName}
+                                          </h4>
+                                          <span className="text-xs text-slate-500 whitespace-nowrap">
+                                            {contact?.phone || '-'}
                                           </span>
                                         </div>
 
-                                        {/* Phone */}
-                                        {contact?.phone && (
-                                          <div className="flex items-center gap-2">
-                                            <Phone size={14} className="text-slate-500" />
-                                            <span className="text-xs text-slate-600">{contact.phone}</span>
-                                          </div>
-                                        )}
-
-                                        {/* Owner */}
-                                        <div className="flex items-center gap-2">
-                                          <User size={14} className="text-slate-500" />
-                                          <span className="text-xs text-slate-600">{deal.ownerId}</span>
+                                        <div className="flex items-center gap-2 text-xs text-slate-700">
+                                          <Package size={13} className="text-blue-600 shrink-0" />
+                                          <span className="line-clamp-1"><span className="font-semibold">Nhu cầu:</span> {demand}</span>
                                         </div>
 
-                                        {/* Expected Close Date */}
-                                        <div className="flex items-center gap-2">
-                                          <Calendar size={14} className="text-blue-500" />
-                                          <span className="text-xs text-slate-600">
-                                            {formatDate(nextDate)}
+                                        <div className="flex items-center gap-2 text-xs text-slate-700">
+                                          <MessageCircle size={13} className="text-emerald-600 shrink-0" />
+                                          <span className="line-clamp-1"><span className="font-semibold">Source:</span> {contact?.source || '-'}</span>
+                                        </div>
+
+                                        <div className="flex items-center gap-2 text-xs text-slate-700">
+                                          <FileText size={13} className="text-amber-600 shrink-0" />
+                                          <span className="line-clamp-1">
+                                            <span className="font-semibold">Tag:</span>{' '}
+                                            {tags.length > 0 ? tags.join(', ') : '-'}
                                           </span>
                                         </div>
 
-                                        {/* Next Activity Indicator */}
-                                        {(() => {
-                                          const nextActivity = (deal.activities || []).find(a => a.status === 'scheduled');
-                                          if (!nextActivity) return null;
-
-                                          const activityDate = new Date(nextActivity.timestamp);
-                                          const now = new Date();
-                                          const isOverdue = activityDate < now;
-
-                                          return (
-                                            <div className={`flex items-center gap-2 px-2 py-1 rounded-md border ${isOverdue
-                                              ? 'bg-red-50 border-red-200'
-                                              : 'bg-green-50 border-green-200'
-                                              }`}>
-                                              <Calendar size={12} className={isOverdue ? 'text-red-600' : 'text-green-600'} />
-                                              <span className={`text-[10px] font-bold ${isOverdue ? 'text-red-700' : 'text-green-700'
-                                                }`}>
-                                                {isOverdue ? '⚠️ Quá hạn' : '✓ Đã lên lịch'}
-                                              </span>
-                                              <span className="text-[9px] text-slate-500">
-                                                {activityDate.toLocaleDateString('vi-VN')}
-                                              </span>
-                                            </div>
-                                          );
-                                        })()}
-
-                                        {/* Potential Tag */}
-                                        <div className="flex items-center gap-2">
-                                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${potential.className}`}>
-                                            {potential.label}
-                                          </span>
+                                        <div className="flex items-center gap-2 text-xs text-slate-700">
+                                          <User size={13} className="text-slate-500 shrink-0" />
+                                          <span className="line-clamp-1"><span className="font-semibold">Người phụ trách:</span> {getOwnerDisplayName(deal.ownerId)}</span>
                                         </div>
 
-
-
-                                        {/* Products */}
-                                        {deal.products && deal.products.length > 0 && (
-                                          <div className="flex flex-wrap gap-1 mt-2">
-                                            {deal.products.map((product, idx) => (
-                                              <span
-                                                key={idx}
-                                                className="px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded-full"
-                                              >
-                                                {product}
-                                              </span>
-                                            ))}
-                                          </div>
-                                        )}
+                                        <div className={`flex items-center gap-2 px-2 py-1 rounded-md border text-xs ${nextDate
+                                          ? (isOverdueNextActivity ? 'bg-red-50 border-red-200 text-red-700' : 'bg-green-50 border-green-200 text-green-700')
+                                          : 'bg-slate-50 border-slate-200 text-slate-600'
+                                          }`}>
+                                          <Calendar size={12} className="shrink-0" />
+                                          <span className="font-semibold">Lịch hẹn tiếp:</span>
+                                          <span>{formatDate(nextDate)}</span>
+                                        </div>
 
                                         {/* New Badge */}
                                         {highlightDealId === deal.id && (
@@ -596,7 +690,7 @@ const Pipeline: React.FC = () => {
                             {stageDeals.length === 0 && (
                               <div className="text-center py-8 text-slate-400">
                                 <Package size={32} className="mx-auto mb-2 opacity-50" />
-                                <p className="text-xs">Chưa có Deal</p>
+                                <p className="text-xs">Chưa có deal</p>
                               </div>
                             )}
                           </div>
@@ -617,7 +711,7 @@ const Pipeline: React.FC = () => {
             {selectedIds.length > 0 && (
               <div className="bg-blue-50 border-b border-blue-100 px-4 py-2 flex items-center animate-in fade-in slide-in-from-top-1">
                 <span className="text-sm font-medium text-blue-700">
-                  Đã chọn <span className="font-bold">{selectedIds.length}</span> Deal
+                  Đã chọn <span className="font-bold">{selectedIds.length}</span> deal
                 </span>
                 <button
                   onClick={() => setSelectedIds([])}
@@ -752,11 +846,121 @@ const Pipeline: React.FC = () => {
         )}
       </div>
 
+      {showConvertLeadModal && convertLeadDraft && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm">
+          <div className="w-full max-w-2xl rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-50">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">Cập nhật lead sau convert</h3>
+                <p className="text-sm text-slate-600 mt-1">
+                  Lưu lại thông tin mới và note trước khi lên lịch hành động tiếp theo.
+                </p>
+              </div>
+              <button
+                onClick={handleSkipConvertedLeadInfo}
+                className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                title="Đóng"
+              >
+                <XCircle size={20} />
+              </button>
+            </div>
+
+            <div className="px-6 py-5 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-2">Tên lead</label>
+                  <input
+                    value={convertLeadDraft.name}
+                    onChange={(e) => setConvertLeadDraft(prev => prev ? { ...prev, name: e.target.value } : prev)}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                    placeholder="Nhập tên lead"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-2">Số điện thoại</label>
+                  <input
+                    value={convertLeadDraft.phone}
+                    onChange={(e) => setConvertLeadDraft(prev => prev ? { ...prev, phone: e.target.value } : prev)}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                    placeholder="Nhập số điện thoại"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-2">Nhu cầu</label>
+                  <input
+                    value={convertLeadDraft.demand}
+                    onChange={(e) => setConvertLeadDraft(prev => prev ? { ...prev, demand: e.target.value } : prev)}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                    placeholder="Ví dụ: Du học Đức"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-2">Source</label>
+                  <input
+                    value={convertLeadDraft.source}
+                    onChange={(e) => setConvertLeadDraft(prev => prev ? { ...prev, source: e.target.value } : prev)}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                    placeholder="Facebook, Google..."
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-2">Tag</label>
+                  <input
+                    value={convertLeadDraft.tagsText}
+                    onChange={(e) => setConvertLeadDraft(prev => prev ? { ...prev, tagsText: e.target.value } : prev)}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                    placeholder="Hot lead, Đã gọi, Zalo"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-2">Người phụ trách</label>
+                  <select
+                    value={convertLeadDraft.ownerId}
+                    onChange={(e) => setConvertLeadDraft(prev => prev ? { ...prev, ownerId: e.target.value } : prev)}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none bg-white"
+                  >
+                    <option value="">Chưa phân công</option>
+                    {Object.entries(OWNER_LABELS).map(([ownerId, label]) => (
+                      <option key={ownerId} value={ownerId}>{label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-600 mb-2">Note mới</label>
+                <textarea
+                  value={convertLeadDraft.newNote}
+                  onChange={(e) => setConvertLeadDraft(prev => prev ? { ...prev, newNote: e.target.value } : prev)}
+                  className="w-full min-h-[120px] rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none resize-none"
+                  placeholder="Nhập ghi chú mới sau khi convert..."
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-200 bg-slate-50">
+              <button
+                onClick={handleSkipConvertedLeadInfo}
+                className="px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-200 rounded-lg transition-colors"
+              >
+                Bỏ qua thông tin
+              </button>
+              <button
+                onClick={handleSaveConvertedLeadInfo}
+                className="px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+              >
+                Lưu và lên lịch tiếp
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showNextActivityModal && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm">
           <div className="bg-white rounded-lg p-6 w-[420px] shadow-2xl">
             <h3 className="text-lg font-bold text-slate-900 mb-2">Tạo hành động tiếp theo</h3>
-            <p className="text-sm text-slate-600 mb-4">Hãy tạo hoạt động tiếp theo để theo dõi Deal mới.</p>
+            <p className="text-sm text-slate-600 mb-4">Hãy tạo hoạt động tiếp theo để theo dõi deal mới.</p>
 
             <div className="flex gap-2 mb-3">
               {NEXT_ACTIVITY_TYPES.map(t => (
@@ -805,3 +1009,4 @@ const Pipeline: React.FC = () => {
 };
 
 export default Pipeline;
+

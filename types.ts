@@ -96,6 +96,7 @@ export interface IMarketingData {
   region?: string; // Địa chỉ/Khu vực
   message?: string; // Ghi chú từ Form (Message/Note)
   campaign?: string; // Chiến dịch Marketing
+  channel?: string; // Kênh phát sinh lead
   medium?: string; // Kênh Marketing (CPC, Organic, Social, etc.)
   market?: string; // Thị trường (Miền Bắc, Miền Nam, Sinh viên, etc.)
 }

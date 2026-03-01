@@ -1,77 +1,164 @@
-import React, { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
-import { getContacts, getStudents, getContracts } from '../utils/storage';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { getContacts, getStudents, getContracts, addContact } from '../utils/storage';
 import {
     Search,
     Phone,
     Mail,
-    MapPin,
     Plus,
     Building2,
     User,
     GraduationCap,
     DollarSign,
     FileCheck,
-    Users,
-    ChevronRight
+    ChevronRight,
+    LayoutList,
+    LayoutGrid,
+    SlidersHorizontal,
+    Filter
 } from 'lucide-react';
 import ContactDrawer from '../components/ContactDrawer';
 import CreateContactModal from '../components/CreateContactModal';
 import Toast from '../components/Toast';
 import { IContact, ContractStatus } from '../types';
-import { addContact } from '../utils/storage';
+
+type ContactFilter = 'all' | 'debt' | 'student' | 'signed';
+type ViewMode = 'list' | 'card';
+
+const ALL_COLUMNS: Array<{ id: string; label: string }> = [
+    { id: 'name', label: 'Liên hệ' },
+    { id: 'phone', label: 'SĐT' },
+    { id: 'email', label: 'Email' },
+    { id: 'company', label: 'Cơ sở/Công ty' },
+    { id: 'city', label: 'Thành phố' },
+    { id: 'source', label: 'Nguồn' },
+    { id: 'student', label: 'Học sinh' },
+    { id: 'signed', label: 'Đã ký HĐ' },
+    { id: 'debt', label: 'Công nợ' },
+    { id: 'createdAt', label: 'Ngày tạo' }
+];
+
+const DEFAULT_VISIBLE_COLUMNS = [
+    'name',
+    'phone',
+    'email',
+    'company',
+    'city',
+    'source',
+    'student',
+    'signed',
+    'debt',
+    'createdAt'
+];
 
 const MyContacts: React.FC = () => {
-    const { user } = useAuth();
     const navigate = useNavigate();
     const [contacts, setContacts] = useState<IContact[]>([]);
+    const [students, setStudents] = useState<any[]>([]);
+    const [contracts, setContracts] = useState<any[]>([]);
+
     const [searchTerm, setSearchTerm] = useState('');
-    const [filterType, setFilterType] = useState<'all' | 'debt' | 'student' | 'signed'>('all');
+    const [filterType, setFilterType] = useState<ContactFilter>('all');
+    const [viewMode, setViewMode] = useState<ViewMode>('list');
+    const [visibleColumns, setVisibleColumns] = useState<string[]>(DEFAULT_VISIBLE_COLUMNS);
+    const [showColumnPicker, setShowColumnPicker] = useState(false);
+
     const [selectedContact, setSelectedContact] = useState<IContact | null>(null);
     const [isDrawerOpen, setIsDrawerOpen] = useState(false);
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
-    const [students, setStudents] = useState<any[]>([]);
-    const [contracts, setContracts] = useState<any[]>([]);
-
-    useEffect(() => {
-        // Lấy dữ liệu từ bảng CONTACTS
-        const allContacts = getContacts();
-        setContacts(allContacts);
-
-        // Lấy dữ liệu phụ để tính toán stats
-        setStudents(getStudents());
-        setContracts(getContracts());
-    }, []);
-
-    const filteredContacts = contacts.filter(c => {
-        const matchesSearch = (c.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-            (c.phone || '').includes(searchTerm);
-
-        if (!matchesSearch) return false;
-
-        if (filterType === 'all') return true;
-        if (filterType === 'student') return students.some(s => s.phone === c.phone);
-        if (filterType === 'signed') return contracts.some(con => con.customerName === c.name && con.status === ContractStatus.SIGNED);
-        if (filterType === 'debt') return contracts.some(con => con.customerName === c.name && con.paidValue < con.totalValue);
-
-        return true;
-    });
-
-    // Stats calculation
-    const stats = {
-        total: contacts.length,
-        students: students.length,
-        signed: contracts.filter(con => con.status === ContractStatus.SIGNED).length,
-        debt: contracts.filter(con => con.paidValue < con.totalValue).length
-    };
 
     const refreshData = () => {
         setContacts(getContacts());
         setStudents(getStudents());
         setContracts(getContracts());
     };
+
+    useEffect(() => {
+        refreshData();
+
+        const syncAll = () => refreshData();
+        window.addEventListener('educrm:contacts-changed', syncAll as EventListener);
+        window.addEventListener('educrm:students-changed', syncAll as EventListener);
+        window.addEventListener('educrm:contracts-changed', syncAll as EventListener);
+
+        return () => {
+            window.removeEventListener('educrm:contacts-changed', syncAll as EventListener);
+            window.removeEventListener('educrm:students-changed', syncAll as EventListener);
+            window.removeEventListener('educrm:contracts-changed', syncAll as EventListener);
+        };
+    }, []);
+
+    const studentByPhone = useMemo(() => {
+        const map = new Map<string, any>();
+        students.forEach((student) => {
+            if (student?.phone && !map.has(student.phone)) {
+                map.set(student.phone, student);
+            }
+        });
+        return map;
+    }, [students]);
+
+    const signedCountByName = useMemo(() => {
+        const map = new Map<string, number>();
+        contracts.forEach((contract) => {
+            const customerName = String(contract?.customerName || '').trim();
+            if (!customerName) return;
+            if (contract?.status === ContractStatus.SIGNED) {
+                map.set(customerName, (map.get(customerName) || 0) + 1);
+            }
+        });
+        return map;
+    }, [contracts]);
+
+    const debtByName = useMemo(() => {
+        const set = new Set<string>();
+        contracts.forEach((contract) => {
+            const customerName = String(contract?.customerName || '').trim();
+            if (!customerName) return;
+            const paidValue = Number(contract?.paidValue || 0);
+            const totalValue = Number(contract?.totalValue || 0);
+            if (paidValue < totalValue) {
+                set.add(customerName);
+            }
+        });
+        return set;
+    }, [contracts]);
+
+    const filteredContacts = useMemo(() => {
+        const keyword = searchTerm.trim().toLowerCase();
+
+        return contacts
+            .filter((contact) => {
+                const name = String(contact.name || '');
+                const phone = String(contact.phone || '');
+                const email = String(contact.email || '');
+                const company = String((contact as any).company || '');
+
+                const matchesSearch =
+                    !keyword ||
+                    name.toLowerCase().includes(keyword) ||
+                    phone.includes(keyword) ||
+                    email.toLowerCase().includes(keyword) ||
+                    company.toLowerCase().includes(keyword);
+
+                if (!matchesSearch) return false;
+
+                const student = studentByPhone.get(contact.phone);
+                const signedCount = signedCountByName.get(name.trim()) || 0;
+                const hasDebt = debtByName.has(name.trim());
+
+                if (filterType === 'student') return !!student;
+                if (filterType === 'signed') return signedCount > 0;
+                if (filterType === 'debt') return hasDebt;
+                return true;
+            })
+            .sort((a, b) => {
+                const aTime = new Date(a.createdAt || 0).getTime();
+                const bTime = new Date(b.createdAt || 0).getTime();
+                return bTime - aTime;
+            });
+    }, [contacts, searchTerm, filterType, studentByPhone, signedCountByName, debtByName]);
 
     const handleSaveContact = (contactData: Partial<IContact>, createNew: boolean) => {
         try {
@@ -87,98 +174,154 @@ const MyContacts: React.FC = () => {
     };
 
     const getInitials = (name: string) => {
-        const names = name.split(' ');
+        const safeName = String(name || '').trim();
+        if (!safeName) return 'NA';
+        const names = safeName.split(' ');
         if (names.length >= 2) {
             return `${names[0][0]}${names[names.length - 1][0]}`.toUpperCase();
         }
-        return name.substring(0, 2).toUpperCase();
+        return safeName.substring(0, 2).toUpperCase();
     };
 
-    return (
-        <div className="flex flex-col h-full bg-[#f8fafc] font-sans text-slate-900 p-6 overflow-hidden">
+    const toggleColumn = (columnId: string) => {
+        setVisibleColumns((prev) => {
+            if (prev.includes(columnId)) {
+                return prev.length > 1 ? prev.filter((c) => c !== columnId) : prev;
+            }
+            return [...prev, columnId];
+        });
+    };
 
-            {/* Header & Search */}
-            <div className="flex flex-col gap-6 mb-8">
-                <h1 className="text-2xl font-bold text-slate-800">Danh bạ (Contacts)</h1>
-                <div className="relative w-full">
-                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
-                    <input
-                        type="text"
-                        placeholder="Tìm kiếm theo tên hoặc số điện thoại..."
-                        className="w-full pl-12 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:ring-4 focus:ring-blue-50 focus:border-blue-300 outline-none transition-all shadow-sm"
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                    />
-                </div>
+    const renderListView = () => {
+        return (
+            <div className="flex-1 overflow-auto bg-white border border-slate-200 rounded-xl shadow-sm">
+                <table className="w-full text-left border-collapse text-sm table-fixed">
+                    <thead className="bg-slate-50 sticky top-0 z-10 text-xs font-bold text-slate-500 uppercase">
+                        <tr>
+                            {visibleColumns.includes('name') && <th className="px-3 py-3 border-b border-slate-200">Liên hệ</th>}
+                            {visibleColumns.includes('phone') && <th className="px-3 py-3 border-b border-slate-200">SĐT</th>}
+                            {visibleColumns.includes('email') && <th className="px-3 py-3 border-b border-slate-200">Email</th>}
+                            {visibleColumns.includes('company') && <th className="px-3 py-3 border-b border-slate-200">Cơ sở/Công ty</th>}
+                            {visibleColumns.includes('city') && <th className="px-3 py-3 border-b border-slate-200">Thành phố</th>}
+                            {visibleColumns.includes('source') && <th className="px-3 py-3 border-b border-slate-200">Nguồn</th>}
+                            {visibleColumns.includes('student') && <th className="px-3 py-3 border-b border-slate-200">Học sinh</th>}
+                            {visibleColumns.includes('signed') && <th className="px-3 py-3 border-b border-slate-200">Đã ký HĐ</th>}
+                            {visibleColumns.includes('debt') && <th className="px-3 py-3 border-b border-slate-200">Công nợ</th>}
+                            {visibleColumns.includes('createdAt') && <th className="px-3 py-3 border-b border-slate-200">Ngày tạo</th>}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {filteredContacts.length === 0 ? (
+                            <tr>
+                                <td className="px-4 py-10 text-center text-slate-500" colSpan={visibleColumns.length}>
+                                    Chưa có contact phù hợp bộ lọc hiện tại.
+                                </td>
+                            </tr>
+                        ) : (
+                            filteredContacts.map((contact) => {
+                                const student = studentByPhone.get(contact.phone);
+                                const signedCount = signedCountByName.get(String(contact.name || '').trim()) || 0;
+                                const hasDebt = debtByName.has(String(contact.name || '').trim());
+
+                                return (
+                                    <tr
+                                        key={contact.id}
+                                        className="hover:bg-blue-50/40 cursor-pointer border-b border-slate-100"
+                                        onClick={() => {
+                                            setSelectedContact(contact);
+                                            setIsDrawerOpen(true);
+                                        }}
+                                    >
+                                        {visibleColumns.includes('name') && (
+                                            <td className="px-3 py-3">
+                                                <div className="flex items-center gap-2 min-w-0">
+                                                    <div className="w-8 h-8 rounded-md bg-blue-50 text-blue-600 font-bold flex items-center justify-center shrink-0">
+                                                        {getInitials(contact.name || 'Unknown')}
+                                                    </div>
+                                                    <div className="min-w-0">
+                                                        <p className="font-semibold text-slate-800 truncate">{contact.name}</p>
+                                                        <p className="text-[11px] text-slate-500 truncate">
+                                                            {(contact as any).company ? 'Company' : 'Individual'}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                        )}
+                                        {visibleColumns.includes('phone') && (
+                                            <td className="px-3 py-3 text-slate-700">{contact.phone || '-'}</td>
+                                        )}
+                                        {visibleColumns.includes('email') && (
+                                            <td className="px-3 py-3 text-slate-700 truncate">{contact.email || '-'}</td>
+                                        )}
+                                        {visibleColumns.includes('company') && (
+                                            <td className="px-3 py-3 text-slate-700">{(contact as any).company || '-'}</td>
+                                        )}
+                                        {visibleColumns.includes('city') && (
+                                            <td className="px-3 py-3 text-slate-700">{contact.city || '-'}</td>
+                                        )}
+                                        {visibleColumns.includes('source') && (
+                                            <td className="px-3 py-3 text-slate-700">{contact.source || '-'}</td>
+                                        )}
+                                        {visibleColumns.includes('student') && (
+                                            <td className="px-3 py-3">
+                                                {student ? (
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            navigate(`/edu/students/${student.id}`);
+                                                        }}
+                                                        className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-100 text-xs font-semibold hover:bg-emerald-100"
+                                                    >
+                                                        <GraduationCap size={12} />
+                                                        Học sinh
+                                                    </button>
+                                                ) : (
+                                                    <span className="text-slate-400">-</span>
+                                                )}
+                                            </td>
+                                        )}
+                                        {visibleColumns.includes('signed') && (
+                                            <td className="px-3 py-3">
+                                                {signedCount > 0 ? (
+                                                    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-purple-50 text-purple-700 border border-purple-100 text-xs font-semibold">
+                                                        <FileCheck size={12} />
+                                                        {signedCount}
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-slate-400">0</span>
+                                                )}
+                                            </td>
+                                        )}
+                                        {visibleColumns.includes('debt') && (
+                                            <td className="px-3 py-3">
+                                                {hasDebt ? (
+                                                    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-amber-50 text-amber-700 border border-amber-100 text-xs font-semibold">
+                                                        <DollarSign size={12} />
+                                                        Có nợ
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-slate-400">-</span>
+                                                )}
+                                            </td>
+                                        )}
+                                        {visibleColumns.includes('createdAt') && (
+                                            <td className="px-3 py-3 text-slate-700">
+                                                {contact.createdAt ? new Date(contact.createdAt).toLocaleDateString('vi-VN') : '-'}
+                                            </td>
+                                        )}
+                                    </tr>
+                                );
+                            })
+                        )}
+                    </tbody>
+                </table>
             </div>
+        );
+    };
 
-            {/* Infographic Stats */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-                <div
-                    onClick={() => setFilterType('all')}
-                    className={`p-4 rounded-xl border cursor-pointer transition-all ${filterType === 'all' ? 'bg-blue-600 border-blue-600 shadow-lg shadow-blue-100' : 'bg-white border-slate-100 hover:border-blue-300 shadow-sm'}`}
-                >
-                    <div className="flex items-center gap-3">
-                        <div className={`p-2 rounded-lg ${filterType === 'all' ? 'bg-blue-500 text-white' : 'bg-blue-50 text-blue-600'}`}>
-                            <Users size={20} />
-                        </div>
-                        <div>
-                            <p className={`text-[10px] font-bold uppercase tracking-wider ${filterType === 'all' ? 'text-blue-100' : 'text-slate-400'}`}>Tổng số khách</p>
-                            <h3 className={`text-xl font-black ${filterType === 'all' ? 'text-white' : 'text-slate-800'}`}>{stats.total}</h3>
-                        </div>
-                    </div>
-                </div>
-
-                <div
-                    onClick={() => setFilterType('student')}
-                    className={`p-4 rounded-xl border cursor-pointer transition-all ${filterType === 'student' ? 'bg-emerald-600 border-emerald-600 shadow-lg shadow-emerald-100' : 'bg-white border-slate-100 hover:border-emerald-300 shadow-sm'}`}
-                >
-                    <div className="flex items-center gap-3">
-                        <div className={`p-2 rounded-lg ${filterType === 'student' ? 'bg-emerald-500 text-white' : 'bg-emerald-50 text-emerald-600'}`}>
-                            <GraduationCap size={20} />
-                        </div>
-                        <div>
-                            <p className={`text-[10px] font-bold uppercase tracking-wider ${filterType === 'student' ? 'text-emerald-100' : 'text-slate-400'}`}>Học sinh</p>
-                            <h3 className={`text-xl font-black ${filterType === 'student' ? 'text-white' : 'text-slate-800'}`}>{stats.students}</h3>
-                        </div>
-                    </div>
-                </div>
-
-                <div
-                    onClick={() => setFilterType('signed')}
-                    className={`p-4 rounded-xl border cursor-pointer transition-all ${filterType === 'signed' ? 'bg-purple-600 border-purple-600 shadow-lg shadow-purple-100' : 'bg-white border-slate-100 hover:border-purple-300 shadow-sm'}`}
-                >
-                    <div className="flex items-center gap-3">
-                        <div className={`p-2 rounded-lg ${filterType === 'signed' ? 'bg-purple-500 text-white' : 'bg-purple-50 text-purple-600'}`}>
-                            <FileCheck size={20} />
-                        </div>
-                        <div>
-                            <p className={`text-[10px] font-bold uppercase tracking-wider ${filterType === 'signed' ? 'text-purple-100' : 'text-slate-400'}`}>Đã ký hợp đồng</p>
-                            <h3 className={`text-xl font-black ${filterType === 'signed' ? 'text-white' : 'text-slate-800'}`}>{stats.signed}</h3>
-                        </div>
-                    </div>
-                </div>
-
-                <div
-                    onClick={() => setFilterType('debt')}
-                    className={`p-4 rounded-xl border cursor-pointer transition-all ${filterType === 'debt' ? 'bg-amber-600 border-amber-600 shadow-lg shadow-amber-100' : 'bg-white border-slate-100 hover:border-amber-300 shadow-sm'}`}
-                >
-                    <div className="flex items-center gap-3">
-                        <div className={`p-2 rounded-lg ${filterType === 'debt' ? 'bg-amber-500 text-white' : 'bg-amber-50 text-amber-600'}`}>
-                            <DollarSign size={20} />
-                        </div>
-                        <div>
-                            <p className={`text-[10px] font-bold uppercase tracking-wider ${filterType === 'debt' ? 'text-amber-100' : 'text-slate-400'}`}>Khách có công nợ</p>
-                            <h3 className={`text-xl font-black ${filterType === 'debt' ? 'text-white' : 'text-slate-800'}`}>{stats.debt}</h3>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            {/* Content Grid */}
+    const renderCardView = () => {
+        return (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 overflow-y-auto pb-10">
-
-                {/* 1. New Contact Card */}
                 <button
                     onClick={() => setIsCreateModalOpen(true)}
                     className="flex flex-col items-center justify-center h-32 bg-slate-50 border-2 border-dashed border-slate-200 rounded-xl hover:bg-white hover:border-blue-300 hover:shadow-sm transition-all group cursor-pointer"
@@ -189,32 +332,32 @@ const MyContacts: React.FC = () => {
                     <span className="text-[10px] font-bold text-slate-400 group-hover:text-blue-600 uppercase tracking-wide">New Contact</span>
                 </button>
 
-                {/* 2. Contact Cards */}
-                {filteredContacts.map(contact => {
-                    const student = students.find(s => s.phone === contact.phone);
-                    const isSigned = contracts.some(con => con.customerName === contact.name && con.status === ContractStatus.SIGNED);
-                    const hasDebt = contracts.some(con => con.customerName === contact.name && con.paidValue < con.totalValue);
+                {filteredContacts.map((contact) => {
+                    const student = studentByPhone.get(contact.phone);
+                    const signedCount = signedCountByName.get(String(contact.name || '').trim()) || 0;
+                    const hasDebt = debtByName.has(String(contact.name || '').trim());
 
                     return (
                         <div
                             key={contact.id}
                             className="bg-white p-3 rounded-xl border border-slate-100 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all flex flex-col h-32 group cursor-pointer relative"
-                            onClick={() => { setSelectedContact(contact); setIsDrawerOpen(true); }}
+                            onClick={() => {
+                                setSelectedContact(contact);
+                                setIsDrawerOpen(true);
+                            }}
                         >
                             <div className="flex gap-3 items-start">
-                                {/* Avatar */}
                                 <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600 font-bold text-base shrink-0 uppercase">
                                     {getInitials(contact.name || 'Unknown')}
                                 </div>
 
-                                {/* Info */}
                                 <div className="flex-1 min-w-0">
                                     <div className="flex justify-between items-start">
                                         <h3 className="font-bold text-slate-800 text-sm truncate group-hover:text-blue-600 transition-colors mr-2" title={contact.name}>
                                             {contact.name}
                                         </h3>
                                         <div className="flex gap-1 shrink-0">
-                                            {isSigned && (
+                                            {signedCount > 0 && (
                                                 <div title="Đã ký hợp đồng" className="text-purple-500">
                                                     <FileCheck size={14} />
                                                 </div>
@@ -236,7 +379,6 @@ const MyContacts: React.FC = () => {
                                 </div>
                             </div>
 
-                            {/* Contact Details - Compact */}
                             <div className="mt-2 space-y-0.5">
                                 <div className="flex items-center gap-2 text-[10px] text-slate-500">
                                     <Mail size={10} className="text-slate-300 shrink-0" />
@@ -248,8 +390,7 @@ const MyContacts: React.FC = () => {
                                 </div>
                             </div>
 
-                            {/* Student Status Badge - Floating or Bottom Right */}
-                            {student && (
+                            {student ? (
                                 <button
                                     onClick={(e) => {
                                         e.stopPropagation();
@@ -260,9 +401,7 @@ const MyContacts: React.FC = () => {
                                     <GraduationCap size={12} />
                                     <span className="text-[9px] font-black uppercase tracking-tight">Học sinh</span>
                                 </button>
-                            )}
-
-                            {!student && (
+                            ) : (
                                 <div className="absolute bottom-3 right-3 text-slate-200 group-hover:text-blue-400 transition-colors">
                                     <ChevronRight size={16} />
                                 </div>
@@ -271,16 +410,118 @@ const MyContacts: React.FC = () => {
                     );
                 })}
             </div>
+        );
+    };
+
+    return (
+        <div className="flex flex-col h-full bg-[#f8fafc] font-sans text-slate-900 p-6 overflow-hidden">
+            <div className="flex items-center justify-between gap-3 mb-4">
+                <h1 className="text-2xl font-bold text-slate-800">Danh bạ (Contacts)</h1>
+                <button
+                    onClick={() => setIsCreateModalOpen(true)}
+                    className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold shadow-sm"
+                >
+                    <Plus size={16} />
+                    New Contact
+                </button>
+            </div>
+
+            <div className="bg-white border border-slate-200 rounded-xl p-3 mb-4 shadow-sm">
+                <div className="flex flex-wrap items-center gap-2">
+                    <div className="relative flex-1 min-w-[280px]">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                        <input
+                            type="text"
+                            placeholder="Tìm kiếm theo tên, số điện thoại, email..."
+                            className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-50 focus:border-blue-300 outline-none transition-all"
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                        />
+                    </div>
+
+                    <div className="inline-flex items-center gap-2 px-2 py-2 border border-slate-200 rounded-lg bg-slate-50 text-xs font-semibold text-slate-600">
+                        <Filter size={14} />
+                        <select
+                            value={filterType}
+                            onChange={(e) => setFilterType(e.target.value as ContactFilter)}
+                            className="bg-transparent outline-none text-sm text-slate-700"
+                        >
+                            <option value="all">Tất cả</option>
+                            <option value="student">Học sinh</option>
+                            <option value="signed">Đã ký hợp đồng</option>
+                            <option value="debt">Có công nợ</option>
+                        </select>
+                    </div>
+
+                    {viewMode === 'list' && (
+                        <div className="relative">
+                            <button
+                                onClick={() => setShowColumnPicker((prev) => !prev)}
+                                className="inline-flex items-center gap-2 px-3 py-2 border border-slate-200 rounded-lg bg-white text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                            >
+                                <SlidersHorizontal size={14} />
+                                Cột
+                            </button>
+                            {showColumnPicker && (
+                                <>
+                                    <div
+                                        className="fixed inset-0 z-10"
+                                        onClick={() => setShowColumnPicker(false)}
+                                    />
+                                    <div className="absolute right-0 top-11 z-20 w-64 bg-white border border-slate-200 rounded-lg shadow-xl p-2">
+                                        <p className="px-2 py-1 text-xs font-bold uppercase text-slate-500">Tùy chỉnh cột</p>
+                                        <div className="max-h-60 overflow-y-auto space-y-1 mt-1">
+                                            {ALL_COLUMNS.map((column) => (
+                                                <label
+                                                    key={column.id}
+                                                    className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-slate-50 cursor-pointer text-sm text-slate-700"
+                                                >
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={visibleColumns.includes(column.id)}
+                                                        onChange={() => toggleColumn(column.id)}
+                                                    />
+                                                    {column.label}
+                                                </label>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                    )}
+
+                    <div className="ml-auto inline-flex items-center p-1 border border-slate-200 rounded-lg bg-white">
+                        <button
+                            onClick={() => setViewMode('list')}
+                            className={`p-2 rounded ${viewMode === 'list' ? 'bg-blue-50 text-blue-700' : 'text-slate-500 hover:bg-slate-50'}`}
+                            title="Dạng danh sách"
+                        >
+                            <LayoutList size={16} />
+                        </button>
+                        <button
+                            onClick={() => setViewMode('card')}
+                            className={`p-2 rounded ${viewMode === 'card' ? 'bg-blue-50 text-blue-700' : 'text-slate-500 hover:bg-slate-50'}`}
+                            title="Dạng card"
+                        >
+                            <LayoutGrid size={16} />
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            {viewMode === 'list' ? renderListView() : renderCardView()}
 
             <ContactDrawer
                 contact={selectedContact}
                 isOpen={isDrawerOpen}
                 onClose={() => setIsDrawerOpen(false)}
                 onUpdate={(updated) => {
-                    setContacts(prev => prev.map(c => c.id === updated.id ? updated : c));
+                    setContacts((prev) => prev.map((contact) => (contact.id === updated.id ? updated : contact)));
                     setSelectedContact(updated);
                 }}
             />
+
             <CreateContactModal
                 isOpen={isCreateModalOpen}
                 onClose={() => setIsCreateModalOpen(false)}

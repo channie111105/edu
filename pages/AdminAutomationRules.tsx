@@ -1,6 +1,7 @@
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Save, Zap, ChevronDown } from 'lucide-react';
+import { getLeadDistributionConfig, saveLeadDistributionConfig } from '../utils/storage';
 
 const AdminAutomationRules: React.FC = () => {
   const [slaConfig, setSlaConfig] = useState({
@@ -15,6 +16,24 @@ const AdminAutomationRules: React.FC = () => {
     territory: '',
     program: ''
   });
+
+  const setDistributionMode = (mode: 'auto' | 'manual') => {
+    setDistribution(prev => ({
+      ...prev,
+      roundRobin: mode === 'auto',
+      manual: mode === 'manual'
+    }));
+    saveLeadDistributionConfig({ mode });
+  };
+
+  useEffect(() => {
+    const config = getLeadDistributionConfig();
+    setDistribution(prev => ({
+      ...prev,
+      roundRobin: config.mode === 'auto',
+      manual: config.mode === 'manual'
+    }));
+  }, []);
 
   const [financeReminders, setFinanceReminders] = useState({
     beforeDue: '3',
@@ -87,7 +106,7 @@ const AdminAutomationRules: React.FC = () => {
                   type="checkbox" 
                   className="invisible absolute" 
                   checked={distribution.roundRobin}
-                  onChange={(e) => setDistribution({...distribution, roundRobin: e.target.checked, manual: !e.target.checked})}
+                  onChange={(e) => setDistributionMode(e.target.checked ? 'auto' : 'manual')}
                 />
               </label>
             </div>
@@ -107,7 +126,7 @@ const AdminAutomationRules: React.FC = () => {
                   type="checkbox" 
                   className="invisible absolute"
                   checked={distribution.manual}
-                  onChange={(e) => setDistribution({...distribution, manual: e.target.checked, roundRobin: !e.target.checked})}
+                  onChange={(e) => setDistributionMode(e.target.checked ? 'manual' : 'auto')}
                 />
               </label>
             </div>
@@ -180,7 +199,12 @@ const AdminAutomationRules: React.FC = () => {
 
           <div className="flex px-4 py-6 justify-end">
             <button
-              onClick={() => alert("Đã lưu cấu hình tự động hóa thành công!")}
+              onClick={() => {
+                saveLeadDistributionConfig({
+                  mode: distribution.roundRobin ? 'auto' : 'manual'
+                });
+                alert("Đã lưu cấu hình tự động hóa thành công!");
+              }}
               className="flex min-w-[84px] cursor-pointer items-center justify-center overflow-hidden rounded-lg h-12 px-6 bg-[#1380ec] text-slate-50 text-base font-bold leading-normal tracking-[0.015em] hover:bg-blue-700 transition-colors shadow-sm gap-2"
             >
               <Save size={20} />

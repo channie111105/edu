@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
     Search,
     Plus,
@@ -22,10 +22,11 @@ import {
     ChevronRight,
     Mail,
     User,
-    CheckCircle2
+    CheckCircle2,
+    Pencil
 } from 'lucide-react';
 import { getLeads, getCollaborators, saveCollaborators } from '../utils/storage';
-import { LeadStatus, IActivityLog } from '../types';
+import { LeadStatus, IActivityLog, UserRole } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 
 // Mock Data for Collaborators
@@ -34,6 +35,8 @@ interface ICollaborator {
     name: string;
     phone: string;
     email?: string;
+    ownerId?: string;
+    ownerName?: string;
     city: string;
     address?: string;
     industry: string; // Ngành nghề
@@ -42,8 +45,6 @@ interface ICollaborator {
     nextAppointment?: string; // Lịch hẹn
     status?: 'Active' | 'Need Support' | 'Stopped' | 'New';
     activities?: IActivityLog[];
-    commissionLevel?: 'Standard' | 'Silver' | 'Gold' | 'Diamond';
-    commissionRate?: number;
 }
 
 const MOCK_COLLABORATORS: ICollaborator[] = [
@@ -51,40 +52,47 @@ const MOCK_COLLABORATORS: ICollaborator[] = [
         id: 'ctv_1',
         name: 'Nguyễn Văn A',
         phone: '0912345678',
+        ownerId: 'u1',
+        ownerName: 'Trần Văn Quản Trị',
         city: 'Hà Nội',
         industry: 'Giáo viên',
         segment: 'IELTS',
         notes: 'Cần gửi chính sách thưởng mới',
         nextAppointment: '2026-05-20',
-        status: 'Active',
-        commissionLevel: 'Silver',
-        commissionRate: 10
+        status: 'Active'
     },
     {
         id: 'ctv_2',
         name: 'Trần Thị B',
         phone: '0988777666',
+        ownerId: 'u2',
+        ownerName: 'Sarah Miller',
         city: 'Hồ Chí Minh',
         industry: 'Sinh viên',
         segment: 'Du học',
         notes: 'Đã gửi quà tết. Follow up tháng sau.',
         nextAppointment: '2026-06-10',
-        status: 'Need Support',
-        commissionLevel: 'Standard',
-        commissionRate: 5
+        status: 'Need Support'
     },
     {
         id: 'ctv_3',
         name: 'Lê Văn C',
         phone: '0901112233',
+        ownerId: 'u3',
+        ownerName: 'David Clark',
         city: 'Đà Nẵng',
         industry: 'Trung tâm tiếng Anh',
         segment: 'Xuất khẩu lao động',
         notes: 'Tiềm năng lớn, cần chăm sóc kỹ.',
-        status: 'Active',
-        commissionLevel: 'Gold',
-        commissionRate: 15
+        status: 'Active'
     }
+];
+
+const SALE_OWNER_OPTIONS = [
+    { id: 'u1', name: 'Trần Văn Quản Trị' },
+    { id: 'u2', name: 'Sarah Miller' },
+    { id: 'u3', name: 'David Clark' },
+    { id: 'u4', name: 'Alex Rivera' }
 ];
 
 // Column Defs
@@ -104,9 +112,10 @@ interface CollaboratorCareDrawerProps {
     isOpen: boolean;
     onClose: () => void;
     onUpdate: (updated: ICollaborator) => void;
+    onEdit: (ctv: ICollaborator) => void;
 }
 
-const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, isOpen, onClose, onUpdate }) => {
+const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, isOpen, onClose, onUpdate, onEdit }) => {
     const { user } = useAuth();
     const [noteContent, setNoteContent] = useState('');
     const [interactionType, setInteractionType] = useState('Call');
@@ -189,6 +198,12 @@ const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, is
                         </div>
                     </div>
                     <div className="flex items-center gap-2">
+                        <button
+                            onClick={() => onEdit(ctv)}
+                            className="px-3 py-1.5 rounded border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 transition-colors text-xs font-bold flex items-center gap-1.5"
+                        >
+                            <Pencil size={14} /> Sửa thông tin
+                        </button>
                         <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded text-slate-500 transition-colors">
                             <X size={20} />
                         </button>
@@ -361,15 +376,6 @@ const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, is
                     ) : (
                         <div className="p-8 space-y-6 overflow-y-auto chatter-scroll flex-1">
                             <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm grid grid-cols-2 gap-6 relative overflow-hidden">
-                                <div className="absolute top-0 right-0 p-4">
-                                    <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase shadow-sm ${ctv.commissionLevel === 'Diamond' ? 'bg-indigo-100 text-indigo-700 border border-indigo-200' :
-                                        ctv.commissionLevel === 'Gold' ? 'bg-amber-100 text-amber-700 border border-amber-200' :
-                                            ctv.commissionLevel === 'Silver' ? 'bg-slate-100 text-slate-700 border border-slate-200' :
-                                                'bg-blue-50 text-blue-700 border border-blue-100'
-                                        }`}>
-                                        Level: {ctv.commissionLevel || 'Standard'}
-                                    </span>
-                                </div>
                                 <div>
                                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Họ tên</label>
                                     <p className="text-sm font-bold text-slate-900 mt-0.5">{ctv.name}</p>
@@ -391,8 +397,8 @@ const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, is
                                     <p className="text-sm font-bold text-slate-900 mt-0.5">{ctv.city}</p>
                                 </div>
                                 <div>
-                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Hoa hồng hiện tại</label>
-                                    <p className="text-sm font-bold text-blue-600 mt-0.5">{ctv.commissionRate || 5}%</p>
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Sale phụ trách</label>
+                                    <p className="text-sm font-bold text-indigo-600 mt-0.5">{ctv.ownerName || ctv.ownerId || 'Chưa gắn sale'}</p>
                                 </div>
                             </div>
 
@@ -412,28 +418,7 @@ const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, is
                                 </div>
                             </div>
 
-                            {/* Commission History */}
-                            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-                                <h3 className="text-[10px] font-bold text-slate-400 uppercase mb-4 flex items-center gap-2 tracking-widest">
-                                    <History size={12} /> Lịch sử thay đổi chính sách
-                                </h3>
-                                <div className="space-y-3">
-                                    <div className="flex justify-between items-center text-xs p-3 bg-slate-50 rounded-lg border border-slate-100">
-                                        <div className="flex flex-col">
-                                            <span className="font-bold text-slate-700">Nâng cấp Level: Silver</span>
-                                            <span className="text-[10px] text-slate-400">{new Date().toLocaleDateString('vi-VN')}</span>
-                                        </div>
-                                        <span className="font-bold text-emerald-600">+5% Hoa hồng</span>
-                                    </div>
-                                    <div className="flex justify-between items-center text-xs p-3 bg-slate-50 rounded-lg border border-slate-100">
-                                        <div className="flex flex-col">
-                                            <span className="font-bold text-slate-700">Đăng ký CTV mới</span>
-                                            <span className="text-[10px] text-slate-400">01/01/2026</span>
-                                        </div>
-                                        <span className="font-bold text-slate-500">Mức Standard (5%)</span>
-                                    </div>
-                                </div>
-                            </div>
+                            {/* End info */}
                         </div>
                     )}
                 </div>
@@ -452,21 +437,52 @@ const Collaborators: React.FC = () => {
     const [selectedCtv, setSelectedCtv] = useState<ICollaborator | null>(null);
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [newCtv, setNewCtv] = useState<Partial<ICollaborator>>({});
+    const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+    const [editingCtv, setEditingCtv] = useState<ICollaborator | null>(null);
 
     // Column Visibility State
     const [columns, setColumns] = useState(ALL_COLUMNS);
     const [showColumnDropdown, setShowColumnDropdown] = useState(false);
+    const canViewAllCollaborators = user?.role === UserRole.ADMIN || user?.role === UserRole.FOUNDER;
+    const ownerOptions = useMemo(() => {
+        const base = [...SALE_OWNER_OPTIONS];
+        if (user?.id && !base.some(item => item.id === user.id)) {
+            base.unshift({ id: user.id, name: user.name });
+        }
+        return base;
+    }, [user?.id, user?.name]);
+    const getOwnerName = useCallback((ownerId?: string) => {
+        if (!ownerId) return '';
+        return ownerOptions.find(item => item.id === ownerId)?.name || ownerId;
+    }, [ownerOptions]);
 
     // Load data from storage
     useEffect(() => {
+        const defaultOwnerId = user?.id || 'u1';
         const stored = getCollaborators();
         if (stored && stored.length > 0) {
-            setCollaborators(stored);
+            const normalized = stored.map((item: ICollaborator) => {
+                const ownerId = item.ownerId || defaultOwnerId;
+                return {
+                    ...item,
+                    ownerId,
+                    ownerName: item.ownerName || getOwnerName(ownerId)
+                };
+            });
+            setCollaborators(normalized);
+            if (JSON.stringify(stored) !== JSON.stringify(normalized)) {
+                saveCollaborators(normalized);
+            }
         } else {
-            setCollaborators(MOCK_COLLABORATORS);
-            saveCollaborators(MOCK_COLLABORATORS);
+            const seeded = MOCK_COLLABORATORS.map(item => ({
+                ...item,
+                ownerId: item.ownerId || defaultOwnerId,
+                ownerName: item.ownerName || getOwnerName(item.ownerId || defaultOwnerId)
+            }));
+            setCollaborators(seeded);
+            saveCollaborators(seeded);
         }
-    }, []);
+    }, [user?.id, getOwnerName]);
 
     // Sync with storage whenever collaborators change
     const updateCollaborators = (newList: ICollaborator[]) => {
@@ -477,19 +493,24 @@ const Collaborators: React.FC = () => {
     // Get Leads from storage
     const leads = useMemo(() => getLeads(), []);
 
+    const visibleCollaborators = useMemo(() => {
+        if (canViewAllCollaborators) return collaborators;
+        return collaborators.filter(c => c.ownerId === user?.id);
+    }, [collaborators, canViewAllCollaborators, user?.id]);
+
     // Derived Options for Filters
-    const cityOptions = useMemo(() => ['All', ...Array.from(new Set(collaborators.map(c => c.city)))], [collaborators]);
-    const industryOptions = useMemo(() => ['All', ...Array.from(new Set(collaborators.map(c => c.industry)))], [collaborators]);
+    const cityOptions = useMemo(() => ['All', ...Array.from(new Set(visibleCollaborators.map(c => c.city)))], [visibleCollaborators]);
+    const industryOptions = useMemo(() => ['All', ...Array.from(new Set(visibleCollaborators.map(c => c.industry)))], [visibleCollaborators]);
 
     // Filter Logic
     const filteredList = useMemo(() => {
-        return collaborators.filter(c => {
+        return visibleCollaborators.filter(c => {
             const matchesSearch = c.name.toLowerCase().includes(searchTerm.toLowerCase()) || c.phone.includes(searchTerm);
             const matchesCity = filterCity === 'All' || c.city === filterCity;
             const matchesIndustry = filterIndustry === 'All' || c.industry === filterIndustry;
             return matchesSearch && matchesCity && matchesIndustry;
         });
-    }, [collaborators, searchTerm, filterCity, filterIndustry]);
+    }, [visibleCollaborators, searchTerm, filterCity, filterIndustry]);
 
     // Stats Calculation
     const getStats = (ctvName: string) => {
@@ -506,17 +527,20 @@ const Collaborators: React.FC = () => {
     const handleCreate = () => {
         if (!newCtv.name || !newCtv.phone) return;
         const newId = `ctv_${Date.now()}`;
+        const ownerId = canViewAllCollaborators
+            ? (newCtv.ownerId || user?.id || 'u1')
+            : (user?.id || 'u1');
         const newItem: ICollaborator = {
             id: newId,
-            name: newCtv.name,
-            phone: newCtv.phone,
+            name: newCtv.name.trim(),
+            phone: newCtv.phone.trim(),
+            ownerId,
+            ownerName: getOwnerName(ownerId),
             city: newCtv.city || 'Hà Nội',
             industry: newCtv.industry || '',
             segment: newCtv.segment || '',
             notes: newCtv.notes || '',
-            status: 'New',
-            commissionLevel: newCtv.commissionLevel || 'Standard',
-            commissionRate: newCtv.commissionRate || 5,
+            status: newCtv.status || 'New',
             activities: [{
                 id: `act-${Date.now()}`,
                 type: 'system',
@@ -529,6 +553,50 @@ const Collaborators: React.FC = () => {
         updateCollaborators([newItem, ...collaborators]);
         setIsAddModalOpen(false);
         setNewCtv({});
+    };
+
+    const openEditModal = (ctv: ICollaborator) => {
+        setEditingCtv({
+            ...ctv,
+            ownerId: ctv.ownerId || user?.id || 'u1',
+            ownerName: ctv.ownerName || getOwnerName(ctv.ownerId || user?.id || 'u1')
+        });
+        setIsEditModalOpen(true);
+    };
+
+    const handleSaveEdit = () => {
+        if (!editingCtv || !editingCtv.id || !editingCtv.name || !editingCtv.phone) return;
+
+        const current = collaborators.find(c => c.id === editingCtv.id);
+        if (!current) return;
+
+        const ownerId = canViewAllCollaborators
+            ? (editingCtv.ownerId || current.ownerId || user?.id || 'u1')
+            : (user?.id || current.ownerId || 'u1');
+        const updated: ICollaborator = {
+            ...current,
+            ...editingCtv,
+            name: editingCtv.name.trim(),
+            phone: editingCtv.phone.trim(),
+            ownerId,
+            ownerName: getOwnerName(ownerId),
+            city: editingCtv.city || current.city || 'Hà Nội',
+            industry: editingCtv.industry || '',
+            segment: editingCtv.segment || '',
+            notes: editingCtv.notes || '',
+            activities: [{
+                id: `act-${Date.now()}`,
+                type: 'system',
+                timestamp: new Date().toISOString(),
+                title: 'Hệ thống',
+                description: 'Đã cập nhật thông tin cộng tác viên',
+                user: user?.name || 'Admin'
+            }, ...(current.activities || [])]
+        };
+
+        handleUpdateCtv(updated);
+        setIsEditModalOpen(false);
+        setEditingCtv(null);
     };
 
     const handleUpdateCtv = (updated: ICollaborator) => {
@@ -556,7 +624,13 @@ const Collaborators: React.FC = () => {
                         <p className="text-slate-500 mt-1">Quản lý mạng lưới đối tác, hiệu quả giới thiệu và hoa hồng.</p>
                     </div>
                     <button
-                        onClick={() => setIsAddModalOpen(true)}
+                        onClick={() => {
+                            setNewCtv({
+                                ownerId: user?.id || 'u1',
+                                ownerName: user?.name || getOwnerName(user?.id || 'u1')
+                            });
+                            setIsAddModalOpen(true);
+                        }}
                         className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg font-bold flex items-center gap-2 shadow-sm transition-all"
                     >
                         <Plus size={20} /> Thêm CTV
@@ -684,7 +758,7 @@ const Collaborators: React.FC = () => {
                                                         </div>
                                                         <div>
                                                             <div className="font-bold text-[#1e293b]">{ctv.name}</div>
-                                                            <div className="flex items-center gap-2 mt-1">
+                                                            <div className="flex items-center gap-2 mt-1 flex-wrap">
                                                                 <a
                                                                     href={`tel:${ctv.phone}`}
                                                                     className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 transition-colors text-xs font-bold"
@@ -692,6 +766,9 @@ const Collaborators: React.FC = () => {
                                                                 >
                                                                     <Phone size={10} fill="currentColor" /> {ctv.phone}
                                                                 </a>
+                                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-100 text-xs font-semibold">
+                                                                    <User size={10} /> {ctv.ownerName || getOwnerName(ctv.ownerId) || 'Chưa gắn sale'}
+                                                                </span>
                                                             </div>
                                                         </div>
                                                     </div>
@@ -771,7 +848,7 @@ const Collaborators: React.FC = () => {
                         </table>
                     </div>
                     <div className="p-3 border-t border-slate-200 bg-slate-50 text-xs text-slate-500 flex justify-between items-center">
-                        <span>Hiển thị {filteredList.length} / {collaborators.length} kết quả</span>
+                        <span>Hiển thị {filteredList.length} / {visibleCollaborators.length} kết quả</span>
                         <button className="flex items-center gap-1 hover:text-blue-600 font-medium transition-colors">
                             <Download size={14} /> Xuất Excel
                         </button>
@@ -840,23 +917,6 @@ const Collaborators: React.FC = () => {
 
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="col-span-1">
-                                    <label className="block text-sm font-bold text-slate-700 mb-1">Cấp độ CTV</label>
-                                    <select
-                                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none bg-white focus:border-blue-500 transition-all"
-                                        value={newCtv.commissionLevel || 'Standard'}
-                                        onChange={e => {
-                                            const level = e.target.value as any;
-                                            const rates: any = { Standard: 5, Silver: 10, Gold: 15, Diamond: 20 };
-                                            setNewCtv({ ...newCtv, commissionLevel: level, commissionRate: rates[level] });
-                                        }}
-                                    >
-                                        <option value="Standard">Standard (5%)</option>
-                                        <option value="Silver">Silver (10%)</option>
-                                        <option value="Gold">Gold (15%)</option>
-                                        <option value="Diamond">Diamond (20%)</option>
-                                    </select>
-                                </div>
-                                <div className="col-span-1">
                                     <label className="block text-sm font-bold text-slate-700 mb-1">Khu vực</label>
                                     <select
                                         className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none bg-white focus:border-blue-500 transition-all"
@@ -868,6 +928,42 @@ const Collaborators: React.FC = () => {
                                         <option value="Hồ Chí Minh">Hồ Chí Minh</option>
                                         <option value="Đà Nẵng">Đà Nẵng</option>
                                         <option value="Khác">Khác</option>
+                                    </select>
+                                </div>
+                                <div className="col-span-1">
+                                    <label className="block text-sm font-bold text-slate-700 mb-1">Trạng thái</label>
+                                    <select
+                                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none bg-white focus:border-blue-500 transition-all"
+                                        value={newCtv.status || 'New'}
+                                        onChange={e => setNewCtv({ ...newCtv, status: e.target.value as ICollaborator['status'] })}
+                                    >
+                                        <option value="New">New</option>
+                                        <option value="Active">Active</option>
+                                        <option value="Need Support">Need Support</option>
+                                        <option value="Stopped">Stopped</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="col-span-2">
+                                    <label className="block text-sm font-bold text-slate-700 mb-1">Sale phụ trách</label>
+                                    <select
+                                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none bg-white focus:border-blue-500 transition-all"
+                                        value={newCtv.ownerId || (user?.id || '')}
+                                        onChange={e => {
+                                            const ownerId = e.target.value;
+                                            setNewCtv({
+                                                ...newCtv,
+                                                ownerId,
+                                                ownerName: getOwnerName(ownerId)
+                                            });
+                                        }}
+                                    >
+                                        <option value="">-- Chọn sale --</option>
+                                        {ownerOptions.map(owner => (
+                                            <option key={owner.id} value={owner.id}>{owner.name}</option>
+                                        ))}
                                     </select>
                                 </div>
                             </div>
@@ -901,12 +997,183 @@ const Collaborators: React.FC = () => {
                 </div>
             )}
 
+            {/* --- EDIT MODAL --- */}
+            {isEditModalOpen && editingCtv && (
+                <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200 border border-slate-200">
+                        <div className="flex justify-between items-center p-4 border-b border-slate-100 bg-slate-50">
+                            <h2 className="text-lg font-bold text-slate-800">Sửa thông tin CTV</h2>
+                            <button
+                                onClick={() => {
+                                    setIsEditModalOpen(false);
+                                    setEditingCtv(null);
+                                }}
+                                className="text-slate-400 hover:text-slate-600 transition-colors"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        <div className="p-6 space-y-4">
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="col-span-1">
+                                    <label className="block text-sm font-bold text-slate-700 mb-1">Họ tên <span className="text-red-500">*</span></label>
+                                    <input
+                                        type="text"
+                                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition-all"
+                                        value={editingCtv.name || ''}
+                                        onChange={e => setEditingCtv({ ...editingCtv, name: e.target.value })}
+                                        autoFocus
+                                    />
+                                </div>
+                                <div className="col-span-1">
+                                    <label className="block text-sm font-bold text-slate-700 mb-1">Điện thoại <span className="text-red-500">*</span></label>
+                                    <input
+                                        type="text"
+                                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition-all"
+                                        value={editingCtv.phone || ''}
+                                        onChange={e => setEditingCtv({ ...editingCtv, phone: e.target.value })}
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="col-span-1">
+                                    <label className="block text-sm font-bold text-slate-700 mb-1">Ngành nghề</label>
+                                    <input
+                                        type="text"
+                                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition-all"
+                                        value={editingCtv.industry || ''}
+                                        onChange={e => setEditingCtv({ ...editingCtv, industry: e.target.value })}
+                                    />
+                                </div>
+                                <div className="col-span-1">
+                                    <label className="block text-sm font-bold text-slate-700 mb-1">Mảng hợp tác</label>
+                                    <input
+                                        type="text"
+                                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition-all"
+                                        value={editingCtv.segment || ''}
+                                        onChange={e => setEditingCtv({ ...editingCtv, segment: e.target.value })}
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="col-span-1">
+                                    <label className="block text-sm font-bold text-slate-700 mb-1">Email</label>
+                                    <input
+                                        type="email"
+                                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition-all"
+                                        value={editingCtv.email || ''}
+                                        onChange={e => setEditingCtv({ ...editingCtv, email: e.target.value })}
+                                        placeholder="vd: ctv@email.com"
+                                    />
+                                </div>
+                                <div className="col-span-1">
+                                    <label className="block text-sm font-bold text-slate-700 mb-1">Địa chỉ</label>
+                                    <input
+                                        type="text"
+                                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition-all"
+                                        value={editingCtv.address || ''}
+                                        onChange={e => setEditingCtv({ ...editingCtv, address: e.target.value })}
+                                        placeholder="Số nhà, đường..."
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="col-span-1">
+                                    <label className="block text-sm font-bold text-slate-700 mb-1">Khu vực</label>
+                                    <select
+                                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none bg-white focus:border-blue-500 transition-all"
+                                        value={editingCtv.city || ''}
+                                        onChange={e => setEditingCtv({ ...editingCtv, city: e.target.value })}
+                                    >
+                                        <option value="">-- Chọn khu vực --</option>
+                                        <option value="Hà Nội">Hà Nội</option>
+                                        <option value="Hồ Chí Minh">Hồ Chí Minh</option>
+                                        <option value="Đà Nẵng">Đà Nẵng</option>
+                                        <option value="Khác">Khác</option>
+                                    </select>
+                                </div>
+                                <div className="col-span-1">
+                                    <label className="block text-sm font-bold text-slate-700 mb-1">Trạng thái</label>
+                                    <select
+                                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none bg-white focus:border-blue-500 transition-all"
+                                        value={editingCtv.status || 'New'}
+                                        onChange={e => setEditingCtv({ ...editingCtv, status: e.target.value as ICollaborator['status'] })}
+                                    >
+                                        <option value="New">New</option>
+                                        <option value="Active">Active</option>
+                                        <option value="Need Support">Need Support</option>
+                                        <option value="Stopped">Stopped</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="col-span-2">
+                                    <label className="block text-sm font-bold text-slate-700 mb-1">Sale phụ trách</label>
+                                    <select
+                                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none bg-white focus:border-blue-500 transition-all"
+                                        value={editingCtv.ownerId || ''}
+                                        onChange={e => {
+                                            const ownerId = e.target.value;
+                                            setEditingCtv({
+                                                ...editingCtv,
+                                                ownerId,
+                                                ownerName: getOwnerName(ownerId)
+                                            });
+                                        }}
+                                    >
+                                        <option value="">-- Chọn sale --</option>
+                                        {ownerOptions.map(owner => (
+                                            <option key={owner.id} value={owner.id}>{owner.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-bold text-slate-700 mb-1">Ghi chú</label>
+                                <textarea
+                                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none min-h-[80px] focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all"
+                                    value={editingCtv.notes || ''}
+                                    onChange={e => setEditingCtv({ ...editingCtv, notes: e.target.value })}
+                                    placeholder="Nhập ghi chú chăm sóc CTV..."
+                                />
+                            </div>
+                        </div>
+
+                        <div className="p-4 border-t border-slate-100 flex justify-end gap-3 bg-slate-50">
+                            <button
+                                onClick={() => {
+                                    setIsEditModalOpen(false);
+                                    setEditingCtv(null);
+                                }}
+                                className="px-4 py-2 text-slate-600 font-bold text-sm hover:bg-slate-200 rounded-lg transition-colors"
+                            >
+                                Đóng
+                            </button>
+                            <button
+                                onClick={handleSaveEdit}
+                                disabled={!editingCtv.name || !editingCtv.phone}
+                                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm rounded-lg disabled:opacity-50 disabled:cursor-not-allowed shadow-sm transition-all"
+                            >
+                                Lưu thay đổi
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {selectedCtv && (
                 <CollaboratorCareDrawer
                     ctv={selectedCtv}
                     isOpen={!!selectedCtv}
                     onClose={() => setSelectedCtv(null)}
                     onUpdate={handleUpdateCtv}
+                    onEdit={openEditModal}
                 />
             )}
         </div>

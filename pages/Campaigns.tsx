@@ -18,6 +18,13 @@ import {
   UserPlus
 } from 'lucide-react';
 
+type CampaignType = 'manual' | 'auto';
+
+const CAMPAIGN_TYPE_OPTIONS: { value: CampaignType; label: string; apiLabel: string }[] = [
+  { value: 'manual', label: 'Chiến dịch thường', apiLabel: 'API Off' },
+  { value: 'auto', label: 'Chiến dịch tự động', apiLabel: 'API On' }
+];
+
 // --- MOCK DATA ---
 const CAMPAIGNS = [
   {
@@ -31,6 +38,8 @@ const CAMPAIGNS = [
     spent: 24500000,
     revenue: 980000000,
     leads: 1567,
+    campaignType: 'auto' as CampaignType,
+    apiConnected: true,
     color: 'bg-blue-100 text-blue-700'
   },
   {
@@ -44,6 +53,8 @@ const CAMPAIGNS = [
     spent: 18000000,
     revenue: 45000000,
     leads: 124,
+    campaignType: 'auto' as CampaignType,
+    apiConnected: true,
     color: 'bg-orange-100 text-orange-700'
   },
   {
@@ -57,6 +68,8 @@ const CAMPAIGNS = [
     spent: 0,
     revenue: 0,
     leads: 0,
+    campaignType: 'manual' as CampaignType,
+    apiConnected: false,
     color: 'bg-purple-100 text-purple-700'
   },
   {
@@ -70,6 +83,8 @@ const CAMPAIGNS = [
     spent: 45000000,
     revenue: 120000000,
     leads: 850,
+    campaignType: 'auto' as CampaignType,
+    apiConnected: true,
     color: 'bg-pink-100 text-pink-700'
   },
   {
@@ -83,13 +98,41 @@ const CAMPAIGNS = [
     spent: 500000,
     revenue: 35000000,
     leads: 45,
+    campaignType: 'manual' as CampaignType,
+    apiConnected: false,
     color: 'bg-slate-100 text-slate-700'
   }
 ];
 
+const CHANNEL_DEFAULT_BUDGETS: Record<string, number> = {
+  Facebook: 30000000,
+  'Google Ads': 25000000,
+  TikTok: 40000000,
+  Email: 3000000,
+  'Event/Offline': 10000000,
+  Zalo: 15000000
+};
+
+const getTodayISODate = () => new Date().toISOString().split('T')[0];
+
+const createDefaultCampaignData = (channel = 'Facebook') => ({
+  name: '',
+  channel,
+  campaignType: 'manual' as CampaignType,
+  apiConnected: false,
+  status: 'Running',
+  startDate: getTodayISODate(),
+  endDate: '',
+  budget: CHANNEL_DEFAULT_BUDGETS[channel] ?? 0,
+  spent: 0,
+  revenue: 0,
+  reportFileNames: [] as string[]
+});
+
 const Campaigns: React.FC = () => {
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
+  const [campaignTypeTab, setCampaignTypeTab] = useState<CampaignType>('manual');
   const [statusFilter, setStatusFilter] = useState('All');
   const [viewMode, setViewMode] = useState<'table' | 'kanban'>('table');
 
@@ -99,16 +142,40 @@ const Campaigns: React.FC = () => {
 
   // --- CREATE MODAL STATE ---
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [newCampaignData, setNewCampaignData] = useState({
-    name: '',
-    channel: 'Facebook',
-    status: 'Running',
-    startDate: new Date().toISOString().split('T')[0],
-    endDate: '',
-    budget: 0,
-    spent: 0,
-    revenue: 0
-  });
+  const [newCampaignData, setNewCampaignData] = useState(() => createDefaultCampaignData());
+
+  const handleOpenCreateModal = () => {
+    setNewCampaignData(createDefaultCampaignData());
+    setShowCreateModal(true);
+  };
+
+  const handleChannelChange = (channel: string) => {
+    setNewCampaignData(prev => ({
+      ...prev,
+      channel,
+      budget: CHANNEL_DEFAULT_BUDGETS[channel] ?? prev.budget
+    }));
+  };
+
+  const handleCampaignTypeChange = (campaignType: CampaignType) => {
+    setNewCampaignData(prev => ({
+      ...prev,
+      campaignType,
+      apiConnected: campaignType === 'auto'
+    }));
+  };
+
+  const handleReportFileChange = (files: FileList | null) => {
+    if (!files) {
+      setNewCampaignData(prev => ({ ...prev, reportFileNames: [] }));
+      return;
+    }
+
+    setNewCampaignData(prev => ({
+      ...prev,
+      reportFileNames: Array.from(files).map(file => file.name)
+    }));
+  };
 
   const handleSaveCampaign = () => {
     if (!newCampaignData.name) {
@@ -131,18 +198,14 @@ const Campaigns: React.FC = () => {
     };
     setCampaigns([newEntry, ...campaigns]);
     setShowCreateModal(false);
-    // Reset form
-    setNewCampaignData({
-      name: '', channel: 'Facebook', status: 'Running',
-      startDate: new Date().toISOString().split('T')[0],
-      endDate: '', budget: 0, spent: 0, revenue: 0
-    });
+    setNewCampaignData(createDefaultCampaignData());
   };
 
   const filteredCampaigns = campaigns.filter(c => {
     const matchesSearch = c.name.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === 'All' || c.status === statusFilter;
-    return matchesSearch && matchesStatus;
+    const matchesType = c.campaignType === campaignTypeTab;
+    return matchesSearch && matchesStatus && matchesType;
   });
 
   const formatCurrency = (val: number) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 }).format(val);
@@ -189,7 +252,7 @@ const Campaigns: React.FC = () => {
   };
 
   const renderContent = () => {
-    if (filteredCampaigns.length === 0 && searchTerm) {
+    if (filteredCampaigns.length === 0) {
       return (
         <div className="flex flex-col items-center justify-center py-20 bg-white rounded-xl border border-dashed border-slate-300 col-span-full">
           <Megaphone size={48} className="text-slate-300 mb-4" />
@@ -209,6 +272,7 @@ const Campaigns: React.FC = () => {
                 <tr>
                   <th className="p-4">Tên chiến dịch</th>
                   <th className="p-4">Kênh</th>
+                  <th className="p-4 text-center">API</th>
                   <th className="p-4 text-center">Trạng thái</th>
                   <th className="p-4">Thời gian</th>
                   <th className="p-4 text-right">Ngân sách</th>
@@ -227,6 +291,16 @@ const Campaigns: React.FC = () => {
                   >
                     <td className="p-4 font-bold text-slate-900">{c.name}</td>
                     <td className="p-4 text-slate-600">{c.channel}</td>
+                    <td className="p-4 text-center">
+                      <span
+                        className={`inline-flex px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-widest border ${c.apiConnected
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          : 'bg-slate-100 text-slate-500 border-slate-200'
+                          }`}
+                      >
+                        {c.apiConnected ? 'On' : 'Off'}
+                      </span>
+                    </td>
                     <td className="p-4 flex justify-center">
                       <div
                         onClick={(e) => handleToggleStatus(e, c.id)}
@@ -279,12 +353,12 @@ const Campaigns: React.FC = () => {
                     {status}
                   </div>
                   <span className="bg-white px-2 py-0.5 rounded-md text-xs font-bold text-slate-500 shadow-sm">
-                    {campaigns.filter(c => c.status === status).length}
+                    {filteredCampaigns.filter(c => c.status === status).length}
                   </span>
                 </div>
 
                 <div className="flex-1 overflow-y-auto p-3 space-y-3 custom-scrollbar">
-                  {campaigns.filter(c => c.status === status).map(campaign => (
+                  {filteredCampaigns.filter(c => c.status === status).map(campaign => (
                     <div
                       key={campaign.id}
                       draggable
@@ -316,9 +390,17 @@ const Campaigns: React.FC = () => {
                       </div>
 
                       <div className="pt-3 border-t border-slate-100 flex justify-between items-center">
-                        <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded border border-slate-200">
-                          {campaign.channel}
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded border border-slate-200">
+                            {campaign.channel}
+                          </span>
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded border font-bold ${campaign.apiConnected
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            : 'bg-slate-100 text-slate-500 border-slate-200'
+                            }`}>
+                            API {campaign.apiConnected ? 'ON' : 'OFF'}
+                          </span>
+                        </div>
                         <div className="text-[10px] text-slate-400">
                           {campaign.endDate}
                         </div>
@@ -360,12 +442,28 @@ const Campaigns: React.FC = () => {
               <BarChart3 size={20} className="text-blue-600" /> Đánh giá
             </button>
             <button
-              onClick={() => setShowCreateModal(true)}
+              onClick={handleOpenCreateModal}
               className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg font-bold flex items-center gap-2 shadow-sm transition-all focus:ring-4 focus:ring-blue-100"
             >
               <Plus size={20} /> Tạo chiến dịch mới
             </button>
           </div>
+        </div>
+
+        {/* Campaign Type Tabs */}
+        <div className="inline-flex items-center gap-1 bg-white p-1 rounded-xl border border-slate-200 shadow-sm w-fit">
+          {CAMPAIGN_TYPE_OPTIONS.map(option => (
+            <button
+              key={option.value}
+              onClick={() => setCampaignTypeTab(option.value)}
+              className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors ${campaignTypeTab === option.value
+                ? 'bg-slate-800 text-white'
+                : 'text-slate-600 hover:bg-slate-100'
+                }`}
+            >
+              {option.label}
+            </button>
+          ))}
         </div>
 
         {/* Controls Bar */}
@@ -464,7 +562,7 @@ const Campaigns: React.FC = () => {
                     <select
                       className="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none bg-white font-medium text-slate-700 transition-all"
                       value={newCampaignData.channel}
-                      onChange={e => setNewCampaignData({ ...newCampaignData, channel: e.target.value })}
+                      onChange={e => handleChannelChange(e.target.value)}
                     >
                       <option value="Facebook">Facebook</option>
                       <option value="Google Ads">Google Ads</option>
@@ -485,6 +583,37 @@ const Campaigns: React.FC = () => {
                       </button>
                       <span className={`text-sm font-bold ${newCampaignData.status === 'Running' ? 'text-green-600' : 'text-slate-500'}`}>
                         {newCampaignData.status === 'Running' ? 'Đang chạy' : 'Tạm dừng'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-slate-700 text-sm font-bold mb-2">Loại chiến dịch</label>
+                    <select
+                      className="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none bg-white font-medium text-slate-700 transition-all"
+                      value={newCampaignData.campaignType}
+                      onChange={e => handleCampaignTypeChange(e.target.value as CampaignType)}
+                    >
+                      {CAMPAIGN_TYPE_OPTIONS.map(option => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-slate-700 text-sm font-bold mb-2">Đấu nối API</label>
+                    <div className="h-[42px] px-3 border border-slate-200 rounded-lg bg-slate-50 flex items-center justify-between">
+                      <span className={`text-sm font-bold ${newCampaignData.apiConnected ? 'text-emerald-600' : 'text-slate-500'}`}>
+                        {newCampaignData.apiConnected ? 'Đang bật' : 'Đang tắt'}
+                      </span>
+                      <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-widest border ${newCampaignData.apiConnected
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                        : 'bg-slate-100 text-slate-500 border-slate-200'
+                        }`}>
+                        {newCampaignData.apiConnected ? 'On' : 'Off'}
                       </span>
                     </div>
                   </div>
@@ -534,29 +663,45 @@ const Campaigns: React.FC = () => {
                     </div>
                   </div>
                   <div>
-                    <label className="block text-slate-600 text-xs font-bold mb-1.5">Đã chi tiêu (Mặc định)</label>
+                    <label className="block text-slate-600 text-xs font-bold mb-1.5">Đã chi tiêu</label>
                     <div className="relative">
                       <input
                         type="number"
-                        className="w-full pl-4 pr-10 py-2 border border-slate-200 rounded-lg text-sm font-bold outline-none bg-slate-50 text-slate-400 cursor-not-allowed"
-                        value={0}
-                        readOnly
+                        className="w-full pl-4 pr-10 py-2 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-500"
+                        value={newCampaignData.spent}
+                        onChange={e => setNewCampaignData({ ...newCampaignData, spent: Number(e.target.value) })}
                       />
-                      <span className="absolute right-3 top-2.5 text-slate-300 text-xs font-bold font-inter">đ</span>
+                      <span className="absolute right-3 top-2.5 text-slate-400 text-xs font-bold font-inter">đ</span>
                     </div>
                   </div>
                   <div>
-                    <label className="block text-slate-600 text-xs font-bold mb-1.5">Doanh thu (Mặc định)</label>
+                    <label className="block text-slate-600 text-xs font-bold mb-1.5">Doanh thu</label>
                     <div className="relative">
                       <input
                         type="number"
-                        className="w-full pl-4 pr-10 py-2 border border-slate-200 rounded-lg text-sm font-bold outline-none bg-slate-50 text-slate-400 cursor-not-allowed"
-                        value={0}
-                        readOnly
+                        className="w-full pl-4 pr-10 py-2 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-500"
+                        value={newCampaignData.revenue}
+                        onChange={e => setNewCampaignData({ ...newCampaignData, revenue: Number(e.target.value) })}
                       />
-                      <span className="absolute right-3 top-2.5 text-slate-300 text-xs font-bold font-inter">đ</span>
+                      <span className="absolute right-3 top-2.5 text-slate-400 text-xs font-bold font-inter">đ</span>
                     </div>
                   </div>
+                </div>
+
+                <div className="space-y-2 pt-2">
+                  <label className="block text-slate-600 text-xs font-bold">Đính kèm file báo cáo</label>
+                  <input
+                    type="file"
+                    multiple
+                    accept=".pdf,.xlsx,.xls,.csv,.doc,.docx,.ppt,.pptx,.png,.jpg,.jpeg"
+                    className="w-full text-sm text-slate-600 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200"
+                    onChange={e => handleReportFileChange(e.target.files)}
+                  />
+                  {newCampaignData.reportFileNames.length > 0 && (
+                    <p className="text-xs text-slate-500">
+                      Đã chọn: {newCampaignData.reportFileNames.join(', ')}
+                    </p>
+                  )}
                 </div>
               </div>
             </div>

@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
     ArrowLeft,
@@ -24,7 +24,11 @@ import {
     GripVertical,
     MoreHorizontal,
     Search,
-    Zap
+    Zap,
+    Upload,
+    Plus,
+    FileDown,
+    X
 } from 'lucide-react';
 import {
     AreaChart,
@@ -35,6 +39,7 @@ import {
     Tooltip,
     ResponsiveContainer
 } from 'recharts';
+import * as XLSX from 'xlsx';
 
 // --- MOCK DATA ---
 const CAMPAIGNS_METRICS = {
@@ -61,13 +66,44 @@ const ROI_CHART_DATA = [
     { name: '10/2', revenue: 1100, budget: 420 },
 ];
 
+const LEAD_STATUS_OPTIONS = ['Mới', 'Đã liên hệ', 'Đạt chuẩn', 'Chốt', 'Hủy'];
+
+type LeadRecord = {
+    id: number;
+    name: string;
+    phone: string;
+    email: string;
+    status: string;
+    verified: boolean;
+    source: string;
+};
+
+const IMPORT_TEMPLATE_ROWS = [
+    {
+        ho_ten: 'Nguyen Van A',
+        dien_thoai: '0901234567',
+        email: 'a@example.com',
+        trang_thai: 'Mới',
+        xac_thuc: 'TRUE',
+        nguon: 'Facebook'
+    },
+    {
+        ho_ten: 'Tran Thi B',
+        dien_thoai: '0912345678',
+        email: 'b@example.com',
+        trang_thai: 'Đã liên hệ',
+        xac_thuc: 'FALSE',
+        nguon: 'Google Ads'
+    }
+];
+
 // Mock Leads
-const INITIAL_LEADS = Array.from({ length: 20 }, (_, i) => ({
+const INITIAL_LEADS: LeadRecord[] = Array.from({ length: 20 }, (_, i) => ({
     id: i + 1,
     name: `Nguyễn Văn Lead ${i + 1}`,
     phone: `090${Math.floor(Math.random() * 10000000)}`,
     email: `lead${i + 1}@example.com`,
-    status: ['Mới', 'Đã liên hệ', 'Đạt chuẩn', 'Chốt', 'Hủy'][Math.floor(Math.random() * 5)],
+    status: LEAD_STATUS_OPTIONS[Math.floor(Math.random() * LEAD_STATUS_OPTIONS.length)],
     verified: Math.random() > 0.3,
     source: 'Facebook'
 }));
@@ -85,8 +121,162 @@ const CampaignDetails: React.FC = () => {
     const [fbPixelId, setFbPixelId] = useState('1293849182312');
 
     // State for Leads (Drag & Drop)
-    const [leads, setLeads] = useState(INITIAL_LEADS);
+    const [leads, setLeads] = useState<LeadRecord[]>(INITIAL_LEADS);
     const [draggedItem, setDraggedItem] = useState<number | null>(null);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [showManualModal, setShowManualModal] = useState(false);
+    const [importing, setImporting] = useState(false);
+    const [manualLead, setManualLead] = useState({
+        name: '',
+        phone: '',
+        email: '',
+        status: LEAD_STATUS_OPTIONS[0],
+        verified: false,
+        source: 'Facebook'
+    });
+    const importInputRef = useRef<HTMLInputElement>(null);
+
+    const normalizeLeadStatus = (value: string) => {
+        const raw = value.trim();
+        const normalized = raw.toLowerCase();
+
+        if (LEAD_STATUS_OPTIONS.includes(raw)) return raw;
+        if (['new', 'moi'].includes(normalized)) return 'Mới';
+        if (['contacted', 'lien he', 'da lien he'].includes(normalized)) return 'Đã liên hệ';
+        if (['qualified', 'dat chuan'].includes(normalized)) return 'Đạt chuẩn';
+        if (['won', 'chot'].includes(normalized)) return 'Chốt';
+        if (['cancelled', 'canceled', 'huy'].includes(normalized)) return 'Hủy';
+        return LEAD_STATUS_OPTIONS[0];
+    };
+
+    const parseVerified = (value: string) => {
+        const normalized = value.trim().toLowerCase();
+        return ['1', 'true', 'yes', 'y', 'verified', 'co', 'da'].includes(normalized);
+    };
+
+    const getCellValue = (row: Record<string, unknown>, keys: string[]) => {
+        for (const key of keys) {
+            const cell = row[key];
+            if (cell !== undefined && cell !== null && String(cell).trim()) {
+                return String(cell).trim();
+            }
+        }
+        return '';
+    };
+
+    const filteredLeads = leads.filter(lead => {
+        const keyword = searchTerm.trim().toLowerCase();
+        if (!keyword) return true;
+        return [lead.name, lead.phone, lead.email, lead.status, lead.source]
+            .join(' ')
+            .toLowerCase()
+            .includes(keyword);
+    });
+
+    const addLeads = (rows: Omit<LeadRecord, 'id'>[]) => {
+        if (!rows.length) return;
+
+        setLeads(prev => {
+            let nextId = prev.length ? Math.max(...prev.map(lead => lead.id)) + 1 : 1;
+            const mappedRows = rows.map(row => ({ ...row, id: nextId++ }));
+            return [...mappedRows, ...prev];
+        });
+    };
+
+    const resetManualLead = () => {
+        setManualLead({
+            name: '',
+            phone: '',
+            email: '',
+            status: LEAD_STATUS_OPTIONS[0],
+            verified: false,
+            source: 'Facebook'
+        });
+    };
+
+    const handleAddManualLead = () => {
+        if (!manualLead.name.trim() || !manualLead.phone.trim()) {
+            alert('Vui lòng nhập Họ tên và Số điện thoại.');
+            return;
+        }
+
+        addLeads([{
+            name: manualLead.name.trim(),
+            phone: manualLead.phone.trim(),
+            email: manualLead.email.trim(),
+            status: manualLead.status,
+            verified: manualLead.verified,
+            source: manualLead.source.trim() || 'Manual'
+        }]);
+
+        setShowManualModal(false);
+        resetManualLead();
+    };
+
+    const handleImportFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+
+        setImporting(true);
+        try {
+            const buffer = await file.arrayBuffer();
+            const workbook = XLSX.read(buffer, { type: 'array' });
+            const firstSheet = workbook.SheetNames[0];
+            if (!firstSheet) {
+                alert('File import không có dữ liệu.');
+                return;
+            }
+
+            const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets[firstSheet], { defval: '' });
+            if (!rows.length) {
+                alert('File import không có dòng dữ liệu.');
+                return;
+            }
+
+            const parsedRows = rows
+                .map((row) => {
+                    const name = getCellValue(row, ['ho_ten', 'HoTen', 'name', 'Name', 'full_name']);
+                    const phone = getCellValue(row, ['dien_thoai', 'DienThoai', 'phone', 'Phone', 'so_dien_thoai', 'sdt']);
+                    const email = getCellValue(row, ['email', 'Email']);
+                    const source = getCellValue(row, ['nguon', 'Nguon', 'source', 'Source']) || 'Import';
+                    const status = normalizeLeadStatus(getCellValue(row, ['trang_thai', 'TrangThai', 'status', 'Status']));
+                    const verified = parseVerified(getCellValue(row, ['xac_thuc', 'XacThuc', 'verified', 'Verified']));
+
+                    if (!name || !phone) return null;
+
+                    return {
+                        name,
+                        phone,
+                        email,
+                        source,
+                        status,
+                        verified
+                    } satisfies Omit<LeadRecord, 'id'>;
+                })
+                .filter((row): row is Omit<LeadRecord, 'id'> => Boolean(row));
+
+            if (!parsedRows.length) {
+                alert('Không có dòng hợp lệ. Cần tối thiểu họ tên và số điện thoại.');
+                return;
+            }
+
+            addLeads(parsedRows);
+            alert(`Đã import ${parsedRows.length} lead.`);
+        } catch (error) {
+            console.error(error);
+            alert('Import thất bại. Vui lòng kiểm tra file mẫu.');
+        } finally {
+            setImporting(false);
+            event.target.value = '';
+        }
+    };
+
+    const handleDownloadTemplate = () => {
+        const worksheet = XLSX.utils.json_to_sheet(IMPORT_TEMPLATE_ROWS);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, 'Template');
+        XLSX.writeFile(workbook, `campaign_data_template_${id || 'campaign'}.xlsx`);
+    };
 
     // Tabs Configuration
     const tabs = [
@@ -145,7 +335,7 @@ const CampaignDetails: React.FC = () => {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-50">
-                                {leads.map(lead => (
+                                {filteredLeads.map(lead => (
                                     <tr key={lead.id} className="hover:bg-slate-50/80 transition-colors group">
                                         <td className="px-8 py-4 font-bold text-slate-800 tracking-tight">{lead.name}</td>
                                         <td className="px-8 py-4 text-slate-600 font-medium tracking-tight whitespace-nowrap">{lead.phone}</td>
@@ -194,10 +384,10 @@ const CampaignDetails: React.FC = () => {
                             >
                                 <div className="p-5 font-bold text-slate-700 uppercase text-[10px] tracking-widest flex justify-between items-center bg-white border-b border-slate-200">
                                     {col}
-                                    <span className="bg-slate-100 px-2 py-0.5 rounded-lg text-[10px] font-black text-slate-500">{leads.filter(l => l.status === col).length}</span>
+                                    <span className="bg-slate-100 px-2 py-0.5 rounded-lg text-[10px] font-black text-slate-500">{filteredLeads.filter(l => l.status === col).length}</span>
                                 </div>
                                 <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
-                                    {leads.filter(l => l.status === col).map(lead => (
+                                    {filteredLeads.filter(l => l.status === col).map(lead => (
                                         <div
                                             key={lead.id}
                                             draggable
@@ -252,7 +442,7 @@ const CampaignDetails: React.FC = () => {
                                     <td className="border border-slate-200 px-3 py-2">Nguồn</td>
                                     <td className="border border-slate-200 px-3 py-2">Trạng thái</td>
                                 </tr>
-                                {leads.map(lead => (
+                                {filteredLeads.map(lead => (
                                     <tr key={lead.id} className="hover:bg-blue-50/50 transition-colors">
                                         <td className="border border-slate-200 px-3 py-1.5">{lead.id}</td>
                                         <td className="border border-slate-200 px-3 py-1.5">{lead.name}</td>
@@ -548,11 +738,47 @@ const CampaignDetails: React.FC = () => {
                                         ))}
                                     </div>
                                 </div>
-                                <div className="flex items-center gap-3">
+                                <div className="flex flex-wrap items-center gap-3 justify-end">
+                                    <button
+                                        onClick={() => setShowManualModal(true)}
+                                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 shadow-sm transition-colors"
+                                    >
+                                        <Plus size={16} /> Nhập tay
+                                    </button>
+
+                                    <button
+                                        onClick={() => importInputRef.current?.click()}
+                                        disabled={importing}
+                                        className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-xl text-sm text-slate-700 font-bold hover:bg-slate-50 shadow-sm disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+                                    >
+                                        <Upload size={16} /> {importing ? 'Đang import...' : 'Import'}
+                                    </button>
+
+                                    <button
+                                        onClick={handleDownloadTemplate}
+                                        className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-xl text-sm text-slate-700 font-bold hover:bg-slate-50 shadow-sm transition-colors"
+                                    >
+                                        <FileDown size={16} /> Xuất file mẫu
+                                    </button>
+
+                                    <input
+                                        ref={importInputRef}
+                                        type="file"
+                                        accept=".xlsx,.xls,.csv"
+                                        className="hidden"
+                                        onChange={handleImportFileChange}
+                                    />
+
                                     <div className="relative">
                                         <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                                        <input className="pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-blue-400 w-64 transition-all" placeholder="Tìm tên, số điện thoại..." />
+                                        <input
+                                            className="pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-blue-400 w-64 transition-all"
+                                            placeholder="Tìm tên, số điện thoại..."
+                                            value={searchTerm}
+                                            onChange={(e) => setSearchTerm(e.target.value)}
+                                        />
                                     </div>
+
                                     <button className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-xl text-sm text-slate-600 font-bold hover:bg-slate-50 shadow-sm">
                                         <Filter size={16} /> Bộ lọc
                                     </button>
@@ -568,13 +794,120 @@ const CampaignDetails: React.FC = () => {
                             </div>
 
                             {(viewMode === 'table' || viewMode === 'sheet') && (
-                                <div className="p-4 text-center text-slate-400 text-[10px] font-black uppercase tracking-widest">Hiển thị {leads.length}/1567 kết quả</div>
+                                <div className="p-4 text-center text-slate-400 text-[10px] font-black uppercase tracking-widest">Hiển thị {filteredLeads.length}/{leads.length} kết quả</div>
                             )}
                         </div>
                     )}
 
                 </div>
             </div>
+
+            {showManualModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                    <div
+                        className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+                        onClick={() => {
+                            setShowManualModal(false);
+                            resetManualLead();
+                        }}
+                    ></div>
+                    <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
+                        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 bg-slate-50">
+                            <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Nhập tay lead</h3>
+                            <button
+                                onClick={() => {
+                                    setShowManualModal(false);
+                                    resetManualLead();
+                                }}
+                                className="text-slate-400 hover:text-slate-600 transition-colors"
+                            >
+                                <X size={18} />
+                            </button>
+                        </div>
+
+                        <div className="p-5 space-y-4">
+                            <div>
+                                <label className="block text-xs font-bold text-slate-600 mb-1.5">Họ tên *</label>
+                                <input
+                                    className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:border-blue-500"
+                                    value={manualLead.name}
+                                    onChange={(e) => setManualLead(prev => ({ ...prev, name: e.target.value }))}
+                                />
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-600 mb-1.5">Điện thoại *</label>
+                                    <input
+                                        className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:border-blue-500"
+                                        value={manualLead.phone}
+                                        onChange={(e) => setManualLead(prev => ({ ...prev, phone: e.target.value }))}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-600 mb-1.5">Email</label>
+                                    <input
+                                        className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:border-blue-500"
+                                        value={manualLead.email}
+                                        onChange={(e) => setManualLead(prev => ({ ...prev, email: e.target.value }))}
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-600 mb-1.5">Trạng thái</label>
+                                    <select
+                                        className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:border-blue-500 bg-white"
+                                        value={manualLead.status}
+                                        onChange={(e) => setManualLead(prev => ({ ...prev, status: normalizeLeadStatus(e.target.value) }))}
+                                    >
+                                        {LEAD_STATUS_OPTIONS.map(status => (
+                                            <option key={status} value={status}>{status}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-600 mb-1.5">Nguồn</label>
+                                    <input
+                                        className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:border-blue-500"
+                                        value={manualLead.source}
+                                        onChange={(e) => setManualLead(prev => ({ ...prev, source: e.target.value }))}
+                                    />
+                                </div>
+                            </div>
+
+                            <label className="flex items-center gap-2 text-sm text-slate-700 font-medium cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={manualLead.verified}
+                                    onChange={(e) => setManualLead(prev => ({ ...prev, verified: e.target.checked }))}
+                                    className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                />
+                                Xác thực lead
+                            </label>
+                        </div>
+
+                        <div className="px-5 py-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-2">
+                            <button
+                                onClick={() => {
+                                    setShowManualModal(false);
+                                    resetManualLead();
+                                }}
+                                className="px-4 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-200 transition-colors"
+                            >
+                                Hủy
+                            </button>
+                            <button
+                                onClick={handleAddManualLead}
+                                className="px-4 py-2 rounded-lg text-sm font-bold bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+                            >
+                                Lưu lead
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

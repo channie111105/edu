@@ -1,4 +1,4 @@
-
+﻿
 import React, { useState, useMemo, useEffect } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -8,16 +8,18 @@ import {
   Users,
   ShieldCheck,
   MousePointerClick,
-  DollarSign,
   TrendingUp,
   TrendingDown,
   MoreVertical,
-  Calendar,
-  MapPin,
-  FileText,
-  Filter
+  FileText
 } from 'lucide-react';
-import DashboardFilters, { DateRangeType, LocationType } from '../components/DashboardFilters';
+import DashboardFilters, {
+  DateRangeType,
+  LocationType,
+  ProductFilterType,
+  VerificationFilterType,
+  SelectOption
+} from '../components/DashboardFilters';
 import { getLeads, getDeals } from '../utils/storage';
 import { ILead, IDeal, LeadStatus, DealStage } from '../types';
 
@@ -38,6 +40,17 @@ const SOURCE_COLORS: Record<string, string> = {
   'Email': '#ea4335',         // Red
 };
 
+const PRODUCT_COLORS: Record<string, string> = {
+  'tiếng đức - a1': '#6366f1',
+  'tiếng đức - a2': '#818cf8',
+  'tiếng đức - b1': '#4f46e5',
+  'tiếng đức - combo': '#a5b4fc',
+  'tiếng trung - hsk 1': '#f59e0b',
+  'tiếng trung - hsk 2': '#f97316',
+  'tiếng trung - combo': '#fbbf24',
+  'khác': '#94a3b8',
+};
+
 // Status Colors for Stacked Chart
 const STATUS_COLORS: Record<string, string> = {
   'New': '#dbbda0',         // Clay/Beige
@@ -47,12 +60,108 @@ const STATUS_COLORS: Record<string, string> = {
   'Unqualified': '#cbd5e1'  // Slate 300
 };
 
-type DateRange = '30days' | 'thisMonth' | 'thisQuarter' | 'thisYear';
-type Location = 'all' | 'hanoi' | 'hcm' | 'danang';
+const isVerifiedLead = (lead: ILead) =>
+  lead.status === LeadStatus.QUALIFIED ||
+  lead.status === LeadStatus.CONTACTED ||
+  lead.status === LeadStatus.CONVERTED;
+
+const normalizeText = (value?: string) =>
+  (value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+
+const normalizeProgram = (value?: string) => {
+  const normalized = normalizeText(value);
+  if (normalized.includes('duc') || normalized.includes('german')) return 'Tiếng Đức';
+  if (normalized.includes('trung') || normalized.includes('chinese')) return 'Tiếng Trung';
+  return '';
+};
+
+const inferGermanProductLevel = (raw: string) => {
+  if (raw.includes('a1')) return 'A1';
+  if (raw.includes('a2')) return 'A2';
+  if (raw.includes('b1')) return 'B1';
+  if (raw.includes('combo')) return 'Combo';
+  return 'Combo';
+};
+
+const inferChineseProductLevel = (raw: string) => {
+  if (raw.includes('hsk1') || raw.includes('hsk 1')) return 'HSK 1';
+  if (raw.includes('hsk2') || raw.includes('hsk 2')) return 'HSK 2';
+  if (raw.includes('combo')) return 'Combo';
+  return 'Combo';
+};
+
+const getLeadProductLabel = (lead: ILead) => {
+  const program = normalizeProgram(lead.program);
+  const raw = normalizeText(`${lead.product || ''} ${lead.program || ''}`);
+
+  if (program === 'Tiếng Đức') return `Tiếng Đức - ${inferGermanProductLevel(raw)}`;
+  if (program === 'Tiếng Trung') return `Tiếng Trung - ${inferChineseProductLevel(raw)}`;
+
+  if (lead.product?.trim()) return lead.product.trim();
+  return 'Khác';
+};
+
+const isGermanOrChineseLead = (lead: ILead) => {
+  const program = normalizeProgram(lead.program);
+  return program === 'Tiếng Đức' || program === 'Tiếng Trung';
+};
+
+const getProductColor = (productName: string) => {
+  const key = normalizeText(productName);
+  if (PRODUCT_COLORS[key]) return PRODUCT_COLORS[key];
+  if (key.includes('tiếng đức')) return '#6366f1';
+  if (key.includes('tiếng trung')) return '#f59e0b';
+  return PRODUCT_COLORS['khác'];
+};
+
+const SOURCE_DISPLAY_NAMES: Record<string, string> = {
+  facebook: 'Facebook',
+  hotline: 'Hotline',
+  referral: 'Referral',
+  website: 'Website',
+  ad_campaign: 'Ad Campaign',
+  company_data: 'Company Data',
+  sale_self: 'Sale Self',
+  unknown: 'Unknown',
+  google: 'Google',
+  zalo: 'Zalo',
+  tiktok: 'TikTok',
+  email: 'Email',
+};
+
+const formatSourceName = (rawSource?: string) => {
+  const raw = (rawSource || 'unknown').toLowerCase();
+  return SOURCE_DISPLAY_NAMES[raw] || raw.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
+};
+
+const getWeekStart = (input: Date) => {
+  const date = new Date(input);
+  const dayOfWeek = (date.getDay() + 6) % 7; // Monday = 0
+  date.setDate(date.getDate() - dayOfWeek);
+  date.setHours(0, 0, 0, 0);
+  return date;
+};
+
+const getMonthStart = (input: Date) => {
+  const date = new Date(input);
+  date.setDate(1);
+  date.setHours(0, 0, 0, 0);
+  return date;
+};
+
+const toDayKey = (date: Date) => date.toISOString().split('T')[0];
 
 // --- MOCK DATA GENERATOR ---
 const generateMockLeads = (): ILead[] => {
   const sources = ['facebook', 'website', 'referral', 'hotline', 'Google', 'Tiktok', 'Email'];
+  const programs: Array<ILead['program']> = ['Tiếng Đức', 'Tiếng Trung'];
+  const germanProducts = ['A1', 'A2', 'B1', 'Combo'];
+  const chineseProducts = ['HSK 1', 'HSK 2', 'Combo'];
+  const cities = ['Hà Nội', 'Hồ Chí Minh', 'Đà Nẵng'];
   const statuses = [
     LeadStatus.NEW,
     LeadStatus.ASSIGNED,
@@ -67,6 +176,11 @@ const generateMockLeads = (): ILead[] => {
   for (let i = 0; i < 200; i++) {
     const randomSource = sources[Math.floor(Math.random() * sources.length)];
     const randomStatus = statuses[Math.floor(Math.random() * statuses.length)];
+    const randomProgram = programs[Math.floor(Math.random() * programs.length)];
+    const randomProduct = randomProgram === 'Tiếng Đức'
+      ? germanProducts[Math.floor(Math.random() * germanProducts.length)]
+      : chineseProducts[Math.floor(Math.random() * chineseProducts.length)];
+    const randomCity = cities[Math.floor(Math.random() * cities.length)];
 
     // Random Date within last 60 days
     const date = new Date();
@@ -83,22 +197,31 @@ const generateMockLeads = (): ILead[] => {
       createdAt: date.toISOString(),
       lastInteraction: date.toISOString(),
       notes: 'Mock data',
-      program: 'Tiếng Đức'
+      program: randomProgram,
+      product: randomProduct,
+      city: randomCity
     });
   }
   return mockLeads;
 };
 
 const MarketingDashboard: React.FC = () => {
-  const [dateRange, setDateRange] = useState<DateRangeType>('30days');
+  const [dateRange, setDateRange] = useState<DateRangeType>('today');
   const [customDate, setCustomDate] = useState<string>('');
   const [location, setLocation] = useState<LocationType>('all');
+  const [product, setProduct] = useState<ProductFilterType>('all');
+  const [verification, setVerification] = useState<VerificationFilterType>('all');
 
   const [leads, setLeads] = useState<ILead[]>([]);
   const [deals, setDeals] = useState<IDeal[]>([]);
 
   // Interactive Filter State
   const [selectedSource, setSelectedSource] = useState<string | null>(null);
+  const [selectedProductDrill, setSelectedProductDrill] = useState<string | null>(null);
+  const [conversionDimension, setConversionDimension] = useState<'source' | 'product'>('source');
+  const [growthGranularity, setGrowthGranularity] = useState<'week' | 'month'>('week');
+  const [growthLookback, setGrowthLookback] = useState<number>(8);
+  const [growthYearOffset, setGrowthYearOffset] = useState<number>(0);
 
   // Load data & Merge with Mock
   useEffect(() => {
@@ -111,8 +234,16 @@ const MarketingDashboard: React.FC = () => {
     setDeals(storedDeals);
   }, []);
 
-  // Filter data based on date range and location (Base Filter)
-  const baseFilteredLeads = useMemo(() => {
+  const productOptions = useMemo<SelectOption[]>(() => {
+    return [
+      { value: 'all', label: 'Tất cả sản phẩm' },
+      { value: 'Tiếng Đức', label: 'Tiếng Đức' },
+      { value: 'Tiếng Trung', label: 'Tiếng Trung' }
+    ];
+  }, []);
+
+  // Filter data based on date range, location and product
+  const leadsFilteredByCore = useMemo(() => {
     let result = [...leads];
     const now = new Date();
 
@@ -165,18 +296,38 @@ const MarketingDashboard: React.FC = () => {
 
     // Location filtering
     if (location !== 'all') {
-      const locationMap: Record<Location, string> = {
-        'all': '',
-        'hanoi': 'Hà Nội',
-        'hcm': 'HCM',
-        'danang': 'Đà Nẵng'
+      const locationKeywords: Record<LocationType, string[]> = {
+        'all': [],
+        'hanoi': ['ha noi', 'hanoi'],
+        'hcm': ['ho chi minh', 'hcm', 'tp hcm', 'tphcm', 'sai gon', 'saigon'],
+        'danang': ['da nang', 'danang']
       };
-      const cityName = locationMap[location];
-      result = result.filter(l => (l as any).city?.includes(cityName));
+      const keywords = locationKeywords[location];
+      result = result.filter((lead) => {
+        const regionRaw = [
+          lead.city,
+          lead.address,
+          lead.marketingData?.region,
+          lead.marketingData?.market
+        ].filter(Boolean).join(' ');
+        const region = normalizeText(regionRaw);
+        return keywords.some((keyword) => region.includes(keyword));
+      });
     }
 
+    if (product !== 'all') {
+      result = result.filter((lead) => normalizeProgram(lead.program) === product);
+    }
     return result;
-  }, [leads, dateRange, location, customDate]);
+  }, [leads, dateRange, location, customDate, product]);
+
+  // Filter data based on verification (for charts)
+  const baseFilteredLeads = useMemo(() => {
+    if (verification === 'all') return leadsFilteredByCore;
+    return leadsFilteredByCore.filter((lead) =>
+      verification === 'verified' ? isVerifiedLead(lead) : !isVerifiedLead(lead)
+    );
+  }, [leadsFilteredByCore, verification]);
 
   // Derived Data for Charts (Affected by selectedSource)
   const chartDataLeads = useMemo(() => {
@@ -186,26 +337,32 @@ const MarketingDashboard: React.FC = () => {
     );
   }, [baseFilteredLeads, selectedSource]);
 
-  // Calculate KPIs (Always Global based on Date/Location, NOT Source Selection - usually KPIs remain high level or should they filter? 
-  // User asked for "charts" to filter. I'll filter KPIs too for consistency if they click a slice)
+  // KPI dataset must ignore verification filter, but still follow other filters/source selection.
+  const chartDataLeadsForKpi = useMemo(() => {
+    if (!selectedSource) return leadsFilteredByCore;
+    return leadsFilteredByCore.filter(l =>
+      (l.source?.toLowerCase() || 'unknown') === selectedSource.toLowerCase()
+    );
+  }, [leadsFilteredByCore, selectedSource]);
+
+  // KPI rules:
+  // - Total Leads, Lead xác thực, % Lead xác thực: ignore verification filter.
+  // - % Chuyển đổi ra Hợp đồng: still follows current chart filter (including verification).
   const kpis = useMemo(() => {
-    const dataToUse = chartDataLeads;
-    const totalLeads = dataToUse.length;
+    const totalLeads = chartDataLeadsForKpi.length;
+    const qualifiedLeads = chartDataLeadsForKpi.filter(isVerifiedLead).length;
+    const qualifiedRate = totalLeads > 0 ? ((qualifiedLeads / totalLeads) * 100).toFixed(1) : '0.0';
 
-    // Mapped Statuses for KPIs
-    const qualifiedLeads = dataToUse.filter(l =>
-      l.status === LeadStatus.QUALIFIED || l.status === LeadStatus.CONTACTED || l.status === LeadStatus.CONVERTED
-    ).length;
-
-    // Get deals from filtered leads
-    const leadIds = dataToUse.map(l => l.id);
+    // Conversion KPI follows verification filter
+    const conversionLeads = chartDataLeads;
+    const conversionBaseTotal = conversionLeads.length;
+    const leadIds = conversionLeads.map(l => l.id);
     const relatedDeals = deals.filter(d => leadIds.includes(d.leadId));
     const wonDeals = relatedDeals.filter(d => d.stage === DealStage.WON).length;
     // Mock won deals relative to mock leads if needed (simple percentage)
-    const displayWonDeals = wonDeals + Math.floor(totalLeads * 0.05); // Approx 5% conversion for mock
+    const displayWonDeals = wonDeals + Math.floor(conversionBaseTotal * 0.05); // Approx 5% conversion for mock
 
-    const conversionRate = totalLeads > 0 ? ((displayWonDeals / totalLeads) * 100).toFixed(1) : '0.0';
-    const qualifiedRate = totalLeads > 0 ? ((qualifiedLeads / totalLeads) * 100).toFixed(1) : '0.0';
+    const conversionRate = conversionBaseTotal > 0 ? ((displayWonDeals / conversionBaseTotal) * 100).toFixed(1) : '0.0';
 
     return {
       totalLeads,
@@ -214,7 +371,7 @@ const MarketingDashboard: React.FC = () => {
       conversionRate,
       costPerLead: '280.000đ' // Mock for now
     };
-  }, [chartDataLeads, deals]);
+  }, [chartDataLeadsForKpi, chartDataLeads, deals]);
 
   // Source Distribution (Always shows global distribution to allow picking, unless selected? 
   // Actually prompts says: "when click... other charts will filter". Pie chart usually stays or highlights.
@@ -229,10 +386,7 @@ const MarketingDashboard: React.FC = () => {
 
     const total = baseFilteredLeads.length || 1;
     return Object.entries(sourceCount).map(([name, count]) => {
-      // Create pretty display name
-      const displayName = name === 'google' || name === 'facebook' || name === 'tiktok' || name === 'zalo'
-        ? name.charAt(0).toUpperCase() + name.slice(1)
-        : name;
+      const displayName = formatSourceName(name);
 
       return {
         name: displayName,
@@ -244,81 +398,295 @@ const MarketingDashboard: React.FC = () => {
     }).sort((a, b) => b.value - a.value); // Sort by biggest slice
   }, [baseFilteredLeads]);
 
-  // Conversion to Contract Rate by Source (Filtered by Selection)
-  const conversionBySource = useMemo(() => {
-    const sourceStats: Record<string, { total: number; won: number }> = {};
+  // Drill-down chart: Product -> Channel
+  const productDistribution = useMemo(() => {
+    const productCount: Record<string, number> = {};
+    chartDataLeads
+      .filter(isGermanOrChineseLead)
+      .forEach((lead) => {
+      const productLabel = getLeadProductLabel(lead);
+      productCount[productLabel] = (productCount[productLabel] || 0) + 1;
+      });
 
-    // If a source is selected, we might only show that one bar, or if "charts will filter data... specific for that source",
-    // maybe it implies showing breakdown of that source? 
-    // Actually for "Conversion Rate BY SOURCE", if I select Facebook, I only see Facebook's bar.
+    const total = Object.values(productCount).reduce((sum, count) => sum + count, 0) || 1;
+    return Object.entries(productCount)
+      .map(([name, count]) => ({
+        name,
+        rawName: name,
+        value: Math.round((count / total) * 100),
+        count,
+        color: getProductColor(name),
+      }))
+      .sort((a, b) => b.count - a.count);
+  }, [chartDataLeads]);
 
-    chartDataLeads.forEach(lead => {
-      let source = lead.source || 'unknown';
-      source = source.toLowerCase();
+  const channelBySelectedProduct = useMemo(() => {
+    if (!selectedProductDrill) return [];
+    const sourceCount: Record<string, number> = {};
 
-      const displayName = source.charAt(0).toUpperCase() + source.slice(1);
+    baseFilteredLeads
+      .filter(isGermanOrChineseLead)
+      .filter((lead) => getLeadProductLabel(lead) === selectedProductDrill)
+      .forEach((lead) => {
+        const source = (lead.source || 'unknown').toLowerCase();
+        sourceCount[source] = (sourceCount[source] || 0) + 1;
+      });
 
-      if (!sourceStats[displayName]) {
-        sourceStats[displayName] = { total: 0, won: 0 };
+    const total = Object.values(sourceCount).reduce((sum, count) => sum + count, 0) || 1;
+    return Object.entries(sourceCount)
+      .map(([source, count]) => ({
+        name: source.charAt(0).toUpperCase() + source.slice(1),
+        rawName: source,
+        value: Math.round((count / total) * 100),
+        count,
+        color: SOURCE_COLORS[source] || '#94a3b8',
+      }))
+      .sort((a, b) => b.count - a.count);
+  }, [baseFilteredLeads, selectedProductDrill]);
+
+  const productDrillData = selectedProductDrill ? channelBySelectedProduct : productDistribution;
+  const productDrillTotal = useMemo(
+    () => productDrillData.reduce((sum, item) => sum + item.count, 0),
+    [productDrillData]
+  );
+
+  useEffect(() => {
+    if (!selectedProductDrill) return;
+    const stillExists = baseFilteredLeads.some(
+      (lead) => isGermanOrChineseLead(lead) && getLeadProductLabel(lead) === selectedProductDrill
+    );
+    if (!stillExists) setSelectedProductDrill(null);
+  }, [baseFilteredLeads, selectedProductDrill]);
+
+  // Conversion rate to contract by source/product
+  const conversionByDimension = useMemo(() => {
+    const wonLeadIds = new Set(
+      deals
+        .filter((deal) => deal.stage === DealStage.WON || deal.stage === DealStage.CONTRACT)
+        .map((deal) => deal.leadId)
+    );
+
+    const stats: Record<string, { label: string; total: number; won: number; color: string }> = {};
+
+    const addLeadToBucket = (lead: ILead, key: string, label: string, color: string) => {
+      if (!stats[key]) stats[key] = { label, total: 0, won: 0, color };
+      stats[key].total += 1;
+      if (
+        wonLeadIds.has(lead.id) ||
+        lead.status === LeadStatus.CONVERTED ||
+        lead.status === LeadStatus.QUALIFIED
+      ) {
+        stats[key].won += 1;
       }
-      sourceStats[displayName].total++;
+    };
 
-      // Mock random conversion for MOCK data
-      // LeadStatus.CONVERTED or internal logic
-      if (lead.status === LeadStatus.CONVERTED || Math.random() > 0.85) {
-        sourceStats[displayName].won++;
+    if (conversionDimension === 'source') {
+      chartDataLeads.forEach((lead) => {
+        const rawSource = (lead.source || 'unknown').toLowerCase();
+        addLeadToBucket(
+          lead,
+          rawSource,
+          formatSourceName(rawSource),
+          SOURCE_COLORS[rawSource] || '#94a3b8'
+        );
+      });
+    } else {
+      chartDataLeads
+        .filter(isGermanOrChineseLead)
+        .forEach((lead) => {
+          const productLabel = getLeadProductLabel(lead);
+          const key = normalizeText(productLabel);
+          addLeadToBucket(lead, key, productLabel, getProductColor(productLabel));
+        });
+    }
+
+    return Object.values(stats)
+      .map((item) => ({
+        name: item.label,
+        rate: item.total > 0 ? Math.round((item.won / item.total) * 100) : 0,
+        total: item.total,
+        color: item.color,
+      }))
+      .sort((a, b) => b.total - a.total);
+  }, [chartDataLeads, deals, conversionDimension]);
+
+  // Lead growth by channel over time
+  const leadGrowthByChannel = useMemo(() => {
+    const now = new Date();
+    const anchorDate = new Date(now);
+    anchorDate.setFullYear(anchorDate.getFullYear() - growthYearOffset);
+
+    const lookback = Math.max(0, Math.floor(growthLookback));
+    const periods: Array<{ key: string; label: string }> = [];
+    const periodIndex = new Map<string, number>();
+
+    if (growthGranularity === 'week') {
+      const anchorWeek = getWeekStart(anchorDate);
+      for (let i = lookback; i >= 0; i--) {
+        const start = new Date(anchorWeek);
+        start.setDate(anchorWeek.getDate() - i * 7);
+        const key = toDayKey(start);
+        const label = `Tuần ${String(start.getDate()).padStart(2, '0')}/${String(start.getMonth() + 1).padStart(2, '0')}`;
+        periods.push({ key, label });
+        periodIndex.set(key, periods.length - 1);
       }
-    });
+    } else {
+      const anchorMonth = getMonthStart(anchorDate);
+      for (let i = lookback; i >= 0; i--) {
+        const start = new Date(anchorMonth);
+        start.setMonth(anchorMonth.getMonth() - i);
+        const key = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}`;
+        const label = `${String(start.getMonth() + 1).padStart(2, '0')}/${start.getFullYear()}`;
+        periods.push({ key, label });
+        periodIndex.set(key, periods.length - 1);
+      }
+    }
 
-    return Object.entries(sourceStats).map(([name, stats]) => ({
-      name: name,
-      rate: stats.total > 0 ? Math.round((stats.won / stats.total) * 100) : 0
+    const rows: Array<Record<string, string | number>> = periods.map((period) => ({
+      time: period.label,
+      total: 0,
     }));
-  }, [chartDataLeads]);
 
-  // Status Distribution by Source (Filtered by Selection)
-  // Categories: New, Assigned, Contacted, Converted, Unqualified
-  const statusBySource = useMemo(() => {
-    const sourceStats: Record<string, Record<string, number>> = {};
+    const channelStats: Record<string, { rawName: string; label: string; color: string; total: number }> = {};
 
-    chartDataLeads.forEach(lead => {
-      let source = lead.source || 'unknown';
-      source = source.toLowerCase();
-      const displayName = source.charAt(0).toUpperCase() + source.slice(1);
+    chartDataLeads.forEach((lead) => {
+      const createdAt = new Date(lead.createdAt);
+      if (Number.isNaN(createdAt.getTime())) return;
 
-      // Map LeadStatus to Requested Categories
-      let category = 'New';
+      const periodKey = growthGranularity === 'week'
+        ? toDayKey(getWeekStart(createdAt))
+        : `${createdAt.getFullYear()}-${String(createdAt.getMonth() + 1).padStart(2, '0')}`;
+      const targetIndex = periodIndex.get(periodKey);
+      if (targetIndex === undefined) return;
+
+      const rawSource = (lead.source || 'unknown').toLowerCase();
+      const sourceLabel = formatSourceName(rawSource);
+
+      if (!channelStats[rawSource]) {
+        channelStats[rawSource] = {
+          rawName: rawSource,
+          label: sourceLabel,
+          color: SOURCE_COLORS[rawSource] || '#94a3b8',
+          total: 0,
+        };
+      }
+
+      const row = rows[targetIndex];
+      row[sourceLabel] = Number(row[sourceLabel] || 0) + 1;
+      row.total = Number(row.total || 0) + 1;
+      channelStats[rawSource].total += 1;
+    });
+
+    const channels = Object.values(channelStats).sort((a, b) => b.total - a.total);
+    rows.forEach((row) => {
+      channels.forEach((channel) => {
+        if (row[channel.label] === undefined) row[channel.label] = 0;
+      });
+    });
+
+    return { rows, channels };
+  }, [chartDataLeads, growthGranularity, growthLookback, growthYearOffset]);
+
+  // Contract share by source (pie chart)
+  const contractShareBySource = useMemo(() => {
+    const leadSourceById = new Map(
+      chartDataLeads.map((lead) => [lead.id, (lead.source || 'unknown').toLowerCase()])
+    );
+
+    const contractCountBySource: Record<string, number> = {};
+
+    deals
+      .filter((deal) => deal.stage === DealStage.CONTRACT || deal.stage === DealStage.WON)
+      .forEach((deal) => {
+        const source = leadSourceById.get(deal.leadId);
+        if (!source) return;
+        contractCountBySource[source] = (contractCountBySource[source] || 0) + 1;
+      });
+
+    // Fallback for local/demo state when deals are not created yet.
+    if (Object.keys(contractCountBySource).length === 0) {
+      chartDataLeads.forEach((lead) => {
+        if (lead.status === LeadStatus.CONVERTED || lead.status === LeadStatus.QUALIFIED) {
+          const source = (lead.source || 'unknown').toLowerCase();
+          contractCountBySource[source] = (contractCountBySource[source] || 0) + 1;
+        }
+      });
+    }
+
+    const totalContracts = Object.values(contractCountBySource).reduce((sum, count) => sum + count, 0);
+    if (totalContracts === 0) return [];
+
+    return Object.entries(contractCountBySource)
+      .map(([source, count]) => ({
+        name: source.charAt(0).toUpperCase() + source.slice(1),
+        rawName: source,
+        value: count,
+        percent: Math.round((count / totalContracts) * 100),
+        color: SOURCE_COLORS[source] || '#94a3b8'
+      }))
+      .sort((a, b) => b.value - a.value);
+  }, [chartDataLeads, deals]);
+
+  const totalContracts = useMemo(
+    () => contractShareBySource.reduce((sum, item) => sum + item.value, 0),
+    [contractShareBySource]
+  );
+
+  // Status distribution (affected by source/product/date filters)
+  const statusDistributionPie = useMemo(() => {
+    const statusCount: Record<string, number> = {
+      New: 0,
+      Assigned: 0,
+      Contacted: 0,
+      Converted: 0,
+      Unqualified: 0,
+    };
+
+    chartDataLeads.forEach((lead) => {
+      let category: keyof typeof statusCount = 'New';
       switch (lead.status) {
-        case LeadStatus.NEW: category = 'New'; break;
-        case LeadStatus.ASSIGNED: category = 'Assigned'; break;
+        case LeadStatus.NEW:
+          category = 'New';
+          break;
+        case LeadStatus.ASSIGNED:
+          category = 'Assigned';
+          break;
         case LeadStatus.CONTACTED:
-        case LeadStatus.NURTURING: category = 'Contacted'; break;
+        case LeadStatus.NURTURING:
+          category = 'Contacted';
+          break;
         case LeadStatus.CONVERTED:
-        case LeadStatus.QUALIFIED: category = 'Converted'; break; // Qualified often means moved to next stage
+        case LeadStatus.QUALIFIED:
+          category = 'Converted';
+          break;
         case LeadStatus.DISQUALIFIED:
-        case LeadStatus.UNREACHABLE: category = 'Unqualified'; break;
-        default: category = 'New';
+        case LeadStatus.UNREACHABLE:
+          category = 'Unqualified';
+          break;
+        default:
+          category = 'New';
       }
 
-      if (!sourceStats[displayName]) {
-        sourceStats[displayName] = {};
-      }
-      sourceStats[displayName][category] = (sourceStats[displayName][category] || 0) + 1;
+      statusCount[category] = (statusCount[category] || 0) + 1;
     });
 
-    // Transform to chart format
-    return Object.entries(sourceStats).map(([source, statuses]) => {
-      const total = Object.values(statuses).reduce((a, b) => a + b, 0);
-      return {
-        source: source,
-        'New': Math.round(((statuses['New'] || 0) / total) * 100),
-        'Assigned': Math.round(((statuses['Assigned'] || 0) / total) * 100),
-        'Contacted': Math.round(((statuses['Contacted'] || 0) / total) * 100),
-        'Converted': Math.round(((statuses['Converted'] || 0) / total) * 100),
-        'Unqualified': Math.round(((statuses['Unqualified'] || 0) / total) * 100),
-      };
-    });
+    const total = Object.values(statusCount).reduce((sum, count) => sum + count, 0) || 1;
+    return Object.entries(statusCount)
+      .filter(([, count]) => count > 0)
+      .map(([name, count]) => ({
+        name,
+        rawName: name,
+        value: Math.round((count / total) * 100),
+        count,
+        color: STATUS_COLORS[name] || '#cbd5e1',
+      }))
+      .sort((a, b) => b.count - a.count);
   }, [chartDataLeads]);
+
+  const totalStatusLeads = useMemo(
+    () => statusDistributionPie.reduce((sum, item) => sum + item.count, 0),
+    [statusDistributionPie]
+  );
 
   return (
     <div className="min-h-screen bg-[#f8fafc] text-slate-900 font-sans p-6 max-w-[1600px] mx-auto">
@@ -329,33 +697,16 @@ const MarketingDashboard: React.FC = () => {
         onDateRangeChange={setDateRange}
         location={location}
         onLocationChange={setLocation}
+        product={product}
+        onProductChange={setProduct}
+        productOptions={productOptions}
+        verification={verification}
+        onVerificationChange={setVerification}
         customDate={customDate}
         onCustomDateChange={setCustomDate}
         title="Phân tích Marketing & Nguồn Lead"
         subtitle="Hiệu suất thời gian thực theo nguồn và chiến dịch quảng cáo."
       />
-
-      {/* --- SELECTED FILTER CHIP --- */}
-      {selectedSource && (
-        <div className="flex items-center gap-2 mb-4 animate-in fade-in slide-in-from-top-2">
-          <span className="text-sm text-slate-500 font-medium">Đang lọc theo nguồn:</span>
-          <div className="flex items-center gap-2 bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-sm font-bold shadow-sm">
-            <span>{selectedSource.charAt(0).toUpperCase() + selectedSource.slice(1)}</span>
-            <button
-              onClick={() => setSelectedSource(null)}
-              className="hover:bg-blue-200 rounded-full p-0.5 transition-colors"
-            >
-              <Filter size={12} />
-            </button>
-          </div>
-          <button
-            onClick={() => setSelectedSource(null)}
-            className="text-xs text-slate-400 underline hover:text-slate-600"
-          >
-            Xóa lọc
-          </button>
-        </div>
-      )}
 
       {/* --- KPI CARDS --- */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
@@ -418,12 +769,22 @@ const MarketingDashboard: React.FC = () => {
       </div>
 
       {/* --- CHARTS SECTION ROW 1 --- */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 mb-8">
 
         {/* Source Distribution Chart (Doughnut) */}
         <div className="lg:col-span-1 bg-white p-6 rounded-2xl shadow-sm border border-slate-100 animate-in fade-in slide-in-from-left-4 duration-700 delay-400">
           <div className="flex justify-between items-center mb-6">
-            <h3 className="font-bold text-lg text-slate-900">Nguồn Lead</h3>
+            <div className="flex items-center gap-3">
+              <h3 className="font-bold text-lg text-slate-900">Nguồn Lead</h3>
+              {selectedSource && (
+                <button
+                  onClick={() => setSelectedSource(null)}
+                  className="text-xs text-blue-600 underline hover:text-blue-700"
+                >
+                  Tổng
+                </button>
+              )}
+            </div>
             <button className="text-slate-400 hover:text-slate-600">
               <MoreVertical size={20} />
             </button>
@@ -501,91 +862,420 @@ const MarketingDashboard: React.FC = () => {
           </div>
         </div>
 
-        {/* Conversion to Contract Rate by Source */}
-        <div className="lg:col-span-2 bg-white p-6 rounded-2xl shadow-sm border border-slate-100 animate-in fade-in slide-in-from-right-4 duration-700 delay-500">
+        {/* Drill-down Product Distribution */}
+        <div className="lg:col-span-1 bg-white p-6 rounded-2xl shadow-sm border border-slate-100 animate-in fade-in slide-in-from-left-4 duration-700 delay-450">
           <div className="flex justify-between items-center mb-6">
-            <h3 className="font-bold text-lg text-slate-900">% Chuyển đổi ra Hợp đồng theo Nguồn</h3>
+            <div className="flex items-center gap-3">
+              <h3 className="font-bold text-lg text-slate-900">
+                {selectedProductDrill ? `Kênh theo ${selectedProductDrill}` : 'Tỷ trọng Sản phẩm'}
+              </h3>
+              {selectedProductDrill && (
+                <button
+                  onClick={() => setSelectedProductDrill(null)}
+                  className="text-xs text-blue-600 underline hover:text-blue-700"
+                >
+                  Quay lại
+                </button>
+              )}
+            </div>
             <button className="text-slate-400 hover:text-slate-600">
               <MoreVertical size={20} />
             </button>
           </div>
-          <div className="h-[300px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={conversionBySource} barSize={40}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                <XAxis
-                  dataKey="name"
-                  axisLine={false}
-                  tickLine={false}
-                  tick={{ fill: '#64748b', fontSize: 12 }}
-                  dy={10}
-                />
-                <YAxis
-                  axisLine={false}
-                  tickLine={false}
-                  tick={{ fill: '#64748b', fontSize: 12 }}
-                  label={{ value: '%', position: 'insideLeft', style: { fill: '#64748b' } }}
-                />
-                <Tooltip
-                  cursor={{ fill: '#f1f5f9' }}
-                  contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
-                />
-                <Bar
-                  dataKey="rate"
-                  fill="#60a5fa" // Blue 400 - Softer Blue
-                  radius={[6, 6, 0, 0]}
-                  name="Tỷ lệ chuyển đổi (%)"
-                  animationDuration={1000}
-                  animationEasing="ease-out"
-                />
-              </BarChart>
-            </ResponsiveContainer>
+          <div className="h-[250px] w-full relative">
+            {productDrillData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={productDrillData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={80}
+                    paddingAngle={5}
+                    dataKey="value"
+                    stroke="none"
+                    animationDuration={1000}
+                    animationEasing="ease-out"
+                    onClick={(data) => {
+                      if (selectedProductDrill) return;
+                      const raw = data?.rawName || data?.payload?.rawName;
+                      if (raw) setSelectedProductDrill(raw);
+                    }}
+                    className={selectedProductDrill ? '' : 'cursor-pointer'}
+                  >
+                    {productDrillData.map((entry, index) => (
+                      <Cell key={`product-drill-cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'white',
+                      border: 'none',
+                      borderRadius: '8px',
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                      padding: '8px 12px'
+                    }}
+                    formatter={(value: number, _name, props: any) => [
+                      `${props?.payload?.count || 0} (${value}%)`,
+                      props?.payload?.name || ''
+                    ]}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex items-center justify-center text-sm text-slate-400">
+                Chưa có dữ liệu
+              </div>
+            )}
+            {productDrillData.length > 0 && (
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div className="text-center">
+                  <span className="block text-2xl font-bold text-slate-800">{productDrillTotal}</span>
+                  <span className="text-xs text-slate-400">Leads</span>
+                </div>
+              </div>
+            )}
           </div>
+          {productDrillData.length > 0 && (
+            <div className="mt-4 grid grid-cols-2 gap-2 text-xs font-medium text-slate-500">
+              {productDrillData.map((item) => (
+                <div
+                  key={item.rawName}
+                  className={`flex items-center gap-2 ${selectedProductDrill ? '' : 'cursor-pointer'}`}
+                  onClick={() => {
+                    if (!selectedProductDrill) setSelectedProductDrill(item.rawName);
+                  }}
+                >
+                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: item.color }}></span>
+                  {item.name} ({item.value}%)
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-      </div>
 
-      {/* --- CHARTS SECTION ROW 2 --- */}
-      <div className="grid grid-cols-1 gap-8 mb-8">
-        {/* Status Distribution by Source (Stacked) */}
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 animate-in fade-in slide-in-from-bottom-4 duration-700 delay-600">
+        {/* Contract Share by Source */}
+        <div className="lg:col-span-1 bg-white p-6 rounded-2xl shadow-sm border border-slate-100 animate-in fade-in slide-in-from-bottom-4 duration-700 delay-500">
+          <div className="flex justify-between items-center mb-6">
+            <h3 className="font-bold text-lg text-slate-900">Tỷ trọng Hợp đồng theo Nguồn</h3>
+            <button className="text-slate-400 hover:text-slate-600">
+              <MoreVertical size={20} />
+            </button>
+          </div>
+          <div className="h-[250px] w-full relative">
+            {contractShareBySource.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={contractShareBySource}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={80}
+                    paddingAngle={4}
+                    dataKey="value"
+                    stroke="none"
+                    animationDuration={1000}
+                    animationEasing="ease-out"
+                  >
+                    {contractShareBySource.map((entry, index) => (
+                      <Cell key={`contract-cell-top-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'white',
+                      border: 'none',
+                      borderRadius: '8px',
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                      padding: '8px 12px'
+                    }}
+                    formatter={(value: number, _name, props: any) => [
+                      `${value} HĐ (${props?.payload?.percent || 0}%)`,
+                      props?.payload?.name || ''
+                    ]}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex items-center justify-center">
+                <div className="text-center">
+                  <span className="block text-2xl font-bold text-slate-800">0</span>
+                  <span className="text-sm text-slate-400">Chưa có dữ liệu hợp đồng</span>
+                </div>
+              </div>
+            )}
+            {contractShareBySource.length > 0 && (
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div className="text-center">
+                  <span className="block text-2xl font-bold text-slate-800">{totalContracts}</span>
+                  <span className="text-xs text-slate-400">Hợp đồng</span>
+                </div>
+              </div>
+            )}
+          </div>
+          {contractShareBySource.length > 0 && (
+            <div className="mt-4 grid grid-cols-2 gap-2 text-xs font-medium text-slate-500">
+              {contractShareBySource.map((item) => (
+                <div key={item.rawName} className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: item.color }}></span>
+                  {item.name} ({item.percent}%)
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Status Distribution Pie */}
+        <div className="lg:col-span-1 bg-white p-6 rounded-2xl shadow-sm border border-slate-100 animate-in fade-in slide-in-from-bottom-4 duration-700 delay-550">
           <div className="flex justify-between items-center mb-6">
             <h3 className="font-bold text-lg text-slate-900">Tỷ trọng Trạng thái theo Nguồn</h3>
             <button className="text-slate-400 hover:text-slate-600">
               <MoreVertical size={20} />
             </button>
           </div>
-          <div className="h-[350px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={statusBySource} barSize={50}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                <XAxis
-                  dataKey="source"
-                  axisLine={false}
-                  tickLine={false}
-                  tick={{ fill: '#64748b', fontSize: 12 }}
-                  dy={10}
+          <div className="h-[250px] w-full relative">
+            {statusDistributionPie.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={statusDistributionPie}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={80}
+                    paddingAngle={4}
+                    dataKey="value"
+                    stroke="none"
+                    animationDuration={1000}
+                    animationEasing="ease-out"
+                  >
+                    {statusDistributionPie.map((entry, index) => (
+                      <Cell key={`status-cell-top-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'white',
+                      border: 'none',
+                      borderRadius: '8px',
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                      padding: '8px 12px'
+                    }}
+                    formatter={(value: number, _name, props: any) => [
+                      `${props?.payload?.count || 0} (${value}%)`,
+                      props?.payload?.name || ''
+                    ]}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex items-center justify-center text-sm text-slate-400">
+                Chưa có dữ liệu
+              </div>
+            )}
+            {statusDistributionPie.length > 0 && (
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div className="text-center">
+                  <span className="block text-2xl font-bold text-slate-800">{totalStatusLeads}</span>
+                  <span className="text-xs text-slate-400">Leads</span>
+                </div>
+              </div>
+            )}
+          </div>
+          {statusDistributionPie.length > 0 && (
+            <div className="mt-4 grid grid-cols-2 gap-2 text-xs font-medium text-slate-500">
+              {statusDistributionPie.map((item) => (
+                <div key={item.rawName} className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: item.color }}></span>
+                  {item.name} ({item.value}%)
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* --- CHARTS SECTION ROW 2 --- */}
+      <div className="grid grid-cols-1 gap-8 mb-8">
+        {/* Conversion to Contract Rate by Source */}
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 animate-in fade-in slide-in-from-bottom-4 duration-700 delay-600">
+          <div className="flex justify-between items-center mb-6">
+            <div className="flex items-center gap-3">
+              <h3 className="font-bold text-lg text-slate-900">
+                Tỷ lệ chuyển đổi HĐ theo {conversionDimension === 'source' ? 'Nguồn' : 'Sản phẩm'}
+              </h3>
+              <div className="inline-flex bg-slate-100 rounded-lg p-1">
+                <button
+                  onClick={() => setConversionDimension('source')}
+                  className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-colors ${
+                    conversionDimension === 'source'
+                      ? 'bg-white text-slate-800 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  Theo nguồn
+                </button>
+                <button
+                  onClick={() => setConversionDimension('product')}
+                  className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-colors ${
+                    conversionDimension === 'product'
+                      ? 'bg-white text-slate-800 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  Theo sản phẩm
+                </button>
+              </div>
+            </div>
+            <button className="text-slate-400 hover:text-slate-600">
+              <MoreVertical size={20} />
+            </button>
+          </div>
+          <div className="h-[340px] w-full">
+            {conversionByDimension.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={conversionByDimension} barSize={40}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                  <XAxis
+                    dataKey="name"
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fill: '#64748b', fontSize: 12 }}
+                    dy={10}
+                  />
+                  <YAxis
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fill: '#64748b', fontSize: 12 }}
+                    label={{ value: '%', position: 'insideLeft', style: { fill: '#64748b' } }}
+                  />
+                  <Tooltip
+                    cursor={{ fill: '#f1f5f9' }}
+                    contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
+                    formatter={(value: number, _name, props: any) => [
+                      `${value}% (n=${props?.payload?.total || 0})`,
+                      'Tỷ lệ chuyển đổi',
+                    ]}
+                  />
+                  <Bar
+                    dataKey="rate"
+                    radius={[6, 6, 0, 0]}
+                    name="Tỷ lệ chuyển đổi (%)"
+                    animationDuration={1000}
+                    animationEasing="ease-out"
+                  >
+                    {conversionByDimension.map((item, index) => (
+                      <Cell key={`conversion-dim-${index}`} fill={item.color} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex items-center justify-center text-sm text-slate-400">
+                Chưa có dữ liệu chuyển đổi
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* --- CHARTS SECTION ROW 3 --- */}
+      <div className="grid grid-cols-1 gap-8 mb-8">
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 animate-in fade-in slide-in-from-bottom-4 duration-700 delay-700">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-6">
+            <div>
+              <h3 className="font-bold text-lg text-slate-900">Tốc độ Lead theo Kênh theo Thời gian</h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Trục X là thời gian, kênh là từng series. Bộ lọc tính cả kỳ hiện tại (tuần/tháng đang chọn).
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={growthGranularity}
+                onChange={(e) => setGrowthGranularity(e.target.value as 'week' | 'month')}
+                className="bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-sm font-semibold text-slate-700"
+              >
+                <option value="week">Theo tuần</option>
+                <option value="month">Theo tháng</option>
+              </select>
+              <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1">
+                <span className="text-xs text-slate-500 whitespace-nowrap">
+                  {growthGranularity === 'week' ? 'Số tuần trước' : 'Số tháng trước'}
+                </span>
+                <input
+                  type="number"
+                  min={0}
+                  max={growthGranularity === 'week' ? 52 : 36}
+                  value={growthLookback}
+                  onChange={(e) => {
+                    const parsed = Math.floor(Number(e.target.value) || 0);
+                    const capped = Math.max(0, Math.min(parsed, growthGranularity === 'week' ? 52 : 36));
+                    setGrowthLookback(capped);
+                  }}
+                  className="w-16 bg-white border border-slate-200 rounded px-2 py-1 text-sm text-slate-700"
                 />
-                <YAxis
-                  axisLine={false}
-                  tickLine={false}
-                  tick={{ fill: '#64748b', fontSize: 12 }}
-                  label={{ value: '%', position: 'insideLeft', style: { fill: '#64748b' } }}
+              </div>
+              <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1">
+                <span className="text-xs text-slate-500 whitespace-nowrap">Số năm trước</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={5}
+                  value={growthYearOffset}
+                  onChange={(e) => {
+                    const parsed = Math.floor(Number(e.target.value) || 0);
+                    setGrowthYearOffset(Math.max(0, Math.min(parsed, 5)));
+                  }}
+                  className="w-14 bg-white border border-slate-200 rounded px-2 py-1 text-sm text-slate-700"
                 />
-                <Tooltip
-                  cursor={{ fill: '#f1f5f9' }}
-                  contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
-                />
-                <Legend
-                  wrapperStyle={{ paddingTop: '20px' }}
-                  iconType="circle"
-                />
-                <Bar dataKey="New" stackId="a" fill="#dbbda0" name="New" radius={[0, 0, 0, 0]} animationDuration={800} animationBegin={0} />
-                <Bar dataKey="Assigned" stackId="a" fill="#a5b4fc" name="Assigned" radius={[0, 0, 0, 0]} animationDuration={800} animationBegin={100} />
-                <Bar dataKey="Contacted" stackId="a" fill="#818cf8" name="Contacted" radius={[0, 0, 0, 0]} animationDuration={800} animationBegin={200} />
-                <Bar dataKey="Converted" stackId="a" fill="#4f46e5" name="Converted" radius={[0, 0, 0, 0]} animationDuration={800} animationBegin={300} />
-                <Bar dataKey="Unqualified" stackId="a" fill="#cbd5e1" name="Unqualified" radius={[6, 6, 0, 0]} animationDuration={800} animationBegin={400} />
-              </BarChart>
-            </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+
+          <div className="h-[360px] w-full">
+            {leadGrowthByChannel.rows.some((row) => Number(row.total || 0) > 0) ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={leadGrowthByChannel.rows} barCategoryGap={24}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                  <XAxis
+                    dataKey="time"
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fill: '#64748b', fontSize: 12 }}
+                    dy={10}
+                  />
+                  <YAxis
+                    axisLine={false}
+                    tickLine={false}
+                    allowDecimals={false}
+                    tick={{ fill: '#64748b', fontSize: 12 }}
+                    label={{ value: 'Leads', position: 'insideLeft', style: { fill: '#64748b' } }}
+                  />
+                  <Tooltip
+                    cursor={{ fill: '#f1f5f9' }}
+                    contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
+                  />
+                  <Legend wrapperStyle={{ paddingTop: '16px' }} iconType="circle" />
+                  {leadGrowthByChannel.channels.map((channel) => (
+                    <Bar
+                      key={channel.rawName}
+                      dataKey={channel.label}
+                      stackId="growth"
+                      fill={channel.color}
+                      radius={[4, 4, 0, 0]}
+                      animationDuration={900}
+                      name={channel.label}
+                    />
+                  ))}
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex items-center justify-center text-sm text-slate-400">
+                Chưa có dữ liệu cho khoảng thời gian đã chọn
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -595,3 +1285,4 @@ const MarketingDashboard: React.FC = () => {
 };
 
 export default MarketingDashboard;
+

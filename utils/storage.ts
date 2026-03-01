@@ -26,8 +26,18 @@ export const KEYS = {
   COLLABORATORS: 'educrm_collaborators',
   TAGS: 'educrm_tags',
   LOST_REASONS: 'educrm_lost_reasons',
+  LEAD_DISTRIBUTION_CONFIG: 'educrm_lead_distribution_config',
   INIT: 'educrm_initialized'
 };
+
+export type LeadDistributionMode = 'auto' | 'manual';
+
+export interface ILeadDistributionConfig {
+  mode: LeadDistributionMode;
+  roundRobinIndex: number;
+  updatedAt: string;
+  updatedBy?: string;
+}
 
 const emitClientEvent = (eventName: string) => {
   if (typeof window !== 'undefined') {
@@ -149,6 +159,60 @@ export const getTags = (): string[] => {
 
 export const saveTags = (tags: string[]) => {
   localStorage.setItem(KEYS.TAGS, JSON.stringify(tags));
+};
+
+const getDefaultLeadDistributionConfig = (): ILeadDistributionConfig => ({
+  mode: 'auto',
+  roundRobinIndex: 0,
+  updatedAt: new Date().toISOString(),
+  updatedBy: 'system'
+});
+
+export const getLeadDistributionConfig = (): ILeadDistributionConfig => {
+  try {
+    const data = localStorage.getItem(KEYS.LEAD_DISTRIBUTION_CONFIG);
+    if (!data) return getDefaultLeadDistributionConfig();
+    const parsed = JSON.parse(data) as Partial<ILeadDistributionConfig>;
+    return {
+      mode: parsed.mode === 'manual' ? 'manual' : 'auto',
+      roundRobinIndex: Number.isFinite(parsed.roundRobinIndex) ? Math.max(0, Math.floor(parsed.roundRobinIndex as number)) : 0,
+      updatedAt: parsed.updatedAt || new Date().toISOString(),
+      updatedBy: parsed.updatedBy || 'system'
+    };
+  } catch {
+    return getDefaultLeadDistributionConfig();
+  }
+};
+
+export const saveLeadDistributionConfig = (config: Partial<ILeadDistributionConfig>) => {
+  const current = getLeadDistributionConfig();
+  const next: ILeadDistributionConfig = {
+    ...current,
+    ...config,
+    mode: config.mode === 'manual' ? 'manual' : config.mode === 'auto' ? 'auto' : current.mode,
+    roundRobinIndex: Number.isFinite(config.roundRobinIndex) ? Math.max(0, Math.floor(config.roundRobinIndex as number)) : current.roundRobinIndex,
+    updatedAt: new Date().toISOString()
+  };
+  localStorage.setItem(KEYS.LEAD_DISTRIBUTION_CONFIG, JSON.stringify(next));
+  emitClientEvent('educrm:lead-distribution-config-changed');
+  return next;
+};
+
+export const allocateLeadOwnersRoundRobin = (leadCount: number, repIds: string[]): string[] => {
+  if (leadCount <= 0 || repIds.length === 0) return [];
+  const config = getLeadDistributionConfig();
+  const startIndex = config.roundRobinIndex % repIds.length;
+  const assignedOwners: string[] = [];
+
+  for (let i = 0; i < leadCount; i++) {
+    assignedOwners.push(repIds[(startIndex + i) % repIds.length]);
+  }
+
+  saveLeadDistributionConfig({
+    roundRobinIndex: (startIndex + leadCount) % repIds.length
+  });
+
+  return assignedOwners;
 };
 
 // ... (existing code)

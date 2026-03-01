@@ -59,7 +59,7 @@ const SLAWarningBanner: React.FC<SLAWarningBannerProps> = ({ warnings, onClickLe
                             </div>
                             {dangerWarnings.length > 3 && (
                                 <button
-                                    onClick={() => navigate('/sla/leads')}
+                                    onClick={() => navigate('/marketing/sla-leads')}
                                     className="text-xs underline mt-2 font-semibold hover:text-red-900"
                                 >
                                     Xem thêm {dangerWarnings.length - 3} cảnh báo...
@@ -97,7 +97,7 @@ const SLAWarningBanner: React.FC<SLAWarningBannerProps> = ({ warnings, onClickLe
                             </div>
                             {warningWarnings.length > 2 && (
                                 <button
-                                    onClick={() => navigate('/sla/leads')}
+                                    onClick={() => navigate('/marketing/sla-leads')}
                                     className="text-xs underline mt-2 font-semibold hover:text-yellow-900"
                                 >
                                     Xem thêm {warningWarnings.length - 2} cảnh báo...

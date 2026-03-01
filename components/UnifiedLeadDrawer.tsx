@@ -1545,19 +1545,6 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                                     <label className="field-label text-red-800">Địa chỉ thường trú (Full) <span className="text-red-500">*</span></label>
                                     <input className="field-input border-red-200" placeholder="Số nhà, Đường, Phường/Xã, Quận/Huyện, Tỉnh/TP" defaultValue={lead.address} onBlur={e => handleFieldBlur('address', e.target.value)} disabled={isWon || isContract || isLost} />
                                 </div>
-                                <div className="col-span-3">
-                                    <label className="field-label text-red-800">Người ký Hợp đồng</label>
-                                    <div className="flex gap-4 mt-1">
-                                        <label className="flex items-center gap-2 text-sm cursor-pointer">
-                                            <input type="radio" name="signer" value="student" defaultChecked={lead.contractSigner === 'student' || !lead.contractSigner} onChange={() => handleFieldBlur('contractSigner', 'student')} disabled={isWon || isContract || isLost} />
-                                            <span className="font-medium text-slate-700">Học viên</span>
-                                        </label>
-                                        <label className="flex items-center gap-2 text-sm cursor-pointer">
-                                            <input type="radio" name="signer" value="guardian" defaultChecked={lead.contractSigner === 'guardian'} onChange={() => handleFieldBlur('contractSigner', 'guardian')} disabled={isWon || isContract || isLost} />
-                                            <span className="font-medium text-slate-700">Phụ huynh</span>
-                                        </label>
-                                    </div>
-                                </div>
                             </div>
                         </div>
 
