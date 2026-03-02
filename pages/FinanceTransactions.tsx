@@ -179,7 +179,7 @@ const FinanceTransactions: React.FC = () => {
                         )
                       ) : (
                         <span className="text-xs text-slate-400 inline-flex items-center gap-1">
-                          {t.status === 'DA_DUYET' ? <CheckCircle2 size={12} /> : <XCircle size={12} />}
+                          <XCircle size={12} />
                           Đã xử lý
                         </span>
                       )}

@@ -90,6 +90,7 @@ export interface IStudentInfo {
 
 // Marketing-specific tracking data
 export interface IMarketingData {
+  source?: string; // Legacy/source field used by lead edit flows
   batch?: string; // Lô dữ liệu (Batch Name)
   tags?: string[]; // Thẻ phân loại (#HotLead, #VuaTotNghiep, etc.)
   profileLink?: string; // Link Profile (Facebook/TikTok)
@@ -459,6 +460,7 @@ export interface IStudent {
   level?: string; // A1, A2...
 
   status: StudentStatus;
+  enrollmentStatus?: 'CHUA_GHI_DANH' | 'DA_GHI_DANH';
 
   // Metadata
   profileImage?: string;
