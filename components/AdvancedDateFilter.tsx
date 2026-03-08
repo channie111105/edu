@@ -1,315 +1,496 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Calendar, ChevronDown, Check, ChevronLeft, ChevronRight, X } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 
 export type DateRange = {
-    startDate: Date | null;
-    endDate: Date | null;
-    label?: string;
+  startDate: Date | null;
+  endDate: Date | null;
+  label?: string;
 };
 
 interface AdvancedDateFilterProps {
-    onChange: (range: DateRange) => void;
-    label?: string;
+  onChange: (range: DateRange) => void;
+  label?: string;
+  showPresets?: boolean;
+  hideTrigger?: boolean;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  align?: 'left' | 'right';
+  initialRange?: DateRange;
+  className?: string;
+  popoverClassName?: string;
 }
 
-const PRESETS = [
-    { label: 'Hôm nay', id: 'today' },
-    { label: 'Hôm qua', id: 'yesterday' },
-    { label: 'Tuần này', id: 'this_week' },
-    { label: '7 ngày qua', id: 'last_7_days' },
-    { label: '30 ngày qua', id: 'last_30_days' },
-    { label: 'Tháng này', id: 'this_month' },
-    { label: 'Tháng trước', id: 'last_month' },
-    { label: 'Tùy chỉnh', id: 'custom' },
+type PresetKey =
+  | 'today'
+  | 'yesterday'
+  | 'thisWeek'
+  | 'last7Days'
+  | 'last30Days'
+  | 'thisMonth'
+  | 'lastMonth'
+  | 'custom';
+
+const MONTH_LABELS = [
+  'Tháng 1',
+  'Tháng 2',
+  'Tháng 3',
+  'Tháng 4',
+  'Tháng 5',
+  'Tháng 6',
+  'Tháng 7',
+  'Tháng 8',
+  'Tháng 9',
+  'Tháng 10',
+  'Tháng 11',
+  'Tháng 12'
 ];
 
-// Helper to generate calendar days
-const getDaysInMonth = (year: number, month: number) => {
-    return new Date(year, month + 1, 0).getDate();
+const DAY_LABELS = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
+
+const PRESET_OPTIONS: Array<{ key: PresetKey; label: string }> = [
+  { key: 'today', label: 'Today' },
+  { key: 'yesterday', label: 'Yesterday' },
+  { key: 'thisWeek', label: 'This Week' },
+  { key: 'last7Days', label: 'Last 7 Days' },
+  { key: 'last30Days', label: 'Last 30 Days' },
+  { key: 'thisMonth', label: 'This Month' },
+  { key: 'lastMonth', label: 'Last Month' },
+  { key: 'custom', label: 'Custom Range' }
+];
+
+const EMPTY_RANGE: DateRange = { startDate: null, endDate: null, label: 'Tùy chọn' };
+
+const startOfDay = (date: Date) => {
+  const next = new Date(date);
+  next.setHours(0, 0, 0, 0);
+  return next;
 };
 
-const getFirstDayOfMonth = (year: number, month: number) => {
-    return new Date(year, month, 1).getDay(); // 0 = Sunday
+const endOfDay = (date: Date) => {
+  const next = new Date(date);
+  next.setHours(23, 59, 59, 999);
+  return next;
 };
 
-const AdvancedDateFilter: React.FC<AdvancedDateFilterProps> = ({ onChange, label = "Sắp xếp thời gian" }) => {
-    const [isOpen, setIsOpen] = useState(false);
-    const [selectedPreset, setSelectedPreset] = useState('this_month');
-    const [tempRange, setTempRange] = useState<DateRange>({ startDate: null, endDate: null, label: 'Tháng này' });
-    const [confirmedRange, setConfirmedRange] = useState<DateRange>({ startDate: null, endDate: null, label: 'Tháng này' });
+const cloneRange = (range: DateRange): DateRange => ({
+  startDate: range.startDate ? new Date(range.startDate) : null,
+  endDate: range.endDate ? new Date(range.endDate) : null,
+  label: range.label
+});
 
-    // Calendar Navigation State
-    const [viewDate, setViewDate] = useState(new Date()); // Controls the month being viewed
-    const containerRef = useRef<HTMLDivElement>(null);
+const formatDate = (date: Date | null) => (date ? date.toLocaleDateString('vi-VN') : 'Chọn ngày');
 
-    // Initialize with "This Month"
-    useEffect(() => {
-        applyPreset('this_month', false);
-    }, []);
+const getDaysInMonth = (year: number, month: number) => new Date(year, month + 1, 0).getDate();
+const getFirstDayOfMonth = (year: number, month: number) => new Date(year, month, 1).getDay();
 
-    // Click outside to close
-    useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-                setIsOpen(false);
-            }
+const buildYearOptions = (baseYear: number) =>
+  Array.from({ length: 11 }, (_, index) => baseYear - 5 + index);
+
+const getPresetRange = (presetKey: Exclude<PresetKey, 'custom'>): DateRange => {
+  const now = new Date();
+  const todayStart = startOfDay(now);
+  const todayEnd = endOfDay(now);
+
+  switch (presetKey) {
+    case 'today':
+      return { startDate: todayStart, endDate: todayEnd, label: 'Today' };
+    case 'yesterday': {
+      const yesterday = new Date(todayStart);
+      yesterday.setDate(yesterday.getDate() - 1);
+      return { startDate: yesterday, endDate: endOfDay(yesterday), label: 'Yesterday' };
+    }
+    case 'thisWeek': {
+      const start = new Date(todayStart);
+      const dayOfWeek = start.getDay() === 0 ? 7 : start.getDay();
+      start.setDate(start.getDate() - dayOfWeek + 1);
+      return { startDate: start, endDate: todayEnd, label: 'This Week' };
+    }
+    case 'last7Days': {
+      const start = new Date(todayStart);
+      start.setDate(start.getDate() - 6);
+      return { startDate: start, endDate: todayEnd, label: 'Last 7 Days' };
+    }
+    case 'last30Days': {
+      const start = new Date(todayStart);
+      start.setDate(start.getDate() - 29);
+      return { startDate: start, endDate: todayEnd, label: 'Last 30 Days' };
+    }
+    case 'thisMonth': {
+      const start = new Date(now.getFullYear(), now.getMonth(), 1);
+      return { startDate: start, endDate: todayEnd, label: 'This Month' };
+    }
+    case 'lastMonth': {
+      const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const end = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+      return { startDate: start, endDate: end, label: 'Last Month' };
+    }
+  }
+};
+
+const rangesMatch = (left: DateRange, right: DateRange) => {
+  const leftStart = left.startDate ? startOfDay(left.startDate).getTime() : null;
+  const leftEnd = left.endDate ? endOfDay(left.endDate).getTime() : null;
+  const rightStart = right.startDate ? startOfDay(right.startDate).getTime() : null;
+  const rightEnd = right.endDate ? endOfDay(right.endDate).getTime() : null;
+  return leftStart === rightStart && leftEnd === rightEnd;
+};
+
+const detectPreset = (range: DateRange): PresetKey => {
+  if (!range.startDate || !range.endDate) return 'custom';
+
+  const presetKeys = PRESET_OPTIONS.map((option) => option.key).filter(
+    (key): key is Exclude<PresetKey, 'custom'> => key !== 'custom'
+  );
+
+  for (const presetKey of presetKeys) {
+    if (rangesMatch(range, getPresetRange(presetKey))) {
+      return presetKey;
+    }
+  }
+
+  return 'custom';
+};
+
+const AdvancedDateFilter: React.FC<AdvancedDateFilterProps> = ({
+  onChange,
+  showPresets = true,
+  label = 'Khoảng thời gian',
+  hideTrigger = false,
+  open,
+  onOpenChange,
+  align = 'right',
+  initialRange,
+  className = '',
+  popoverClassName = ''
+}) => {
+  const [internalOpen, setInternalOpen] = useState(false);
+  const [tempRange, setTempRange] = useState<DateRange>(EMPTY_RANGE);
+  const [confirmedRange, setConfirmedRange] = useState<DateRange>(EMPTY_RANGE);
+  const [selectedPreset, setSelectedPreset] = useState<PresetKey>('custom');
+  const [viewDate, setViewDate] = useState(() => new Date());
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const isControlledOpen = typeof open === 'boolean';
+  const isOpen = isControlledOpen ? Boolean(open) : internalOpen;
+
+  const setOpen = (next: boolean) => {
+    if (!isControlledOpen) {
+      setInternalOpen(next);
+    }
+    onOpenChange?.(next);
+  };
+
+  const initialRangeKey = useMemo(() => {
+    const start = initialRange?.startDate ? new Date(initialRange.startDate).getTime() : 0;
+    const end = initialRange?.endDate ? new Date(initialRange.endDate).getTime() : 0;
+    return `${start}-${end}-${initialRange?.label || ''}`;
+  }, [initialRange]);
+
+  useEffect(() => {
+    const nextRange =
+      initialRange?.startDate || initialRange?.endDate
+        ? cloneRange({
+            startDate: initialRange?.startDate ? startOfDay(initialRange.startDate) : null,
+            endDate: initialRange?.endDate ? endOfDay(initialRange.endDate) : null,
+            label: initialRange?.label || 'Tùy chọn'
+          })
+        : EMPTY_RANGE;
+
+    setTempRange(nextRange);
+    setConfirmedRange(nextRange);
+    setSelectedPreset(detectPreset(nextRange));
+    setViewDate(nextRange.startDate ? new Date(nextRange.startDate) : new Date());
+  }, [initialRangeKey, initialRange]);
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isOpen]);
+
+  const handleApply = () => {
+    const normalized = {
+      startDate: tempRange.startDate ? startOfDay(tempRange.startDate) : null,
+      endDate: tempRange.endDate ? endOfDay(tempRange.endDate) : null,
+      label: tempRange.label || 'Tùy chọn'
+    };
+
+    setConfirmedRange(cloneRange(normalized));
+    onChange(normalized);
+    setOpen(false);
+  };
+
+  const handlePresetSelect = (presetKey: PresetKey) => {
+    setSelectedPreset(presetKey);
+
+    if (presetKey === 'custom') {
+      const anchorDate = tempRange.startDate || confirmedRange.startDate || new Date();
+      setViewDate(new Date(anchorDate));
+      return;
+    }
+
+    const nextRange = getPresetRange(presetKey);
+    setTempRange(nextRange);
+    setViewDate(new Date(nextRange.startDate || new Date()));
+  };
+
+  const isDateSelected = (date: Date) => {
+    if (!tempRange.startDate) return false;
+
+    const current = startOfDay(date).getTime();
+    const start = startOfDay(tempRange.startDate).getTime();
+    const end = tempRange.endDate ? startOfDay(tempRange.endDate).getTime() : null;
+
+    return current === start || current === end;
+  };
+
+  const isDateInRange = (date: Date) => {
+    if (!tempRange.startDate || !tempRange.endDate) return false;
+
+    const current = startOfDay(date).getTime();
+    const start = startOfDay(tempRange.startDate).getTime();
+    const end = startOfDay(tempRange.endDate).getTime();
+
+    return current >= start && current <= end;
+  };
+
+  const handleDateClick = (date: Date) => {
+    const clickedDate = startOfDay(date);
+
+    setSelectedPreset('custom');
+    setTempRange((current) => {
+      if (!current.startDate || current.endDate) {
+        return { startDate: clickedDate, endDate: null, label: 'Tùy chọn' };
+      }
+
+      if (clickedDate < current.startDate) {
+        return {
+          startDate: clickedDate,
+          endDate: endOfDay(current.startDate),
+          label: 'Tùy chọn'
         };
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, []);
+      }
 
-    const applyPreset = (presetId: string, confirm = true) => {
-        const now = new Date();
-        let start = new Date();
-        let end = new Date();
-        let label = '';
+      return {
+        startDate: current.startDate,
+        endDate: endOfDay(clickedDate),
+        label: 'Tùy chọn'
+      };
+    });
+  };
 
-        // Reset hours
-        start.setHours(0, 0, 0, 0);
-        end.setHours(23, 59, 59, 999);
+  const shiftViewMonth = (delta: number) => {
+    setViewDate((current) => new Date(current.getFullYear(), current.getMonth() + delta, 1));
+  };
 
-        switch (presetId) {
-            case 'today':
-                label = 'Hôm nay';
-                break;
-            case 'yesterday':
-                start.setDate(now.getDate() - 1);
-                end.setDate(now.getDate() - 1);
-                label = 'Hôm qua';
-                break;
-            case 'this_week':
-                const day = now.getDay() || 7; // CN = 0 -> 7
-                start.setDate(now.getDate() - day + 1);
-                end.setDate(start.getDate() + 6);
-                label = 'Tuần này';
-                break;
-            case 'last_7_days':
-                start.setDate(now.getDate() - 6);
-                label = '7 ngày qua';
-                break;
-            case 'last_30_days':
-                start.setDate(now.getDate() - 29);
-                label = '30 ngày qua';
-                break;
-            case 'this_month':
-                start.setDate(1);
-                end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-                end.setHours(23, 59, 59, 999);
-                label = 'Tháng này';
-                break;
-            case 'last_month':
-                start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-                end = new Date(now.getFullYear(), now.getMonth(), 0);
-                end.setHours(23, 59, 59, 999);
-                label = 'Tháng trước';
-                break;
-            case 'overdue':
-                // Overdue logic: From beginning of time to NOW
-                start = new Date(0); // Epoch
-                end = new Date(); // Now
-                label = 'Quá hạn';
-                break;
-            case 'custom':
-                label = 'Tùy chỉnh';
-                break;
-        }
+  const setCalendarMonthYear = (offset: 0 | 1, month: number, year: number) => {
+    if (offset === 0) {
+      setViewDate(new Date(year, month, 1));
+      return;
+    }
 
-        const newRange = { startDate: start, endDate: end, label };
-        setTempRange(newRange);
-        setSelectedPreset(presetId);
+    setViewDate(new Date(year, month - 1, 1));
+  };
 
-        // Sync view date to start date of range
-        if (start) setViewDate(new Date(start));
+  const renderCalendar = (offset: 0 | 1) => {
+    const monthDate = new Date(viewDate.getFullYear(), viewDate.getMonth() + offset, 1);
+    const year = monthDate.getFullYear();
+    const month = monthDate.getMonth();
+    const daysInMonth = getDaysInMonth(year, month);
+    const firstDay = getFirstDayOfMonth(year, month);
+    const yearOptions = buildYearOptions(year);
+    const days: React.ReactNode[] = [];
 
-        if (confirm && presetId !== 'custom') {
-            handleApply(newRange);
-        }
-    };
+    for (let index = 0; index < firstDay; index += 1) {
+      days.push(<div key={`empty-${offset}-${index}`} className="h-9 w-9" />);
+    }
 
-    const handleApply = (range: DateRange) => {
-        setConfirmedRange(range);
-        onChange(range);
-        setIsOpen(false);
-    };
+    for (let day = 1; day <= daysInMonth; day += 1) {
+      const date = new Date(year, month, day);
+      const selected = isDateSelected(date);
+      const inRange = isDateInRange(date);
 
-    const navMonth = (offset: number) => {
-        const newDate = new Date(viewDate);
-        newDate.setMonth(newDate.getMonth() + offset);
-        setViewDate(newDate);
-    };
-
-    const isDateInRange = (date: Date) => {
-        if (!tempRange.startDate || !tempRange.endDate) return false;
-        // Normalize logic
-        const d = new Date(date); d.setHours(0, 0, 0, 0);
-        const s = new Date(tempRange.startDate); s.setHours(0, 0, 0, 0);
-        const e = new Date(tempRange.endDate); e.setHours(0, 0, 0, 0);
-        return d >= s && d <= e;
-    };
-
-    const isDateSelected = (date: Date) => {
-        if (!tempRange.startDate) return false;
-        const d = new Date(date).setHours(0, 0, 0, 0);
-        const s = new Date(tempRange.startDate).setHours(0, 0, 0, 0);
-        const e = tempRange.endDate ? new Date(tempRange.endDate).setHours(0, 0, 0, 0) : null;
-        return d === s || d === e;
-    };
-
-    const handleDateClick = (date: Date) => {
-        setSelectedPreset('custom');
-        let newRange = { ...tempRange, label: 'Tùy chỉnh' };
-
-        // Logic for range selection
-        if (!newRange.startDate || (newRange.startDate && newRange.endDate)) {
-            // Start new selection
-            newRange.startDate = date;
-            newRange.endDate = null;
-        } else {
-            // Complete selection
-            if (date < newRange.startDate) {
-                newRange.endDate = newRange.startDate;
-                newRange.startDate = date;
-            } else {
-                newRange.endDate = date;
-            }
-            // Set end of day for end date
-            if (newRange.endDate) newRange.endDate.setHours(23, 59, 59, 999);
-        }
-        setTempRange(newRange);
-    };
-
-    const renderCalendar = (offsetMonth: number) => {
-        const currentMonthDate = new Date(viewDate.getFullYear(), viewDate.getMonth() + offsetMonth, 1);
-        const year = currentMonthDate.getFullYear();
-        const month = currentMonthDate.getMonth();
-        const daysInMonth = getDaysInMonth(year, month);
-        const firstDay = getFirstDayOfMonth(year, month);
-
-        const days = [];
-        // Padding empty days
-        for (let i = 0; i < firstDay; i++) {
-            days.push(<div key={`empty-${i}`} className="h-8 w-8"></div>);
-        }
-
-        // Days
-        for (let d = 1; d <= daysInMonth; d++) {
-            const date = new Date(year, month, d);
-            const isSelected = isDateSelected(date);
-            const inRange = isDateInRange(date);
-            const isToday = new Date().toDateString() === date.toDateString();
-
-            days.push(
-                <button
-                    key={d}
-                    onClick={() => handleDateClick(date)}
-                    className={`h-8 w-8 text-xs rounded-full flex items-center justify-center transition-colors relative z-10
-                    ${isSelected ? 'bg-blue-600 text-white font-bold' : ''}
-                    ${!isSelected && inRange ? 'bg-blue-50 text-blue-700 rounded-none' : ''}
-                    ${!isSelected && !inRange ? 'hover:bg-slate-100 text-slate-700' : ''}
-                    ${isToday && !isSelected && !inRange ? 'border border-blue-400 font-bold text-blue-600' : ''}
-                    ${isSelected && inRange && date.getTime() === tempRange.startDate?.setHours(0, 0, 0, 0) ? 'rounded-r-none' : ''}
-                    ${isSelected && inRange && tempRange.endDate && date.getTime() === tempRange.endDate?.setHours(0, 0, 0, 0) ? 'rounded-l-none' : ''}
-                `}
-                >
-                    {d}
-                </button>
-            );
-        }
-
-        return (
-            <div className="w-64 p-2">
-                <div className="text-center font-bold text-slate-700 mb-2 text-sm">
-                    Tháng {month + 1}, {year}
-                </div>
-                <div className="grid grid-cols-7 gap-y-1 text-center mb-1">
-                    {['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'].map(d => (
-                        <span key={d} className="text-[10px] uppercase font-bold text-slate-400">{d}</span>
-                    ))}
-                </div>
-                <div className="grid grid-cols-7 gap-y-1 justify-items-center">
-                    {days}
-                </div>
-            </div>
-        );
-    };
+      days.push(
+        <button
+          key={`${offset}-${day}`}
+          type="button"
+          onClick={() => handleDateClick(date)}
+          className={`relative z-10 flex h-9 w-9 items-center justify-center rounded-md text-sm transition-colors ${
+            selected
+              ? 'bg-blue-600 font-bold text-white'
+              : inRange
+                ? 'bg-blue-50 text-blue-700'
+                : 'text-slate-700 hover:bg-slate-100'
+          }`}
+        >
+          {day}
+        </button>
+      );
+    }
 
     return (
-        <div className="relative" ref={containerRef}>
-            {/* TRIGGER BUTTON */}
-            <button
-                onClick={() => setIsOpen(!isOpen)}
-                className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-xs font-semibold hover:bg-slate-50 transition-all ${isOpen ? 'ring-2 ring-blue-100 border-blue-400' : 'border-slate-200 bg-white text-slate-600'}`}
-            >
-                <span className="text-slate-500">{label}:</span>
-                <span className="font-bold text-slate-800">
-                    {confirmedRange.startDate?.toLocaleDateString('vi-VN')} - {confirmedRange.endDate?.toLocaleDateString('vi-VN')}
-                </span>
-                <ChevronDown size={14} className="text-slate-400" />
-            </button>
-
-            {/* POPOVER */}
-            {isOpen && (
-                <div className="absolute top-full right-0 mt-2 bg-white rounded-lg shadow-2xl border border-slate-200 z-50 flex overflow-hidden animate-in fade-in zoom-in-95 origin-top-right">
-
-                    {/* LEFT: PRESETS SIDEBAR */}
-                    <div className="w-40 border-r border-slate-100 p-2 bg-slate-50 flex flex-col gap-1">
-                        {PRESETS.map(p => (
-                            <button
-                                key={p.id}
-                                onClick={() => applyPreset(p.id)}
-                                className={`text-left px-3 py-2 rounded text-xs transition-colors flex justify-between items-center ${selectedPreset === p.id
-                                    ? 'bg-blue-100 text-blue-700 font-bold'
-                                    : 'hover:bg-slate-100 text-slate-600'
-                                    }`}
-                            >
-                                {p.label}
-                                {selectedPreset === p.id && <Check size={12} />}
-                            </button>
-                        ))}
-                    </div>
-
-                    {/* RIGHT: CALENDARS & ACTIONS */}
-                    <div className="flex flex-col">
-                        {/* CALENDAR HEADER */}
-                        <div className="flex items-center justify-between p-2 border-b border-slate-100">
-                            <button onClick={() => navMonth(-1)} className="p-1 hover:bg-slate-100 rounded text-slate-500"><ChevronLeft size={16} /></button>
-                            <button onClick={() => navMonth(1)} className="p-1 hover:bg-slate-100 rounded text-slate-500"><ChevronRight size={16} /></button>
-                        </div>
-
-                        {/* CALENDARS GRID */}
-                        <div className="flex divide-x divide-slate-100">
-                            {renderCalendar(0)}
-                            {renderCalendar(1)}
-                        </div>
-
-                        {/* FOOTER ACTIONS */}
-                        <div className="p-3 border-t border-slate-100 flex items-center justify-between bg-white">
-                            <div className="text-xs text-slate-500">
-                                {tempRange.startDate ? tempRange.startDate.toLocaleDateString('vi-VN') : '...'}
-                                {' - '}
-                                {tempRange.endDate ? tempRange.endDate.toLocaleDateString('vi-VN') : '...'}
-                            </div>
-                            <div className="flex gap-2">
-                                <button
-                                    onClick={() => setIsOpen(false)}
-                                    className="px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded border border-transparent"
-                                >
-                                    Hủy bỏ
-                                </button>
-                                <button
-                                    onClick={() => handleApply(tempRange)}
-                                    disabled={!tempRange.startDate || !tempRange.endDate}
-                                    className="px-3 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
-                                >
-                                    Áp dụng
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+      <div className="w-[286px] p-3">
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1">
+            {offset === 0 ? (
+              <button
+                type="button"
+                onClick={() => shiftViewMonth(-1)}
+                className="rounded-md p-1 text-slate-500 hover:bg-slate-100"
+              >
+                <ChevronLeft size={16} />
+              </button>
+            ) : (
+              <div className="h-8 w-8" />
             )}
+
+            <select
+              value={month}
+              onChange={(event) => setCalendarMonthYear(offset, Number(event.target.value), year)}
+              className="rounded-md border border-slate-200 px-2 py-1 text-sm font-semibold text-slate-700 outline-none"
+            >
+              {MONTH_LABELS.map((item, index) => (
+                <option key={item} value={index}>
+                  {item}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={year}
+              onChange={(event) => setCalendarMonthYear(offset, month, Number(event.target.value))}
+              className="rounded-md border border-slate-200 px-2 py-1 text-sm font-semibold text-slate-700 outline-none"
+            >
+              {yearOptions.map((item) => (
+                <option key={item} value={item}>
+                  {item}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {offset === 1 ? (
+            <button
+              type="button"
+              onClick={() => shiftViewMonth(1)}
+              className="rounded-md p-1 text-slate-500 hover:bg-slate-100"
+            >
+              <ChevronRight size={16} />
+            </button>
+          ) : (
+            <div className="h-8 w-8" />
+          )}
         </div>
+
+        <div className="mb-2 grid grid-cols-7 justify-items-center text-[11px] font-semibold text-slate-400">
+          {DAY_LABELS.map((day) => (
+            <span key={`${offset}-${day}`}>{day}</span>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-7 justify-items-center gap-y-1">{days}</div>
+      </div>
     );
+  };
+
+  const confirmedRangeLabel =
+    confirmedRange.startDate && confirmedRange.endDate
+      ? `${formatDate(confirmedRange.startDate)} - ${formatDate(confirmedRange.endDate)}`
+      : 'Chọn ngày';
+
+  const tempRangeLabel =
+    tempRange.startDate && tempRange.endDate
+      ? `${formatDate(tempRange.startDate)} - ${formatDate(tempRange.endDate)}`
+      : 'Chọn ngày bắt đầu và kết thúc';
+
+  return (
+    <div ref={containerRef} className={`${hideTrigger ? '' : 'relative'} ${className}`.trim()}>
+      {!hideTrigger && (
+        <button
+          type="button"
+          onClick={() => setOpen(!isOpen)}
+          className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold transition-all hover:bg-slate-50 ${
+            isOpen ? 'border-blue-400 ring-2 ring-blue-100' : 'border-slate-200 bg-white text-slate-600'
+          }`}
+        >
+          <span className="text-slate-500">{label}:</span>
+          <span className="font-bold text-slate-800">{confirmedRangeLabel}</span>
+          <ChevronDown size={14} className="text-slate-400" />
+        </button>
+      )}
+
+      {isOpen && (
+        <div
+          className={`absolute top-full z-50 mt-2 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl ${
+            align === 'left' ? 'left-0 origin-top-left' : 'right-0 origin-top-right'
+          } ${popoverClassName}`.trim()}
+        >
+          <div
+            className={`flex max-w-[calc(100vw-32px)] flex-col bg-white ${
+              showPresets ? 'md:min-w-[860px] md:flex-row' : 'md:w-[572px]'
+            }`}
+          >
+            {showPresets ? (
+              <div className="border-b border-slate-100 bg-slate-50/70 md:w-[172px] md:border-b-0 md:border-r">
+                <div className="flex flex-col gap-1 p-3">
+                  {PRESET_OPTIONS.map((preset) => (
+                    <button
+                      key={preset.key}
+                      type="button"
+                      onClick={() => handlePresetSelect(preset.key)}
+                      className={`rounded-lg px-3 py-2 text-left text-[13px] font-medium transition-colors ${
+                        selectedPreset === preset.key
+                          ? 'bg-blue-600 text-white'
+                          : 'text-slate-600 hover:bg-white hover:text-slate-900'
+                      }`}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            <div className="flex min-w-0 flex-1 flex-col">
+              <div className="flex flex-col divide-y divide-slate-100 md:flex-row md:divide-x md:divide-y-0">
+                {renderCalendar(0)}
+                {renderCalendar(1)}
+              </div>
+
+              <div className="flex flex-col gap-3 border-t border-slate-100 px-4 py-3 md:flex-row md:items-center md:justify-between md:px-5">
+                <div className="text-xs font-medium text-slate-500">{tempRangeLabel}</div>
+
+                <div className="flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setOpen(false)}
+                    className="rounded-md border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50"
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleApply}
+                    disabled={!tempRange.startDate || !tempRange.endDate}
+                    className="rounded-md bg-emerald-500 px-3 py-1.5 text-xs font-bold text-white shadow-sm hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Áp dụng
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 };
 
 export default AdvancedDateFilter;

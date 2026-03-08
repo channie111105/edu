@@ -1,12 +1,13 @@
 ﻿import React, { useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, Search, XCircle } from 'lucide-react';
-import { IAdmission, IQuotation, IStudent } from '../types';
+import { IAdmission, IQuotation, IStudent, UserRole } from '../types';
 import { getAdmissions, getQuotations, getStudents } from '../utils/storage';
 import { approveAdmission, rejectAdmission } from '../services/enrollmentFlow.service';
 import { useAuth } from '../contexts/AuthContext';
 
 const ContractApprovalQueue: React.FC = () => {
   const { user } = useAuth();
+  const canApproveByTraining = user?.role === UserRole.TRAINING;
   const [admissions, setAdmissions] = useState<IAdmission[]>([]);
   const [students, setStudents] = useState<IStudent[]>([]);
   const [quotations, setQuotations] = useState<IQuotation[]>([]);
@@ -64,6 +65,10 @@ const ContractApprovalQueue: React.FC = () => {
   }, [admissions, students, quotations, search]);
 
   const handleApprove = (id: string) => {
+    if (!canApproveByTraining) {
+      alert('Chỉ Quản lý Đào tạo được confirm hồ sơ chờ duyệt');
+      return;
+    }
     const res = approveAdmission(id, user?.id || 'training');
     if (!res.ok) {
       alert(res.error || 'Không thể duyệt hồ sơ này');
@@ -74,12 +79,20 @@ const ContractApprovalQueue: React.FC = () => {
   };
 
   const openReject = (id: string) => {
+    if (!canApproveByTraining) {
+      alert('Chỉ Quản lý Đào tạo được từ chối hồ sơ chờ duyệt');
+      return;
+    }
     setRejectId(id);
     setRejectReason('');
     setShowReject(true);
   };
 
   const handleReject = () => {
+    if (!canApproveByTraining) {
+      alert('Chỉ Quản lý Đào tạo được từ chối hồ sơ chờ duyệt');
+      return;
+    }
     if (!rejectId) return;
     const res = rejectAdmission(rejectId, rejectReason.trim());
     if (!res.ok) {
@@ -97,6 +110,9 @@ const ContractApprovalQueue: React.FC = () => {
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Hàng chờ duyệt Ghi danh</h1>
           <p className="text-slate-500 text-sm mt-1">Đào tạo xác nhận các hồ sơ Admission đang chờ duyệt.</p>
+          {!canApproveByTraining && (
+            <p className="text-amber-700 text-xs mt-1 font-medium">Chế độ xem: chỉ Quản lý Đào tạo mới được Confirm/Từ chối.</p>
+          )}
         </div>
         <div className="text-sm font-medium text-slate-600">Chờ duyệt: <b>{rows.length}</b></div>
       </div>
@@ -145,20 +161,24 @@ const ContractApprovalQueue: React.FC = () => {
                     <span className="px-2 py-1 rounded-full bg-amber-100 text-amber-700 text-xs font-bold">CHO_DUYET</span>
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <div className="flex justify-end gap-2">
-                      <button
-                        onClick={() => openReject(admission.id)}
-                        className="px-3 py-1.5 rounded text-xs font-bold border border-rose-200 text-rose-700 hover:bg-rose-50"
-                      >
-                        Từ chối
-                      </button>
-                      <button
-                        onClick={() => handleApprove(admission.id)}
-                        className="px-3 py-1.5 rounded text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 inline-flex items-center gap-1"
-                      >
-                        <CheckCircle2 size={13} /> Confirm
-                      </button>
-                    </div>
+                    {canApproveByTraining ? (
+                      <div className="flex justify-end gap-2">
+                        <button
+                          onClick={() => openReject(admission.id)}
+                          className="px-3 py-1.5 rounded text-xs font-bold border border-rose-200 text-rose-700 hover:bg-rose-50"
+                        >
+                          Từ chối
+                        </button>
+                        <button
+                          onClick={() => handleApprove(admission.id)}
+                          className="px-3 py-1.5 rounded text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 inline-flex items-center gap-1"
+                        >
+                          <CheckCircle2 size={13} /> Confirm
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="text-xs font-semibold text-amber-700">Quản lý Đào tạo xác nhận</span>
+                    )}
                   </td>
                 </tr>
               ))

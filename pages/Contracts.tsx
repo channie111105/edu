@@ -1,6 +1,6 @@
 ﻿import React, { useEffect, useMemo, useState } from 'react';
 import { Search } from 'lucide-react';
-import { IAdmission, IQuotation, IStudent, QuotationStatus } from '../types';
+import { IAdmission, IQuotation, IStudent, QuotationStatus, UserRole } from '../types';
 import { getAdmissions, getQuotations, getStudents } from '../utils/storage';
 import { createAdmission } from '../services/enrollmentFlow.service';
 import { useAuth } from '../contexts/AuthContext';
@@ -18,6 +18,9 @@ type StudentRow = {
 const Contracts: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const canEnrollBySales =
+    user?.role === UserRole.SALES_REP ||
+    user?.role === UserRole.SALES_LEADER;
 
   const [admissions, setAdmissions] = useState<IAdmission[]>([]);
   const [students, setStudents] = useState<IStudent[]>([]);
@@ -117,6 +120,10 @@ const Contracts: React.FC = () => {
   };
 
   const openEnroll = (student?: IStudent, quotationId?: string) => {
+    if (!canEnrollBySales) {
+      alert('Chỉ Sale được tạo ghi danh');
+      return;
+    }
     setForm({
       studentId: student?.id || '',
       quotationId: quotationId || '',
@@ -139,6 +146,11 @@ const Contracts: React.FC = () => {
   };
 
   const handleCreate = () => {
+    if (!canEnrollBySales) {
+      alert('Chỉ Sale được tạo ghi danh');
+      return;
+    }
+
     if (!form.studentId || !form.classId || !form.campusId) {
       alert('Vui lòng chọn học viên, cơ sở, lớp');
       return;
@@ -231,7 +243,9 @@ const Contracts: React.FC = () => {
                     {(student as any).enrollmentStatus !== 'DA_GHI_DANH' && latestAdmission?.status !== 'CHO_DUYET' ? (
                       <button
                         onClick={() => openEnroll(student, lockedQuotation.id)}
-                        className="px-3 py-1.5 rounded bg-blue-600 text-white text-xs font-bold hover:bg-blue-700"
+                        disabled={!canEnrollBySales}
+                        title={!canEnrollBySales ? 'Chỉ Sale được ghi danh' : 'Tạo hồ sơ ghi danh'}
+                        className="px-3 py-1.5 rounded bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-45"
                       >
                         Ghi danh
                       </button>
@@ -262,6 +276,7 @@ const Contracts: React.FC = () => {
                 <select
                   value={form.studentId}
                   onChange={(e) => onStudentChange(e.target.value)}
+                  disabled={!canEnrollBySales}
                   className="w-full border border-slate-300 rounded p-2"
                 >
                   <option value="">-- Chọn học viên --</option>
@@ -280,7 +295,7 @@ const Contracts: React.FC = () => {
                   value={form.quotationId}
                   onChange={(e) => setForm((p) => ({ ...p, quotationId: e.target.value }))}
                   className="w-full border border-slate-300 rounded p-2"
-                  disabled={!form.studentId}
+                  disabled={!canEnrollBySales || !form.studentId}
                 >
                   <option value="">-- Chọn SO --</option>
                   {linkedQuotationsForStudent.map((q) => (
@@ -295,6 +310,7 @@ const Contracts: React.FC = () => {
                   <select
                     value={form.campusId}
                     onChange={(e) => setForm((p) => ({ ...p, campusId: e.target.value }))}
+                    disabled={!canEnrollBySales}
                     className="w-full border border-slate-300 rounded p-2"
                   >
                     {MOCK_CAMPUSES.map((c) => <option key={c} value={c}>{c}</option>)}
@@ -305,6 +321,7 @@ const Contracts: React.FC = () => {
                   <select
                     value={form.classId}
                     onChange={(e) => setForm((p) => ({ ...p, classId: e.target.value }))}
+                    disabled={!canEnrollBySales}
                     className="w-full border border-slate-300 rounded p-2"
                   >
                     <option value="">-- Chọn lớp --</option>
@@ -318,6 +335,7 @@ const Contracts: React.FC = () => {
                 <textarea
                   value={form.note}
                   onChange={(e) => setForm((p) => ({ ...p, note: e.target.value }))}
+                  disabled={!canEnrollBySales}
                   className="w-full border border-slate-300 rounded p-2 h-20"
                 />
               </div>
@@ -325,8 +343,17 @@ const Contracts: React.FC = () => {
 
             <div className="flex justify-end gap-2 mt-5">
               <button onClick={() => setShowCreateModal(false)} className="px-3 py-2 border rounded border-slate-300">Hủy</button>
-              <button onClick={handleCreate} className="px-3 py-2 rounded bg-blue-600 text-white hover:bg-blue-700">Lưu</button>
+              <button
+                onClick={handleCreate}
+                disabled={!canEnrollBySales}
+                className="px-3 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-45"
+              >
+                Lưu
+              </button>
             </div>
+            {!canEnrollBySales && (
+              <p className="mt-3 text-xs font-medium text-amber-700">Chỉ Sale được thao tác Ghi danh trên màn này.</p>
+            )}
           </div>
         </div>
       )}

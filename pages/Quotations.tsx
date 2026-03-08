@@ -1,332 +1,900 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-    FileText,
-    Plus,
-    Search,
-    Filter,
-    CheckCircle2,
-    Lock,
-    Printer,
-    Receipt,
-    MoreHorizontal,
-    Send
+  BarChart3,
+  CalendarDays,
+  ChevronDown,
+  LayoutGrid,
+  List,
+  Plus,
+  RotateCcw,
+  Search,
+  Star
 } from 'lucide-react';
-import { IQuotation, QuotationStatus, UserRole } from '../types';
-import { getQuotations } from '../utils/storage';
-import { useAuth } from '../contexts/AuthContext';
+import AdvancedDateFilter, { DateRange } from '../components/AdvancedDateFilter';
+import { IQuotation, IStudent, QuotationStatus } from '../types';
+import { getQuotations, getStudents } from '../utils/storage';
 
-const PRODUCT_FIX_MAP: Record<string, string> = {
-    'Du h?c Ð?c - Combo A1-B1': 'Du học Đức - Combo A1-B1',
-    'Khóa ti?ng Ð?c B1-B2': 'Khóa tiếng Đức B1-B2',
-    'Combo Du h?c ngh? Úc': 'Combo Du học nghề Úc',
-    'Du h?c Ð?c - Tr?n gói': 'Du học Đức - Trọn gói',
-    'Ti?ng Ð?c A1-B1': 'Tiếng Đức A1-B1',
-    'Khóa ti?ng Ð?c A2': 'Khóa tiếng Đức A2',
-    'Combo Du h?c Ð?c': 'Combo Du học Đức'
+const FAVORITES_STORAGE_KEY = 'educrm:quotation-favorites';
+const SALESPERSON_MAP: Record<string, string> = {
+  u1: 'Trần Văn Quản Trị',
+  u2: 'Sarah Miller',
+  u3: 'David Clark',
+  u4: 'Alex Rivera'
 };
 
-const PRODUCT_TOKEN_FIXES: Array<[RegExp, string]> = [
-    [/\bDu h\?c\b/gi, 'Du học'],
-    [/\bti\?ng\b/gi, 'tiếng'],
-    [/\bngh\?\b/gi, 'nghề'],
-    [/\bTr\?n\b/g, 'Trọn'],
-    [/\bÐ\?c\b/g, 'Đức']
-];
+const DISPLAY_VIEW_OPTIONS = [
+  { value: 'list', label: 'Danh sách', icon: List, disabled: false },
+  { value: 'kanban', label: 'Kanban', icon: LayoutGrid, disabled: true },
+  { value: 'calendar', label: 'Lịch', icon: CalendarDays, disabled: true },
+  { value: 'analysis', label: 'Phân tích', icon: BarChart3, disabled: true }
+] as const;
+
+const TIME_FIELD_OPTIONS = [
+  { value: 'confirmDate', label: 'Ngày xác nhận' },
+  { value: 'quotationDate', label: 'Ngày báo giá' }
+] as const;
+
+const TIME_PRESETS = [
+  { value: 'all', label: 'Mọi ngày' },
+  { value: 'today', label: 'Hôm nay' },
+  { value: 'yesterday', label: 'Hôm qua' },
+  { value: 'thisWeek', label: 'Tuần này' },
+  { value: 'last7Days', label: '7 ngày qua' },
+  { value: 'last30Days', label: '30 ngày qua' },
+  { value: 'thisMonth', label: 'Tháng này' },
+  { value: 'lastMonth', label: 'Tháng trước' },
+  { value: 'custom', label: 'Tùy chọn' }
+] as const;
+
+const DATA_SCOPE_OPTIONS = [
+  { value: 'all', label: 'Tất cả dữ liệu' },
+  { value: 'quotation', label: 'Quotation' },
+  { value: 'locked', label: 'Locked' }
+] as const;
+
+const GROUP_OPTIONS = [
+  { value: 'none', label: 'Không nhóm' },
+  { value: 'status', label: 'Trạng thái' },
+  { value: 'payment', label: 'Thanh toán' },
+  { value: 'salesperson', label: 'Tư vấn' },
+  { value: 'sale_type', label: 'Loại đơn' }
+] as const;
+
+const FAVORITE_OPTIONS = [
+  { value: 'all', label: 'Tất cả' },
+  { value: 'only', label: 'Chỉ yêu thích' },
+  { value: 'first', label: 'Ưu tiên yêu thích' }
+] as const;
+
+type DisplayView = (typeof DISPLAY_VIEW_OPTIONS)[number]['value'];
+type TimeFilterField = (typeof TIME_FIELD_OPTIONS)[number]['value'];
+type TimeRangeType = (typeof TIME_PRESETS)[number]['value'];
+type DataScope = (typeof DATA_SCOPE_OPTIONS)[number]['value'];
+type GroupMode = (typeof GROUP_OPTIONS)[number]['value'];
+type FavoriteMode = (typeof FAVORITE_OPTIONS)[number]['value'];
+
+type SelectOption = {
+  value: string;
+  label: string;
+};
+
+type EnrichedQuotation = {
+  quotation: IQuotation;
+  studentName: string;
+  salespersonName: string;
+  paymentState: { label: string; className: string };
+  displayStatus: { label: string; className: string };
+  saleTypeLabel: string;
+  quotationDateValue?: string;
+  confirmDateValue?: string;
+  isFavorite: boolean;
+};
+
+interface CompactSelectProps {
+  label?: string;
+  value: string;
+  options: readonly SelectOption[];
+  onChange: (value: string) => void;
+  className?: string;
+}
+
+const CompactSelect: React.FC<CompactSelectProps> = ({
+  label,
+  value,
+  options,
+  onChange,
+  className
+}) => (
+  <label
+    className={`inline-flex min-h-[34px] items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-[12px] text-slate-600 shadow-sm ${className || ''}`}
+  >
+    {label ? <span className="whitespace-nowrap">{label}</span> : null}
+    <select
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      className="min-w-0 flex-1 bg-transparent py-1.5 text-[12px] font-semibold text-slate-800 outline-none"
+    >
+      {options.map((option) => (
+        <option key={option.value} value={option.value}>
+          {option.label}
+        </option>
+      ))}
+    </select>
+  </label>
+);
+
+interface GroupedDateFilterSelectProps {
+  primaryValue: string;
+  primaryOptions: readonly SelectOption[];
+  onPrimaryChange: (value: string) => void;
+  secondaryValue: string;
+  secondaryOptions: readonly SelectOption[];
+  onSecondaryChange: (value: string) => void;
+  overlay?: React.ReactNode;
+  className?: string;
+}
+
+const GroupedDateFilterSelect: React.FC<GroupedDateFilterSelectProps> = ({
+  primaryValue,
+  primaryOptions,
+  onPrimaryChange,
+  secondaryValue,
+  secondaryOptions,
+  onSecondaryChange,
+  overlay,
+  className
+}) => (
+  <div className={`relative inline-flex max-w-full ${className || ''}`}>
+    <div className="inline-flex min-h-[34px] max-w-full items-center overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+      <div className="relative border-r border-slate-200">
+        <select
+          aria-label="Time filter field"
+          value={primaryValue}
+          onChange={(event) => onPrimaryChange(event.target.value)}
+          className="h-full appearance-none bg-transparent px-3.5 py-1.5 text-[12px] font-medium text-slate-700 outline-none"
+        >
+          {primaryOptions.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="relative min-w-0">
+        <select
+          aria-label="Time filter range"
+          value={secondaryValue}
+          onChange={(event) => onSecondaryChange(event.target.value)}
+          className="h-full min-w-[196px] appearance-none bg-transparent px-3.5 py-1.5 pr-9 text-[12px] font-semibold text-slate-800 outline-none"
+        >
+          {secondaryOptions.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+        <ChevronDown
+          size={15}
+          className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-600"
+        />
+      </div>
+    </div>
+    {overlay}
+  </div>
+);
 
 const tryDecodeMojibake = (value: string) => {
-    let current = value;
-    for (let i = 0; i < 2; i += 1) {
-        try {
-            const decoded = decodeURIComponent(escape(current));
-            if (!decoded || decoded === current) break;
-            current = decoded;
-        } catch {
-            break;
-        }
+  let current = value;
+
+  for (let index = 0; index < 2; index += 1) {
+    try {
+      const decoded = decodeURIComponent(escape(current));
+      if (!decoded || decoded === current) break;
+      current = decoded;
+    } catch {
+      break;
     }
-    return current;
+  }
+
+  return current;
 };
 
-const normalizeBrokenProductText = (value?: string) => {
-    let normalized = (value || '').trim();
-    if (!normalized) return '';
-    normalized = tryDecodeMojibake(normalized);
-    Object.entries(PRODUCT_FIX_MAP).forEach(([bad, good]) => {
-        if (normalized.includes(bad)) {
-            normalized = normalized.split(bad).join(good);
-        }
-    });
-    PRODUCT_TOKEN_FIXES.forEach(([pattern, replacement]) => {
-        normalized = normalized.replace(pattern, replacement);
-    });
-    return normalized.replace(/\s+/g, ' ').trim();
+const normalizeText = (value?: string) => {
+  const text = (value || '').trim();
+  if (!text) return '-';
+  return tryDecodeMojibake(text).replace(/\s+/g, ' ').trim();
+};
+
+const formatDateParts = (value?: string) => {
+  if (!value) return { date: '-', time: '' };
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return { date: '-', time: '' };
+
+  return {
+    date: date.toLocaleDateString('vi-VN'),
+    time: date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
+  };
+};
+
+const formatCurrency = (value?: number) => `${(value || 0).toLocaleString('vi-VN')} đ`;
+
+const getPaymentStateConfig = (quotation: IQuotation) => {
+  if (quotation.status === QuotationStatus.LOCKED) {
+    return { label: 'Đã thanh toán', className: 'bg-emerald-50 text-emerald-700' };
+  }
+
+  if (quotation.transactionStatus === 'DA_DUYET') {
+    return { label: 'Đã thanh toán', className: 'bg-emerald-50 text-emerald-700' };
+  }
+
+  if (quotation.transactionStatus === 'CHO_DUYET') {
+    return { label: 'Chờ duyệt', className: 'bg-amber-50 text-amber-700' };
+  }
+
+  if (quotation.transactionStatus === 'TU_CHOI') {
+    return { label: 'Từ chối', className: 'bg-rose-50 text-rose-700' };
+  }
+
+  if (quotation.paymentProof || quotation.paymentMethod) {
+    return { label: 'Chờ xử lý', className: 'bg-blue-50 text-blue-700' };
+  }
+
+  return { label: 'Chưa thanh toán', className: 'bg-slate-100 text-slate-600' };
+};
+
+const getDisplayStatusConfig = (status: QuotationStatus) => {
+  if (status === QuotationStatus.LOCKED) {
+    return { label: 'Locked', className: 'bg-slate-200 text-slate-700' };
+  }
+  return { label: 'Quotation', className: 'bg-blue-50 text-blue-700' };
+};
+
+const getSaleTypeLabel = (quotation: IQuotation) => {
+  if (quotation.serviceType === 'Training') return 'Bán thêm';
+  return 'Mới';
+};
+
+const getQuotationDateValue = (quotation: IQuotation) => quotation.quotationDate || quotation.createdAt;
+
+const getConfirmDateValue = (quotation: IQuotation) =>
+  quotation.confirmDate ||
+  quotation.saleConfirmedAt ||
+  (quotation.status === QuotationStatus.LOCKED ? quotation.lockedAt || quotation.updatedAt : undefined);
+
+const getTimePresetLabel = (timeFilterField: TimeFilterField, timeRangeType: TimeRangeType) => {
+  if (timeRangeType === 'all') {
+    return timeFilterField === 'confirmDate' ? 'Mọi ngày xác nhận' : 'Mọi ngày báo giá';
+  }
+
+  if (timeRangeType === 'custom') {
+    return 'Tùy chọn';
+  }
+
+  return TIME_PRESETS.find((preset) => preset.value === timeRangeType)?.label || 'Mọi ngày';
+};
+
+const getGroupPrefix = (groupMode: GroupMode) => {
+  switch (groupMode) {
+    case 'status':
+      return 'Trạng thái';
+    case 'payment':
+      return 'Thanh toán';
+    case 'salesperson':
+      return 'Tư vấn';
+    case 'sale_type':
+      return 'Loại đơn';
+    default:
+      return '';
+  }
+};
+
+const isTimeRangeMatch = (
+  dateValue: string | undefined,
+  rangeType: TimeRangeType,
+  customRange?: DateRange
+) => {
+  if (rangeType === 'all') return true;
+  if (!dateValue) return false;
+
+  const targetDate = new Date(dateValue);
+  if (Number.isNaN(targetDate.getTime())) return false;
+
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+
+  switch (rangeType) {
+    case 'today':
+      return targetDate >= startOfToday && targetDate <= endOfToday;
+    case 'yesterday': {
+      const yesterday = new Date(startOfToday);
+      yesterday.setDate(yesterday.getDate() - 1);
+      const endOfYesterday = new Date(yesterday);
+      endOfYesterday.setHours(23, 59, 59, 999);
+      return targetDate >= yesterday && targetDate <= endOfYesterday;
+    }
+    case 'thisWeek': {
+      const startOfWeek = new Date(startOfToday);
+      const dayOfWeek = startOfWeek.getDay() === 0 ? 7 : startOfWeek.getDay();
+      startOfWeek.setDate(startOfWeek.getDate() - dayOfWeek + 1);
+      return targetDate >= startOfWeek && targetDate <= endOfToday;
+    }
+    case 'last7Days': {
+      const startDate = new Date(startOfToday);
+      startDate.setDate(startDate.getDate() - 6);
+      return targetDate >= startDate && targetDate <= endOfToday;
+    }
+    case 'last30Days': {
+      const startDate = new Date(startOfToday);
+      startDate.setDate(startDate.getDate() - 29);
+      return targetDate >= startDate && targetDate <= endOfToday;
+    }
+    case 'thisMonth': {
+      const startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      return targetDate >= startDate && targetDate <= endOfToday;
+    }
+    case 'lastMonth': {
+      const startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const endDate = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+      return targetDate >= startDate && targetDate <= endDate;
+    }
+    case 'custom': {
+      if (!customRange?.startDate || !customRange?.endDate) return true;
+
+      const startDate = new Date(customRange.startDate);
+      startDate.setHours(0, 0, 0, 0);
+
+      const endDate = new Date(customRange.endDate);
+      endDate.setHours(23, 59, 59, 999);
+
+      return targetDate >= startDate && targetDate <= endDate;
+    }
+    default:
+      return true;
+  }
 };
 
 const Quotations: React.FC = () => {
-    const navigate = useNavigate();
-    const { user } = useAuth();
-    const [quotations, setQuotations] = useState<IQuotation[]>([]);
-    const [filterStatus, setFilterStatus] = useState<string>('ALL');
-    const [searchTerm, setSearchTerm] = useState('');
-    const userRole = user?.role as UserRole | undefined;
-    const canConfirmSale = [UserRole.SALES_REP, UserRole.SALES_LEADER, UserRole.ADMIN, UserRole.FOUNDER].includes(userRole || UserRole.SALES_REP);
-    const canLockOrder = userRole === UserRole.ACCOUNTANT;
+  const navigate = useNavigate();
+  const [quotations, setQuotations] = useState<IQuotation[]>([]);
+  const [students, setStudents] = useState<IStudent[]>([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [timeFilterField, setTimeFilterField] = useState<TimeFilterField>('confirmDate');
+  const [timeRangeType, setTimeRangeType] = useState<TimeRangeType>('all');
+  const [customTimeRange, setCustomTimeRange] = useState<DateRange>({
+    startDate: null,
+    endDate: null,
+    label: 'Tùy chọn'
+  });
+  const [isCustomRangeOpen, setIsCustomRangeOpen] = useState(false);
+  const [dataScope, setDataScope] = useState<DataScope>('all');
+  const [groupMode, setGroupMode] = useState<GroupMode>('none');
+  const [favoriteMode, setFavoriteMode] = useState<FavoriteMode>('all');
+  const [displayView, setDisplayView] = useState<DisplayView>('list');
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [favoriteIds, setFavoriteIds] = useState<string[]>(() => {
+    if (typeof window === 'undefined') return [];
 
-    useEffect(() => {
-        const loadData = () => {
-            const data = getQuotations();
-            console.log('Quotations loaded:', data);
-            setQuotations(data || []);
-        };
-        loadData();
-        window.addEventListener('educrm:quotations-changed', loadData as EventListener);
-        return () => window.removeEventListener('educrm:quotations-changed', loadData as EventListener);
-    }, []);
+    try {
+      const raw = window.localStorage.getItem(FAVORITES_STORAGE_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
 
-    const getStatusBadge = (status: QuotationStatus) => {
-        switch (status) {
-            case QuotationStatus.DRAFT:
-                return <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded text-xs font-bold">New Quotation</span>;
-            case QuotationStatus.SENT:
-                return <span className="bg-purple-50 text-purple-600 px-2 py-1 rounded text-xs font-bold">Sent</span>;
-            case QuotationStatus.SALE_ORDER:
-                return <span className="bg-green-50 text-green-600 px-2 py-1 rounded text-xs font-bold">Sale Order</span>;
-            case QuotationStatus.SALE_CONFIRMED:
-                return <span className="bg-emerald-50 text-emerald-700 px-2 py-1 rounded text-xs font-bold">Sale Confirmed</span>;
-            case QuotationStatus.LOCKED:
-                return <span className="bg-gray-100 text-gray-800 px-2 py-1 rounded text-xs font-bold flex items-center gap-1"><Lock size={10} /> Locked</span>;
-            default:
-                return <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded text-xs">{status}</span>;
-        }
+  useEffect(() => {
+    const loadData = () => {
+      setQuotations(getQuotations() || []);
+      setStudents((getStudents() || []) as IStudent[]);
     };
 
-    const getContractStatusBadge = (status?: string) => {
-        if (status === 'sale_confirmed') return <span className="bg-emerald-50 text-emerald-700 px-2 py-1 rounded text-xs font-bold">Sale Confirmed</span>;
-        if (status === 'signed_contract') return <span className="bg-blue-50 text-blue-700 px-2 py-1 rounded text-xs font-bold">Da ky hop dong</span>;
-        if (status === 'enrolled') return <span className="bg-indigo-50 text-indigo-700 px-2 py-1 rounded text-xs font-bold">Enrolled</span>;
-        if (status === 'active') return <span className="bg-green-50 text-green-700 px-2 py-1 rounded text-xs font-bold">Active</span>;
-        return <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded text-xs font-bold">Quotation</span>;
-    };
+    loadData();
+    window.addEventListener('educrm:quotations-changed', loadData as EventListener);
+    window.addEventListener('storage', loadData);
 
-    const getTransactionStatusBadge = (status?: IQuotation['transactionStatus']) => {
-        if (status === 'CHO_DUYET') return <span className="bg-amber-50 text-amber-700 px-2 py-1 rounded text-xs font-bold">GD: Chờ duyệt</span>;
-        if (status === 'DA_DUYET') return <span className="bg-green-50 text-green-700 px-2 py-1 rounded text-xs font-bold">GD: Đã duyệt</span>;
-        if (status === 'TU_CHOI') return <span className="bg-rose-50 text-rose-700 px-2 py-1 rounded text-xs font-bold">GD: Từ chối</span>;
-        return <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded text-xs font-bold">GD: NONE</span>;
+    return () => {
+      window.removeEventListener('educrm:quotations-changed', loadData as EventListener);
+      window.removeEventListener('storage', loadData);
     };
+  }, []);
 
-    const getPaymentDocSummary = (q: IQuotation) => {
-        if (q.paymentDocuments?.method === 'CK') {
-            const tx = q.paymentDocuments.bankTransactionCode || 'N/A';
-            const confirm = q.paymentDocuments.bankConfirmationCode || 'N/A';
-            return `CK | GD:${tx} | XN:${confirm}`;
-        }
-        if (q.paymentDocuments?.method === 'CASH') {
-            const receipt = q.paymentDocuments.cashReceiptCode || 'N/A';
-            const image = q.paymentDocuments.cashReceiptImage ? ` | Ảnh:${q.paymentDocuments.cashReceiptImage}` : '';
-            return `TM | PT:${receipt}${image}`;
-        }
-        return q.paymentProof || 'Chưa có chứng từ';
-    };
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(favoriteIds));
+  }, [favoriteIds]);
 
-    const filteredData = quotations.filter(q => {
-        if (!q) return false;
-        const matchesStatus = filterStatus === 'ALL' || q.status === filterStatus;
-        const soCode = q.soCode || '';
-        const customerName = q.customerName || '';
-        const matchesSearch = soCode.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            customerName.toLowerCase().includes(searchTerm.toLowerCase());
-        return matchesStatus && matchesSearch;
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, timeFilterField, timeRangeType, customTimeRange, dataScope, groupMode, favoriteMode]);
+
+  const studentMap = useMemo(() => new Map(students.map((student) => [student.id, student])), [students]);
+
+  const getStudentName = (quotation: IQuotation) => {
+    const linkedStudent = quotation.studentId ? studentMap.get(quotation.studentId) : undefined;
+    return normalizeText(linkedStudent?.name || quotation.customerName);
+  };
+
+  const getSalespersonName = (quotation: IQuotation) =>
+    normalizeText(quotation.salespersonName || SALESPERSON_MAP[quotation.createdBy] || quotation.createdBy);
+
+  const enrichedData = useMemo<EnrichedQuotation[]>(
+    () =>
+      quotations.map((quotation) => ({
+        quotation,
+        studentName: getStudentName(quotation),
+        salespersonName: getSalespersonName(quotation),
+        paymentState: getPaymentStateConfig(quotation),
+        displayStatus: getDisplayStatusConfig(quotation.status),
+        saleTypeLabel: getSaleTypeLabel(quotation),
+        quotationDateValue: getQuotationDateValue(quotation),
+        confirmDateValue: getConfirmDateValue(quotation),
+        isFavorite: favoriteIds.includes(quotation.id)
+      })),
+    [favoriteIds, quotations, studentMap]
+  );
+
+  const getGroupValue = (item: EnrichedQuotation) => {
+    switch (groupMode) {
+      case 'status':
+        return item.displayStatus.label;
+      case 'payment':
+        return item.paymentState.label;
+      case 'salesperson':
+        return item.salespersonName;
+      case 'sale_type':
+        return item.saleTypeLabel;
+      default:
+        return '';
+    }
+  };
+
+  const matchesDataScope = (item: EnrichedQuotation) => {
+    switch (dataScope) {
+      case 'quotation':
+        return item.quotation.status !== QuotationStatus.LOCKED;
+      case 'locked':
+        return item.quotation.status === QuotationStatus.LOCKED;
+      default:
+        return true;
+    }
+  };
+
+  const filteredData = useMemo(() => {
+    const keyword = searchTerm.trim().toLowerCase();
+
+    const result = enrichedData.filter((item) => {
+      const haystack = [
+        item.quotation.soCode,
+        item.quotation.id,
+        normalizeText(item.quotation.customerName),
+        normalizeText(item.quotation.product),
+        item.studentName,
+        item.salespersonName
+      ]
+        .join(' ')
+        .toLowerCase();
+
+      const selectedTimeValue =
+        timeFilterField === 'quotationDate' ? item.quotationDateValue : item.confirmDateValue;
+
+      if (keyword && !haystack.includes(keyword)) return false;
+      if (!isTimeRangeMatch(selectedTimeValue, timeRangeType, customTimeRange)) return false;
+      if (!matchesDataScope(item)) return false;
+      if (favoriteMode === 'only' && !item.isFavorite) return false;
+
+      return true;
     });
 
-    const shortenProductName = (value?: string, maxLen = 26) => {
-        const text = (value || '').trim();
-        if (!text) return '-';
-        if (text.length <= maxLen) return text;
-        return `${text.slice(0, maxLen)}...`;
-    };
+    result.sort((a, b) => {
+      if (favoriteMode === 'first' && a.isFavorite !== b.isFavorite) {
+        return a.isFavorite ? -1 : 1;
+      }
 
-    return (
-        <div className="flex flex-col h-full bg-[#f8fafc] text-[#0d141b] font-sans">
-            <div className="flex flex-col flex-1 p-6 lg:p-8 max-w-[1600px] mx-auto w-full gap-6">
+      if (groupMode !== 'none') {
+        const groupCompare = getGroupValue(a).localeCompare(getGroupValue(b), 'vi');
+        if (groupCompare !== 0) return groupCompare;
+      }
 
-                {/* Header */}
-                <div className="flex justify-between items-center">
-                    <div>
-                        <h1 className="text-3xl font-bold text-slate-900">Danh sách Báo giá</h1>
-                        <p className="text-slate-500 mt-1">Quản lý toàn bộ báo giá và đơn hàng (SO).</p>
-                    </div>
-                    <button
-                        onClick={() => navigate('/contracts/quotations/new')}
-                        className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-lg font-bold shadow-sm flex items-center gap-2 transition-all"
-                    >
-                        <Plus size={18} /> Tạo Báo giá
-                    </button>
-                </div>
+      return new Date(b.quotationDateValue || b.quotation.createdAt).getTime() -
+        new Date(a.quotationDateValue || a.quotation.createdAt).getTime();
+    });
 
-                {/* Filters */}
-                <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col md:flex-row gap-4 items-center justify-between">
-                    <div className="relative flex-1 w-full md:max-w-md">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                        <input
-                            type="text"
-                            placeholder="Tìm kiếm theo mã SO, tên khách hàng..."
-                            className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                        />
-                    </div>
+    return result;
+  }, [
+    customTimeRange,
+    dataScope,
+    enrichedData,
+    favoriteMode,
+    groupMode,
+    searchTerm,
+    timeFilterField,
+    timeRangeType
+  ]);
 
-                    <div className="flex items-center gap-2 w-full md:w-auto overflow-x-auto pb-2 md:pb-0">
-                        <button
-                            onClick={() => setFilterStatus('ALL')}
-                            className={`px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${filterStatus === 'ALL' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-                        >
-                            Tất cả
-                        </button>
-                        <button
-                            onClick={() => setFilterStatus(QuotationStatus.DRAFT)}
-                            className={`px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${filterStatus === QuotationStatus.DRAFT ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-                        >
-                            Mới tạo
-                        </button>
-                        <button
-                            onClick={() => setFilterStatus(QuotationStatus.SENT)}
-                            className={`px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${filterStatus === QuotationStatus.SENT ? 'bg-purple-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-                        >
-                            Đã gửi
-                        </button>
-                        <button
-                            onClick={() => setFilterStatus(QuotationStatus.SALE_CONFIRMED)}
-                            className={`px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${filterStatus === QuotationStatus.SALE_CONFIRMED ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-                        >
-                            Sale Confirmed
-                        </button>
-                        <button
-                            onClick={() => setFilterStatus(QuotationStatus.SALE_ORDER)}
-                            className={`px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${filterStatus === QuotationStatus.SALE_ORDER ? 'bg-green-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-                        >
-                            Sale Order
-                        </button>
-                        <button
-                            onClick={() => setFilterStatus(QuotationStatus.LOCKED)}
-                            className={`px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${filterStatus === QuotationStatus.LOCKED ? 'bg-gray-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-                        >
-                            Locked
-                        </button>
-                    </div>
-                </div>
+  const pageStart = filteredData.length === 0 ? 0 : 1;
+  const pageEnd = filteredData.length;
+  const setCurrentPage = (_value: number | ((page: number) => number)) => {};
 
-                {/* Table */}
-                <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                    <table className="w-full text-left border-collapse">
-                        <thead>
-                            <tr className="bg-slate-50 border-b border-slate-200 text-xs uppercase text-slate-500 font-bold">
-                                <th className="px-6 py-4">Mã SO</th>
-                                <th className="px-6 py-4">Khách hàng</th>
-                                <th className="px-6 py-4">Sản phẩm</th>
-                                <th className="px-6 py-4">Giá trị</th>
-                                <th className="px-6 py-4">Ngày tạo</th>
-                                <th className="px-6 py-4">Trạng thái</th>
-                                <th className="px-6 py-4 text-right">Hành động</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                            {filteredData.length > 0 ? (
-                                filteredData.map((q) => (
-                                    <tr
-                                        key={q.id}
-                                        className="hover:bg-slate-50 transition-colors cursor-pointer"
-                                        onClick={() => navigate(`/contracts/quotations/${q.id}`)}
-                                    >
-                                        <td className="px-6 py-4 font-bold text-blue-600">{q.soCode}</td>
-                                        <td className="px-6 py-4 font-bold text-slate-900">
-                                            <div className="max-w-[190px] truncate whitespace-nowrap" title={q.customerName}>
-                                                {q.customerName}
-                                            </div>
-                                        </td>
-                                        <td className="px-6 py-4 text-slate-600 text-sm">
-                                            <div className="max-w-[260px] truncate whitespace-nowrap" title={normalizeBrokenProductText(q.product)}>
-                                                {shortenProductName(normalizeBrokenProductText(q.product))}
-                                            </div>
-                                        </td>
-                                        <td className="px-6 py-4 font-bold text-slate-900 whitespace-nowrap">{q.finalAmount.toLocaleString('vi-VN')} đ</td>
-                                        <td className="px-6 py-4 text-slate-500 text-sm font-medium">
-                                            {new Date(q.createdAt).toLocaleDateString('vi-VN')}
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            <div className="flex items-center gap-2 flex-wrap">
-                                                {getStatusBadge(q.status)}
-                                                {getTransactionStatusBadge(q.transactionStatus)}
-                                                {getContractStatusBadge(q.contractStatus)}
-                                                {q.needInvoice && (
-                                                    <span className="bg-amber-50 text-amber-700 px-2 py-1 rounded text-xs font-bold">Can in hoa don VAT</span>
-                                                )}
-                                            </div>
-                                            <div className="text-[11px] text-slate-500 mt-1 truncate" title={getPaymentDocSummary(q)}>
-                                                {getPaymentDocSummary(q)}
-                                            </div>
-                                        </td>
-                                        <td className="px-6 py-4 text-right">
-                                            <div className="flex items-center justify-end gap-2" onClick={(e) => e.stopPropagation()}>
-                                                {/* Actions per status logic */}
-                                                {q.status === QuotationStatus.SENT && (
-                                                    <button
-                                                        title="Confirm Sale"
-                                                        disabled={!canConfirmSale}
-                                                        className="p-2 text-green-600 hover:bg-green-50 disabled:text-slate-300 disabled:hover:bg-transparent rounded-full transition-colors"
-                                                        onClick={() => navigate(`/contracts/quotations/${q.id}?action=confirm`)}
-                                                    >
-                                                        <CheckCircle2 size={18} />
-                                                    </button>
-                                                )}
-                                                {(q.status === QuotationStatus.SALE_ORDER || q.status === QuotationStatus.SALE_CONFIRMED) && (
-                                                    <>
-                                                        <button
-                                                            title="In phiếu thu (SO)"
-                                                            className="p-2 text-green-600 hover:bg-green-50 rounded-full transition-colors"
-                                                            onClick={() => navigate(`/contracts/quotations/${q.id}?action=print_receipt`)}
-                                                        >
-                                                            <Receipt size={18} />
-                                                        </button>
-                                                        <button
-                                                            title="Lock Data (Accountant)"
-                                                            disabled={!canLockOrder || q.transactionStatus !== 'DA_DUYET'}
-                                                            className="p-2 text-gray-600 hover:bg-gray-100 disabled:text-slate-300 disabled:hover:bg-transparent rounded-full transition-colors"
-                                                            onClick={() => navigate(`/contracts/quotations/${q.id}?action=lock`)}
-                                                        >
-                                                            <Lock size={18} />
-                                                        </button>
-                                                    </>
-                                                )}
-                                                <button
-                                                    title={q.status === QuotationStatus.LOCKED ? 'In hợp đồng' : 'Cần khóa SO trước khi in hợp đồng'}
-                                                    disabled={q.status !== QuotationStatus.LOCKED}
-                                                    className="p-2 text-blue-600 hover:bg-blue-50 disabled:text-slate-300 disabled:hover:bg-transparent rounded-full transition-colors"
-                                                    onClick={() => navigate(`/contracts/quotations/${q.id}/contract`)}
-                                                >
-                                                    <Printer size={18} />
-                                                </button>
+  const allVisibleSelected =
+    filteredData.length > 0 && filteredData.every((item) => selectedIds.includes(item.quotation.id));
 
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))
-                            ) : (
-                                <tr>
-                                    <td colSpan={7} className="text-center py-12 text-slate-400 italic">
-                                        Không tìm thấy báo giá nào phù hợp.
-                                    </td>
-                                </tr>
-                            )}
-                        </tbody>
-                    </table>
-                </div>
+  const toggleSelectAllVisible = () => {
+    if (allVisibleSelected) {
+      setSelectedIds((current) =>
+        current.filter((id) => !filteredData.some((item) => item.quotation.id === id))
+      );
+      return;
+    }
 
-            </div>
-        </div>
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      filteredData.forEach((item) => next.add(item.quotation.id));
+      return Array.from(next);
+    });
+  };
+
+  const toggleRowSelection = (quotationId: string) => {
+    setSelectedIds((current) =>
+      current.includes(quotationId)
+        ? current.filter((id) => id !== quotationId)
+        : [...current, quotationId]
     );
+  };
+
+  const toggleFavorite = (quotationId: string) => {
+    setFavoriteIds((current) =>
+      current.includes(quotationId)
+        ? current.filter((id) => id !== quotationId)
+        : [...current, quotationId]
+    );
+  };
+
+  const handleTimeRangeChange = (value: TimeRangeType) => {
+    setTimeRangeType(value);
+    setIsCustomRangeOpen(value === 'custom');
+  };
+
+  const handleCustomRangeChange = (range: DateRange) => {
+    setCustomTimeRange({
+      startDate: range.startDate,
+      endDate: range.endDate,
+      label: range.label || 'Tùy chọn'
+    });
+    setTimeRangeType('custom');
+    setIsCustomRangeOpen(false);
+  };
+
+  const resetToolbar = () => {
+    setSearchTerm('');
+    setTimeFilterField('confirmDate');
+    setTimeRangeType('all');
+    setCustomTimeRange({ startDate: null, endDate: null, label: 'Tùy chọn' });
+    setIsCustomRangeOpen(false);
+    setDataScope('all');
+    setGroupMode('none');
+    setFavoriteMode('all');
+    setDisplayView('list');
+    setSelectedIds([]);
+    setCurrentPage(1);
+  };
+
+  const groupedRows = useMemo(() => {
+    let lastGroup = '';
+
+    return filteredData.flatMap((item) => {
+      const groupValue = getGroupValue(item);
+      const rows: React.ReactNode[] = [];
+
+      if (groupMode !== 'none' && groupValue !== lastGroup) {
+        lastGroup = groupValue;
+        rows.push(
+          <tr key={`group-${groupMode}-${groupValue}`} className="bg-slate-50/80">
+            <td colSpan={11} className="px-3 py-2 text-[11px] font-semibold text-slate-600">
+              {getGroupPrefix(groupMode)}: {groupValue || '-'}
+            </td>
+          </tr>
+        );
+      }
+
+      const quotationDate = formatDateParts(item.quotationDateValue);
+      const confirmDate = formatDateParts(item.confirmDateValue);
+      const isSelected = selectedIds.includes(item.quotation.id);
+
+      rows.push(
+        <tr
+          key={item.quotation.id}
+          className="cursor-pointer transition-colors hover:bg-slate-50"
+          onClick={() => navigate(`/contracts/quotations/${item.quotation.id}`)}
+        >
+          <td className="w-9 px-3 py-3" onClick={(event) => event.stopPropagation()}>
+            <input
+              type="checkbox"
+              checked={isSelected}
+              onChange={() => toggleRowSelection(item.quotation.id)}
+              className="h-4 w-4 rounded border-slate-300"
+            />
+          </td>
+          <td className="px-3 py-3">
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  toggleFavorite(item.quotation.id);
+                }}
+                className="text-slate-300 transition-colors hover:text-amber-500"
+                title={item.isFavorite ? 'Bỏ yêu thích' : 'Đánh dấu yêu thích'}
+              >
+                <Star size={15} className={item.isFavorite ? 'fill-amber-400 text-amber-500' : ''} />
+              </button>
+              <div>
+                <div className="truncate text-[12px] font-bold text-blue-600">
+                  {normalizeText(item.quotation.soCode)}
+                </div>
+                <div className="mt-0.5 truncate text-[10px] text-slate-400">
+                  {normalizeText(item.quotation.id)}
+                </div>
+              </div>
+            </div>
+          </td>
+          <td className="px-3 py-3 text-[12px] text-slate-700">
+            <div>{quotationDate.date}</div>
+            {quotationDate.time ? <div className="mt-0.5 truncate text-[10px] text-slate-400">{quotationDate.time}</div> : null}
+          </td>
+          <td className="px-3 py-3 text-[12px] text-slate-700">
+            <div>{confirmDate.date}</div>
+            {confirmDate.time ? <div className="mt-0.5 truncate text-[10px] text-slate-400">{confirmDate.time}</div> : null}
+          </td>
+          <td className="px-3 py-3">
+            <div
+              className="max-w-[160px] truncate text-[12px] font-semibold text-slate-900"
+              title={normalizeText(item.quotation.customerName)}
+            >
+              {normalizeText(item.quotation.customerName)}
+            </div>
+            <div
+              className="mt-0.5 max-w-[180px] truncate text-[10px] text-slate-500"
+              title={normalizeText(item.quotation.product)}
+            >
+              {normalizeText(item.quotation.product)}
+            </div>
+          </td>
+          <td className="px-3 py-3">
+            <div
+              className="max-w-[130px] truncate text-[12px] font-medium text-slate-800"
+              title={item.studentName}
+            >
+              {item.studentName}
+            </div>
+          </td>
+          <td className="px-3 py-3">
+            <div
+              className="max-w-[120px] truncate text-[12px] text-slate-700"
+              title={item.salespersonName}
+            >
+              {item.salespersonName}
+            </div>
+          </td>
+          <td className="px-3 py-3 whitespace-nowrap text-right text-[12px] font-semibold text-slate-900">
+            {formatCurrency(item.quotation.finalAmount)}
+          </td>
+          <td className="px-3 py-3">
+            <span className={`inline-flex rounded-lg px-2.5 py-1 text-[11px] font-semibold ${item.paymentState.className}`}>
+              {item.paymentState.label}
+            </span>
+          </td>
+          <td className="px-3 py-3">
+            <span className={`inline-flex rounded-lg px-2.5 py-1 text-[11px] font-semibold ${item.displayStatus.className}`}>
+              {item.displayStatus.label}
+            </span>
+          </td>
+          <td className="px-3 py-3 text-[12px] text-slate-700">
+            <div className="max-w-[84px] truncate" title={item.saleTypeLabel}>
+              {item.saleTypeLabel}
+            </div>
+          </td>
+        </tr>
+      );
+
+      return rows;
+    });
+  }, [filteredData, groupMode, navigate, selectedIds]);
+
+  const timePresetOptions = useMemo(
+    () =>
+      TIME_PRESETS.map((option) => ({
+        ...option,
+        label: option.value === 'all' ? getTimePresetLabel(timeFilterField, 'all') : option.label
+      })),
+    [timeFilterField]
+  );
+
+  return (
+    <div className="flex h-full flex-col bg-[#f6f8fc] text-slate-800">
+      <div className="mx-auto flex w-full max-w-[1600px] flex-1 flex-col gap-5 p-5 lg:p-7">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h1 className="text-[2.05rem] font-bold text-slate-900">Danh sách Báo giá</h1>
+            <p className="mt-2 text-[13px] text-slate-500">
+              Quản lý báo giá theo cấu trúc vận hành.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => navigate('/contracts/quotations/new')}
+            className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-[14px] font-bold text-white shadow-sm transition-colors hover:bg-blue-700"
+          >
+            <Plus size={18} />
+            Tạo báo giá
+          </button>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+          <div className="flex flex-col gap-3 lg:grid lg:grid-cols-[max-content_minmax(0,1fr)] lg:gap-x-4 lg:gap-y-3">
+            <div className="flex flex-col gap-3 lg:contents">
+              <div className="relative flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={resetToolbar}
+                className="inline-flex min-h-[34px] items-center gap-2 rounded-lg bg-emerald-50 px-3.5 text-[12px] font-semibold text-emerald-700 transition-colors hover:bg-emerald-100"
+              >
+                <RotateCcw size={15} />
+                Đặt lại
+              </button>
+
+              <GroupedDateFilterSelect
+                primaryValue={timeFilterField}
+                primaryOptions={TIME_FIELD_OPTIONS}
+                onPrimaryChange={(value) => setTimeFilterField(value as TimeFilterField)}
+                secondaryValue={timeRangeType}
+                secondaryOptions={timePresetOptions}
+                onSecondaryChange={(value) => handleTimeRangeChange(value as TimeRangeType)}
+              />
+
+              {timeRangeType === 'custom' || isCustomRangeOpen ? (
+                <AdvancedDateFilter
+                  showPresets={false}
+                  hideTrigger
+                  open={isCustomRangeOpen}
+                  onOpenChange={setIsCustomRangeOpen}
+                  align="left"
+                  initialRange={customTimeRange}
+                  onChange={handleCustomRangeChange}
+                  className="absolute left-0 top-full z-50"
+                  popoverClassName="left-0 right-auto mt-2"
+                />
+              ) : null}
+              </div>
+
+              <div className="min-w-[320px] flex-1 lg:min-w-0">
+                <div className="relative">
+                  <Search
+                    size={16}
+                    className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
+                  />
+                  <input
+                    type="text"
+                    value={searchTerm}
+                    onChange={(event) => setSearchTerm(event.target.value)}
+                    placeholder="Tìm số báo giá, khách hàng, học viên, tư vấn..."
+                    className="h-[34px] w-full rounded-lg border border-slate-200 bg-white pl-10 pr-3.5 text-[12px] outline-none transition-colors focus:border-blue-500"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-3 lg:col-start-2 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex flex-wrap items-center gap-2 lg:flex-nowrap">
+                <CompactSelect
+                  label="Bộ lọc"
+                  value={dataScope}
+                  options={DATA_SCOPE_OPTIONS}
+                  onChange={(value) => setDataScope(value as DataScope)}
+                  className="w-[174px] shrink-0"
+                />
+
+                <CompactSelect
+                  label="Nhóm theo"
+                  value={groupMode}
+                  options={GROUP_OPTIONS}
+                  onChange={(value) => setGroupMode(value as GroupMode)}
+                  className="w-[198px] shrink-0"
+                />
+
+                <CompactSelect
+                  label="Yêu thích"
+                  value={favoriteMode}
+                  options={FAVORITE_OPTIONS}
+                  onChange={(value) => setFavoriteMode(value as FavoriteMode)}
+                  className="w-[148px] shrink-0"
+                />
+              </div>
+
+              <div className="flex items-center gap-1.5 lg:ml-auto">
+                <div className="flex items-center gap-0.5 rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+                  {DISPLAY_VIEW_OPTIONS.map((option) => {
+                    const Icon = option.icon;
+                    const isActive = displayView === option.value;
+
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        disabled={option.disabled}
+                        onClick={() => setDisplayView(option.value)}
+                        title={option.disabled ? 'Sắp có' : option.label}
+                        className={`rounded-md p-1 transition-all ${
+                          isActive ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400 hover:bg-white hover:text-slate-700'
+                        } ${
+                          option.disabled ? 'cursor-not-allowed opacity-40 hover:bg-transparent hover:text-slate-400' : ''
+                        }`}
+                      >
+                        <Icon size={15} />
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="hidden">
+                  <span className="hidden">
+                    {selectedIds.length} dòng đã chọn {pageStart}-{pageEnd} / {filteredData.length}
+                  </span>
+
+                  <div className="hidden" />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[1040px] table-fixed border-collapse text-left">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">
+                  <th className="w-9 px-3 py-2.5 whitespace-nowrap">
+                    <input
+                      type="checkbox"
+                      checked={allVisibleSelected}
+                      onChange={toggleSelectAllVisible}
+                      className="h-4 w-4 rounded border-slate-300"
+                    />
+                  </th>
+                  <th className="w-[122px] px-3 py-2.5 whitespace-nowrap">Số báo giá</th>
+                  <th className="w-[102px] px-3 py-2.5 whitespace-nowrap">Ngày báo giá</th>
+                  <th className="w-[102px] px-3 py-2.5 whitespace-nowrap">Ngày xác nhận</th>
+                  <th className="w-[170px] px-3 py-2.5 whitespace-nowrap">Khách hàng</th>
+                  <th className="w-[124px] px-3 py-2.5 whitespace-nowrap">Học viên</th>
+                  <th className="w-[116px] px-3 py-2.5 whitespace-nowrap">Tư vấn</th>
+                  <th className="w-[126px] px-3 py-2.5 whitespace-nowrap text-right">Tổng tiền</th>
+                  <th className="w-[126px] px-3 py-2.5 whitespace-nowrap">Thanh toán</th>
+                  <th className="w-[116px] px-3 py-2.5 whitespace-nowrap">Trạng thái</th>
+                  <th className="w-[88px] px-3 py-2.5 whitespace-nowrap">Loại đơn</th>
+                </tr>
+              </thead>
+
+              <tbody className="divide-y divide-slate-100">
+                {groupedRows.length > 0 ? (
+                  groupedRows
+                ) : (
+                  <tr>
+                    <td colSpan={11} className="px-4 py-12 text-center text-[13px] italic text-slate-400">
+                      Không tìm thấy báo giá phù hợp.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 };
 
 export default Quotations;
