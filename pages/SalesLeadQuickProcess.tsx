@@ -745,6 +745,8 @@ const SalesLeadQuickProcess: React.FC = () => {
                                             products: lead.program ? [lead.program] : [],
                                             probability: 20,
                                             createdAt: new Date().toISOString(),
+                                            leadCreatedAt: lead.createdAt,
+                                            assignedAt: lead.pickUpDate,
                                             activities: (Array.isArray(lead.activities) ? lead.activities : []).map(a => ({ ...a, type: a.type === 'message' ? 'chat' : a.type === 'system' ? 'note' : a.type as any })) as any
                                         };
 

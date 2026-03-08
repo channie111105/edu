@@ -1091,6 +1091,12 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
         return groups;
     }, [lead.activities]);
 
+    const formatMetaDateTime = (value?: string) => {
+        if (!value) return '-';
+        const parsed = new Date(value);
+        return Number.isNaN(parsed.getTime()) ? '-' : parsed.toLocaleString('vi-VN');
+    };
+
 
     return (
         <div className="fixed inset-0 z-50 flex justify-end font-inter">
@@ -1266,6 +1272,14 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                                     <select className={`field-input ${isQualified ? 'locked' : ''}`} defaultValue={lead.source} onChange={e => handleFieldBlur('source', e.target.value)} disabled={isQualified || isContract || isLost}>
                                         <option value="Facebook">Facebook</option><option value="TikTok">TikTok</option><option value="Google">Google Search</option><option value="Hotline">Hotline</option><option value="Referral">Giới thiệu</option>
                                     </select>
+                                </div>
+                                <div>
+                                    <label className="field-label">Ngày tạo lead</label>
+                                    <input className="field-input" value={formatMetaDateTime(lead.createdAt)} readOnly disabled />
+                                </div>
+                                <div>
+                                    <label className="field-label">Ngày assign</label>
+                                    <input className="field-input" value={formatMetaDateTime(lead.pickUpDate)} readOnly disabled />
                                 </div>
                                 <div className="col-span-2">
                                     <label className="field-label flex items-center justify-between">
@@ -1654,7 +1668,6 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                                                 <option value="">-- Chọn hình thức --</option>
                                                 <option value={MeetingType.OFFLINE}>Offline (Tại trung tâm)</option>
                                                 <option value={MeetingType.ONLINE}>Online (Phóng vấn)</option>
-                                                <option value={MeetingType.CONSULTING}>Tư vấn trực tiếp</option>
                                             </select>
                                         </div>
                                     </div>

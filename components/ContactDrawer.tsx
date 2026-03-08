@@ -1,12 +1,8 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { IContact, IDeal, IContract, DealStage, ContractStatus } from '../types';
-import {
-    X, User, Phone, Mail, MapPin, Building, Calendar,
-    MessageSquare, Save, Clock, Briefcase, FileText,
-    CreditCard, ExternalLink, Plus, DollarSign, Receipt
-} from 'lucide-react';
+﻿import React, { useEffect, useMemo, useState } from 'react';
+import { IContact, IContract, IDeal, ContractStatus } from '../types';
+import { Building2, Calendar, CheckCircle2, Clock, CreditCard, DollarSign, ExternalLink, Globe, Plus, Receipt, Save, ShieldCheck, Tag, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { getDeals, getContracts, getContactById } from '../utils/storage';
+import { getContracts, getContactById, getDeals } from '../utils/storage';
 import CreateMeetingModal from './CreateMeetingModal';
 import { MeetingCustomerOption } from '../utils/meetingHelpers';
 
@@ -17,530 +13,255 @@ interface ContactDrawerProps {
     onUpdate: (updatedContact: IContact) => void;
 }
 
+type ContactTab = 'details' | 'notes' | 'sales' | 'invoicing';
+
+const inputClassName = 'h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-800 shadow-sm outline-none transition placeholder:font-normal placeholder:text-slate-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-100';
+const panelClassName = 'rounded-lg border border-slate-300 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.05)]';
+
+const FieldBlock: React.FC<{ label: string; children: React.ReactNode; className?: string }> = ({ label, children, className }) => (
+    <div className={['space-y-1.5', className || ''].join(' ').trim()}>
+        <label className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-600">
+            {label}
+        </label>
+        <div className="min-w-0">{children}</div>
+    </div>
+);
+
+const MetricCard: React.FC<{ icon: React.ElementType; label: string; value: string; hint?: string }> = ({ icon: Icon, label, value, hint }) => (
+    <div className="flex min-w-0 items-center justify-between gap-2 rounded-md border border-slate-300 bg-white px-3 py-2">
+        <div className="flex min-w-0 items-center gap-2">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-blue-50 text-blue-600">
+                <Icon size={14} />
+            </div>
+            <div className="min-w-0">
+                <div className="truncate text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-600">{label}</div>
+                {hint ? <div className="truncate text-[11px] font-medium text-slate-500">{hint}</div> : null}
+            </div>
+        </div>
+        <div className="shrink-0 text-[17px] font-medium leading-none text-slate-800">{value}</div>
+    </div>
+);
+
+const TabButton: React.FC<{ active: boolean; label: string; onClick: () => void }> = ({ active, label, onClick }) => (
+    <button onClick={onClick} className={['w-full whitespace-nowrap rounded-md border px-3 py-2 text-[13px] font-semibold transition-colors', active ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-transparent bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-800'].join(' ')}>{label}</button>
+);
+
+const SummaryRow: React.FC<{ icon: React.ElementType; label: string; value: string; hint?: string }> = ({ icon: Icon, label, value, hint }) => (
+    <div className="flex items-center justify-between gap-3 rounded-md border border-slate-300 bg-white px-3 py-2">
+        <div className="flex min-w-0 items-center gap-2">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-blue-50 text-blue-600">
+                <Icon size={13} />
+            </div>
+            <div className="min-w-0">
+                <div className="truncate text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-600">{label}</div>
+                {hint ? <div className="truncate text-[11px] font-medium text-slate-500">{hint}</div> : null}
+            </div>
+        </div>
+        <div className="shrink-0 text-[14px] font-medium text-slate-800">{value}</div>
+    </div>
+);
+
 const ContactDrawer: React.FC<ContactDrawerProps> = ({ contact: initialContact, isOpen, onClose, onUpdate }) => {
     const { user } = useAuth();
     const [contact, setContact] = useState<IContact | null>(null);
-    const [activeTab, setActiveTab] = useState<'transactions' | 'notes' | 'files'>('transactions');
+    const [activeTab, setActiveTab] = useState<ContactTab>('details');
     const [deals, setDeals] = useState<IDeal[]>([]);
     const [contracts, setContracts] = useState<IContract[]>([]);
+    const [noteContent, setNoteContent] = useState('');
     const [isCreateMeetingModalOpen, setIsCreateMeetingModalOpen] = useState(false);
 
-    // Notes State
-    const [noteContent, setNoteContent] = useState('');
-
     useEffect(() => {
-        if (initialContact) {
-            setContact(initialContact);
-            loadRelatedData(initialContact.id);
-        }
+        if (!initialContact) return;
+        setContact(initialContact);
+        setActiveTab('details');
+        setNoteContent('');
+        const relatedDeals = getDeals().filter((deal) => deal.leadId === initialContact.id || (initialContact.dealIds || []).includes(deal.id));
+        setDeals(relatedDeals);
+        setContracts(getContracts().filter((contract) => relatedDeals.some((deal) => deal.id === contract.dealId)));
     }, [initialContact]);
 
-    const loadRelatedData = (contactId: string) => {
-        // 1. Get Deals linked to this contact
-        // Assuming contact.id matches deal.leadId (unified ID system) or we check contact.dealIds
-        const allDeals = getDeals();
-        const relatedDeals = allDeals.filter(d => d.leadId === contactId || (initialContact?.dealIds || []).includes(d.id));
-        setDeals(relatedDeals);
-
-        // 2. Get Contracts linked to these deals
-        const allContracts = getContracts();
-        const relatedDealIds = relatedDeals.map(d => d.id);
-        const relatedContracts = allContracts.filter(c => relatedDealIds.includes(c.dealId));
-        setContracts(relatedContracts);
-    };
-
     const financialStats = useMemo(() => {
-        const totalDealValue = deals.reduce((sum, d) => sum + (d.value || 0), 0);
-        const totalContractValue = contracts.reduce((sum, c) => sum + (c.totalValue || 0), 0);
-
-        const totalPaid = contracts.reduce((sum, c) => sum + (c.paidValue || 0), 0);
-        const totalDebt = totalContractValue - totalPaid;
-
-        return {
-            totalDealValue,
-            contractCount: contracts.length,
-            dealCount: deals.length,
-            meetingCount: (contact?.activities || []).filter((a: any) => a.type === 'meeting').length, // Mock logic
-            totalPaid,
-            totalDebt
-        };
-    }, [deals, contracts, contact]);
+        const totalDealValue = deals.reduce((sum, deal) => sum + Number(deal.value || 0), 0);
+        const totalContractValue = contracts.reduce((sum, contract) => sum + Number(contract.totalValue || 0), 0);
+        const totalPaid = contracts.reduce((sum, contract) => sum + Number(contract.paidValue || 0), 0);
+        const totalDebt = Math.max(totalContractValue - totalPaid, 0);
+        const activeContracts = contracts.filter((contract) => contract.status === ContractStatus.ACTIVE || contract.status === ContractStatus.SIGNED).length;
+        const meetingCount = (contact?.activities || []).filter((activity: any) => activity.type === 'meeting').length;
+        return { activeContracts, dealCount: deals.length, meetingCount, totalContractValue, totalDealValue, totalDebt, totalPaid };
+    }, [contact, contracts, deals]);
 
     if (!isOpen || !contact) return null;
 
-    const lockedMeetingCustomer: MeetingCustomerOption = {
-        key: `contact:${contact.id}`,
-        id: contact.id,
-        source: 'contact',
-        name: contact.name,
-        phone: contact.phone,
-        campus: contact.company || contact.city || 'Hanoi',
-        address: contact.address || 'N/A',
-        contactId: contact.id
+    const money = (amount: number) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount || 0);
+    const compactMoney = (amount: number) => {
+        const abs = Math.abs(amount || 0);
+        if (abs >= 1_000_000_000) return `${(amount / 1_000_000_000).toFixed(1)}B`;
+        if (abs >= 1_000_000) return `${(amount / 1_000_000).toFixed(1)}M`;
+        return new Intl.NumberFormat('vi-VN').format(amount || 0);
     };
-
-    const handleChange = (field: keyof IContact, value: any) => {
-        const updated = { ...contact, [field]: value };
-        setContact(updated);
+    const dateTime = (value?: string) => {
+        if (!value) return '-';
+        const date = new Date(value);
+        return Number.isNaN(date.getTime()) ? '-' : date.toLocaleString('vi-VN');
     };
-
-    const handleSave = () => {
-        if (contact) {
-            onUpdate(contact);
-            onClose();
-        }
+    const initials = (name: string) => {
+        const parts = String(name || '').trim().split(' ').filter(Boolean);
+        if (parts.length >= 2) return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+        return String(name || 'NA').slice(0, 2).toUpperCase();
     };
-
-    const handleAddNote = () => {
+    const change = <K extends keyof IContact>(field: K, value: IContact[K]) => setContact((prev) => (prev ? { ...prev, [field]: value } : prev));
+    const changeTags = (value: string) => setContact((prev) => prev ? { ...prev, marketingData: { ...prev.marketingData, tags: value.split(',').map((tag) => tag.trim()).filter(Boolean) } } : prev);
+    const changeWebsite = (value: string) => setContact((prev) => prev ? { ...prev, website: value, socialLink: value } : prev);
+    const addNote = () => {
         if (!noteContent.trim()) return;
-
-        const newNote = {
-            id: `note-${Date.now()}`,
-            type: 'note',
-            user: user?.name || 'Admin',
-            timestamp: new Date().toISOString(),
-            description: noteContent,
-            title: 'Ghi chú'
-        };
-
-        const updatedActivities = [newNote, ...(contact.activities || [])];
-        const updatedContact = { ...contact, activities: updatedActivities };
-
-        setContact(updatedContact);
-        onUpdate(updatedContact);
+        const updated = { ...contact, activities: [{ id: `note-${Date.now()}`, type: 'note', user: user?.name || 'Admin', timestamp: new Date().toISOString(), description: noteContent, title: 'Ghi chú nội bộ' }, ...(contact.activities || [])] };
+        setContact(updated);
+        onUpdate(updated);
         setNoteContent('');
     };
-
-    // Helper to get initials
-    const getInitials = (name: string) => {
-        const names = name.split(' ');
-        if (names.length >= 2) return `${names[0][0]}${names[names.length - 1][0]}`.toUpperCase();
-        return name.substring(0, 2).toUpperCase();
+    const save = () => {
+        onUpdate(contact);
+        onClose();
     };
+    const currentType = contact.contactType || (contact.company ? 'company' : 'individual');
+    const tagValue = (contact.marketingData?.tags || []).join(', ');
+    const websiteValue = contact.website || contact.socialLink || '';
+    const activityList = [...(contact.activities || [])].sort((a: any, b: any) => new Date(b?.timestamp || b?.datetime || 0).getTime() - new Date(a?.timestamp || a?.datetime || 0).getTime());
+    const lockedMeetingCustomer: MeetingCustomerOption = { key: `contact:${contact.id}`, id: contact.id, source: 'contact', name: contact.name, phone: contact.phone, campus: contact.company || contact.city || 'Hà Nội', address: contact.address || 'Chưa có địa chỉ', contactId: contact.id };
 
-    // Helper for formatting currency
-    const formatCurrency = (amount: number) => {
-        return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
-    };
-
-    return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center font-sans">
-            {/* Backdrop */}
-            <div
-                className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity"
-                onClick={onClose}
-            />
-
-            {/* Modal Panel - Centered & Large */}
-            <div className="relative w-[95%] h-[92%] bg-white rounded-xl shadow-2xl flex overflow-hidden animate-in zoom-in-95 duration-200">
-
-                {/* LEFT COLUMN - Sidebar Info */}
-                <div className="w-[320px] bg-slate-50 border-r border-slate-200 flex flex-col shrink-0 overflow-y-auto custom-scrollbar">
-
-                    {/* Header Profile */}
-                    <div className="p-6 border-b border-slate-100 bg-white">
-                        <div className="flex gap-4 items-center mb-4">
-                            <div className="w-14 h-14 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-xl shrink-0">
-                                {getInitials(contact.name)}
-                            </div>
-                            <div className="min-w-0">
-                                <h2 className="text-lg font-bold text-slate-800 truncate" title={contact.name}>{contact.name}</h2>
-                                <p className="text-xs text-slate-500 font-medium truncate uppercase">
-                                    {contact.targetCountry || 'Khách hàng'} {contact.source && `| ${contact.source}`}
-                                </p>
-                                <button className="text-xs text-blue-600 hover:text-blue-700 font-medium mt-1">
-                                    Contact Details
-                                </button>
-                            </div>
-                        </div>
-
-                        <button className="w-full flex items-center justify-center gap-2 py-2 px-4 bg-blue-50 text-blue-700 text-xs font-bold rounded-lg hover:bg-blue-100 transition-colors border border-blue-200 uppercase">
-                            <ExternalLink size={14} /> Hồ sơ học sinh
-                        </button>
+    const renderDetailTab = () => (
+        <div className={`${panelClassName} p-4`}>
+            <div className="grid gap-x-5 gap-y-3 xl:grid-cols-2">
+                <FieldBlock label="MST/CCCD">
+                    <input type="text" value={contact.identityCard || ''} onChange={(event) => change('identityCard', event.target.value)} placeholder="VD: 07920400xxxx" className={inputClassName} />
+                </FieldBlock>
+                <FieldBlock label="Chức danh">
+                    <input type="text" value={contact.job || ''} onChange={(event) => change('job', event.target.value)} placeholder="VD: Trưởng phòng kinh doanh" className={inputClassName} />
+                </FieldBlock>
+                <FieldBlock label="Điện thoại">
+                    <input type="text" value={contact.phone || ''} onChange={(event) => change('phone', event.target.value)} placeholder="0912341885" className={inputClassName} />
+                </FieldBlock>
+                <FieldBlock label="Di động">
+                    <input type="text" value={contact.mobile || ''} onChange={(event) => change('mobile', event.target.value)} placeholder="0912341885" className={inputClassName} />
+                </FieldBlock>
+                <FieldBlock label="Email">
+                    <input type="email" value={contact.email || ''} onChange={(event) => change('email', event.target.value)} placeholder="vd: customer@example.com" className={inputClassName} />
+                </FieldBlock>
+                <FieldBlock label="Danh xưng">
+                    <select value={contact.title || ''} onChange={(event) => change('title', event.target.value)} className={inputClassName}>
+                        <option value="">Chọn danh xưng</option>
+                        <option value="Mr.">Anh</option>
+                        <option value="Ms.">Chị</option>
+                        <option value="Parent">Phụ huynh</option>
+                        <option value="Student">Học viên</option>
+                    </select>
+                </FieldBlock>
+                <FieldBlock label="Thẻ">
+                    <input type="text" value={tagValue} onChange={(event) => changeTags(event.target.value)} placeholder="tag-1, tag-2, vip" className={inputClassName} />
+                </FieldBlock>
+                <FieldBlock label="Cơ sở">
+                    <input type="text" value={contact.venue || ''} onChange={(event) => change('venue', event.target.value)} placeholder="Cơ sở / Campus" className={inputClassName} />
+                </FieldBlock>
+                <FieldBlock label="Trang web">
+                    <input type="text" value={websiteValue} onChange={(event) => changeWebsite(event.target.value)} placeholder="VD: https://example.com" className={inputClassName} />
+                </FieldBlock>
+                <FieldBlock label="Ngôn ngữ">
+                    <input type="text" value={contact.languageLevel || ''} onChange={(event) => change('languageLevel', event.target.value)} placeholder="Tiếng Việt / Tiếng Anh" className={inputClassName} />
+                </FieldBlock>
+                <FieldBlock label="Điểm email">
+                    <div className="relative">
+                        <input type="number" min={0} max={100} value={contact.emailScore ?? 0} onChange={(event) => change('emailScore', Number(event.target.value) || 0)} className={`${inputClassName} pr-9`} />
+                        <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm font-semibold text-slate-500">%</span>
                     </div>
-
-                    {/* Contact Info Form */}
-                    <div className="p-6 space-y-6">
-                        {/* Section: Contact Info */}
-                        <section>
-                            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2">
-                                <User size={14} /> Thông tin chung
-                            </h3>
-                            <div className="space-y-4">
-                                <div className="grid grid-cols-2 gap-3">
-                                    <div className="space-y-1">
-                                        <label className="text-[10px] uppercase font-bold text-slate-400">Họ và tên</label>
-                                        <input
-                                            type="text"
-                                            value={contact.name}
-                                            onChange={(e) => handleChange('name', e.target.value)}
-                                            className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded text-sm focus:border-blue-500 outline-none"
-                                        />
-                                    </div>
-                                    <div className="space-y-1">
-                                        <label className="text-[10px] uppercase font-bold text-slate-400">Chức vụ / Job</label>
-                                        <input
-                                            type="text"
-                                            value={contact.job || ''}
-                                            onChange={(e) => handleChange('job', e.target.value)}
-                                            className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded text-sm focus:border-blue-500 outline-none"
-                                        />
-                                    </div>
-                                </div>
-
-                                <div className="space-y-1">
-                                    <label className="text-[10px] uppercase font-bold text-slate-400">Số điện thoại</label>
-                                    <div className="relative">
-                                        <Phone size={14} className="absolute left-2.5 top-2 text-slate-400" />
-                                        <input
-                                            type="text"
-                                            value={contact.phone}
-                                            onChange={(e) => handleChange('phone', e.target.value)}
-                                            className="w-full pl-8 pr-2 py-1.5 bg-white border border-slate-200 rounded text-sm focus:border-blue-500 outline-none"
-                                        />
-                                    </div>
-                                </div>
-
-                                <div className="space-y-1">
-                                    <label className="text-[10px] uppercase font-bold text-slate-400">Email</label>
-                                    <div className="relative">
-                                        <Mail size={14} className="absolute left-2.5 top-2 text-slate-400" />
-                                        <input
-                                            type="text"
-                                            value={contact.email || ''}
-                                            onChange={(e) => handleChange('email', e.target.value)}
-                                            className="w-full pl-8 pr-2 py-1.5 bg-white border border-slate-200 rounded text-sm focus:border-blue-500 outline-none"
-                                        />
-                                    </div>
-                                </div>
-                            </div>
-                        </section>
-
-                        {/* Section: Address */}
-                        <section>
-                            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2">
-                                <MapPin size={14} /> Địa chỉ & Công ty
-                            </h3>
-                            <div className="space-y-4">
-                                <div className="space-y-1">
-                                    <label className="text-[10px] uppercase font-bold text-slate-400">Công ty / Tổ chức</label>
-                                    <input
-                                        type="text"
-                                        value={contact.company || ''}
-                                        onChange={(e) => handleChange('company', e.target.value)}
-                                        placeholder="Nhập tên công ty..."
-                                        className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded text-sm focus:border-blue-500 outline-none"
-                                    />
-                                </div>
-                                <div className="space-y-1">
-                                    <label className="text-[10px] uppercase font-bold text-slate-400">Địa chỉ</label>
-                                    <input
-                                        type="text"
-                                        value={contact.address || ''}
-                                        onChange={(e) => handleChange('address', e.target.value)}
-                                        className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded text-sm focus:border-blue-500 outline-none"
-                                    />
-                                </div>
-                                <div className="grid grid-cols-2 gap-3">
-                                    <div className="space-y-1">
-                                        <label className="text-[10px] uppercase font-bold text-slate-400">Thành phố</label>
-                                        <input
-                                            type="text"
-                                            value={contact.city || ''}
-                                            onChange={(e) => handleChange('city', e.target.value)}
-                                            className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded text-sm focus:border-blue-500 outline-none"
-                                        />
-                                    </div>
-                                    <div className="space-y-1">
-                                        <label className="text-[10px] uppercase font-bold text-slate-400">Quốc gia mục tiêu</label>
-                                        <input
-                                            type="text"
-                                            value={contact.targetCountry || ''}
-                                            onChange={(e) => handleChange('targetCountry', e.target.value)}
-                                            className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded text-sm focus:border-blue-500 outline-none"
-                                        />
-                                    </div>
-                                </div>
-                            </div>
-                        </section>
-
-                        {/* Section: Financial Stats */}
-                        <section>
-                            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2">
-                                <DollarSign size={14} /> Chỉ số tài chính
-                            </h3>
-                            <div className="grid grid-cols-2 gap-3 mb-3">
-                                <div className="bg-white border rounded p-3 text-center">
-                                    <div className="text-[10px] font-bold text-slate-400 uppercase">DEAL (OPP)</div>
-                                    <div className="text-xl font-bold text-blue-600">{financialStats.dealCount}</div>
-                                </div>
-                                <div className="bg-white border rounded p-3 text-center">
-                                    <div className="text-[10px] font-bold text-slate-400 uppercase">MEETING</div>
-                                    <div className="text-xl font-bold text-purple-600">{financialStats.meetingCount}</div>
-                                </div>
-                            </div>
-                            <div className="space-y-2">
-                                <div className="bg-green-50 border border-green-100 rounded p-3">
-                                    <div className="flex justify-between items-center mb-1">
-                                        <div className="flex items-center gap-2">
-                                            <Receipt size={14} className="text-green-600" />
-                                            <span className="text-xs font-bold text-green-700 uppercase">Tiền đã thu</span>
-                                        </div>
-                                    </div>
-                                    <div className="text-lg font-bold text-green-700">{formatCurrency(financialStats.totalPaid)}</div>
-                                </div>
-
-                                <div className="bg-red-50 border border-red-100 rounded p-3 relative">
-                                    {financialStats.totalDebt > 0 && (
-                                        <div className="absolute top-2 right-2 w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                                    )}
-                                    <div className="flex justify-between items-center mb-1">
-                                        <div className="flex items-center gap-2">
-                                            <CreditCard size={14} className="text-red-600" />
-                                            <span className="text-xs font-bold text-red-700 uppercase">Công nợ</span>
-                                        </div>
-                                    </div>
-                                    <div className="text-lg font-bold text-red-700">{formatCurrency(financialStats.totalDebt)}</div>
-                                </div>
-                            </div>
-                        </section>
+                </FieldBlock>
+                <FieldBlock label="Email lỗi">
+                    <label className="flex h-9 items-center gap-2 rounded-md border border-slate-300 bg-slate-50 px-3 shadow-sm">
+                        <input type="checkbox" checked={Boolean(contact.emailBounced)} onChange={(event) => change('emailBounced', event.target.checked)} className="h-4 w-4 rounded border-slate-400 text-blue-600 focus:ring-blue-500" />
+                        <span className="truncate text-sm font-medium text-slate-700">Đánh dấu email không hợp lệ</span>
+                    </label>
+                </FieldBlock>
+                <FieldBlock label="Địa chỉ" className="xl:col-span-2">
+                    <div className="grid gap-2 xl:grid-cols-[1.5fr_repeat(3,minmax(0,1fr))]">
+                        <input type="text" value={contact.address || ''} onChange={(event) => change('address', event.target.value)} placeholder="Số nhà, tên đường..." className={inputClassName} />
+                        <input type="text" value={contact.city || ''} onChange={(event) => change('city', event.target.value)} placeholder="Tỉnh / Thành phố" className={inputClassName} />
+                        <input type="text" value={contact.district || ''} onChange={(event) => change('district', event.target.value)} placeholder="Quận / Huyện" className={inputClassName} />
+                        <input type="text" value={contact.ward || ''} onChange={(event) => change('ward', event.target.value)} placeholder="Phường / Xã" className={inputClassName} />
                     </div>
-                    <div className="p-4 border-t border-slate-200 bg-slate-50 sticky bottom-0">
-                        <button
-                            onClick={handleSave}
-                            className="w-full py-2.5 bg-blue-600 text-white text-sm font-bold rounded shadow-sm hover:bg-blue-700 hover:shadow-md transition-all flex items-center justify-center gap-2"
-                        >
-                            <Save size={16} /> Lưu thay đổi
-                        </button>
-                    </div>
+                </FieldBlock>
+            </div>
+            <div className="mt-3 grid gap-2 border-t border-slate-200 pt-3 md:grid-cols-3">
+                <div className="rounded-md border border-slate-300 bg-slate-50 px-3 py-2"><div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">Nguồn</div><div className="mt-1 truncate text-sm font-semibold text-slate-800">{contact.source || '-'}</div></div>
+                <div className="rounded-md border border-slate-300 bg-slate-50 px-3 py-2"><div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">Thị trường</div><div className="mt-1 truncate text-sm font-semibold text-slate-800">{contact.targetCountry || '-'}</div></div>
+                <div className="rounded-md border border-slate-300 bg-slate-50 px-3 py-2"><div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">Cập nhật</div><div className="mt-1 truncate text-sm font-semibold text-slate-800">{dateTime(contact.updatedAt || contact.createdAt)}</div></div>
+            </div>
+        </div>
+    );
 
-                </div>
-
-                {/* RIGHT COLUMN - Main Content */}
-                <div className="flex-1 flex flex-col bg-white">
-                    {/* Header Controls */}
-                    <div className="h-14 border-b border-slate-200 flex items-center justify-between px-6 shrink-0">
-                        {/* Tabs */}
-                        <div className="flex h-full">
-                            <button
-                                onClick={() => setActiveTab('transactions')}
-                                className={`px-4 text-sm font-medium h-full border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'transactions' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-                            >
-                                <DollarSign size={16} /> Giao dịch & Hợp đồng
-                            </button>
-                            <button
-                                onClick={() => setActiveTab('notes')}
-                                className={`px-4 text-sm font-medium h-full border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'notes' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-                            >
-                                <MessageSquare size={16} /> Chăm sóc & Notes
-                            </button>
-                            <button
-                                onClick={() => setActiveTab('files')}
-                                className={`px-4 text-sm font-medium h-full border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'files' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-                            >
-                                <FileText size={16} /> Hồ sơ & File
-                            </button>
-                        </div>
-
-                        <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100">
-                            <X size={20} />
-                        </button>
-                    </div>
-
-                    {/* Content Area */}
-                    <div className="flex-1 overflow-y-auto bg-slate-50/30 p-8 custom-scrollbar">
-
-                        {/* TAB 1: TRANSACTIONS (DEALS & CONTRACTS) */}
-                        {activeTab === 'transactions' && (
-                            <div className="space-y-8 max-w-4xl mx-auto">
-
-                                {/* 1. DEALS Section */}
-                                <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
-                                    <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-                                        <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wide">Cơ hội (Deals/Opps)</h3>
-                                        <button className="text-xs flex items-center gap-1 bg-white border border-blue-200 text-blue-600 px-3 py-1.5 rounded font-medium hover:bg-blue-50 transition-colors">
-                                            <Plus size={14} /> Tạo Deal
-                                        </button>
-                                    </div>
-                                    <div className="divide-y divide-slate-100">
-                                        {deals.length === 0 ? (
-                                            <div className="p-8 text-center text-slate-400 text-sm">Chưa có cơ hội nào.</div>
-                                        ) : (
-                                            deals.map(deal => (
-                                                <div key={deal.id} className="px-6 py-4 flex justify-between items-center hover:bg-slate-50 transition-colors cursor-pointer group">
-                                                    <div>
-                                                        <h4 className="font-bold text-slate-800 text-sm group-hover:text-blue-600">{deal.title}</h4>
-                                                        <div className="flex items-center gap-2 mt-1">
-                                                            <span className="text-xs text-slate-500">{deal.stage}</span>
-                                                            <span className="text-xs text-slate-300">•</span>
-                                                            <span className="text-xs text-slate-500">{new Date(deal.createdAt || '').toLocaleDateString('vi-VN')}</span>
-                                                        </div>
-                                                    </div>
-                                                    <div className="text-right">
-                                                        <div className="font-bold text-slate-900">{formatCurrency(deal.value)}</div>
-                                                        <div className="text-xs text-slate-400 mt-1">Doanh thu dự kiến</div>
-                                                    </div>
-                                                </div>
-                                            ))
-                                        )}
-                                    </div>
-                                </div>
-
-                                {/* 2. CONTRACTS Section */}
-                                <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
-                                    <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-                                        <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wide">Hợp đồng & Đơn hàng</h3>
-                                        <button className="text-xs flex items-center gap-1 bg-white border border-green-200 text-green-600 px-3 py-1.5 rounded font-medium hover:bg-green-50 transition-colors">
-                                            <Plus size={14} /> Tạo Hợp đồng
-                                        </button>
-                                    </div>
-                                    <div className="divide-y divide-slate-100">
-                                        {contracts.length === 0 ? (
-                                            <div className="p-8 text-center border-dashed border-2 border-slate-100 m-4 rounded bg-slate-50/50">
-                                                <p className="text-slate-400 text-sm italic">Chưa có hợp đồng nào.</p>
-                                            </div>
-                                        ) : (
-                                            contracts.map(contract => (
-                                                <div key={contract.id} className="px-6 py-4 flex justify-between items-center hover:bg-slate-50 transition-colors cursor-pointer group">
-                                                    <div className="flex items-start gap-3">
-                                                        <div className="p-2 bg-green-50 text-green-600 rounded">
-                                                            <FileText size={18} />
-                                                        </div>
-                                                        <div>
-                                                            <h4 className="font-bold text-slate-800 text-sm group-hover:text-green-600 flex items-center gap-2">
-                                                                {contract.code}
-                                                                <span className={`text-[10px] px-2 py-0.5 rounded-full border ${contract.status === ContractStatus.ACTIVE
-                                                                        ? 'bg-green-100 text-green-700 border-green-200'
-                                                                        : 'bg-slate-100 text-slate-500 border-slate-200'
-                                                                    }`}>
-                                                                    {contract.status}
-                                                                </span>
-                                                            </h4>
-                                                            <div className="flex items-center gap-2 mt-1">
-                                                                <span className="text-xs text-slate-500">Khách hàng: {contract.customerName}</span>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                    <div className="text-right">
-                                                        <div className="font-bold text-slate-900">{formatCurrency(contract.totalValue)}</div>
-                                                        <div className="text-xs text-green-600 mt-1">Đã thu: {formatCurrency(contract.paidValue)}</div>
-                                                    </div>
-                                                </div>
-                                            ))
-                                        )}
-                                    </div>
-                                </div>
-
-                                {/* 3. PRODUCTS Section (Mock for now, or derived) */}
-                                <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden opacity-50 pointer-events-none">
-                                    <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-                                        <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wide">Sản phẩm đã mua</h3>
-                                    </div>
-                                    <div className="p-6 text-center text-slate-400 text-sm">
-                                        Chưa có sản phẩm.
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-
-                        {/* TAB 2: NOTES & ACTIVITIES */}
-                        {activeTab === 'notes' && (
-                            <div className="max-w-3xl mx-auto">
-                                <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
-                                    <MessageSquare className="text-blue-600" /> Ghi chú & Lịch sử chăm sóc
-                                </h3>
-
-                                {/* Input Note */}
-                                <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm mb-6">
-                                    <button
-                                        onClick={() => setIsCreateMeetingModalOpen(true)}
-                                        className="mb-3 px-3 py-2 bg-emerald-600 text-white text-xs font-bold rounded hover:bg-emerald-700 transition-colors flex items-center gap-2"
-                                    >
-                                        <Calendar size={14} /> Tạo lịch hẹn
-                                    </button>
-                                    <textarea
-                                        value={noteContent}
-                                        onChange={e => setNoteContent(e.target.value)}
-                                        placeholder="Nhập ghi chú chi tiết về khách hàng này..."
-                                        className="w-full text-sm border-none focus:ring-0 outline-none resize-none min-h-[80px] text-slate-700 placeholder:text-slate-400"
-                                    />
-                                    <div className="flex justify-between items-center mt-2 pt-2 border-t border-slate-100">
-                                        <div className="flex gap-2">
-                                            {/* Toolbar placeholders */}
-                                            <button className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded">
-                                                <Calendar size={16} />
-                                            </button>
-                                        </div>
-                                        <button
-                                            onClick={handleAddNote}
-                                            disabled={!noteContent.trim()}
-                                            className="px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
-                                        >
-                                            <Save size={14} /> Lưu ghi chú
-                                        </button>
-                                    </div>
-                                </div>
-
-                                {/* Timeline List */}
-                                <div className="space-y-6 relative before:absolute before:left-[19px] before:top-0 before:bottom-0 before:w-0.5 before:bg-slate-200">
-                                    {(contact.activities || []).length === 0 && (
-                                        <p className="text-center text-slate-400 text-sm py-8 ml-8">Chưa có lịch sử hoạt động.</p>
-                                    )}
-                                    {(contact.activities || []).map((act: any) => (
-                                        <div key={act.id} className="relative pl-12 group">
-                                            {/* Timeline dot */}
-                                            <div className="absolute left-0 top-1 w-10 h-10 bg-white border border-slate-200 rounded-full flex items-center justify-center z-10 shadow-sm group-hover:border-blue-400 transition-colors">
-                                                <div className="w-2.5 h-2.5 bg-blue-500 rounded-full" />
-                                            </div>
-
-                                            {/* Content Card */}
-                                            <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
-                                                <div className="flex justify-between items-start mb-2">
-                                                    <span className="text-xs font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded">{act.user}</span>
-                                                    <span className="text-[10px] text-slate-400 flex items-center gap-1">
-                                                        <Clock size={10} />
-                                                        {new Date(act.timestamp).toLocaleString('vi-VN')}
-                                                    </span>
-                                                </div>
-                                                <h4 className="font-bold text-slate-800 text-sm mb-1">{act.title || 'Ghi chú'}</h4>
-                                                <p className="text-sm text-slate-600 whitespace-pre-wrap">{act.description}</p>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-
-                        {/* TAB 3: FILES (Placeholder) */}
-                        {activeTab === 'files' && (
-                            <div className="h-full flex flex-col items-center justify-center text-slate-400">
-                                <FileText size={48} className="mb-4 text-slate-200" />
-                                <h3 className="font-bold text-slate-500">Hồ sơ & Tài liệu</h3>
-                                <p className="text-sm mb-6">Chức năng quản lý file đang được phát triển.</p>
-                                <button className="px-4 py-2 bg-slate-100 text-slate-600 rounded text-sm hover:bg-slate-200 font-medium">
-                                    Upload tài liệu
-                                </button>
-                            </div>
-                        )}
-
-                    </div>
+    const renderNotesTab = () => (
+        <div className="grid items-start gap-4 xl:grid-cols-[330px_minmax(0,1fr)]">
+            <div className={`${panelClassName} p-4`}>
+                <div className="flex items-center justify-between border-b border-slate-200 pb-3"><div><div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">Ghi chú nội bộ</div><div className="mt-0.5 text-[15px] font-semibold text-slate-900">Thêm ghi chú hoặc lịch hẹn</div></div><button onClick={() => setIsCreateMeetingModalOpen(true)} className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100"><Calendar size={13} />Tạo lịch hẹn</button></div>
+                <textarea value={noteContent} onChange={(event) => setNoteContent(event.target.value)} placeholder="Nhập ghi chú nội bộ cho contact..." className="mt-3 min-h-[168px] w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-sm font-medium text-slate-800 outline-none transition placeholder:font-normal placeholder:text-slate-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-100" />
+                <div className="mt-3 flex items-center justify-between gap-3"><div className="text-[11px] font-medium text-slate-500">Ghi chú sẽ lưu vào lịch sử hoạt động.</div><button onClick={addNote} disabled={!noteContent.trim()} className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"><Save size={13} />Lưu ghi chú</button></div>
+            </div>
+            <div className={`${panelClassName} p-4`}>
+                <div className="border-b border-slate-200 pb-3"><div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">Dòng thời gian</div><div className="mt-0.5 text-[15px] font-semibold text-slate-900">Hoạt động gần đây</div></div>
+                <div className="mt-3 space-y-3">
+                    {activityList.length === 0 ? <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 px-5 py-8 text-center text-sm font-medium text-slate-500">Chưa có hoạt động nào được ghi nhận cho contact này.</div> : activityList.map((activity: any) => (
+                        <div key={activity.id} className="rounded-md border border-slate-300 bg-white p-3 shadow-sm"><div className="flex items-start justify-between gap-3"><div><div className="text-sm font-semibold text-slate-900">{activity.title || 'Ghi chú nội bộ'}</div><div className="mt-0.5 text-xs font-semibold text-blue-700">{activity.user || 'Hệ thống'}</div></div><div className="inline-flex items-center gap-1 text-xs font-medium text-slate-500"><Clock size={12} />{dateTime(activity.timestamp || activity.datetime)}</div></div><p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{activity.description || activity.note || 'Không có nội dung'}</p></div>
+                    ))}
                 </div>
             </div>
+        </div>
+    );
 
-            <CreateMeetingModal
-                isOpen={isCreateMeetingModalOpen}
-                onClose={() => setIsCreateMeetingModalOpen(false)}
-                salesPersonId={user?.id || 'u2'}
-                salesPersonName={user?.name || 'Sales Rep'}
-                lockedCustomer={lockedMeetingCustomer}
-                onCreated={() => {
-                    const refreshed = getContactById(contact.id);
-                    if (refreshed) {
-                        setContact(refreshed);
-                        onUpdate(refreshed);
-                    }
-                }}
-            />
+    const renderSalesTab = () => (
+        <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+            <div className={`${panelClassName} overflow-hidden self-start`}>
+                <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3"><div><div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">Kinh doanh</div><div className="mt-0.5 text-[15px] font-semibold text-slate-900">Cơ hội bán hàng</div></div><button className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100"><Plus size={13} />Tạo cơ hội</button></div>
+                <div className="divide-y divide-slate-200">{deals.length === 0 ? <div className="px-4 py-8 text-center text-sm font-medium text-slate-500">Contact này chưa có cơ hội bán hàng nào được liên kết.</div> : deals.map((deal) => <div key={deal.id} className="flex items-center justify-between gap-4 px-4 py-3 hover:bg-blue-50/40"><div className="min-w-0"><div className="truncate text-sm font-semibold text-slate-900">{deal.title}</div><div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs font-medium text-slate-500"><span>{deal.stage}</span><span className="text-slate-300">•</span><span>{dateTime(deal.createdAt)}</span></div></div><div className="text-right"><div className="text-sm font-semibold text-slate-900">{money(deal.value || 0)}</div><div className="text-[11px] font-medium text-slate-500">Doanh thu dự kiến</div></div></div>)}</div>
+            </div>
+            <div className="space-y-4 self-start">
+                <div className={`${panelClassName} p-4`}><div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">Tổng quan</div><div className="mt-3 space-y-2"><SummaryRow icon={DollarSign} label="Giá trị cơ hội" value={compactMoney(financialStats.totalDealValue)} hint="Tổng giá trị" /><SummaryRow icon={Receipt} label="Đã ký" value={String(contracts.length)} hint="Hợp đồng đã tạo" /><SummaryRow icon={ShieldCheck} label="Hiệu lực" value={String(financialStats.activeContracts)} hint="Hợp đồng đang chạy" /></div></div>
+                <div className={`${panelClassName} overflow-hidden`}><div className="border-b border-slate-200 px-4 py-3"><div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">Hợp đồng</div><div className="mt-0.5 text-[15px] font-semibold text-slate-900">Chứng từ liên quan</div></div><div className="divide-y divide-slate-200">{contracts.length === 0 ? <div className="px-4 py-6 text-center text-sm font-medium text-slate-500">Chưa có hợp đồng liên kết.</div> : contracts.map((contract) => <div key={contract.id} className="px-4 py-3"><div className="flex items-start justify-between gap-4"><div className="min-w-0"><div className="flex items-center gap-2"><div className="truncate text-sm font-semibold text-slate-900">{contract.code}</div><span className={['rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide', contract.status === ContractStatus.ACTIVE || contract.status === ContractStatus.SIGNED ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-300 bg-slate-100 text-slate-600'].join(' ')}>{contract.status}</span></div><div className="mt-0.5 text-xs font-medium text-slate-500">Ngày ký: {contract.signedDate ? dateTime(contract.signedDate) : '-'}</div></div><div className="text-right text-sm font-semibold text-slate-900">{money(contract.totalValue)}</div></div></div>)}</div></div>
+            </div>
+        </div>
+    );
+
+    const renderInvoicingTab = () => (
+        <div className="space-y-6">
+            <div className="grid gap-4 md:grid-cols-3"><MetricCard icon={Receipt} label="Đã xuất" value={compactMoney(financialStats.totalContractValue)} hint={money(financialStats.totalContractValue)} /><MetricCard icon={CheckCircle2} label="Đã thu" value={compactMoney(financialStats.totalPaid)} hint={money(financialStats.totalPaid)} /><MetricCard icon={CreditCard} label="Còn lại" value={compactMoney(financialStats.totalDebt)} hint={money(financialStats.totalDebt)} /></div>
+            <div className={`${panelClassName} overflow-hidden`}><div className="border-b border-slate-200 px-5 py-4"><div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Công nợ / hóa đơn</div><div className="mt-1 text-base font-semibold text-slate-900">Tiến độ thanh toán theo hợp đồng</div></div><div className="divide-y divide-slate-200">{contracts.length === 0 ? <div className="px-5 py-10 text-center text-sm font-medium text-slate-500">Chưa có dữ liệu thanh toán cho contact này.</div> : contracts.map((contract) => { const paymentPercent = contract.totalValue > 0 ? Math.min(100, Math.round((contract.paidValue / contract.totalValue) * 100)) : 0; return <div key={contract.id} className="px-5 py-4"><div className="flex items-center justify-between gap-4"><div className="min-w-0"><div className="truncate text-sm font-semibold text-slate-900">{contract.code}</div><div className="mt-1 text-xs font-medium text-slate-500">Khách hàng: {contract.customerName || contact.name}</div></div><div className="text-right"><div className="text-sm font-semibold text-slate-900">{money(contract.paidValue)} / {money(contract.totalValue)}</div><div className="mt-1 text-xs font-medium text-slate-500">Đã thu {paymentPercent}%</div></div></div><div className="mt-3 h-2 rounded-full bg-slate-100"><div className="h-2 rounded-full bg-blue-500" style={{ width: `${paymentPercent}%` }} /></div></div>; })}</div></div>
+        </div>
+    );
+
+    return (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 font-sans">
+            <div className="absolute inset-0 bg-slate-900/35 backdrop-blur-sm" onClick={onClose} />
+            <div className="relative flex h-[86vh] w-full max-w-[1100px] flex-col overflow-hidden rounded-[16px] border border-slate-300 bg-white shadow-2xl">
+                <div className="border-b border-slate-300 bg-[linear-gradient(180deg,#eef5ff_0%,#f8fbff_100%)] px-4 py-3">
+                    <div className="flex items-start justify-between gap-4">
+                        <div className="flex min-w-0 flex-1 items-start gap-4">
+                            <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg border border-blue-200 bg-blue-100 text-[26px] font-bold uppercase text-blue-700">{initials(contact.name)}</div>
+                            <div className="min-w-0 flex-1">
+                                <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-blue-700">Khách hàng</div>
+                                <div className="mt-2 flex flex-wrap items-center gap-2">
+                                    <button onClick={() => change('contactType', 'individual')} className={['rounded-full border px-3 py-1 text-xs font-semibold transition-colors', currentType === 'individual' ? 'border-blue-300 bg-blue-600 text-white' : 'border-slate-300 bg-white text-slate-600 hover:border-blue-200 hover:text-blue-700'].join(' ')}>Cá nhân</button>
+                                    <button onClick={() => change('contactType', 'company')} className={['rounded-full border px-3 py-1 text-xs font-semibold transition-colors', currentType === 'company' ? 'border-blue-300 bg-blue-600 text-white' : 'border-slate-300 bg-white text-slate-600 hover:border-blue-200 hover:text-blue-700'].join(' ')}>Công ty</button>
+                                </div>
+                                <div className="mt-2 grid gap-2 xl:grid-cols-[minmax(0,1fr)_230px]"><input type="text" value={contact.name} onChange={(event) => change('name', event.target.value)} className="h-10 rounded-md border border-blue-300 bg-blue-100 px-4 text-[18px] font-semibold text-slate-900 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-100" /><input type="text" value={contact.company || ''} onChange={(event) => change('company', event.target.value)} placeholder="Công ty / Cơ sở" className={inputClassName} /></div>
+                                <div className="mt-2 flex flex-wrap items-center gap-2"><span className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700"><Tag size={11} className="text-blue-600" />{contact.source || 'Chưa có nguồn'}</span><span className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700"><Globe size={11} className="text-blue-600" />{contact.targetCountry || 'Chưa có thị trường'}</span><span className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700"><Building2 size={11} className="text-blue-600" />{contact.company || contact.city || 'Chưa có đơn vị'}</span></div>
+                            </div>
+                        </div>
+                        <div className="grid w-full max-w-[360px] grid-cols-2 gap-2"><MetricCard icon={ExternalLink} label="Cơ hội" value={String(financialStats.dealCount)} hint="Đã liên kết" /><MetricCard icon={Calendar} label="Lịch hẹn" value={String(financialStats.meetingCount)} hint="Đã tạo" /><MetricCard icon={DollarSign} label="Doanh số" value={compactMoney(financialStats.totalContractValue)} hint="Tổng giá trị" /><MetricCard icon={ShieldCheck} label="Hiệu lực" value={String(financialStats.activeContracts)} hint="Đang chạy" /></div>
+                        <button onClick={onClose} className="rounded-md p-2 text-slate-500 transition hover:bg-white hover:text-slate-800"><X size={18} /></button>
+                    </div>
+                </div>
+                <div className="custom-scrollbar flex-1 min-h-0 overflow-y-auto bg-[#f7f9fc] px-4 py-3">{activeTab === 'details' && renderDetailTab()}{activeTab === 'notes' && renderNotesTab()}{activeTab === 'sales' && renderSalesTab()}{activeTab === 'invoicing' && renderInvoicingTab()}</div>
+                <div className="border-t border-slate-300 bg-white px-4 py-2.5"><div className="grid grid-cols-4 gap-2"><TabButton active={activeTab === 'details'} label="Liên hệ & địa chỉ" onClick={() => setActiveTab('details')} /><TabButton active={activeTab === 'notes'} label="Ghi chú nội bộ" onClick={() => setActiveTab('notes')} /><TabButton active={activeTab === 'sales'} label="Kinh doanh" onClick={() => setActiveTab('sales')} /><TabButton active={activeTab === 'invoicing'} label="Công nợ / hóa đơn" onClick={() => setActiveTab('invoicing')} /></div></div>
+                <div className="flex items-center justify-between border-t border-slate-300 bg-slate-50 px-4 py-3"><div className="text-xs font-medium text-slate-500">Cập nhật lần cuối: <span className="font-semibold text-slate-800">{dateTime(contact.updatedAt || contact.createdAt)}</span></div><div className="flex items-center gap-2.5"><button onClick={onClose} className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">Hủy</button><button onClick={save} className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700"><Save size={15} />Lưu</button></div></div>
+            </div>
+            <CreateMeetingModal isOpen={isCreateMeetingModalOpen} onClose={() => setIsCreateMeetingModalOpen(false)} salesPersonId={user?.id || 'u2'} salesPersonName={user?.name || 'Sales Rep'} lockedCustomer={lockedMeetingCustomer} onCreated={() => { const refreshed = getContactById(contact.id); if (refreshed) { setContact(refreshed); onUpdate(refreshed); } }} />
         </div>
     );
 };

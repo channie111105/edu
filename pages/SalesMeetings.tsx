@@ -2,7 +2,7 @@
 import {
     Calendar, Search, Filter, XCircle,
     FileText, User, MapPin,
-    Building2, ClipboardList, Monitor, Plus
+    Building2, ClipboardList, Monitor, Pencil, Plus
 } from 'lucide-react';
 import { IMeeting, MeetingStatus, MeetingType, UserRole } from '../types';
 import { getMeetings, updateMeeting, getLeadById, saveLead } from '../utils/storage';
@@ -10,17 +10,31 @@ import { useAuth } from '../contexts/AuthContext';
 import CreateMeetingModal from '../components/CreateMeetingModal';
 import { MEETING_TEACHERS, hasTeacherConflict } from '../utils/meetingHelpers';
 
+const normalizeCampus = (value?: string) => {
+    const normalized = value?.trim().toLowerCase();
+
+    if (!normalized) return '';
+    if (['hà nội', 'ha noi', 'hanoi', 'hn'].includes(normalized)) return 'Hà Nội';
+    if (['hcm', 'hồ chí minh', 'ho chi minh', 'tp. hcm', 'tphcm', 'hcmc'].includes(normalized)) return 'HCM';
+    if (['đà nẵng', 'da nang', 'danang', 'dn'].includes(normalized)) return 'Đà Nẵng';
+
+    return value || '';
+};
+
 const SalesMeetings: React.FC = () => {
     const { user } = useAuth();
     const [meetings, setMeetings] = useState<IMeeting[]>([]);
 
     const [filterStatus, setFilterStatus] = useState<string>('all');
     const [filterDate, setFilterDate] = useState<string>('all');
+    const [customStartDate, setCustomStartDate] = useState('');
+    const [customEndDate, setCustomEndDate] = useState('');
     const [filterBranch, setFilterBranch] = useState<string>('all');
     const [filterType, setFilterType] = useState<string>('all');
     const [searchTerm, setSearchTerm] = useState('');
 
     const [selectedMeeting, setSelectedMeeting] = useState<IMeeting | null>(null);
+    const [meetingToEdit, setMeetingToEdit] = useState<IMeeting | null>(null);
     const [isResultModalOpen, setIsResultModalOpen] = useState(false);
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
@@ -43,6 +57,20 @@ const SalesMeetings: React.FC = () => {
         };
     }, []);
 
+    const normalizeMeetingType = (type?: string): MeetingType =>
+        type === MeetingType.ONLINE ? MeetingType.ONLINE : MeetingType.OFFLINE;
+
+    const getMeetingTypeLabel = (type?: string) =>
+        normalizeMeetingType(type) === MeetingType.ONLINE ? 'Online' : 'Offline';
+
+    const handleFilterDateChange = (value: string) => {
+        setFilterDate(value);
+        if (value !== 'custom') {
+            setCustomStartDate('');
+            setCustomEndDate('');
+        }
+    };
+
     const handleConfirm = (id: string) => {
         const meeting = meetings.find(m => m.id === id);
         if (!meeting || meeting.status !== MeetingStatus.DRAFT) return;
@@ -60,6 +88,11 @@ const SalesMeetings: React.FC = () => {
         if (!meeting) return;
         updateMeeting({ ...meeting, status: MeetingStatus.CANCELLED });
         loadData();
+    };
+
+    const handleEdit = (meeting: IMeeting) => {
+        setMeetingToEdit(meeting);
+        setIsCreateModalOpen(true);
     };
 
     const openResultModal = (meeting: IMeeting) => {
@@ -121,8 +154,8 @@ const SalesMeetings: React.FC = () => {
     const filteredMeetings = useMemo(() => meetings.filter(m => {
         const matchesSearch = m.leadName.toLowerCase().includes(searchTerm.toLowerCase()) || m.leadPhone.includes(searchTerm);
         const matchesStatus = filterStatus === 'all' || m.status === filterStatus;
-        const matchesBranch = filterBranch === 'all' || (m.campus === filterBranch);
-        const matchesType = filterType === 'all' || m.type === filterType;
+        const matchesBranch = filterBranch === 'all' || normalizeCampus(m.campus) === filterBranch;
+        const matchesType = filterType === 'all' || normalizeMeetingType(m.type) === filterType;
 
         let matchesDate = true;
         const mDate = new Date(m.datetime);
@@ -140,10 +173,23 @@ const SalesMeetings: React.FC = () => {
         } else if (filterDate === 'week') {
             const startOfWeek = new Date(now.setDate(now.getDate() - now.getDay()));
             matchesDate = mDate >= startOfWeek;
+        } else if (filterDate === 'custom') {
+            const startDate = customStartDate ? new Date(customStartDate) : null;
+            const endDate = customEndDate ? new Date(customEndDate) : null;
+
+            if (startDate) {
+                startDate.setHours(0, 0, 0, 0);
+                matchesDate = matchesDate && mDate >= startDate;
+            }
+
+            if (endDate) {
+                endDate.setHours(23, 59, 59, 999);
+                matchesDate = matchesDate && mDate <= endDate;
+            }
         }
 
         return matchesSearch && matchesStatus && matchesBranch && matchesType && matchesDate;
-    }), [meetings, searchTerm, filterStatus, filterBranch, filterType, filterDate]);
+    }), [meetings, searchTerm, filterStatus, filterBranch, filterType, filterDate, customStartDate, customEndDate]);
 
     const getStatusBadge = (status: MeetingStatus) => {
         switch (status) {
@@ -168,7 +214,10 @@ const SalesMeetings: React.FC = () => {
                     <p className="text-sm text-slate-500 mt-1">Quản lý lịch phỏng vấn, test trình độ học viên</p>
                 </div>
                 <button
-                    onClick={() => setIsCreateModalOpen(true)}
+                    onClick={() => {
+                        setMeetingToEdit(null);
+                        setIsCreateModalOpen(true);
+                    }}
                     className="px-3 py-2 bg-emerald-600 border border-emerald-700 rounded text-white text-sm font-bold hover:bg-emerald-700 shadow-sm transition-all flex items-center gap-1"
                 >
                     <Plus size={14} /> Tạo lịch hẹn
@@ -189,21 +238,41 @@ const SalesMeetings: React.FC = () => {
 
                 <div className="flex items-center gap-2 border-l border-slate-200 pl-4 h-full">
                     <Calendar size={16} className="text-slate-400" />
-                    <select className="text-sm outline-none text-slate-700 font-medium bg-transparent cursor-pointer hover:text-blue-600" value={filterDate} onChange={e => setFilterDate(e.target.value)}>
+                    <select className="text-sm outline-none text-slate-700 font-medium bg-transparent cursor-pointer hover:text-blue-600" value={filterDate} onChange={e => handleFilterDateChange(e.target.value)}>
                         <option value="all">Tất cả thời gian</option>
                         <option value="today">Hôm nay</option>
                         <option value="tomorrow">Ngày mai</option>
                         <option value="week">Tuần này</option>
+                        <option value="custom">Tùy biến</option>
                     </select>
                 </div>
+
+                {filterDate === 'custom' && (
+                    <div className="flex items-center gap-2 border-l border-slate-200 pl-4 h-full">
+                        <input
+                            type="date"
+                            value={customStartDate}
+                            onChange={e => setCustomStartDate(e.target.value)}
+                            className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 outline-none focus:border-blue-500 focus:bg-white"
+                        />
+                        <span className="text-xs font-medium text-slate-400">đến</span>
+                        <input
+                            type="date"
+                            value={customEndDate}
+                            min={customStartDate || undefined}
+                            onChange={e => setCustomEndDate(e.target.value)}
+                            className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 outline-none focus:border-blue-500 focus:bg-white"
+                        />
+                    </div>
+                )}
 
                 <div className="flex items-center gap-2 border-l border-slate-200 pl-4 h-full">
                     <Building2 size={16} className="text-slate-400" />
                     <select className="text-sm outline-none text-slate-700 font-medium bg-transparent cursor-pointer hover:text-blue-600" value={filterBranch} onChange={e => setFilterBranch(e.target.value)}>
                         <option value="all">Tất cả cơ sở</option>
-                        <option value="Hanoi">Hà Nội</option>
-                        <option value="HCMC">TP. HCM</option>
-                        <option value="DaNang">Đà Nẵng</option>
+                        <option value="Hà Nội">Hà Nội</option>
+                        <option value="HCM">HCM</option>
+                        <option value="Đà Nẵng">Đà Nẵng</option>
                     </select>
                 </div>
 
@@ -224,7 +293,6 @@ const SalesMeetings: React.FC = () => {
                         <option value="all">Tất cả hình thức</option>
                         <option value={MeetingType.OFFLINE}>Offline</option>
                         <option value={MeetingType.ONLINE}>Online</option>
-                        <option value={MeetingType.CONSULTING}>Tư vấn trực tiếp</option>
                     </select>
                 </div>
             </div>
@@ -242,7 +310,7 @@ const SalesMeetings: React.FC = () => {
                                 <th className="p-4 w-44">Giáo viên test</th>
                                 <th className="p-4 min-w-[220px]">Hình thức hẹn & Notes</th>
                                 <th className="p-4 w-32">Trạng thái</th>
-                                <th className="p-4 w-36 text-right">Hành động</th>
+                                <th className="p-4 w-52 text-right">Hành động</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 text-sm">
@@ -309,8 +377,8 @@ const SalesMeetings: React.FC = () => {
                                             <div className="space-y-2">
                                                 <div>
                                                     <span className="text-sm font-medium text-slate-800 flex items-center gap-1">
-                                                        {m.type === MeetingType.ONLINE ? <span className="w-2 h-2 rounded-full bg-indigo-500"></span> : <span className="w-2 h-2 rounded-full bg-orange-500"></span>}
-                                                        {m.type}
+                                                        {normalizeMeetingType(m.type) === MeetingType.ONLINE ? <span className="w-2 h-2 rounded-full bg-indigo-500"></span> : <span className="w-2 h-2 rounded-full bg-orange-500"></span>}
+                                                        {getMeetingTypeLabel(m.type)}
                                                     </span>
                                                 </div>
                                                 {m.notes && (
@@ -333,6 +401,17 @@ const SalesMeetings: React.FC = () => {
                                         <td className="p-4 align-top">{getStatusBadge(m.status)}</td>
                                         <td className="p-4 align-top text-right">
                                             <div className="flex justify-end gap-2 items-center">
+                                                {(m.status === MeetingStatus.DRAFT || m.status === MeetingStatus.CONFIRMED) && (
+                                                    <button
+                                                        onClick={() => handleEdit(m)}
+                                                        className="p-1.5 px-3 bg-white text-slate-600 rounded-lg text-xs font-bold hover:bg-slate-50 border border-slate-200 transition-all flex items-center gap-1 whitespace-nowrap"
+                                                        title="Sửa lịch hẹn"
+                                                    >
+                                                        <Pencil size={13} />
+                                                        Sửa
+                                                    </button>
+                                                )}
+
                                                 {m.status === MeetingStatus.DRAFT && canConfirm && (
                                                     <button
                                                         onClick={() => handleConfirm(m.id)}
@@ -435,10 +514,14 @@ const SalesMeetings: React.FC = () => {
 
             <CreateMeetingModal
                 isOpen={isCreateModalOpen}
-                onClose={() => setIsCreateModalOpen(false)}
+                onClose={() => {
+                    setIsCreateModalOpen(false);
+                    setMeetingToEdit(null);
+                }}
                 onCreated={() => loadData()}
                 salesPersonId={user?.id || 'u2'}
                 salesPersonName={user?.name || 'Sales Rep'}
+                meetingToEdit={meetingToEdit}
             />
         </div>
     );

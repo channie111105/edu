@@ -10,6 +10,7 @@ import OdooSearchBar, { SearchFilter, SearchFieldConfig } from '../components/Od
 import SLAWarningBanner from '../components/SLAWarningBanner';
 import { buildDomainFromFilters, applyDomainFilter, getGroupByFields } from '../utils/filterDomain';
 import { calculateSLAWarnings, getUrgentWarningCount } from '../utils/slaUtils';
+import { LEAD_CHANNEL_OPTIONS } from '../constants';
 import {
    Inbox, Search, Phone, Filter, CheckCircle2, Clock,
    ListFilter, Star, Grid, List as ListIcon, ChevronLeft, ChevronRight,
@@ -49,7 +50,6 @@ const MyLeads: React.FC = () => {
       product: '',
       market: '',
       channel: '',
-      medium: '',
       status: 'NEW'
    };
 
@@ -71,6 +71,7 @@ const MyLeads: React.FC = () => {
    const [groupBy, setGroupBy] = useState<'none' | 'source' | 'status' | 'program' | 'city'>('none');
    const [viewMode, setViewMode] = useState<'list' | 'pivot' | 'kanban'>('list');
    const [filterType, setFilterType] = useState('all');
+   const [statusFilterSource, setStatusFilterSource] = useState<'tabs' | 'advanced' | null>(null);
 
    // Drawer State
    const [selectedLead, setSelectedLead] = useState<ILead | null>(null);
@@ -98,12 +99,20 @@ const MyLeads: React.FC = () => {
    ]);
    const [showColumnDropdown, setShowColumnDropdown] = useState(false);
    const [showAdvancedFilter, setShowAdvancedFilter] = useState(false);
+   const [showActionDropdown, setShowActionDropdown] = useState(false);
 
    // --- TIME RANGE FILTER STATE ---
    const [showTimePicker, setShowTimePicker] = useState(false);
-   const [timeFilterField, setTimeFilterField] = useState<'createdAt' | 'expectedClosingDate'>('createdAt');
+   const [timeFilterField, setTimeFilterField] = useState<'createdAt' | 'lastInteraction' | 'expectedClosingDate' | 'pickUpDate'>('createdAt');
    const [timeRangeType, setTimeRangeType] = useState<string>('all');
    const [customRange, setCustomRange] = useState<{ start: string; end: string } | null>(null);
+
+   const timeFieldOptions = [
+      { id: 'createdAt', label: 'Ngày tạo' },
+      { id: 'lastInteraction', label: 'Lần tương tác cuối' },
+      { id: 'expectedClosingDate', label: 'Ngày dự kiến chốt' },
+      { id: 'pickUpDate', label: 'Ngày tiếp nhận' },
+   ] as const;
 
    const timePresets = [
       { id: 'all', label: 'Tất cả thời gian' },
@@ -116,6 +125,20 @@ const MyLeads: React.FC = () => {
       { id: 'lastMonth', label: 'Tháng trước' },
       { id: 'custom', label: 'Tùy chỉnh khoảng...' },
    ];
+
+   const filterTypeLabels: Record<string, string> = {
+      'no-activity': 'Chưa có hoạt động',
+      'high-value': 'Cơ hội giá trị cao',
+   };
+
+   const groupByLabels: Record<string, string> = {
+      none: 'Không nhóm',
+      salesperson: 'Chuyên viên sales',
+      status: 'Giai đoạn',
+      city: 'Thành phố',
+      program: 'Chương trình',
+      source: 'Nguồn',
+   };
 
    const toggleColumn = (columnId: string) => {
       setVisibleColumns(prev =>
@@ -191,7 +214,6 @@ const MyLeads: React.FC = () => {
             tags: newLeadData.tags,
             campaign: newLeadData.campaign,
             channel: newLeadData.channel,
-            medium: newLeadData.medium,
             market: newLeadData.market
          },
          status: mappedStatus,
@@ -268,6 +290,80 @@ const MyLeads: React.FC = () => {
       return { start, end };
    };
 
+   const getLeadTimeValue = (
+      lead: ILead,
+      field: 'createdAt' | 'lastInteraction' | 'expectedClosingDate' | 'pickUpDate'
+   ) => {
+      if (field === 'createdAt') return lead.createdAt;
+      if (field === 'lastInteraction') return lead.lastInteraction;
+      if (field === 'expectedClosingDate') return lead.expectedClosingDate;
+      return lead.pickUpDate;
+   };
+
+   const getTimeRangeBounds = (rangeType: string) => {
+      const now = new Date();
+      const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const endOfDay = new Date(startOfDay);
+      endOfDay.setHours(23, 59, 59, 999);
+
+      if (rangeType === 'today') {
+         return { start: startOfDay, end: endOfDay };
+      }
+
+      if (rangeType === 'yesterday') {
+         const start = new Date(startOfDay);
+         start.setDate(start.getDate() - 1);
+         const end = new Date(startOfDay);
+         end.setMilliseconds(-1);
+         return { start, end };
+      }
+
+      if (rangeType === 'thisWeek') {
+         const day = now.getDay() || 7;
+         const start = new Date(startOfDay);
+         start.setDate(start.getDate() - day + 1);
+         const end = new Date(start);
+         end.setDate(end.getDate() + 6);
+         end.setHours(23, 59, 59, 999);
+         return { start, end };
+      }
+
+      if (rangeType === 'last7Days') {
+         const start = new Date(startOfDay);
+         start.setDate(start.getDate() - 6);
+         return { start, end: endOfDay };
+      }
+
+      if (rangeType === 'last30Days') {
+         const start = new Date(startOfDay);
+         start.setDate(start.getDate() - 29);
+         return { start, end: endOfDay };
+      }
+
+      if (rangeType === 'thisMonth') {
+         const start = new Date(now.getFullYear(), now.getMonth(), 1);
+         const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+         end.setHours(23, 59, 59, 999);
+         return { start, end };
+      }
+
+      if (rangeType === 'lastMonth') {
+         const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+         const end = new Date(now.getFullYear(), now.getMonth(), 0);
+         end.setHours(23, 59, 59, 999);
+         return { start, end };
+      }
+
+      if (rangeType === 'custom' && customRange?.start && customRange?.end) {
+         const start = new Date(customRange.start);
+         const end = new Date(customRange.end);
+         end.setHours(23, 59, 59, 999);
+         return { start, end };
+      }
+
+      return null;
+   };
+
    const isOverdueLead = (lead: ILead) => {
       const dueDateRaw = (lead as any).deadline || lead.expectedClosingDate;
       if (!dueDateRaw) return false;
@@ -341,54 +437,16 @@ const MyLeads: React.FC = () => {
 
       // --- TIME RANGE FILTERING ---
       if (timeRangeType !== 'all') {
-         const now = new Date();
-         const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-
-         result = result.filter(lead => {
-            const dateStr = lead[timeFilterField];
-            if (!dateStr) return false;
-            const itemDate = new Date(dateStr);
-
-            if (timeRangeType === 'today') {
-               return itemDate >= startOfDay;
-            }
-            if (timeRangeType === 'yesterday') {
-               const yesterday = new Date(startOfDay);
-               yesterday.setDate(yesterday.getDate() - 1);
-               return itemDate >= yesterday && itemDate < startOfDay;
-            }
-            if (timeRangeType === 'thisWeek') {
-               const day = now.getDay() || 7; // Monday is 1
-               const monday = new Date(startOfDay);
-               monday.setDate(monday.getDate() - day + 1);
-               return itemDate >= monday;
-            }
-            if (timeRangeType === 'last7Days') {
-               const last7 = new Date(startOfDay);
-               last7.setDate(last7.getDate() - 7);
-               return itemDate >= last7;
-            }
-            if (timeRangeType === 'last30Days') {
-               const last30 = new Date(startOfDay);
-               last30.setDate(last30.getDate() - 30);
-               return itemDate >= last30;
-            }
-            if (timeRangeType === 'thisMonth') {
-               return itemDate.getMonth() === now.getMonth() && itemDate.getFullYear() === now.getFullYear();
-            }
-            if (timeRangeType === 'lastMonth') {
-               const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-               const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-               return itemDate >= lastMonth && itemDate < thisMonth;
-            }
-            if (timeRangeType === 'custom' && customRange?.start && customRange?.end) {
-               const start = new Date(customRange.start);
-               const end = new Date(customRange.end);
-               end.setHours(23, 59, 59, 999);
-               return itemDate >= start && itemDate <= end;
-            }
-            return true;
-         });
+         const bounds = getTimeRangeBounds(timeRangeType);
+         if (bounds) {
+            result = result.filter(lead => {
+               const dateStr = getLeadTimeValue(lead, timeFilterField);
+               if (!dateStr) return false;
+               const itemDate = new Date(dateStr);
+               if (Number.isNaN(itemDate.getTime())) return false;
+               return itemDate >= bounds.start && itemDate <= bounds.end;
+            });
+         }
       }
 
       // Advanced Filters
@@ -543,6 +601,8 @@ const MyLeads: React.FC = () => {
             paymentRoadmap: lead.paymentRoadmap || '',
             probability: lead.probability || 20,
             createdAt: new Date().toISOString(),
+            leadCreatedAt: lead.createdAt,
+            assignedAt: lead.pickUpDate,
             activities: [
                {
                   id: `act-${Date.now()}`,
@@ -607,6 +667,8 @@ const MyLeads: React.FC = () => {
                   paymentRoadmap: lead.paymentRoadmap || '',
                   probability: lead.probability || 20,
                   createdAt: new Date().toISOString(),
+                  leadCreatedAt: lead.createdAt,
+                  assignedAt: lead.pickUpDate,
                   activities: [
                      {
                         id: `act-${Date.now()}-${index}`,
@@ -740,6 +802,139 @@ const MyLeads: React.FC = () => {
       addFilter(field, label, value, 'filter', color);
    };
 
+   const toolbarFilterChips = useMemo(() => {
+      const chips: Array<SearchFilter & {
+         origin: 'search' | 'synthetic';
+         originalIndex?: number;
+         syntheticKey?: 'filter-type' | 'group-by' | 'status' | 'time';
+      }> = searchFilters.map((filter, index) => ({
+         ...filter,
+         origin: 'search',
+         originalIndex: index,
+      }));
+
+      if (filterType !== 'all' && filterTypeLabels[filterType]) {
+         chips.push({
+            field: 'advanced_filter',
+            label: 'Bộ lọc',
+            value: filterTypeLabels[filterType],
+            type: 'filter',
+            origin: 'synthetic',
+            syntheticKey: 'filter-type',
+         });
+      }
+
+      if (statusFilterSource === 'advanced' && statusFilter !== 'all') {
+         chips.push({
+            field: 'advanced_status',
+            label: 'Trạng thái',
+            value: String(statusFilter),
+            type: 'filter',
+            origin: 'synthetic',
+            syntheticKey: 'status',
+         });
+      }
+
+      if (groupBy !== 'none') {
+         chips.push({
+            field: 'group_by',
+            label: 'Nhóm theo',
+            value: groupByLabels[groupBy] || groupBy,
+            type: 'groupby',
+            origin: 'synthetic',
+            syntheticKey: 'group-by',
+         });
+      }
+
+      if (timeRangeType !== 'all') {
+         const timeFieldLabel = timeFieldOptions.find((option) => option.id === timeFilterField)?.label || 'Ngày tạo';
+         const timePresetLabel = timePresets.find((preset) => preset.id === timeRangeType)?.label || timeRangeType;
+         const customLabel = customRange?.start && customRange?.end
+            ? `${customRange.start} - ${customRange.end}`
+            : 'Tùy chỉnh khoảng thời gian';
+
+         chips.push({
+            field: 'time_field',
+            label: 'Mốc thời gian',
+            value: timeFieldLabel,
+            type: 'filter',
+            origin: 'synthetic',
+            syntheticKey: 'time',
+         });
+
+         chips.push({
+            field: 'time_range',
+            label: 'Thời gian',
+            value: timeRangeType === 'custom' ? customLabel : timePresetLabel,
+            type: 'filter',
+            origin: 'synthetic',
+            syntheticKey: 'time',
+         });
+      }
+
+      return chips;
+   }, [
+      searchFilters,
+      filterType,
+      groupBy,
+      groupByLabels,
+      statusFilter,
+      statusFilterSource,
+      timeFilterField,
+      timeFieldOptions,
+      timePresets,
+      timeRangeType,
+      customRange,
+      filterTypeLabels
+   ]);
+
+   const handleToolbarFilterRemove = (index: number) => {
+      const chip = toolbarFilterChips[index];
+      if (!chip) return;
+
+      if (chip.origin === 'search' && typeof chip.originalIndex === 'number') {
+         setSearchFilters(prev => prev.filter((_, i) => i !== chip.originalIndex));
+         return;
+      }
+
+      if (chip.syntheticKey === 'filter-type') {
+         setFilterType('all');
+         return;
+      }
+
+      if (chip.syntheticKey === 'group-by') {
+         setGroupBy('none');
+         return;
+      }
+
+      if (chip.syntheticKey === 'status') {
+         setStatusFilter('all');
+         setStatusFilterSource(null);
+         return;
+      }
+
+      if (chip.syntheticKey === 'time') {
+         setTimeFilterField('createdAt');
+         setTimeRangeType('all');
+         setCustomRange(null);
+         setShowTimePicker(false);
+      }
+   };
+
+   const handleClearToolbarFilters = () => {
+      setSearchFilters([]);
+      setFilterType('all');
+      setGroupBy('none');
+      setTimeFilterField('createdAt');
+      setTimeRangeType('all');
+      setCustomRange(null);
+      setShowTimePicker(false);
+      if (statusFilterSource === 'advanced') {
+         setStatusFilter('all');
+         setStatusFilterSource(null);
+      }
+   };
+
    const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
       if (e.target.checked) {
          setSelectedIds(filteredLeads.map(l => l.id));
@@ -774,22 +969,23 @@ const MyLeads: React.FC = () => {
                   }} />
                </td>
 
+               <td className="w-12 p-3 text-center align-middle" onClick={(e) => e.stopPropagation()}>
+                  <button
+                     onClick={(e) => handleCall(e, lead)}
+                     className="inline-flex items-center justify-center p-1 rounded bg-green-100 text-green-700 hover:bg-green-200"
+                     title="Gọi ngay"
+                  >
+                     <Phone size={12} />
+                  </button>
+               </td>
+
 
 
 
                {visibleColumns.includes('opportunity') && (
                   <td className="p-3 align-middle max-w-[200px]">
                      <div className="flex flex-col gap-0.5 overflow-hidden">
-                        <div className="flex items-center gap-2">
-                           <div className="font-bold text-slate-900 group-hover:text-blue-600 truncate">{lead.name}</div>
-                           <button
-                              onClick={(e) => handleCall(e, lead)}
-                              className="shrink-0 p-1 rounded bg-green-100 text-green-700 hover:bg-green-200"
-                              title="Gọi ngay"
-                           >
-                              <Phone size={12} />
-                           </button>
-                        </div>
+                        <div className="font-bold text-slate-900 group-hover:text-blue-600 truncate">{lead.name}</div>
                         {lead.program && (
                            <span className="text-xs text-blue-600 hover:underline truncate">{lead.program}</span>
                         )}
@@ -882,239 +1078,378 @@ const MyLeads: React.FC = () => {
       })
    );
 
+   const actionDropdownItems = [
+      {
+         label: 'Phân bổ',
+         icon: Shuffle,
+         onClick: () => {
+            if (selectedIds.length === 0) {
+               alert('Hãy chọn ít nhất 1 lead.');
+               return;
+            }
+            handleBulkAssign();
+         }
+      },
+      {
+         label: 'Lost',
+         icon: XCircle,
+         onClick: () => {
+            if (selectedIds.length === 0) {
+               alert('Hãy chọn ít nhất 1 lead.');
+               return;
+            }
+            handleBulkMarkLost();
+         }
+      },
+      {
+         label: 'Won',
+         icon: CheckCircle2,
+         onClick: () => {
+            if (selectedIds.length === 0) {
+               alert('Hãy chọn ít nhất 1 lead.');
+               return;
+            }
+            handleBulkWon();
+         }
+      },
+      {
+         label: 'Edit',
+         icon: Settings,
+         onClick: () => {
+            if (selectedIds.length === 0) {
+               alert('Hãy chọn ít nhất 1 lead.');
+               return;
+            }
+            handleBulkEdit();
+         }
+      },
+      {
+         label: 'Delete',
+         icon: Trash2,
+         onClick: () => {
+            if (selectedIds.length === 0) {
+               alert('Hãy chọn ít nhất 1 lead.');
+               return;
+            }
+            handleBulkDelete();
+         }
+      },
+      {
+         label: 'Import',
+         icon: Download,
+         onClick: () => navigate('/leads/import')
+      },
+      {
+         label: 'Convert',
+         icon: Archive,
+         onClick: () => {
+            if (selectedIds.length === 0) {
+               alert('Hãy chọn ít nhất 1 lead để convert.');
+               return;
+            }
+            handleBulkConvert();
+         }
+      },
+      {
+         label: 'Gửi tin',
+         icon: MessageSquare,
+         onClick: () => alert('Chức năng gửi tin hàng loạt đang phát triển.')
+      }
+   ];
+
    return (
       <div className="flex flex-col h-full bg-[#f8fafc] font-sans text-slate-900 relative max-w-[1400px] mx-auto">
          {/* TOOLBAR */}
-         <div className="bg-white border-b border-slate-200 px-4 py-3 sticky top-0 z-20 shadow-sm flex justify-between items-center gap-3">
-            <div className="flex items-center gap-4 flex-wrap">
-               <h1 className="text-xl font-bold flex items-center gap-2 text-slate-800">
-                  <Inbox size={20} className="text-blue-600" /> Lead của tôi
-               </h1>
-               <div className="flex items-center gap-2 border-l border-slate-200 pl-4">
-                  {[
-                     { id: 'all', label: 'Tất cả', count: leads.length },
-                     { id: LeadStatus.NEW, label: 'Chờ tiếp nhận', count: leads.filter(l => l.status === LeadStatus.NEW).length },
-                     { id: LeadStatus.ASSIGNED, label: 'Đã nhận', count: leads.filter(l => l.status === LeadStatus.ASSIGNED).length },
-                     { id: 'overdue', label: 'DS quá hạn', count: overdueLeadsCount },
-                     { id: 'today_care', label: 'Chăm sóc hôm nay', count: todayCareLeadsCount },
-                  ].map((tab) => (
-                     <button
-                        key={tab.id}
-                        onClick={() => setStatusFilter(tab.id)}
-                        className={`px-3 py-1 text-sm rounded-md font-bold transition-colors border ${statusFilter === tab.id ? 'bg-slate-100 text-slate-800 border-slate-300' : 'text-slate-500 border-transparent hover:bg-slate-100 hover:border-slate-200'}`}
-                     >
-                        {tab.label}
-                        <span className={`ml-1 text-[11px] ${statusFilter === tab.id ? 'text-slate-500' : 'text-slate-400'}`}>{tab.count}</span>
-                     </button>
-                  ))}
-               </div>
-            </div>
-            <div className="flex items-center gap-2">
-               <div className="flex bg-white p-1 rounded-lg border border-slate-200 shadow-sm">
-                  <button onClick={() => setViewMode('list')} className={`p-1.5 rounded ${viewMode === 'list' ? 'bg-blue-50 text-blue-600 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-700'}`} title="Dạng danh sách"><ListIcon size={16} /></button>
-                  <button onClick={() => setViewMode('kanban')} className={`p-1.5 rounded ${viewMode === 'kanban' ? 'bg-blue-50 text-blue-600 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-700'}`} title="Dạng kanban"><Layout size={16} /></button>
-                  <button onClick={() => setViewMode('pivot')} className={`p-1.5 rounded ${viewMode === 'pivot' ? 'bg-blue-50 text-blue-600 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-700'}`} title="Báo cáo pivot"><LayoutGrid size={16} /></button>
-               </div>
+         <div className="bg-white border-b border-slate-200 px-4 py-3 sticky top-0 z-20 shadow-sm">
+            <div className="flex flex-col gap-2 xl:flex-row xl:flex-wrap xl:gap-x-4 xl:gap-y-1 xl:items-start xl:justify-between">
+               <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-3 flex-wrap xl:flex-nowrap">
+                     <h1 className="text-xl font-bold flex items-center gap-2 text-slate-800 shrink-0">
+                        <Inbox size={20} className="text-blue-600" /> Lead của tôi
+                     </h1>
 
-               <div className="relative shrink-0">
-                  <button
-                     onClick={() => setShowAdvancedFilter(!showAdvancedFilter)}
-                     className={`flex items-center gap-2 px-3 py-1.5 border rounded-lg text-xs font-bold whitespace-nowrap transition-all ${showAdvancedFilter ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}
-                  >
-                     <Filter size={14} /> Lọc nâng cao
-                  </button>
-
-                  {showAdvancedFilter && (
-                     <>
-                        <div className="fixed inset-0 z-30" onClick={() => setShowAdvancedFilter(false)}></div>
-                        <div className="absolute right-0 top-full mt-2 w-[800px] bg-white border border-slate-200 rounded-xl shadow-2xl z-40 flex animate-in fade-in zoom-in-95 overflow-hidden font-sans">
-                           <div className="w-1/3 border-r border-slate-100 p-4">
-                              <div className="flex items-center gap-2 mb-4 text-sm font-bold text-slate-800">
-                                 <Filter size={16} /> Bộ lọc
-                              </div>
-                              <div className="space-y-1">
-                                 <div className={`px-3 py-2 text-sm rounded cursor-pointer transition-colors ${filterType === 'all' ? 'bg-blue-600 text-white font-bold' : 'text-slate-700 hover:bg-slate-50'}`} onClick={() => setFilterType('all')}>Tất cả Lead của tôi</div>
-                                 <div className={`px-3 py-2 text-sm rounded cursor-pointer transition-colors ${filterType === 'no-activity' ? 'bg-blue-600 text-white font-bold' : 'text-slate-700 hover:bg-slate-50'}`} onClick={() => setFilterType('no-activity')}>Chưa có hoạt động</div>
-                                 <div className={`px-3 py-2 text-sm rounded cursor-pointer transition-colors ${filterType === 'high-value' ? 'bg-blue-600 text-white font-bold' : 'text-slate-700 hover:bg-slate-50'}`} onClick={() => setFilterType('high-value')}>Cơ hội giá trị cao</div>
-                                 <div className="my-2 border-t border-slate-100"></div>
-                                 <div className="px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 rounded cursor-pointer flex justify-between items-center group">
-                                    Ngày tạo <ChevronDown size={14} className="text-slate-400 group-hover:text-slate-600" />
-                                 </div>
-                                 <div className="px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 rounded cursor-pointer flex justify-between items-center group">
-                                    Ngày chốt <ChevronDown size={14} className="text-slate-400 group-hover:text-slate-600" />
-                                 </div>
-                                 <div className="my-2 border-t border-slate-100"></div>
-                                 {['NEW', 'CONTACTED', 'QUALIFIED', 'LOST'].map(status => (
-                                    <div key={status} className={`px-3 py-2 text-sm rounded cursor-pointer transition-colors ${statusFilter === status ? 'bg-blue-600 text-white font-bold' : 'text-slate-700 hover:bg-slate-50'}`} onClick={() => setStatusFilter(status)}>
-                                       {status === 'NEW' ? 'Mới' : status === 'CONTACTED' ? 'Đang liên hệ' : status === 'QUALIFIED' ? 'Đạt' : 'Mất'}
-                                    </div>
-                                 ))}
-                              </div>
-                           </div>
-
-                           <div className="w-1/3 border-r border-slate-100 p-4 bg-slate-50/50">
-                              <div className="flex items-center gap-2 mb-4 text-sm font-bold text-slate-800">
-                                 <Users size={16} /> Nhóm theo
-                              </div>
-                              <div className="space-y-1">
-                                 {[
-                                    { label: 'Không nhóm', value: 'none' },
-                                    { label: 'Chuyên viên sales', value: 'salesperson' },
-                                    { label: 'Giai đoạn', value: 'status' },
-                                    { label: 'Thành phố', value: 'city' },
-                                    { label: 'Chương trình', value: 'program' },
-                                    { label: 'Nguồn', value: 'source' }
-                                 ].map(item => (
-                                    <div key={item.value}
-                                       className={`px-3 py-2 text-sm rounded cursor-pointer transition-colors ${groupBy === item.value ? 'bg-blue-100 text-blue-700 font-bold border-l-4 border-blue-600' : 'text-slate-700 hover:bg-slate-100'}`}
-                                       onClick={() => setGroupBy(item.value as any)}
-                                    >
-                                       {item.label}
-                                    </div>
-                                 ))}
-                                 <div className="my-2 border-t border-slate-200"></div>
-                                 {['Ngày tạo', 'Ngày đóng dự kiến', 'Ngày chốt', 'Nhóm tùy chỉnh'].map(item => (
-                                    <div key={item} className="px-3 py-2 text-sm text-slate-700 hover:bg-slate-100 rounded cursor-pointer flex justify-between items-center group">
-                                       {item} <ChevronDown size={14} className="text-slate-400 group-hover:text-slate-600" />
-                                    </div>
-                                 ))}
-                              </div>
-                           </div>
-
-                           <div className="w-1/3 p-4">
-                              <div className="flex items-center gap-2 mb-4 text-sm font-bold text-slate-800">
-                                 <FileSpreadsheet size={16} /> Danh sách yêu thích
-                              </div>
-                              <div className="mb-4">
-                                 <label className="block text-xs font-semibold text-slate-500 mb-1.5">Lưu bộ lọc hiện tại</label>
-                                 <input type="text" className="w-full border border-slate-300 rounded px-3 py-2 text-sm outline-none focus:border-blue-500" placeholder="Quy trình" />
-                              </div>
-                              <label className="flex items-center gap-2 mb-6 cursor-pointer">
-                                 <input type="checkbox" className="rounded border-slate-300 text-blue-600" />
-                                 <span className="text-sm text-slate-700">Bộ lọc mặc định</span>
-                              </label>
-                              <div className="flex gap-2">
-                                 <button className="flex-1 bg-purple-600 hover:bg-purple-700 text-white py-2 rounded font-bold text-sm transition-colors">Lưu</button>
-                                 <button className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 py-2 rounded font-bold text-sm transition-colors">Chỉnh sửa</button>
-                              </div>
-                           </div>
+                     <div className="min-w-0 overflow-x-auto pb-1">
+                        <div className="flex items-center gap-1 min-w-max">
+                           {[
+                              { id: 'all', label: 'Tất cả', count: leads.length },
+                              { id: LeadStatus.NEW, label: 'Chờ tiếp nhận', count: leads.filter(l => l.status === LeadStatus.NEW).length },
+                              { id: 'overdue', label: 'DS quá hạn', count: overdueLeadsCount },
+                              { id: 'today_care', label: 'Chăm sóc hôm nay', count: todayCareLeadsCount },
+                           ].map((tab) => (
+                              <button
+                                 key={tab.id}
+                                 onClick={() => {
+                                    setStatusFilter(tab.id);
+                                    setStatusFilterSource(tab.id === 'all' ? null : 'tabs');
+                                 }}
+                                 className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold whitespace-nowrap border transition-all ${statusFilter === tab.id ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+                              >
+                                 <span>{tab.label}</span>
+                                 <span className={`text-[10px] ${statusFilter === tab.id ? 'text-blue-500' : 'text-slate-400'}`}>{tab.count}</span>
+                              </button>
+                           ))}
                         </div>
-                     </>
-                  )}
+                     </div>
+                  </div>
                </div>
 
-               <div className="flex items-center gap-2 border border-slate-200 rounded-lg bg-white px-2 py-1.5 text-xs shrink-0">
-                  <span className="font-bold text-slate-600 whitespace-nowrap">Ngày tạo</span>
-                  <select
-                     value={timeRangeType}
-                     onChange={(e) => {
-                        setTimeFilterField('createdAt');
-                        setTimeRangeType(e.target.value);
-                     }}
-                     className="outline-none bg-transparent font-semibold text-slate-600"
-                  >
-                     <option value="all">Tất cả thời gian</option>
-                     <option value="today">Hôm nay</option>
-                     <option value="yesterday">Hôm qua</option>
-                     <option value="thisWeek">Tuần này</option>
-                     <option value="last7Days">7 ngày qua</option>
-                     <option value="last30Days">30 ngày qua</option>
-                     <option value="thisMonth">Tháng này</option>
-                     <option value="lastMonth">Tháng trước</option>
-                  </select>
-               </div>
-
-               <div className="relative shrink-0">
-                  <button
-                     onClick={() => setShowColumnDropdown(!showColumnDropdown)}
-                     className="flex items-center gap-2 px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-bold hover:bg-white text-slate-600 bg-slate-100 shadow-sm transition-all whitespace-nowrap"
-                  >
-                     <Settings size={14} /> Cột
-                  </button>
-                  {showColumnDropdown && (
-                     <>
-                        <div className="fixed inset-0 z-30" onClick={() => setShowColumnDropdown(false)}></div>
-                        <div className="absolute right-0 top-full mt-2 w-[400px] bg-white border border-slate-200 rounded-xl shadow-xl z-40 p-3 animate-in fade-in zoom-in-95">
-                           <div className="text-xs font-bold text-slate-500 uppercase px-2 py-1 mb-2 border-b border-slate-100 pb-2">Hiển thị cột</div>
-                           <div className="grid grid-cols-2 gap-x-2 gap-y-1 max-h-[300px] overflow-y-auto custom-scrollbar">
-                              {ALL_COLUMNS.map(col => (
-                                 <div key={col.id} onClick={() => toggleColumn(col.id)} className="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-50 rounded cursor-pointer text-sm">
-                                    <div className={`w-4 h-4 rounded border flex items-center justify-center ${visibleColumns.includes(col.id) ? 'bg-blue-600 border-blue-600 text-white' : 'border-slate-300'}`}>
-                                       {visibleColumns.includes(col.id) && <CheckCircle2 size={10} strokeWidth={4} />}
-                                    </div>
-                                    <span className={visibleColumns.includes(col.id) ? 'text-slate-900 font-medium' : 'text-slate-500'}>{col.label}</span>
-                                 </div>
-                              ))}
-                           </div>
-                        </div>
-                     </>
-                  )}
-               </div>
-            </div>
-         </div>
-
-         {/* ACTION + FILTER BAR */}
-         <div className="bg-slate-50 border-b border-slate-200 px-4 py-2 overflow-x-auto">
-            <div className="flex items-center gap-2 flex-nowrap min-w-max w-full">
-               <div className="flex-1 min-w-[320px]">
+               <div className="w-full xl:w-[52%] xl:max-w-[700px] xl:flex-none">
                   <OdooSearchBar
-                     filters={searchFilters}
+                     filters={toolbarFilterChips}
                      onAddFilter={(filter) => setSearchFilters([...searchFilters, filter])}
-                     onRemoveFilter={(index) => setSearchFilters(searchFilters.filter((_, i) => i !== index))}
-                     onClearAll={() => setSearchFilters([])}
+                     onRemoveFilter={handleToolbarFilterRemove}
+                     onClearAll={handleClearToolbarFilters}
                      searchFields={searchFields}
+                     size="sm"
+                     className="max-w-none"
                   />
                </div>
 
-               <button
-                  onClick={openCreateLeadModal}
-                  className="flex items-center gap-1 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded text-xs font-bold transition-all whitespace-nowrap shrink-0"
-               >
-                  <UserPlus size={14} /> Tạo lead
-               </button>
+               <div className="flex flex-col gap-2 xl:flex-row xl:items-start xl:justify-between xl:basis-full">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                     <button
+                        onClick={openCreateLeadModal}
+                        className="flex items-center gap-1 px-2.5 py-1.5 bg-white hover:bg-slate-50 text-slate-600 border border-slate-200 rounded-lg text-xs font-bold transition-all whitespace-nowrap shrink-0"
+                     >
+                        <UserPlus size={13} /> Tạo lead
+                     </button>
 
-               <div className="flex items-center gap-2 shrink-0">
-                  <button
-                     onClick={() => {
-                        if (selectedIds.length > 0) {
-                           const lead = filteredLeads.find(l => l.id === selectedIds[0]);
-                           if (lead) window.location.href = `tel:${lead.phone}`;
-                        } else {
-                           alert("Vui lòng chọn ít nhất 1 lead để gọi");
-                        }
-                     }}
-                     className="flex items-center gap-1 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded text-xs font-bold transition-all whitespace-nowrap"
-                  >
-                     <Phone size={14} /> Call
-                  </button>
-                  <button onClick={handleBulkAssign} className="px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded text-xs font-bold whitespace-nowrap">Phân bổ</button>
-                  <button onClick={handleBulkMarkLost} className="px-2.5 py-1.5 bg-orange-50 hover:bg-orange-100 text-orange-700 border border-orange-200 rounded text-xs font-bold whitespace-nowrap">Lost</button>
-                  <button onClick={handleBulkWon} className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded text-xs font-bold whitespace-nowrap">Won</button>
-                  <button onClick={handleBulkEdit} className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded text-xs font-bold whitespace-nowrap">Edit</button>
-                  <button onClick={handleBulkDelete} className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded text-xs font-bold whitespace-nowrap">Delete</button>
-                  <button onClick={() => navigate('/leads/import')} className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded text-xs font-bold whitespace-nowrap">Import</button>
-                  <button
-                     onClick={() => {
-                        if (selectedIds.length > 0) {
-                           handleBulkConvert();
-                        } else {
-                           alert("Hãy chọn ít nhất 1 lead để convert.");
-                        }
-                     }}
-                     className="px-2.5 py-1.5 bg-violet-50 hover:bg-violet-100 text-violet-700 border border-violet-200 rounded text-xs font-bold whitespace-nowrap"
-                  >
-                     Convert
-                  </button>
-                  <button
-                     onClick={() => alert("Chức năng gửi tin hàng loạt đang phát triển.")}
-                     className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded text-xs font-bold whitespace-nowrap"
-                  >
-                     Gửi tin
-                  </button>
-               </div>
+                     <div className="relative shrink-0">
+                        <button
+                           onClick={() => setShowActionDropdown(!showActionDropdown)}
+                           className={`flex items-center gap-1 px-2.5 py-1.5 border rounded-lg text-xs font-bold whitespace-nowrap transition-all ${showActionDropdown ? 'bg-slate-100 border-slate-300 text-slate-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+                        >
+                           <Cog size={13} />
+                           Action
+                           <ChevronDown size={13} />
+                        </button>
 
-               <div className="ml-auto text-xs text-slate-500 font-mono whitespace-nowrap shrink-0">
-                  Tổng số: <span className="font-bold text-slate-900">{filteredLeads.length}</span> records
+                        {showActionDropdown && (
+                           <>
+                              <div className="fixed inset-0 z-30" onClick={() => setShowActionDropdown(false)}></div>
+                              <div className="absolute left-0 top-full mt-2 w-[200px] bg-white border border-slate-200 rounded-xl shadow-xl z-40 p-1.5 animate-in fade-in zoom-in-95">
+                                 {actionDropdownItems.map((item) => {
+                                    const Icon = item.icon;
+                                    return (
+                                       <button
+                                          key={item.label}
+                                          onClick={() => {
+                                             setShowActionDropdown(false);
+                                             item.onClick();
+                                          }}
+                                          className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 rounded-lg transition-colors"
+                                       >
+                                          <Icon size={14} className="text-slate-400" />
+                                          <span>{item.label}</span>
+                                       </button>
+                                    );
+                                 })}
+                              </div>
+                           </>
+                        )}
+                     </div>
+                  </div>
+
+                  <div className="w-full xl:w-[52%] xl:max-w-[700px] xl:ml-auto flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between xl:flex-nowrap">
+                     <div className="flex flex-col gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                        <div className="relative shrink-0">
+                           <button
+                              onClick={() => setShowAdvancedFilter(!showAdvancedFilter)}
+                              className={`flex items-center gap-2 px-3 py-1.5 border rounded-lg text-xs font-bold whitespace-nowrap transition-all ${showAdvancedFilter ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+                           >
+                              <Filter size={14} /> Lọc nâng cao
+                           </button>
+
+                           {showAdvancedFilter && (
+                              <>
+                                 <div className="fixed inset-0 z-30" onClick={() => setShowAdvancedFilter(false)}></div>
+                                 <div className="absolute right-0 top-full mt-2 w-[800px] max-w-[calc(100vw-2rem)] bg-white border border-slate-200 rounded-xl shadow-2xl z-40 flex animate-in fade-in zoom-in-95 overflow-hidden font-sans">
+                                    <div className="w-1/3 border-r border-slate-100 p-4">
+                                       <div className="flex items-center gap-2 mb-4 text-sm font-bold text-slate-800">
+                                          <Filter size={16} /> Bộ lọc
+                                       </div>
+                                       <div className="space-y-1">
+                                          <div className={`px-3 py-2 text-sm rounded cursor-pointer transition-colors ${filterType === 'all' ? 'bg-blue-600 text-white font-bold' : 'text-slate-700 hover:bg-slate-50'}`} onClick={() => setFilterType('all')}>Tất cả Lead của tôi</div>
+                                          <div className={`px-3 py-2 text-sm rounded cursor-pointer transition-colors ${filterType === 'no-activity' ? 'bg-blue-600 text-white font-bold' : 'text-slate-700 hover:bg-slate-50'}`} onClick={() => setFilterType('no-activity')}>Chưa có hoạt động</div>
+                                          <div className={`px-3 py-2 text-sm rounded cursor-pointer transition-colors ${filterType === 'high-value' ? 'bg-blue-600 text-white font-bold' : 'text-slate-700 hover:bg-slate-50'}`} onClick={() => setFilterType('high-value')}>Cơ hội giá trị cao</div>
+                                          <div className="my-2 border-t border-slate-100"></div>
+                                          <div className="px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 rounded cursor-pointer flex justify-between items-center group">
+                                             Ngày tạo <ChevronDown size={14} className="text-slate-400 group-hover:text-slate-600" />
+                                          </div>
+                                          <div className="px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 rounded cursor-pointer flex justify-between items-center group">
+                                             Ngày chốt <ChevronDown size={14} className="text-slate-400 group-hover:text-slate-600" />
+                                          </div>
+                                          <div className="my-2 border-t border-slate-100"></div>
+                                          {[
+                                             { value: LeadStatus.NEW, label: 'Mới' },
+                                             { value: LeadStatus.CONTACTED, label: 'Đang liên hệ' },
+                                             { value: LeadStatus.QUALIFIED, label: 'Đạt' },
+                                             { value: DealStage.LOST, label: 'Mất' }
+                                          ].map(status => (
+                                             <div key={status.value} className={`px-3 py-2 text-sm rounded cursor-pointer transition-colors ${statusFilter === status.value ? 'bg-blue-600 text-white font-bold' : 'text-slate-700 hover:bg-slate-50'}`} onClick={() => {
+                                                setStatusFilter(status.value);
+                                                setStatusFilterSource('advanced');
+                                             }}>
+                                                {status.label}
+                                             </div>
+                                          ))}
+                                       </div>
+                                    </div>
+
+                                    <div className="w-1/3 border-r border-slate-100 p-4 bg-slate-50/50">
+                                       <div className="flex items-center gap-2 mb-4 text-sm font-bold text-slate-800">
+                                          <Users size={16} /> Nhóm theo
+                                       </div>
+                                       <div className="space-y-1">
+                                          {[
+                                             { label: 'Không nhóm', value: 'none' },
+                                             { label: 'Chuyên viên sales', value: 'salesperson' },
+                                             { label: 'Giai đoạn', value: 'status' },
+                                             { label: 'Thành phố', value: 'city' },
+                                             { label: 'Chương trình', value: 'program' },
+                                             { label: 'Nguồn', value: 'source' }
+                                          ].map(item => (
+                                             <div key={item.value}
+                                                className={`px-3 py-2 text-sm rounded cursor-pointer transition-colors ${groupBy === item.value ? 'bg-blue-100 text-blue-700 font-bold border-l-4 border-blue-600' : 'text-slate-700 hover:bg-slate-100'}`}
+                                                onClick={() => setGroupBy(item.value as any)}
+                                             >
+                                                {item.label}
+                                             </div>
+                                          ))}
+                                          <div className="my-2 border-t border-slate-200"></div>
+                                          {['Ngày tạo', 'Ngày đóng dự kiến', 'Ngày chốt', 'Nhóm tùy chỉnh'].map(item => (
+                                             <div key={item} className="px-3 py-2 text-sm text-slate-700 hover:bg-slate-100 rounded cursor-pointer flex justify-between items-center group">
+                                                {item} <ChevronDown size={14} className="text-slate-400 group-hover:text-slate-600" />
+                                             </div>
+                                          ))}
+                                       </div>
+                                    </div>
+
+                                    <div className="w-1/3 p-4">
+                                       <div className="flex items-center gap-2 mb-4 text-sm font-bold text-slate-800">
+                                          <FileSpreadsheet size={16} /> Danh sách yêu thích
+                                       </div>
+                                       <div className="mb-4">
+                                          <label className="block text-xs font-semibold text-slate-500 mb-1.5">Lưu bộ lọc hiện tại</label>
+                                          <input type="text" className="w-full border border-slate-300 rounded px-3 py-2 text-sm outline-none focus:border-blue-500" placeholder="Quy trình" />
+                                       </div>
+                                       <label className="flex items-center gap-2 mb-6 cursor-pointer">
+                                          <input type="checkbox" className="rounded border-slate-300 text-blue-600" />
+                                          <span className="text-sm text-slate-700">Bộ lọc mặc định</span>
+                                       </label>
+                                       <div className="flex gap-2">
+                                          <button className="flex-1 bg-purple-600 hover:bg-purple-700 text-white py-2 rounded font-bold text-sm transition-colors">Lưu</button>
+                                          <button className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 py-2 rounded font-bold text-sm transition-colors">Chỉnh sửa</button>
+                                       </div>
+                                    </div>
+                                 </div>
+                              </>
+                           )}
+                        </div>
+
+                        <div className="flex items-center gap-2 border border-slate-200 rounded-lg bg-white px-2 py-1.5 text-xs shrink-0">
+                           <select
+                              value={timeFilterField}
+                              onChange={(e) => {
+                                 setTimeFilterField(e.target.value as typeof timeFieldOptions[number]['id']);
+                              }}
+                              className="outline-none bg-transparent font-semibold text-slate-600"
+                           >
+                              {timeFieldOptions.map((option) => (
+                                 <option key={option.id} value={option.id}>{option.label}</option>
+                              ))}
+                           </select>
+                        </div>
+
+                        <div className="flex items-center gap-2 border border-slate-200 rounded-lg bg-white px-2 py-1.5 text-xs shrink-0">
+                           <select
+                              value={timeRangeType}
+                              onChange={(e) => {
+                                 const nextRange = e.target.value;
+                                 setTimeRangeType(nextRange);
+                                 setShowTimePicker(nextRange === 'custom');
+                                 if (nextRange !== 'custom') {
+                                    setCustomRange(null);
+                                 }
+                              }}
+                              className="outline-none bg-transparent font-semibold text-slate-600"
+                           >
+                              {timePresets.map((preset) => (
+                                 <option key={preset.id} value={preset.id}>{preset.label}</option>
+                              ))}
+                           </select>
+                        </div>
+                        </div>
+
+                        {showTimePicker && timeRangeType === 'custom' && (
+                           <div className="flex items-center gap-2 flex-wrap">
+                              <input
+                                 type="date"
+                                 value={customRange?.start || ''}
+                                 onChange={(e) => setCustomRange(prev => ({ start: e.target.value, end: prev?.end || '' }))}
+                                 className="border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-600 outline-none focus:border-blue-300"
+                              />
+                              <span className="text-xs font-semibold text-slate-500">đến</span>
+                              <input
+                                 type="date"
+                                 value={customRange?.end || ''}
+                                 onChange={(e) => setCustomRange(prev => ({ start: prev?.start || '', end: e.target.value }))}
+                                 className="border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-600 outline-none focus:border-blue-300"
+                              />
+                              <button
+                                 onClick={() => {
+                                    setCustomRange(null);
+                                    setTimeRangeType('all');
+                                    setShowTimePicker(false);
+                                 }}
+                                 className="px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-50"
+                              >
+                                 Xóa
+                              </button>
+                           </div>
+                        )}
+                     </div>
+
+                     <div className="flex items-center justify-end gap-2">
+                        <div className="flex bg-white px-1 py-0.5 rounded-lg border border-slate-200 shadow-sm">
+                           <button onClick={() => setViewMode('list')} className={`p-1 rounded ${viewMode === 'list' ? 'bg-blue-50 text-blue-600 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-700'}`} title="Dạng danh sách"><ListIcon size={15} /></button>
+                           <button onClick={() => setViewMode('kanban')} className={`p-1 rounded ${viewMode === 'kanban' ? 'bg-blue-50 text-blue-600 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-700'}`} title="Dạng kanban"><Layout size={15} /></button>
+                           <button onClick={() => setViewMode('pivot')} className={`p-1 rounded ${viewMode === 'pivot' ? 'bg-blue-50 text-blue-600 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-700'}`} title="Báo cáo pivot"><LayoutGrid size={15} /></button>
+                        </div>
+
+                        <div className="relative shrink-0">
+                           <button
+                              onClick={() => setShowColumnDropdown(!showColumnDropdown)}
+                              className="flex items-center gap-1.5 px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs font-bold hover:bg-white text-slate-600 bg-slate-100 shadow-sm transition-all whitespace-nowrap"
+                           >
+                              <Settings size={13} /> Cột
+                           </button>
+                           {showColumnDropdown && (
+                              <>
+                                 <div className="fixed inset-0 z-30" onClick={() => setShowColumnDropdown(false)}></div>
+                                 <div className="absolute right-0 top-full mt-2 w-[400px] max-w-[calc(100vw-2rem)] bg-white border border-slate-200 rounded-xl shadow-xl z-40 p-3 animate-in fade-in zoom-in-95">
+                                    <div className="text-xs font-bold text-slate-500 uppercase px-2 py-1 mb-2 border-b border-slate-100 pb-2">Hiển thị cột</div>
+                                    <div className="grid grid-cols-2 gap-x-2 gap-y-1 max-h-[300px] overflow-y-auto custom-scrollbar">
+                                       {ALL_COLUMNS.map(col => (
+                                          <div key={col.id} onClick={() => toggleColumn(col.id)} className="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-50 rounded cursor-pointer text-sm">
+                                             <div className={`w-4 h-4 rounded border flex items-center justify-center ${visibleColumns.includes(col.id) ? 'bg-blue-600 border-blue-600 text-white' : 'border-slate-300'}`}>
+                                                {visibleColumns.includes(col.id) && <CheckCircle2 size={10} strokeWidth={4} />}
+                                             </div>
+                                             <span className={visibleColumns.includes(col.id) ? 'text-slate-900 font-medium' : 'text-slate-500'}>{col.label}</span>
+                                          </div>
+                                       ))}
+                                    </div>
+                                 </div>
+                              </>
+                           )}
+                        </div>
+
+                        <div className="text-xs text-slate-500 font-mono whitespace-nowrap shrink-0">
+                           Tổng số: <span className="font-bold text-slate-900">{filteredLeads.length}</span> records
+                        </div>
+                     </div>
+                  </div>
                </div>
             </div>
          </div>
@@ -1184,8 +1519,11 @@ const MyLeads: React.FC = () => {
                               checked={selectedIds.length === filteredLeads.length && filteredLeads.length > 0}
                            />
                         </th>
+                        <th className="w-12 p-3 border-r border-slate-200 text-center">
+                           <Phone size={12} className="mx-auto text-slate-400" />
+                        </th>
 
-                        {visibleColumns.includes('opportunity') && <th className="p-3 border-r border-slate-200 whitespace-nowrap text-left">Cơ hội</th>}
+                        {visibleColumns.includes('opportunity') && <th className="p-3 border-r border-slate-200 whitespace-nowrap text-left">Tên lead</th>}
                         {visibleColumns.includes('contact') && <th className="p-3 border-r border-slate-200 whitespace-nowrap text-left">Liên hệ</th>}
                         {visibleColumns.includes('email') && <th className="p-3 border-r border-slate-200 whitespace-nowrap text-left">Email</th>}
                         {visibleColumns.includes('city') && <th className="p-3 border-r border-slate-200 whitespace-nowrap text-left">Địa chỉ</th>}
@@ -1533,24 +1871,9 @@ const MyLeads: React.FC = () => {
                                        onChange={e => setNewLeadData({ ...newLeadData, channel: e.target.value })}
                                     >
                                        <option value="">-- Chọn kênh --</option>
-                                       <option value="facebook">Facebook</option>
-                                       <option value="zalo">Zalo</option>
-                                       <option value="tiktok">TikTok</option>
-                                       <option value="google">Google</option>
-                                       <option value="hotline">Hotline</option>
-                                       <option value="referral">Giới thiệu</option>
-                                    </select>
-                                 </div>
-                                 <div className="flex items-center gap-4">
-                                    <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Medium</label>
-                                    <select
-                                       className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
-                                       value={newLeadData.medium}
-                                       onChange={e => setNewLeadData({ ...newLeadData, medium: e.target.value })}
-                                    >
-                                       <option value="">-- Chọn --</option>
-                                       <option value="cpc">CPC</option>
-                                       <option value="social">Social</option>
+                                       {LEAD_CHANNEL_OPTIONS.map(option => (
+                                          <option key={option.value} value={option.value}>{option.label}</option>
+                                       ))}
                                     </select>
                                  </div>
                                  <div className="flex items-center gap-4">

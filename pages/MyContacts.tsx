@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getContacts, getStudents, getContracts, addContact } from '../utils/storage';
+import { getContacts, getStudents, getContracts, addContact, saveContact } from '../utils/storage';
 import {
     Search,
     Phone,
@@ -517,8 +517,10 @@ const MyContacts: React.FC = () => {
                 isOpen={isDrawerOpen}
                 onClose={() => setIsDrawerOpen(false)}
                 onUpdate={(updated) => {
-                    setContacts((prev) => prev.map((contact) => (contact.id === updated.id ? updated : contact)));
-                    setSelectedContact(updated);
+                    const persisted = saveContact(updated);
+                    setContacts((prev) => prev.map((contact) => (contact.id === persisted.id ? persisted : contact)));
+                    setSelectedContact(persisted);
+                    setToast({ message: `Đã cập nhật contact: ${persisted.name}`, type: 'success' });
                 }}
             />
 

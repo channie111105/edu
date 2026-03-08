@@ -202,6 +202,8 @@ const LeadDetails: React.FC = () => {
             products: [lead.program],
             probability: 20,
             createdAt: new Date().toISOString(),
+            leadCreatedAt: lead.createdAt,
+            assignedAt: lead.pickUpDate,
             activities: [
                {
                   id: `act-${Date.now()}`,
@@ -595,7 +597,6 @@ const LeadDetails: React.FC = () => {
                               <option value="">-- Chọn hình thức --</option>
                               <option value={MeetingType.OFFLINE}>Offline (Tại trung tâm)</option>
                               <option value={MeetingType.ONLINE}>Online (Phóng vấn)</option>
-                              <option value={MeetingType.CONSULTING}>Tư vấn trực tiếp</option>
                            </select>
                         </div>
                      </div>

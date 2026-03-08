@@ -786,7 +786,7 @@ const SLALeadList: React.FC = () => {
                   )}
 
                   {/* Date Filter */}
-                  <AdvancedDateFilter onChange={setDateRange} label="Ngày tạo" />
+                  <AdvancedDateFilter onChange={setDateRange} label="Average time" />
 
                   {/* Branch Filter */}
                   <div className="relative">

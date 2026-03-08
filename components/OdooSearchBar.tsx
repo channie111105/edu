@@ -26,6 +26,8 @@ interface OdooSearchBarProps {
     onClearAll: () => void;
     contextLabel?: string;
     searchFields: SearchFieldConfig[]; // Available fields for searching
+    className?: string;
+    size?: 'md' | 'sm';
 }
 
 const OdooSearchBar: React.FC<OdooSearchBarProps> = ({
@@ -34,7 +36,9 @@ const OdooSearchBar: React.FC<OdooSearchBarProps> = ({
     onRemoveFilter,
     onClearAll,
     contextLabel,
-    searchFields
+    searchFields,
+    className,
+    size = 'md'
 }) => {
     const [inputValue, setInputValue] = useState('');
     const [showDropdown, setShowDropdown] = useState(false);
@@ -126,11 +130,13 @@ const OdooSearchBar: React.FC<OdooSearchBarProps> = ({
         return acc;
     }, {} as Record<string, SearchFieldConfig[]>);
 
-    return (
-        <div className="relative flex-1 max-w-3xl">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 z-10" />
+    const isCompact = size === 'sm';
 
-            <div className="flex items-center gap-1.5 w-full pl-9 pr-10 py-1.5 border border-slate-200 rounded-lg bg-white focus-within:ring-2 focus-within:ring-blue-500 min-h-[40px] flex-wrap">
+    return (
+        <div className={`relative flex-1 max-w-3xl ${className || ''}`}>
+            <Search size={isCompact ? 15 : 16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 z-10" />
+
+            <div className={`flex items-center gap-1.5 w-full pl-9 pr-10 border border-slate-200 rounded-lg bg-white focus-within:ring-2 focus-within:ring-blue-500 flex-wrap ${isCompact ? 'py-1 min-h-[36px]' : 'py-1.5 min-h-[40px]'}`}>
                 {/* Context Label Badge */}
                 {contextLabel && (
                     <span className="inline-flex items-center px-2 py-1 rounded text-xs font-bold bg-slate-700 text-white border border-slate-600 shrink-0">
@@ -167,7 +173,7 @@ const OdooSearchBar: React.FC<OdooSearchBarProps> = ({
                     onKeyDown={handleKeyDown}
                     onFocus={() => inputValue.trim().length > 0 && setShowDropdown(true)}
                     placeholder={filters.length === 0 && !contextLabel ? "Tìm kiếm hoặc lọc..." : ""}
-                    className="flex-1 min-w-[150px] outline-none text-sm bg-transparent"
+                    className={`flex-1 min-w-[150px] outline-none bg-transparent ${isCompact ? 'text-[13px]' : 'text-sm'}`}
                 />
             </div>
 

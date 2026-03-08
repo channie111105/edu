@@ -69,6 +69,38 @@ export interface IUser {
   avatar: string;
 }
 
+export interface ISalesTeamMember {
+  userId: string;
+  name: string;
+  role?: string;
+  branch?: string;
+}
+
+export interface ISalesTeam {
+  id: string;
+  name: string;
+  branch: string;
+  productFocus: string;
+  assignKeywords: string[];
+  members: ISalesTeamMember[];
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface ISalesKpiTarget {
+  id: string;
+  period: string;
+  ownerId: string;
+  ownerName: string;
+  teamId: string;
+  teamName: string;
+  branch: string;
+  targetRevenue: number;
+  targetContracts: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // Thông tin chi tiết học viên (Enrichment Data)
 export interface IStudentInfo {
   // 1. Định danh bổ sung
@@ -139,6 +171,13 @@ export interface IContact {
   socialLink?: string;
   company?: string;
   job?: string;
+  title?: string;
+  website?: string;
+  mobile?: string;
+  venue?: string;
+  emailScore?: number;
+  emailBounced?: boolean;
+  contactType?: 'individual' | 'company';
 
   // System Info
   ownerId?: string; // Sales Rep phụ trách
@@ -318,6 +357,8 @@ export interface IDeal {
   products: string[]; // Danh sách sản phẩm (Simple list for summary)
   probability: number; // Tỷ lệ chốt (%)
   createdAt?: string;
+  leadCreatedAt?: string;
+  assignedAt?: string;
   activities?: Activity[]; // Nhật ký hoạt động
   productItems?: {
     id: string;
@@ -334,7 +375,10 @@ export interface IDeal {
 export interface IContract {
   id: string;
   code: string; // Mã HĐ (VD: HĐ-2023-001)
-  dealId: string;
+  dealId?: string;
+  quotationId?: string;
+  customerId?: string;
+  studentId?: string;
   customerName: string;
   totalValue: number;
   paidValue: number;
@@ -343,6 +387,10 @@ export interface IContract {
   fileUrl?: string;
   createdBy: string; // Sales Rep tạo
   paymentPlanId?: string;
+  templateName?: string;
+  templateFields?: Record<string, string>;
+  importedAt?: string;
+  importedBy?: string;
   // Identity Fields (Bê từ Lead sang)
   cccdNumber?: string;
   identityDate?: string;
@@ -686,12 +734,15 @@ export interface IQuotation {
 
   createdAt: string;
   updatedAt: string;
+  quotationDate?: string;
+  confirmDate?: string;
   status: QuotationStatus;
   saleConfirmedAt?: string;
   saleConfirmedBy?: string;
   transactionStatus?: 'NONE' | 'CHO_DUYET' | 'DA_DUYET' | 'TU_CHOI';
   lockedAt?: string;
   lockedBy?: string;
+  contractId?: string;
 
   // Class Info
   schedule?: string;

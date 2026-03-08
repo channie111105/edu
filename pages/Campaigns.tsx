@@ -15,10 +15,43 @@ import {
   DollarSign,
   ToggleLeft,
   ChevronRight,
-  UserPlus
+  UserPlus,
+  Pencil
 } from 'lucide-react';
 
 type CampaignType = 'manual' | 'auto';
+type CampaignStatus = 'Running' | 'Paused' | 'Planned' | 'Completed';
+
+type CampaignFormData = {
+  name: string;
+  channel: string;
+  campaignType: CampaignType;
+  apiConnected: boolean;
+  status: CampaignStatus;
+  startDate: string;
+  endDate: string;
+  budget: number;
+  spent: number;
+  revenue: number;
+  reportFileNames: string[];
+};
+
+type CampaignItem = {
+  id: string;
+  name: string;
+  channel: string;
+  status: CampaignStatus;
+  startDate: string;
+  endDate: string;
+  budget: number;
+  spent: number;
+  revenue: number;
+  leads: number;
+  campaignType: CampaignType;
+  apiConnected: boolean;
+  color: string;
+  reportFileNames?: string[];
+};
 
 const CAMPAIGN_TYPE_OPTIONS: { value: CampaignType; label: string; apiLabel: string }[] = [
   { value: 'manual', label: 'Chiến dịch thường', apiLabel: 'API Off' },
@@ -26,7 +59,7 @@ const CAMPAIGN_TYPE_OPTIONS: { value: CampaignType; label: string; apiLabel: str
 ];
 
 // --- MOCK DATA ---
-const CAMPAIGNS = [
+const CAMPAIGNS: CampaignItem[] = [
   {
     id: 'camp_01',
     name: 'Trại Hè 2024',
@@ -115,7 +148,24 @@ const CHANNEL_DEFAULT_BUDGETS: Record<string, number> = {
 
 const getTodayISODate = () => new Date().toISOString().split('T')[0];
 
-const createDefaultCampaignData = (channel = 'Facebook') => ({
+const toInputDate = (value?: string) => {
+  if (!value || value === 'Indefinite' || value === 'Inderfinite') return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const match = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!match) return '';
+  const [, day, month, year] = match;
+  return `${year}-${month}-${day}`;
+};
+
+const toDisplayDate = (value?: string) => {
+  if (!value) return 'Indefinite';
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(value)) return value;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const [year, month, day] = value.split('-');
+  return `${day}/${month}/${year}`;
+};
+
+const createDefaultCampaignData = (channel = 'Facebook'): CampaignFormData => ({
   name: '',
   channel,
   campaignType: 'manual' as CampaignType,
@@ -127,6 +177,20 @@ const createDefaultCampaignData = (channel = 'Facebook') => ({
   spent: 0,
   revenue: 0,
   reportFileNames: [] as string[]
+});
+
+const mapCampaignToFormData = (campaign: CampaignItem): CampaignFormData => ({
+  name: campaign.name,
+  channel: campaign.channel,
+  campaignType: campaign.campaignType,
+  apiConnected: campaign.apiConnected,
+  status: campaign.status,
+  startDate: toInputDate(campaign.startDate) || getTodayISODate(),
+  endDate: toInputDate(campaign.endDate),
+  budget: campaign.budget,
+  spent: campaign.spent,
+  revenue: campaign.revenue,
+  reportFileNames: campaign.reportFileNames ?? []
 });
 
 const Campaigns: React.FC = () => {
@@ -143,10 +207,25 @@ const Campaigns: React.FC = () => {
   // --- CREATE MODAL STATE ---
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newCampaignData, setNewCampaignData] = useState(() => createDefaultCampaignData());
+  const [editingCampaignId, setEditingCampaignId] = useState<string | null>(null);
 
   const handleOpenCreateModal = () => {
     setNewCampaignData(createDefaultCampaignData());
+    setEditingCampaignId(null);
     setShowCreateModal(true);
+  };
+
+  const handleOpenEditModal = (e: React.MouseEvent, campaign: CampaignItem) => {
+    e.stopPropagation();
+    setEditingCampaignId(campaign.id);
+    setNewCampaignData(mapCampaignToFormData(campaign));
+    setShowCreateModal(true);
+  };
+
+  const handleCloseCampaignModal = () => {
+    setShowCreateModal(false);
+    setEditingCampaignId(null);
+    setNewCampaignData(createDefaultCampaignData());
   };
 
   const handleChannelChange = (channel: string) => {
@@ -182,6 +261,25 @@ const Campaigns: React.FC = () => {
       alert('Vui lòng nhập tên chiến dịch');
       return;
     }
+    const normalizedCampaignData = {
+      ...newCampaignData,
+      startDate: toDisplayDate(newCampaignData.startDate),
+      endDate: toDisplayDate(newCampaignData.endDate)
+    };
+
+    if (editingCampaignId) {
+      setCampaigns(prev => prev.map(campaign =>
+        campaign.id === editingCampaignId
+          ? {
+              ...campaign,
+              ...normalizedCampaignData
+            }
+          : campaign
+      ));
+      handleCloseCampaignModal();
+      return;
+    }
+
     const newId = `camp_0${campaigns.length + 1}`;
     const colors = [
       'bg-blue-100 text-blue-700',
@@ -191,14 +289,13 @@ const Campaigns: React.FC = () => {
       'bg-slate-100 text-slate-700'
     ];
     const newEntry = {
-      ...newCampaignData,
+      ...normalizedCampaignData,
       id: newId,
       leads: 0,
       color: colors[campaigns.length % colors.length]
     };
     setCampaigns([newEntry, ...campaigns]);
-    setShowCreateModal(false);
-    setNewCampaignData(createDefaultCampaignData());
+    handleCloseCampaignModal();
   };
 
   const filteredCampaigns = campaigns.filter(c => {
@@ -238,7 +335,7 @@ const Campaigns: React.FC = () => {
     e.dataTransfer.dropEffect = 'move';
   };
 
-  const handleDrop = (e: React.DragEvent, targetStatus: string) => {
+  const handleDrop = (e: React.DragEvent, targetStatus: CampaignStatus) => {
     e.preventDefault();
     if (!draggedItem) return;
 
@@ -280,6 +377,7 @@ const Campaigns: React.FC = () => {
                   <th className="p-4 text-right">Doanh thu</th>
                   <th className="p-4 text-center">Leads</th>
                   <th className="p-4 text-right">ROI</th>
+                  <th className="p-4 text-center">Thao tác</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -324,6 +422,18 @@ const Campaigns: React.FC = () => {
                     <td className={`p-4 text-right font-bold ${c.revenue > c.spent ? 'text-green-600' : 'text-slate-500'}`}>
                       {c.spent > 0 ? ((c.revenue - c.spent) / c.spent * 100).toFixed(0) + '%' : 'N/A'}
                     </td>
+                    <td className="p-4">
+                      <div className="flex justify-center">
+                        <button
+                          type="button"
+                          onClick={(e) => handleOpenEditModal(e, c)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-colors"
+                        >
+                          <Pencil size={14} />
+                          <span className="text-xs font-bold">Sửa</span>
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -333,7 +443,7 @@ const Campaigns: React.FC = () => {
 
       // --- KANBAN VIEW (STATUS) ---
       case 'kanban': {
-        const columns = ['Planned', 'Running', 'Paused', 'Completed'];
+        const columns: CampaignStatus[] = ['Planned', 'Running', 'Paused', 'Completed'];
         return (
           <div className="flex gap-6 overflow-x-auto pb-6 h-[calc(100vh-250px)]">
             {columns.map(status => (
@@ -371,9 +481,19 @@ const Campaigns: React.FC = () => {
                         <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${campaign.color}`}>
                           <Megaphone size={14} />
                         </div>
-                        <h4 className="font-bold text-sm text-slate-900 line-clamp-2 leading-tight group-hover:text-blue-600 transition-colors">
-                          {campaign.name}
-                        </h4>
+                        <div className="flex-1 flex items-start justify-between gap-2">
+                          <h4 className="font-bold text-sm text-slate-900 line-clamp-2 leading-tight group-hover:text-blue-600 transition-colors">
+                            {campaign.name}
+                          </h4>
+                          <button
+                            type="button"
+                            onClick={(e) => handleOpenEditModal(e, campaign)}
+                            className="p-1.5 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                            title="Sửa chiến dịch"
+                          >
+                            <Pencil size={14} />
+                          </button>
+                        </div>
                       </div>
 
                       <div className="grid grid-cols-2 gap-2 text-xs mb-3">
@@ -529,15 +649,15 @@ const Campaigns: React.FC = () => {
       {/* CREATE CAMPAIGN MODAL */}
       {showCreateModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowCreateModal(false)}></div>
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={handleCloseCampaignModal}></div>
           <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in zoom-in-95 flex flex-col max-h-[90vh] font-inter">
             {/* Modal Header */}
             <div className="p-5 border-b border-slate-200 flex justify-between items-center bg-slate-50 shrink-0">
               <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
                 <Megaphone size={20} className="text-blue-600" />
-                Thêm chiến dịch Marketing mới
+                {editingCampaignId ? 'Sửa chiến dịch Marketing' : 'Thêm chiến dịch Marketing mới'}
               </h3>
-              <button onClick={() => setShowCreateModal(false)} className="text-slate-400 hover:text-slate-600 transition-colors">
+              <button onClick={handleCloseCampaignModal} className="text-slate-400 hover:text-slate-600 transition-colors">
                 <X size={24} />
               </button>
             </div>
@@ -709,7 +829,7 @@ const Campaigns: React.FC = () => {
             {/* Modal Footer */}
             <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-3 shrink-0">
               <button
-                onClick={() => setShowCreateModal(false)}
+                onClick={handleCloseCampaignModal}
                 className="px-5 py-2 text-slate-600 font-bold hover:bg-slate-200 rounded-lg transition-colors"
               >
                 Hủy bỏ
@@ -718,7 +838,7 @@ const Campaigns: React.FC = () => {
                 onClick={handleSaveCampaign}
                 className="px-8 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg flex items-center gap-2 shadow-lg shadow-blue-100 transition-all active:scale-95"
               >
-                <Save size={18} /> Lưu chiến dịch
+                <Save size={18} /> {editingCampaignId ? 'Cập nhật chiến dịch' : 'Lưu chiến dịch'}
               </button>
             </div>
           </div>

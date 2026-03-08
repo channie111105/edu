@@ -1,4 +1,4 @@
-import { ILead, IDeal, IContact, IContract, LeadStatus, DealStage, IMeeting, MeetingStatus, MeetingType, IQuotation, QuotationStatus, IAdmission, StudentStatus, ITransaction, IClassStudent, ITeacher, ILogNote, ITrainingClass, IStudentScore, IDebtTerm, IClassSession, IAttendanceRecord, IStudyNote, AttendanceStatus, IActualTransaction, IActualTransactionLog, IRefundRequest, IRefundLog } from '../types';
+import { ILead, IDeal, IContact, IContract, LeadStatus, DealStage, ContractStatus, IMeeting, MeetingStatus, MeetingType, IQuotation, QuotationStatus, IAdmission, StudentStatus, ITransaction, IClassStudent, ITeacher, ILogNote, ITrainingClass, IStudentScore, IDebtTerm, IClassSession, IAttendanceRecord, IStudyNote, AttendanceStatus, IActualTransaction, IActualTransactionLog, IRefundRequest, IRefundLog, ISalesKpiTarget, ISalesTeam } from '../types';
 
 export const KEYS = {
   LEADS: 'educrm_leads_v2', // Changed key to force fresh load
@@ -26,15 +26,21 @@ export const KEYS = {
   COLLABORATORS: 'educrm_collaborators',
   TAGS: 'educrm_tags',
   LOST_REASONS: 'educrm_lost_reasons',
+  SALES_KPIS: 'educrm_sales_kpis',
+  SALES_TEAMS: 'educrm_sales_teams',
   LEAD_DISTRIBUTION_CONFIG: 'educrm_lead_distribution_config',
   INIT: 'educrm_initialized'
 };
 
 export type LeadDistributionMode = 'auto' | 'manual';
+export type LeadDistributionMethod = 'round_robin' | 'weighted';
 
 export interface ILeadDistributionConfig {
   mode: LeadDistributionMode;
+  method: LeadDistributionMethod;
   roundRobinIndex: number;
+  weightedIndex: number;
+  weightedRatios: Record<string, number>;
   updatedAt: string;
   updatedBy?: string;
 }
@@ -163,10 +169,27 @@ export const saveTags = (tags: string[]) => {
 
 const getDefaultLeadDistributionConfig = (): ILeadDistributionConfig => ({
   mode: 'auto',
+  method: 'round_robin',
   roundRobinIndex: 0,
+  weightedIndex: 0,
+  weightedRatios: {},
   updatedAt: new Date().toISOString(),
   updatedBy: 'system'
 });
+
+const sanitizeDistributionMethod = (method: unknown): LeadDistributionMethod =>
+  method === 'weighted' ? 'weighted' : 'round_robin';
+
+const sanitizeWeightedRatios = (ratios: unknown): Record<string, number> => {
+  if (!ratios || typeof ratios !== 'object') return {};
+  return Object.entries(ratios as Record<string, unknown>).reduce<Record<string, number>>((acc, [repId, rawValue]) => {
+    if (!repId) return acc;
+    const numeric = Number(rawValue);
+    if (!Number.isFinite(numeric)) return acc;
+    acc[repId] = Math.max(0, Math.floor(numeric));
+    return acc;
+  }, {});
+};
 
 export const getLeadDistributionConfig = (): ILeadDistributionConfig => {
   try {
@@ -175,7 +198,10 @@ export const getLeadDistributionConfig = (): ILeadDistributionConfig => {
     const parsed = JSON.parse(data) as Partial<ILeadDistributionConfig>;
     return {
       mode: parsed.mode === 'manual' ? 'manual' : 'auto',
+      method: sanitizeDistributionMethod(parsed.method),
       roundRobinIndex: Number.isFinite(parsed.roundRobinIndex) ? Math.max(0, Math.floor(parsed.roundRobinIndex as number)) : 0,
+      weightedIndex: Number.isFinite(parsed.weightedIndex) ? Math.max(0, Math.floor(parsed.weightedIndex as number)) : 0,
+      weightedRatios: sanitizeWeightedRatios(parsed.weightedRatios),
       updatedAt: parsed.updatedAt || new Date().toISOString(),
       updatedBy: parsed.updatedBy || 'system'
     };
@@ -190,7 +216,10 @@ export const saveLeadDistributionConfig = (config: Partial<ILeadDistributionConf
     ...current,
     ...config,
     mode: config.mode === 'manual' ? 'manual' : config.mode === 'auto' ? 'auto' : current.mode,
+    method: config.method ? sanitizeDistributionMethod(config.method) : current.method,
     roundRobinIndex: Number.isFinite(config.roundRobinIndex) ? Math.max(0, Math.floor(config.roundRobinIndex as number)) : current.roundRobinIndex,
+    weightedIndex: Number.isFinite(config.weightedIndex) ? Math.max(0, Math.floor(config.weightedIndex as number)) : current.weightedIndex,
+    weightedRatios: config.weightedRatios ? sanitizeWeightedRatios(config.weightedRatios) : current.weightedRatios,
     updatedAt: new Date().toISOString()
   };
   localStorage.setItem(KEYS.LEAD_DISTRIBUTION_CONFIG, JSON.stringify(next));
@@ -215,19 +244,134 @@ export const allocateLeadOwnersRoundRobin = (leadCount: number, repIds: string[]
   return assignedOwners;
 };
 
-// ... (existing code)
+const buildWeightedOwnerPool = (repIds: string[], weightedRatios: Record<string, number>): string[] => {
+  const pool: string[] = [];
+  repIds.forEach((repId) => {
+    const weight = Math.max(0, Math.floor(Number(weightedRatios[repId] || 0)));
+    if (weight <= 0) return;
+    for (let i = 0; i < weight; i++) {
+      pool.push(repId);
+    }
+  });
+  return pool;
+};
+
+export const allocateLeadOwnersWeighted = (
+  leadCount: number,
+  repIds: string[],
+  weightedRatios?: Record<string, number>
+): string[] => {
+  if (leadCount <= 0 || repIds.length === 0) return [];
+
+  const config = getLeadDistributionConfig();
+  const ratios = weightedRatios ?? config.weightedRatios;
+  const weightedPool = buildWeightedOwnerPool(repIds, ratios);
+  const ownerPool = weightedPool.length > 0 ? weightedPool : repIds;
+  const startIndex = config.weightedIndex % ownerPool.length;
+  const assignedOwners: string[] = [];
+
+  for (let i = 0; i < leadCount; i++) {
+    assignedOwners.push(ownerPool[(startIndex + i) % ownerPool.length]);
+  }
+
+  saveLeadDistributionConfig({
+    weightedIndex: (startIndex + leadCount) % ownerPool.length
+  });
+
+  return assignedOwners;
+};
+
+export const getSalesTeams = (): ISalesTeam[] => {
+  try {
+    const data = localStorage.getItem(KEYS.SALES_TEAMS);
+    return data ? JSON.parse(data) : INITIAL_SALES_TEAMS;
+  } catch {
+    return INITIAL_SALES_TEAMS;
+  }
+};
+
+export const saveSalesTeams = (teams: ISalesTeam[]) => {
+  localStorage.setItem(KEYS.SALES_TEAMS, JSON.stringify(teams));
+  emitClientEvent('educrm:sales-teams-changed');
+};
+
+export const getSalesKpis = (): ISalesKpiTarget[] => {
+  try {
+    const data = localStorage.getItem(KEYS.SALES_KPIS);
+    return data ? JSON.parse(data) : INITIAL_SALES_KPIS;
+  } catch {
+    return INITIAL_SALES_KPIS;
+  }
+};
+
+export const saveSalesKpis = (targets: ISalesKpiTarget[]) => {
+  localStorage.setItem(KEYS.SALES_KPIS, JSON.stringify(targets));
+  emitClientEvent('educrm:sales-kpis-changed');
+};
+
+export const upsertSalesKpis = (targets: ISalesKpiTarget[]) => {
+  const current = getSalesKpis();
+  const next = [...current];
+
+  targets.forEach((target) => {
+    const index = next.findIndex((item) => item.period === target.period && item.ownerId === target.ownerId);
+    if (index >= 0) {
+      next[index] = {
+        ...next[index],
+        ...target,
+        id: next[index].id || target.id,
+        updatedAt: new Date().toISOString()
+      };
+      return;
+    }
+
+    next.unshift({
+      ...target,
+      id: target.id || `kpi-${target.period}-${target.ownerId}`,
+      createdAt: target.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    });
+  });
+
+  saveSalesKpis(next);
+  return next;
+};
 
 // QUOTATIONS
+const normalizeQuotation = (quotation: IQuotation): IQuotation => {
+  const quotationDate = quotation.quotationDate || quotation.createdAt || new Date().toISOString();
+  const confirmDate =
+    quotation.confirmDate ||
+    quotation.saleConfirmedAt ||
+    (quotation.status === QuotationStatus.LOCKED ? quotation.lockedAt || quotation.updatedAt : undefined);
+
+  return {
+    ...quotation,
+    createdAt: quotation.createdAt || quotationDate,
+    updatedAt: quotation.updatedAt || quotation.createdAt || quotationDate,
+    quotationDate,
+    confirmDate,
+    contractStatus:
+      quotation.contractStatus ||
+      (quotation.status === QuotationStatus.LOCKED
+        ? 'signed_contract'
+        : quotation.status === QuotationStatus.SALE_CONFIRMED || quotation.status === QuotationStatus.SALE_ORDER
+          ? 'sale_confirmed'
+          : 'quotation')
+  };
+};
+
 export const getQuotations = (): IQuotation[] => {
   try {
     const data = localStorage.getItem(KEYS.QUOTATIONS);
-    return data ? JSON.parse(data) : [];
+    const list: IQuotation[] = data ? JSON.parse(data) : [];
+    return list.map(normalizeQuotation);
   } catch (e) { return []; }
 };
 
 export const addQuotation = (quotation: IQuotation) => {
   const list = getQuotations();
-  list.unshift(quotation);
+  list.unshift(normalizeQuotation(quotation));
   localStorage.setItem(KEYS.QUOTATIONS, JSON.stringify(list));
   emitClientEvent('educrm:quotations-changed');
   return list;
@@ -237,10 +381,10 @@ export const updateQuotation = (updated: IQuotation) => {
   const list = getQuotations();
   const idx = list.findIndex(q => q.id === updated.id);
   if (idx !== -1) {
-    list[idx] = {
+    list[idx] = normalizeQuotation({
       ...updated,
       updatedAt: updated.updatedAt || new Date().toISOString()
-    };
+    });
     localStorage.setItem(KEYS.QUOTATIONS, JSON.stringify(list));
     emitClientEvent('educrm:quotations-changed');
     return true;
@@ -1224,6 +1368,158 @@ const INITIAL_QUOTATIONS: IQuotation[] = [
   }
 ];
 
+const toMonthKey = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  return `${year}-${month}`;
+};
+
+const shiftMonthKey = (period: string, diff: number) => {
+  const [year, month] = period.split('-').map(Number);
+  const baseDate = new Date(year || new Date().getFullYear(), (month || 1) - 1 + diff, 1);
+  return toMonthKey(baseDate);
+};
+
+const CURRENT_KPI_PERIOD = toMonthKey(new Date());
+const PREVIOUS_KPI_PERIOD = shiftMonthKey(CURRENT_KPI_PERIOD, -1);
+const KPI_SEED_TIMESTAMP = new Date().toISOString();
+
+const INITIAL_SALES_TEAMS: ISalesTeam[] = [
+  {
+    id: 'team-duc',
+    name: 'Team Đức',
+    branch: 'Hà Nội',
+    productFocus: 'Tiếng Đức / Du học Đức',
+    assignKeywords: ['Đức', 'Tiếng Đức', 'Du học Đức', 'German'],
+    members: [
+      { userId: 'u1', name: 'Trần Văn Quản Trị', role: 'Team Lead', branch: 'Hà Nội' },
+      { userId: 'u2', name: 'Sarah Miller', role: 'Sales Rep', branch: 'Hà Nội' }
+    ],
+    createdAt: KPI_SEED_TIMESTAMP,
+    updatedAt: KPI_SEED_TIMESTAMP
+  },
+  {
+    id: 'team-trung',
+    name: 'Team Trung',
+    branch: 'HCM',
+    productFocus: 'Tiếng Trung / Du học Trung',
+    assignKeywords: ['Trung', 'Tiếng Trung', 'Du học Trung', 'Chinese'],
+    members: [
+      { userId: 'u3', name: 'David Clark', role: 'Team Lead', branch: 'HCM' },
+      { userId: 'u4', name: 'Alex Rivera', role: 'Sales Rep', branch: 'HCM' }
+    ],
+    createdAt: KPI_SEED_TIMESTAMP,
+    updatedAt: KPI_SEED_TIMESTAMP
+  }
+];
+
+const INITIAL_SALES_KPIS: ISalesKpiTarget[] = [
+  {
+    id: `kpi-${CURRENT_KPI_PERIOD}-u1`,
+    period: CURRENT_KPI_PERIOD,
+    ownerId: 'u1',
+    ownerName: 'Trần Văn Quản Trị',
+    teamId: 'team-duc',
+    teamName: 'Team Đức',
+    branch: 'Hà Nội',
+    targetRevenue: 600000000,
+    targetContracts: 8,
+    createdAt: KPI_SEED_TIMESTAMP,
+    updatedAt: KPI_SEED_TIMESTAMP
+  },
+  {
+    id: `kpi-${CURRENT_KPI_PERIOD}-u2`,
+    period: CURRENT_KPI_PERIOD,
+    ownerId: 'u2',
+    ownerName: 'Sarah Miller',
+    teamId: 'team-duc',
+    teamName: 'Team Đức',
+    branch: 'Hà Nội',
+    targetRevenue: 350000000,
+    targetContracts: 6,
+    createdAt: KPI_SEED_TIMESTAMP,
+    updatedAt: KPI_SEED_TIMESTAMP
+  },
+  {
+    id: `kpi-${CURRENT_KPI_PERIOD}-u3`,
+    period: CURRENT_KPI_PERIOD,
+    ownerId: 'u3',
+    ownerName: 'David Clark',
+    teamId: 'team-trung',
+    teamName: 'Team Trung',
+    branch: 'HCM',
+    targetRevenue: 280000000,
+    targetContracts: 5,
+    createdAt: KPI_SEED_TIMESTAMP,
+    updatedAt: KPI_SEED_TIMESTAMP
+  },
+  {
+    id: `kpi-${CURRENT_KPI_PERIOD}-u4`,
+    period: CURRENT_KPI_PERIOD,
+    ownerId: 'u4',
+    ownerName: 'Alex Rivera',
+    teamId: 'team-trung',
+    teamName: 'Team Trung',
+    branch: 'HCM',
+    targetRevenue: 200000000,
+    targetContracts: 4,
+    createdAt: KPI_SEED_TIMESTAMP,
+    updatedAt: KPI_SEED_TIMESTAMP
+  },
+  {
+    id: `kpi-${PREVIOUS_KPI_PERIOD}-u1`,
+    period: PREVIOUS_KPI_PERIOD,
+    ownerId: 'u1',
+    ownerName: 'Trần Văn Quản Trị',
+    teamId: 'team-duc',
+    teamName: 'Team Đức',
+    branch: 'Hà Nội',
+    targetRevenue: 520000000,
+    targetContracts: 7,
+    createdAt: KPI_SEED_TIMESTAMP,
+    updatedAt: KPI_SEED_TIMESTAMP
+  },
+  {
+    id: `kpi-${PREVIOUS_KPI_PERIOD}-u2`,
+    period: PREVIOUS_KPI_PERIOD,
+    ownerId: 'u2',
+    ownerName: 'Sarah Miller',
+    teamId: 'team-duc',
+    teamName: 'Team Đức',
+    branch: 'Hà Nội',
+    targetRevenue: 320000000,
+    targetContracts: 5,
+    createdAt: KPI_SEED_TIMESTAMP,
+    updatedAt: KPI_SEED_TIMESTAMP
+  },
+  {
+    id: `kpi-${PREVIOUS_KPI_PERIOD}-u3`,
+    period: PREVIOUS_KPI_PERIOD,
+    ownerId: 'u3',
+    ownerName: 'David Clark',
+    teamId: 'team-trung',
+    teamName: 'Team Trung',
+    branch: 'HCM',
+    targetRevenue: 250000000,
+    targetContracts: 4,
+    createdAt: KPI_SEED_TIMESTAMP,
+    updatedAt: KPI_SEED_TIMESTAMP
+  },
+  {
+    id: `kpi-${PREVIOUS_KPI_PERIOD}-u4`,
+    period: PREVIOUS_KPI_PERIOD,
+    ownerId: 'u4',
+    ownerName: 'Alex Rivera',
+    teamId: 'team-trung',
+    teamName: 'Team Trung',
+    branch: 'HCM',
+    targetRevenue: 180000000,
+    targetContracts: 3,
+    createdAt: KPI_SEED_TIMESTAMP,
+    updatedAt: KPI_SEED_TIMESTAMP
+  }
+];
+
 const INITIAL_STUDENTS: any[] = [
   {
     id: 'ST-0001',
@@ -1955,6 +2251,8 @@ export const initializeData = () => {
     localStorage.setItem(KEYS.STUDY_NOTES, JSON.stringify([]));
     localStorage.setItem(KEYS.TEACHERS, JSON.stringify(INITIAL_TEACHERS));
     localStorage.setItem(KEYS.LOG_NOTES, JSON.stringify(INITIAL_LOG_NOTES));
+    localStorage.setItem(KEYS.SALES_TEAMS, JSON.stringify(INITIAL_SALES_TEAMS));
+    localStorage.setItem(KEYS.SALES_KPIS, JSON.stringify(INITIAL_SALES_KPIS));
     localStorage.setItem(KEYS.INIT, CURRENT_VERSION);
   }
   if (!localStorage.getItem(KEYS.STUDENTS)) {
@@ -1986,6 +2284,12 @@ export const initializeData = () => {
   }
   if (!localStorage.getItem(KEYS.STUDENT_SCORES)) {
     localStorage.setItem(KEYS.STUDENT_SCORES, JSON.stringify(INITIAL_STUDENT_SCORES));
+  }
+  if (!localStorage.getItem(KEYS.SALES_TEAMS)) {
+    localStorage.setItem(KEYS.SALES_TEAMS, JSON.stringify(INITIAL_SALES_TEAMS));
+  }
+  if (!localStorage.getItem(KEYS.SALES_KPIS)) {
+    localStorage.setItem(KEYS.SALES_KPIS, JSON.stringify(INITIAL_SALES_KPIS));
   }
   if (!localStorage.getItem(KEYS.CLASS_SESSIONS)) {
     localStorage.setItem(KEYS.CLASS_SESSIONS, JSON.stringify([]));
@@ -2289,7 +2593,11 @@ export const updateDeal = (updatedDeal: IDeal): boolean => {
 export const getContracts = (): IContract[] => {
   try {
     const data = localStorage.getItem(KEYS.CONTRACTS);
-    return data ? JSON.parse(data) : [];
+    const contracts: IContract[] = data ? JSON.parse(data) : [];
+    return contracts.map((contract) => ({
+      ...contract,
+      templateFields: contract.templateFields || {}
+    }));
   } catch (e) { return []; }
 };
 
@@ -2298,7 +2606,89 @@ export const addContract = (contract: IContract) => {
   console.log('[Storage] Adding new Contract:', contract.code);
   contracts.unshift(contract);
   localStorage.setItem(KEYS.CONTRACTS, JSON.stringify(contracts));
+  emitClientEvent('educrm:contracts-changed');
   return contracts;
+};
+
+export const updateContract = (updated: IContract) => {
+  const contracts = getContracts();
+  const idx = contracts.findIndex((item) => item.id === updated.id);
+  if (idx === -1) return false;
+
+  contracts[idx] = {
+    ...updated,
+    templateFields: updated.templateFields || {}
+  };
+  localStorage.setItem(KEYS.CONTRACTS, JSON.stringify(contracts));
+  emitClientEvent('educrm:contracts-changed');
+  return true;
+};
+
+export const getContractByQuotationId = (quotationId: string): IContract | undefined => {
+  return getContracts().find((contract) => contract.quotationId === quotationId);
+};
+
+export const upsertLinkedContractFromQuotation = (quotation: IQuotation, actor: string): IContract => {
+  const normalizedQuotation = normalizeQuotation(quotation);
+  const existing = getContractByQuotationId(normalizedQuotation.id);
+  const now = new Date().toISOString();
+
+  const nextContract: IContract = {
+    id: existing?.id || `CT-${Date.now()}`,
+    code: existing?.code || `HD-${normalizedQuotation.soCode}`,
+    quotationId: normalizedQuotation.id,
+    dealId: existing?.dealId || normalizedQuotation.dealId,
+    customerId: existing?.customerId || normalizedQuotation.customerId,
+    studentId: existing?.studentId || normalizedQuotation.studentId,
+    customerName: normalizedQuotation.customerName,
+    totalValue: normalizedQuotation.finalAmount || normalizedQuotation.amount || 0,
+    paidValue:
+      existing?.paidValue ??
+      (normalizedQuotation.transactionStatus === 'DA_DUYET' || normalizedQuotation.status === QuotationStatus.LOCKED
+        ? normalizedQuotation.finalAmount || normalizedQuotation.amount || 0
+        : 0),
+    status:
+      normalizedQuotation.status === QuotationStatus.LOCKED
+        ? ContractStatus.SIGNED
+        : existing?.status || ContractStatus.DRAFT,
+    signedDate: existing?.signedDate || normalizedQuotation.lockedAt || normalizedQuotation.confirmDate,
+    createdBy: existing?.createdBy || actor,
+    templateName: existing?.templateName || 'Mẫu hợp đồng đào tạo',
+    templateFields: {
+      centerRepresentative: existing?.templateFields?.centerRepresentative || '',
+      studentName: existing?.templateFields?.studentName || normalizedQuotation.customerName,
+      studentPhone: existing?.templateFields?.studentPhone || normalizedQuotation.studentPhone || '',
+      studentEmail: existing?.templateFields?.studentEmail || normalizedQuotation.studentEmail || '',
+      address: existing?.templateFields?.address || normalizedQuotation.studentAddress || '',
+      identityCard: existing?.templateFields?.identityCard || normalizedQuotation.identityCard || '',
+      guardianName: existing?.templateFields?.guardianName || normalizedQuotation.guardianName || '',
+      guardianPhone: existing?.templateFields?.guardianPhone || normalizedQuotation.guardianPhone || '',
+      branchName: existing?.templateFields?.branchName || normalizedQuotation.branchName || '',
+      contractNote: existing?.templateFields?.contractNote || '',
+      paymentMethod:
+        existing?.templateFields?.paymentMethod ||
+        (normalizedQuotation.paymentMethod === 'CK' ? 'Chuyển khoản' : normalizedQuotation.paymentMethod === 'CASH' ? 'Tiền mặt' : ''),
+      quotationCode: normalizedQuotation.soCode,
+      quotationDate: existing?.templateFields?.quotationDate || (normalizedQuotation.quotationDate ? new Date(normalizedQuotation.quotationDate).toLocaleDateString('vi-VN') : ''),
+      confirmDate: existing?.templateFields?.confirmDate || (normalizedQuotation.confirmDate ? new Date(normalizedQuotation.confirmDate).toLocaleDateString('vi-VN') : ''),
+      productName: existing?.templateFields?.productName || normalizedQuotation.product || '',
+      totalAmount: existing?.templateFields?.totalAmount || `${(normalizedQuotation.finalAmount || normalizedQuotation.amount || 0).toLocaleString('vi-VN')} đ`
+    },
+    importedAt: existing?.importedAt || now,
+    importedBy: existing?.importedBy || actor,
+    cccdNumber: existing?.cccdNumber || normalizedQuotation.identityCard,
+    identityDate: existing?.identityDate,
+    identityPlace: existing?.identityPlace,
+    address: existing?.address || normalizedQuotation.studentAddress
+  };
+
+  if (existing) {
+    updateContract(nextContract);
+    return nextContract;
+  }
+
+  addContract(nextContract);
+  return nextContract;
 };
 
 // INVOICES

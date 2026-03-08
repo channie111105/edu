@@ -57,6 +57,17 @@ import {
 
 export const APP_NAME = "EduCRM";
 
+export const LEAD_CHANNEL_OPTIONS = [
+  { value: 'fb', label: 'FB' },
+  { value: 'zl', label: 'ZL' },
+  { value: 'tik', label: 'TIK' },
+  { value: 'gg', label: 'GG' },
+  { value: 'hotline', label: 'Hotline' },
+  { value: 'vang_lai', label: 'Vãng lai' },
+  { value: 'ca_nhan', label: 'Cá nhân' },
+  { value: 'thi_truong', label: 'Thị trường' },
+] as const;
+
 export const SLA_CONFIG = {
   WARNING_THRESHOLD_MINUTES: 5,
   DANGER_THRESHOLD_MINUTES: 30,
@@ -120,7 +131,7 @@ export const NAV_ITEMS = [
 
   // --- ROLE HỢP ĐỒNG --- (Removed ADMIN)
   { label: 'Tổng quan', path: '/contracts/dashboard', icon: LayoutDashboard, roles: [UserRole.SALES_LEADER] },
-  { label: 'Báo giá (Quotations)', path: '/contracts/quotations', icon: Receipt, roles: [UserRole.SALES_LEADER] }, // Remove SALES_REP
+  { label: 'Báo giá', path: '/contracts/quotations', icon: Receipt, roles: [UserRole.SALES_LEADER] }, // Remove SALES_REP
 
   // NEW ENROLLMENT FLOW
   { label: 'Học viên (Students)', path: '/enrollment/students', icon: GraduationCap, roles: [UserRole.ADMIN, UserRole.FOUNDER] },

@@ -16,7 +16,6 @@ import {
     CheckCircle2,
     Table as TableIcon,
     LayoutGrid,
-    FileSpreadsheet,
     BarChart,
     Filter,
     TrendingUp,
@@ -97,6 +96,39 @@ const IMPORT_TEMPLATE_ROWS = [
     }
 ];
 
+type QrLeadField = {
+    id: string;
+    label: string;
+    placeholder?: string;
+    required: boolean;
+    fixed: boolean;
+    group: 'core' | 'marketing';
+};
+
+const QR_LEAD_FIELDS: QrLeadField[] = [
+    { id: 'name', label: 'Mô tả / Tên khách hàng', placeholder: 'Họ và tên *', required: true, fixed: true, group: 'core' },
+    { id: 'phone', label: 'Điện thoại', placeholder: 'Số điện thoại *', required: true, fixed: true, group: 'core' },
+    { id: 'company', label: 'Cơ sở', placeholder: '-- Chọn cơ sở --', required: false, fixed: false, group: 'core' },
+    { id: 'address', label: 'Địa chỉ', placeholder: 'Số nhà, đường...', required: false, fixed: false, group: 'core' },
+    { id: 'product', label: 'Sản phẩm', placeholder: '-- Chọn sản phẩm --', required: false, fixed: false, group: 'core' },
+    { id: 'market', label: 'Thị trường', placeholder: '-- Chọn --', required: false, fixed: false, group: 'core' },
+    { id: 'email', label: 'Email', placeholder: 'email@example.com', required: false, fixed: false, group: 'core' },
+    { id: 'owner', label: 'Phụ trách', placeholder: '-- Sale phụ trách --', required: false, fixed: false, group: 'core' },
+    { id: 'status', label: 'Trạng thái', placeholder: 'Mới', required: false, fixed: false, group: 'core' },
+    { id: 'tags', label: 'Tags', placeholder: '-- Chọn Tag --', required: false, fixed: false, group: 'core' },
+    { id: 'campaign', label: 'Chiến dịch', placeholder: '', required: false, fixed: false, group: 'marketing' },
+    { id: 'source', label: 'Nguồn', placeholder: 'Hotline', required: false, fixed: false, group: 'marketing' },
+    { id: 'channel', label: 'Kênh', placeholder: '-- Chọn kênh --', required: false, fixed: false, group: 'marketing' },
+    { id: 'medium', label: 'Medium', placeholder: '-- Chọn --', required: false, fixed: false, group: 'marketing' },
+    { id: 'referredBy', label: 'Người GT', placeholder: '', required: false, fixed: false, group: 'marketing' }
+];
+
+const FIXED_REQUIRED_QR_FIELDS = QR_LEAD_FIELDS.filter(field => field.fixed && field.required);
+const LEFT_PANEL_CORE_FIELDS = QR_LEAD_FIELDS.filter(field => field.group === 'core');
+const LEFT_PANEL_MARKETING_FIELDS = QR_LEAD_FIELDS.filter(field => field.group === 'marketing');
+const OPTIONAL_QR_FIELDS = QR_LEAD_FIELDS.filter(field => !field.fixed);
+const DEFAULT_SELECTED_OPTIONAL_QR_FIELDS = ['email'];
+
 // Mock Leads
 const INITIAL_LEADS: LeadRecord[] = Array.from({ length: 20 }, (_, i) => ({
     id: i + 1,
@@ -114,7 +146,7 @@ const CampaignDetails: React.FC = () => {
     const [activeTab, setActiveTab] = useState<'dashboard' | 'api' | 'form' | 'data'>('dashboard');
 
     // View Mode for Data Tab
-    const [viewMode, setViewMode] = useState<'table' | 'kanban' | 'sheet' | 'funnel'>('table');
+    const [viewMode, setViewMode] = useState<'table' | 'kanban' | 'funnel'>('table');
 
     // API Config State
     const [webhookUrl, setWebhookUrl] = useState('https://api.educrm.com/wh/v1/camp_123');
@@ -126,6 +158,8 @@ const CampaignDetails: React.FC = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [showManualModal, setShowManualModal] = useState(false);
     const [importing, setImporting] = useState(false);
+    const [draggingQrFieldId, setDraggingQrFieldId] = useState<string | null>(null);
+    const [selectedOptionalQrFieldIds, setSelectedOptionalQrFieldIds] = useState<string[]>(DEFAULT_SELECTED_OPTIONAL_QR_FIELDS);
     const [manualLead, setManualLead] = useState({
         name: '',
         phone: '',
@@ -135,6 +169,42 @@ const CampaignDetails: React.FC = () => {
         source: 'Facebook'
     });
     const importInputRef = useRef<HTMLInputElement>(null);
+
+    const selectedOptionalQrFields = selectedOptionalQrFieldIds
+        .map((fieldId) => OPTIONAL_QR_FIELDS.find(field => field.id === fieldId))
+        .filter((field): field is QrLeadField => Boolean(field));
+
+    const addOptionalQrField = (fieldId: string) => {
+        const field = OPTIONAL_QR_FIELDS.find(item => item.id === fieldId);
+        if (!field) return;
+        setSelectedOptionalQrFieldIds(prev => (prev.includes(fieldId) ? prev : [...prev, fieldId]));
+    };
+
+    const removeOptionalQrField = (fieldId: string) => {
+        setSelectedOptionalQrFieldIds(prev => prev.filter(id => id !== fieldId));
+    };
+
+    const handleQrFieldDragStart = (event: React.DragEvent, fieldId: string) => {
+        event.dataTransfer.setData('text/plain', fieldId);
+        event.dataTransfer.effectAllowed = 'copy';
+        setDraggingQrFieldId(fieldId);
+    };
+
+    const handleQrFieldDragEnd = () => {
+        setDraggingQrFieldId(null);
+    };
+
+    const handleQrPreviewDragOver = (event: React.DragEvent) => {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'copy';
+    };
+
+    const handleQrPreviewDrop = (event: React.DragEvent) => {
+        event.preventDefault();
+        const droppedFieldId = event.dataTransfer.getData('text/plain') || draggingQrFieldId;
+        if (droppedFieldId) addOptionalQrField(droppedFieldId);
+        setDraggingQrFieldId(null);
+    };
 
     const normalizeLeadStatus = (value: string) => {
         const raw = value.trim();
@@ -420,42 +490,6 @@ const CampaignDetails: React.FC = () => {
                 );
             }
 
-            // --- SHEET VIEW (MINIMALIST) ---
-            case 'sheet':
-                return (
-                    <div className="bg-white border border-slate-300 overflow-hidden font-mono shadow-inner rounded-xl animate-in fade-in duration-300">
-                        <table className="w-full text-left text-xs border-collapse">
-                            <thead className="bg-slate-50">
-                                <tr>
-                                    <th className="border border-slate-200 px-3 py-1.5 font-normal text-slate-400">A</th>
-                                    <th className="border border-slate-200 px-3 py-1.5 font-normal text-slate-400">B</th>
-                                    <th className="border border-slate-200 px-3 py-1.5 font-normal text-slate-400">C</th>
-                                    <th className="border border-slate-200 px-3 py-1.5 font-normal text-slate-400">D</th>
-                                    <th className="border border-slate-200 px-3 py-1.5 font-normal text-slate-400">E</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr className="bg-slate-100/50 font-bold uppercase text-[10px] tracking-tighter">
-                                    <td className="border border-slate-200 px-3 py-2">ID</td>
-                                    <td className="border border-slate-200 px-3 py-2">Họ Tên</td>
-                                    <td className="border border-slate-200 px-3 py-2">Điện thoại</td>
-                                    <td className="border border-slate-200 px-3 py-2">Nguồn</td>
-                                    <td className="border border-slate-200 px-3 py-2">Trạng thái</td>
-                                </tr>
-                                {filteredLeads.map(lead => (
-                                    <tr key={lead.id} className="hover:bg-blue-50/50 transition-colors">
-                                        <td className="border border-slate-200 px-3 py-1.5">{lead.id}</td>
-                                        <td className="border border-slate-200 px-3 py-1.5">{lead.name}</td>
-                                        <td className="border border-slate-200 px-3 py-1.5">{lead.phone}</td>
-                                        <td className="border border-slate-200 px-3 py-1.5">{lead.source}</td>
-                                        <td className="border border-slate-200 px-3 py-1.5 text-blue-600 font-bold">{lead.status}</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                );
-
             // --- FUNNEL VIEW ---
             case 'funnel': {
                 const funnelData = [
@@ -674,24 +708,124 @@ const CampaignDetails: React.FC = () => {
                         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-in fade-in duration-500 items-start">
                             {/* Builder Sidebar */}
                             <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
-                                <h3 className="text-[10px] font-black text-slate-400 mb-6 uppercase tracking-widest font-inter">Thành phần Form</h3>
-                                <div className="space-y-3">
-                                    {['Họ và Tên', 'Số điện thoại', 'Email', 'Câu hỏi trắc nghiệm'].map((comp, i) => (
-                                        <div key={i} className="flex items-center justify-between p-4 bg-slate-50 border border-slate-200 rounded-xl cursor-grab active:cursor-grabbing hover:bg-slate-100 transition-colors group">
-                                            <span className="text-sm font-bold text-slate-700">{comp}</span>
-                                            <GripVertical size={16} className="text-slate-300 group-hover:text-slate-400" />
+                                <h3 className="text-[10px] font-black text-slate-400 mb-6 uppercase tracking-widest font-inter">Trường thông tin Lead</h3>
+                                <div className="space-y-2">
+                                    {LEFT_PANEL_CORE_FIELDS.map((field) => (
+                                        <div
+                                            key={field.id}
+                                            draggable={!field.fixed}
+                                            onDragStart={(event) => !field.fixed && handleQrFieldDragStart(event, field.id)}
+                                            onDragEnd={handleQrFieldDragEnd}
+                                            className={`flex items-center justify-between p-3 border rounded-xl transition-colors group ${field.fixed
+                                                ? 'bg-blue-50 border-blue-200'
+                                                : 'bg-slate-50 border-slate-200 hover:bg-slate-100 cursor-grab active:cursor-grabbing'
+                                                } ${draggingQrFieldId === field.id ? 'opacity-60' : ''}`}
+                                        >
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-sm font-bold text-slate-700">
+                                                    {field.label}
+                                                    {field.required ? ' *' : ''}
+                                                </span>
+                                                {field.fixed && (
+                                                    <span className="px-1.5 py-0.5 text-[10px] font-black uppercase tracking-wider rounded-md bg-blue-100 text-blue-700 border border-blue-200">
+                                                        Cố định
+                                                    </span>
+                                                )}
+                                                {!field.fixed && selectedOptionalQrFieldIds.includes(field.id) && (
+                                                    <span className="px-1.5 py-0.5 text-[10px] font-black uppercase tracking-wider rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                                        Đã thêm
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <GripVertical size={16} className={field.fixed ? 'text-blue-200' : 'text-slate-300 group-hover:text-slate-400'} />
                                         </div>
                                     ))}
                                 </div>
+
+                                <div className="mt-5 pt-5 border-t border-slate-100">
+                                    <p className="text-[10px] font-black text-slate-400 mb-3 uppercase tracking-widest">Thông tin thêm (Marketing)</p>
+                                    <div className="space-y-2">
+                                        {LEFT_PANEL_MARKETING_FIELDS.map((field) => (
+                                            <div
+                                                key={field.id}
+                                                draggable
+                                                onDragStart={(event) => handleQrFieldDragStart(event, field.id)}
+                                                onDragEnd={handleQrFieldDragEnd}
+                                                className={`flex items-center justify-between p-3 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 transition-colors group cursor-grab active:cursor-grabbing ${draggingQrFieldId === field.id ? 'opacity-60' : ''}`}
+                                            >
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-sm font-bold text-slate-700">{field.label}</span>
+                                                    {selectedOptionalQrFieldIds.includes(field.id) && (
+                                                        <span className="px-1.5 py-0.5 text-[10px] font-black uppercase tracking-wider rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                                            Đã thêm
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <GripVertical size={16} className="text-slate-300 group-hover:text-slate-400" />
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <p className="mt-4 text-[11px] leading-5 text-slate-500">
+                                    Form QR luôn cố định các trường bắt buộc của Cơ hội/Lead: <span className="font-bold text-slate-700">Tên khách hàng</span> và <span className="font-bold text-slate-700">Điện thoại</span>.
+                                </p>
+                                <p className="mt-1 text-[11px] leading-5 text-slate-500">
+                                    Trường <span className="font-bold text-slate-700">Cơ sở</span> là tùy chọn, không bắt buộc.
+                                </p>
                             </div>
 
                             {/* Preview Area */}
                             <div className="bg-white p-12 rounded-3xl border border-slate-200 shadow-sm flex flex-col items-center">
-                                <h2 className="text-xl font-black text-slate-800 mb-10 font-inter">Đăng ký tham gia</h2>
-                                <div className="w-full space-y-5">
-                                    <input disabled placeholder="Họ và tên *" className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-xl text-sm italic text-slate-300" />
-                                    <input disabled placeholder="Số điện thoại *" className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-xl text-sm italic text-slate-300" />
-                                    <input disabled placeholder="Email" className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-xl text-sm italic text-slate-300" />
+                                <h2 className="text-xl font-black text-slate-800 mb-6 font-inter">Đăng ký tham gia</h2>
+                                <div className="w-full space-y-4">
+                                    <div className="rounded-xl border border-blue-100 bg-blue-50 p-3">
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-blue-700">Trường bắt buộc cố định</p>
+                                    </div>
+
+                                    {FIXED_REQUIRED_QR_FIELDS.map((field) => (
+                                        <input
+                                            key={field.id}
+                                            disabled
+                                            placeholder={field.placeholder || field.label}
+                                            className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-xl text-sm italic text-slate-400"
+                                        />
+                                    ))}
+
+                                    <div
+                                        className="pt-2 border-t border-slate-100 space-y-3"
+                                        onDragOver={handleQrPreviewDragOver}
+                                        onDrop={handleQrPreviewDrop}
+                                    >
+                                        <div className={`rounded-xl border-2 border-dashed p-3 transition-colors ${draggingQrFieldId ? 'border-blue-300 bg-blue-50' : 'border-slate-200 bg-slate-50'}`}>
+                                            <p className="text-xs font-semibold text-slate-600">
+                                                Kéo trường từ cột trái thả vào đây để thêm vào form QR
+                                            </p>
+                                        </div>
+
+                                        {selectedOptionalQrFields.length > 0 ? (
+                                            selectedOptionalQrFields.map((field) => (
+                                                <div key={field.id} className="relative">
+                                                    <input
+                                                        disabled
+                                                        placeholder={field.placeholder || field.label}
+                                                        className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-xl text-sm italic text-slate-300"
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => removeOptionalQrField(field.id)}
+                                                        className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-red-500 transition-colors"
+                                                        title="Bỏ trường khỏi form QR"
+                                                    >
+                                                        <X size={14} />
+                                                    </button>
+                                                </div>
+                                            ))
+                                        ) : (
+                                            <p className="text-xs text-slate-400 italic">Chưa có trường tùy chọn nào được thêm.</p>
+                                        )}
+                                    </div>
+
                                     <button disabled className="w-full py-4 bg-blue-600 text-white rounded-xl font-black uppercase tracking-widest shadow-lg shadow-blue-100 mt-4 opacity-100">Gửi đăng ký</button>
                                 </div>
                             </div>
@@ -724,7 +858,6 @@ const CampaignDetails: React.FC = () => {
                                         {[
                                             { id: 'table', icon: TableIcon, title: 'Bảng (Mặc định)' },
                                             { id: 'kanban', icon: LayoutGrid, title: 'Kanban (Quy trình)' },
-                                            { id: 'sheet', icon: FileSpreadsheet, title: 'Sheet (Excel)' },
                                             { id: 'funnel', icon: BarChart, title: 'Phễu (Báo cáo)' },
                                         ].map(v => (
                                             <button
@@ -793,7 +926,7 @@ const CampaignDetails: React.FC = () => {
                                 {renderDataView()}
                             </div>
 
-                            {(viewMode === 'table' || viewMode === 'sheet') && (
+                            {viewMode === 'table' && (
                                 <div className="p-4 text-center text-slate-400 text-[10px] font-black uppercase tracking-widest">Hiển thị {filteredLeads.length}/{leads.length} kết quả</div>
                             )}
                         </div>

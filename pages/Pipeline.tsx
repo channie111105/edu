@@ -109,12 +109,13 @@ const Pipeline: React.FC = () => {
     { id: 'company', label: 'Cơ sở' },
     { id: 'source', label: 'Nguồn' },
     { id: 'salesperson', label: 'Sale' },
+    { id: 'assignedDate', label: 'Ngày assign' },
     { id: 'tags', label: 'Tags' },
     { id: 'status', label: 'Trạng thái' },
   ];
 
   const [visibleColumns, setVisibleColumns] = useState<string[]>(
-    ALL_COLUMNS.map(c => c.id)
+    ALL_COLUMNS.filter(c => c.id !== 'assignedDate').map(c => c.id)
   );
 
   const [showColumnsDropdown, setShowColumnsDropdown] = useState(false);
@@ -245,6 +246,38 @@ const Pipeline: React.FC = () => {
     const parsed = new Date(dateStr);
     if (Number.isNaN(parsed.getTime())) return '-';
     return parsed.toLocaleDateString('vi-VN');
+  };
+
+  const getActivityDateValue = (activity: any) => activity?.datetime || activity?.timestamp || activity?.date || '';
+
+  const getLeadCreatedDate = (deal: IDeal) => {
+    return deal.leadCreatedAt || deal.createdAt || '';
+  };
+
+  const getAssignedDate = (deal: IDeal, contact?: IContact) => {
+    if (deal.assignedAt) return deal.assignedAt;
+
+    const activities = [
+      ...(Array.isArray(deal.activities) ? deal.activities : []),
+      ...((contact?.activities as any[]) || [])
+    ];
+
+    const matchedDates = activities
+      .filter((activity: any) => {
+        const text = `${activity?.title || ''} ${activity?.description || ''} ${activity?.content || ''}`;
+        return /tiếp nhận lead|lead được phân bổ|phân bổ|assign/i.test(text);
+      })
+      .map((activity: any) => getActivityDateValue(activity))
+      .filter(Boolean)
+      .map((value: string) => new Date(value))
+      .filter((value) => !Number.isNaN(value.getTime()))
+      .sort((a, b) => a.getTime() - b.getTime());
+
+    if (matchedDates.length > 0) {
+      return matchedDates[0].toISOString();
+    }
+
+    return '';
   };
 
   const OWNER_LABELS: Record<string, string> = {
@@ -417,6 +450,8 @@ const Pipeline: React.FC = () => {
     }
 
     if (contact) {
+      const leadCreatedDate = getLeadCreatedDate(deal);
+      const assignedDate = getAssignedDate(deal, contact);
       // Construct ILead from Contact + Deal
       // This allows using the UnifiedLeadDrawer seamlessly
       const unifiedLead: ILead = {
@@ -428,7 +463,8 @@ const Pipeline: React.FC = () => {
         source: contact.source || 'Unknown',
         status: deal.stage as unknown as LeadStatus, // Map Deal Stage to Status
         ownerId: deal.ownerId,
-        createdAt: deal.createdAt,
+        createdAt: leadCreatedDate || deal.createdAt,
+        pickUpDate: assignedDate || undefined,
         value: deal.value,
 
         // Sync Extended Info
@@ -500,6 +536,8 @@ const Pipeline: React.FC = () => {
         value: updatedLead.value || selectedDeal.value,
         stage: Object.values(DealStage).includes(newStage) ? newStage : selectedDeal.stage,
         expectedCloseDate: updatedLead.expectedClosingDate || selectedDeal.expectedCloseDate,
+        leadCreatedAt: selectedDeal.leadCreatedAt || updatedLead.createdAt || selectedDeal.createdAt,
+        assignedAt: updatedLead.pickUpDate || selectedDeal.assignedAt,
         productItems: updatedLead.productItems, // Save detailed products
         discount: updatedLead.discount,
         paymentRoadmap: updatedLead.paymentRoadmap
@@ -607,6 +645,7 @@ const Pipeline: React.FC = () => {
                             {stageDeals.map((deal, index) => {
                               const contact = contactsById[deal.leadId];
                               const nextDate = getNextActivityDate(deal, contact) || deal.expectedCloseDate;
+                              const leadCreatedDate = getLeadCreatedDate(deal);
                               const demand = getDealDemand(deal, contact);
                               const tags = parseTags(contact?.marketingData?.tags);
                               const isOverdueNextActivity = nextDate ? new Date(nextDate) < new Date() : false;
@@ -632,7 +671,8 @@ const Pipeline: React.FC = () => {
                                           <h4 className="font-bold text-sm text-slate-900 line-clamp-2">
                                             {contactName}
                                           </h4>
-                                          <span className="text-xs text-slate-500 whitespace-nowrap">
+                                          <span className="inline-flex items-center gap-1 text-xs text-slate-500 whitespace-nowrap">
+                                            <Phone size={12} className="text-slate-400 shrink-0" />
                                             {contact?.phone || '-'}
                                           </span>
                                         </div>
@@ -658,6 +698,12 @@ const Pipeline: React.FC = () => {
                                         <div className="flex items-center gap-2 text-xs text-slate-700">
                                           <User size={13} className="text-slate-500 shrink-0" />
                                           <span className="line-clamp-1"><span className="font-semibold">Người phụ trách:</span> {getOwnerDisplayName(deal.ownerId)}</span>
+                                        </div>
+
+                                        <div className="flex items-center gap-1.5 rounded-md bg-slate-50 px-2 py-1 text-[11px] text-slate-600">
+                                          <Calendar size={11} className="text-slate-400 shrink-0" />
+                                          <span className="font-medium">Tạo lead:</span>
+                                          <span className="truncate">{formatDate(leadCreatedDate)}</span>
                                         </div>
 
                                         <div className={`flex items-center gap-2 px-2 py-1 rounded-md border text-xs ${nextDate
@@ -736,12 +782,13 @@ const Pipeline: React.FC = () => {
                       />
                     </th>
                     {visibleColumns.includes('opportunity') && <th className="p-3 border-r border-slate-200 min-w-[200px]">Cơ hội</th>}
-                    {visibleColumns.includes('contact') && <th className="p-3 border-r border-slate-200 w-40">Liên hệ</th>}
+                    {visibleColumns.includes('contact') && <th className="p-3 border-r border-slate-200 w-44">Liên hệ</th>}
                     {visibleColumns.includes('email') && <th className="p-3 border-r border-slate-200 w-40">Email</th>}
                     {visibleColumns.includes('city') && <th className="p-3 border-r border-slate-200 w-32">Địa chỉ</th>}
                     {visibleColumns.includes('company') && <th className="p-3 border-r border-slate-200 w-32">Cơ sở</th>}
                     {visibleColumns.includes('source') && <th className="p-3 border-r border-slate-200 w-28">Nguồn</th>}
                     {visibleColumns.includes('salesperson') && <th className="p-3 border-r border-slate-200 w-28">Sale</th>}
+                    {visibleColumns.includes('assignedDate') && <th className="p-3 border-r border-slate-200 w-32">Ngày assign</th>}
                     {visibleColumns.includes('tags') && <th className="p-3 border-r border-slate-200 w-32">Tags</th>}
                     {visibleColumns.includes('status') && <th className="p-3 text-center w-32">Trạng thái</th>}
                   </tr>
@@ -751,6 +798,8 @@ const Pipeline: React.FC = () => {
                     const contact = contactsById[d.leadId];
                     const opportunityName = d.title.split(' - ')[0] || d.title;
                     const programName = d.title.split(' - ')[1] || '';
+                    const leadCreatedDate = getLeadCreatedDate(d);
+                    const assignedDate = getAssignedDate(d, contact);
                     const tags = contact?.marketingData?.tags || [];
 
                     return (
@@ -771,6 +820,10 @@ const Pipeline: React.FC = () => {
                               {programName && (
                                 <span className="text-[10px] text-blue-600 font-medium">{programName}</span>
                               )}
+                              <span className="inline-flex items-center gap-1 text-[10px] text-slate-500">
+                                <Calendar size={11} className="text-slate-400 shrink-0" />
+                                Tạo lead: {formatDate(leadCreatedDate)}
+                              </span>
                             </div>
                           </td>
                         )}
@@ -779,7 +832,10 @@ const Pipeline: React.FC = () => {
                           <td className="p-2 border-r border-slate-50 text-slate-700">
                             <div className="flex flex-col">
                               <span className="font-semibold text-xs">{contact?.name || '-'}</span>
-                              <span className="text-[10px] text-slate-500">{contact?.phone || '-'}</span>
+                              <span className="inline-flex items-center gap-1 text-[10px] text-slate-500">
+                                <Phone size={11} className="text-slate-400 shrink-0" />
+                                {contact?.phone || '-'}
+                              </span>
                             </div>
                           </td>
                         )}
@@ -810,7 +866,16 @@ const Pipeline: React.FC = () => {
 
                         {visibleColumns.includes('salesperson') && (
                           <td className="p-2 border-r border-slate-50 text-slate-600 text-[10px] font-semibold text-blue-700">
-                            {d.ownerId || 'Tôi'}
+                            {getOwnerDisplayName(d.ownerId)}
+                          </td>
+                        )}
+
+                        {visibleColumns.includes('assignedDate') && (
+                          <td className="p-2 border-r border-slate-50 text-slate-600 text-[10px]">
+                            <span className="inline-flex items-center gap-1">
+                              <Clock size={11} className="text-slate-400 shrink-0" />
+                              {formatDate(assignedDate)}
+                            </span>
                           </td>
                         )}
 

@@ -7,7 +7,8 @@ import UnifiedLeadDrawer from '../components/UnifiedLeadDrawer';
 import LeadPivotTable from '../components/LeadPivotTable'; // Import Pivot Component
 import SmartSearchBar, { SearchFilter } from '../components/SmartSearchBar';
 import { useAuth } from '../contexts/AuthContext';
-import { getLeads, saveLead, saveLeads, addDeal, addContact, deleteLead, convertLeadToContact, getTags, saveTags, getLostReasons, getLeadDistributionConfig, allocateLeadOwnersRoundRobin } from '../utils/storage';
+import { getLeads, saveLead, saveLeads, addDeal, addContact, deleteLead, convertLeadToContact, getTags, saveTags, getLostReasons, getLeadDistributionConfig, allocateLeadOwnersRoundRobin, allocateLeadOwnersWeighted } from '../utils/storage';
+import { LEAD_CHANNEL_OPTIONS } from '../constants';
 import {
   Plus,
   Phone,
@@ -81,8 +82,12 @@ const Leads: React.FC = () => {
   ];
 
   const assignOwnersBySystemMode = (incomingLeads: ILead[]) => {
-    if (systemDistributionMode !== 'auto') return incomingLeads;
-    const ownerIds = allocateLeadOwnersRoundRobin(incomingLeads.length, SALES_REPS.map(rep => rep.id));
+    const distributionConfig = getLeadDistributionConfig();
+    if (distributionConfig.mode !== 'auto') return incomingLeads;
+    const repIds = SALES_REPS.map(rep => rep.id);
+    const ownerIds = distributionConfig.method === 'weighted'
+      ? allocateLeadOwnersWeighted(incomingLeads.length, repIds, distributionConfig.weightedRatios)
+      : allocateLeadOwnersRoundRobin(incomingLeads.length, repIds);
     return incomingLeads.map((lead, index) => ({
       ...lead,
       ownerId: ownerIds[index] || lead.ownerId || '',
@@ -119,7 +124,7 @@ const Leads: React.FC = () => {
   const [newLeadData, setNewLeadData] = useState({
     name: '', phone: '', email: '', source: 'hotline', program: 'Tiếng Đức', notes: '',
     title: '', company: '', province: '', city: '', ward: '', street: '', salesperson: '', campaign: '', tags: [] as string[], referredBy: '',
-    product: '', market: '', channel: '', medium: '', status: 'NEW'
+    product: '', market: '', channel: '', status: 'NEW'
   });
   const [availableTags, setAvailableTags] = useState<string[]>([]);
   const [isAddingTag, setIsAddingTag] = useState(false);
@@ -763,6 +768,8 @@ const Leads: React.FC = () => {
         paymentRoadmap: lead.paymentRoadmap || '',
         probability: lead.probability || 20,
         createdAt: new Date().toISOString(),
+        leadCreatedAt: lead.createdAt,
+        assignedAt: lead.pickUpDate,
         activities: [
           // Tạo activity scheduled mặc định (Next Activity)
           {
@@ -832,7 +839,6 @@ const Leads: React.FC = () => {
         tags: newLeadData.tags,
         campaign: newLeadData.campaign,
         channel: newLeadData.channel,
-        medium: newLeadData.medium,
         market: newLeadData.market
       },
       status: newLeadData.status as any,
@@ -850,7 +856,7 @@ const Leads: React.FC = () => {
       setNewLeadData({
         name: '', phone: '', email: '', source: 'hotline', program: 'Tiếng Đức', notes: '',
         title: '', company: '', province: '', city: '', ward: '', street: '', salesperson: '', campaign: '', tags: [], referredBy: '',
-        product: '', market: '', channel: '', medium: '', status: 'NEW'
+        product: '', market: '', channel: '', status: 'NEW'
       });
       alert("Tạo Lead thành công!");
     } else {
@@ -2331,24 +2337,9 @@ const Leads: React.FC = () => {
                             onChange={e => setNewLeadData({ ...newLeadData, channel: e.target.value })}
                           >
                             <option value="">-- Chọn kênh --</option>
-                            <option value="facebook">Facebook</option>
-                            <option value="zalo">Zalo</option>
-                            <option value="tiktok">TikTok</option>
-                            <option value="google">Google</option>
-                            <option value="hotline">Hotline</option>
-                            <option value="referral">Giới thiệu</option>
-                          </select>
-                        </div>
-                        <div className="flex items-center gap-4">
-                          <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Medium</label>
-                          <select
-                            className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
-                            value={newLeadData.medium}
-                            onChange={e => setNewLeadData({ ...newLeadData, medium: e.target.value })}
-                          >
-                            <option value="">-- Chọn --</option>
-                            <option value="cpc">CPC</option>
-                            <option value="social">Social</option>
+                            {LEAD_CHANNEL_OPTIONS.map(option => (
+                              <option key={option.value} value={option.value}>{option.label}</option>
+                            ))}
                           </select>
                         </div>
                         <div className="flex items-center gap-4">

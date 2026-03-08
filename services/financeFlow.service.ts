@@ -1,6 +1,7 @@
 ﻿import { IQuotation, ITransaction, QuotationStatus, UserRole } from '../types';
 import {
   createTransactionFromQuotation,
+  upsertLinkedContractFromQuotation,
   getQuotations,
   getTransactions,
   updateQuotation,
@@ -40,6 +41,7 @@ export const confirmSale = (
       status: QuotationStatus.SALE_CONFIRMED,
       contractStatus: 'sale_confirmed',
       saleConfirmedAt: new Date().toISOString(),
+      confirmDate: new Date().toISOString(),
       saleConfirmedBy: userId,
       transactionStatus: 'CHO_DUYET',
       updatedAt: new Date().toISOString()
@@ -87,20 +89,10 @@ export const approveTransaction = (
       updatedAt: new Date().toISOString()
     },
     'Accounting Approved Transaction',
-    `Kế toán đã duyệt giao dịch ${transaction.soCode}`
+    `Kế toán đã duyệt giao dịch ${transaction.soCode}. SO sẵn sàng để khóa thủ công`
   );
   updateQuotation(updatedQuotation);
-
-  // Auto-lock SO immediately after accounting approval.
-  const lockResult = lockQuotationAfterAccounting(updatedQuotation.id, userId, userRole);
-  if (!lockResult.ok || !lockResult.quotation) {
-    return {
-      ok: false,
-      error: lockResult.error || 'Đã duyệt giao dịch nhưng không thể tự động khóa SO'
-    };
-  }
-
-  return { ok: true, transaction: updatedTransaction, quotation: lockResult.quotation };
+  return { ok: true, transaction: updatedTransaction, quotation: updatedQuotation };
 };
 
 export const rejectTransaction = (
@@ -169,6 +161,7 @@ export const lockQuotationAfterAccounting = (
     {
       ...quotation,
       status: QuotationStatus.LOCKED,
+      confirmDate: quotation.confirmDate || quotation.saleConfirmedAt || new Date().toISOString(),
       lockedAt: new Date().toISOString(),
       lockedBy: userId,
       studentId: student?.id || quotation.studentId,
@@ -178,6 +171,8 @@ export const lockQuotationAfterAccounting = (
     'Lock Quotation',
     `Khóa SO sau khi kế toán duyệt giao dịch (${quotation.soCode})`
   );
+  const linkedContract = upsertLinkedContractFromQuotation(updatedQuotation, userId);
+  updatedQuotation.contractId = linkedContract.id;
   updateQuotation(updatedQuotation);
   return { ok: true, quotation: updatedQuotation };
 };

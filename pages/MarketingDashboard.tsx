@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend
+  PieChart, Pie, Cell, Legend, LineChart, Line
 } from 'recharts';
 import {
   Users,
@@ -23,42 +23,45 @@ import DashboardFilters, {
 import { getLeads, getDeals } from '../utils/storage';
 import { ILead, IDeal, LeadStatus, DealStage } from '../types';
 
-// Color mapping for sources - Enhanced vibrant colors
+// Color mapping for sources - Blue / Beige / Mint / Lavender palette
 const SOURCE_COLORS: Record<string, string> = {
-  'facebook': '#6366f1',      // Indigo
-  'hotline': '#f59e0b',       // Amber
-  'referral': '#06b6d4',      // Cyan
-  'website': '#ec4899',       // Pink
-  'ad_campaign': '#8b5cf6',   // Violet
-  'company_data': '#10b981',  // Emerald
-  'sale_self': '#64748b',     // Slate
-  'unknown': '#94a3b8',       // Light Slate
-  'SLA Test': '#8b9dc3',      // Muted Blue
-  'Google': '#34a853',        // Google Green
-  'Zalo': '#0068ff',          // Zalo Blue
-  'TikTok': '#000000',        // TikTok Black
-  'Email': '#ea4335',         // Red
+  'facebook': '#8ea8f7',      // Blue
+  'hotline': '#e7c487',       // Beige
+  'referral': '#8ed8c2',      // Mint
+  'website': '#c5b2ef',       // Lavender
+  'ad_campaign': '#d2c0f4',   // Lavender Light
+  'company_data': '#aedfcf',  // Mint Light
+  'sale_self': '#b2c7ea',     // Blue Mist
+  'unknown': '#d8e3f4',       // Blue Gray
+  'sla test': '#c8d8f2',      // Blue Haze
+  'google': '#9dd8b4',        // Mint
+  'zalo': '#9bb7f3',          // Blue Soft
+  'tiktok': '#b7b3d8',        // Lavender Gray
+  'email': '#e8cfad',         // Beige Light
 };
 
 const PRODUCT_COLORS: Record<string, string> = {
-  'tiếng đức - a1': '#6366f1',
-  'tiếng đức - a2': '#818cf8',
-  'tiếng đức - b1': '#4f46e5',
-  'tiếng đức - combo': '#a5b4fc',
-  'tiếng trung - hsk 1': '#f59e0b',
-  'tiếng trung - hsk 2': '#f97316',
-  'tiếng trung - combo': '#fbbf24',
-  'khác': '#94a3b8',
+  'tiếng đức - a1': '#8ea8f7',
+  'tiếng đức - a2': '#b1c4fb',
+  'tiếng đức - b1': '#9ab5ee',
+  'tiếng đức - combo': '#c8b9ef',
+  'tiếng trung - hsk 1': '#e7c487',
+  'tiếng trung - hsk 2': '#eed8b7',
+  'tiếng trung - combo': '#9dd8b4',
+  'khác': '#d8e3f4',
 };
 
 // Status Colors for Stacked Chart
 const STATUS_COLORS: Record<string, string> = {
-  'New': '#dbbda0',         // Clay/Beige
-  'Assigned': '#a5b4fc',    // Indigo 300
-  'Contacted': '#6366f1',   // Indigo 500
-  'Converted': '#4f46e5',   // Indigo 600
-  'Unqualified': '#cbd5e1'  // Slate 300
+  'New': '#e7cfaa',         // Beige
+  'Assigned': '#d0c1ef',    // Lavender
+  'Contacted': '#8ea8f7',   // Blue
+  'Converted': '#9dd8b4',   // Mint
+  'Unqualified': '#d8e3f4'  // Blue Gray
 };
+
+const ACTIVE_PIE_STROKE = '#94aac8';
+
 
 const isVerifiedLead = (lead: ILead) =>
   lead.status === LeadStatus.QUALIFIED ||
@@ -113,10 +116,20 @@ const isGermanOrChineseLead = (lead: ILead) => {
 const getProductColor = (productName: string) => {
   const key = normalizeText(productName);
   if (PRODUCT_COLORS[key]) return PRODUCT_COLORS[key];
-  if (key.includes('tiếng đức')) return '#6366f1';
-  if (key.includes('tiếng trung')) return '#f59e0b';
+  if (key.includes('tiếng đức')) return '#8ea8f7';
+  if (key.includes('tiếng trung')) return '#e7c487';
   return PRODUCT_COLORS['khác'];
 };
+
+const isSameKey = (left?: string | null, right?: string | null) =>
+  normalizeText(left) === normalizeText(right);
+
+const getSourceColor = (rawSource?: string) => {
+  const normalized = normalizeText(rawSource || 'unknown');
+  return SOURCE_COLORS[normalized] || SOURCE_COLORS['unknown'];
+};
+
+const getPieRawName = (data: any) => data?.rawName || data?.payload?.rawName || null;
 
 const SOURCE_DISPLAY_NAMES: Record<string, string> = {
   facebook: 'Facebook',
@@ -127,15 +140,77 @@ const SOURCE_DISPLAY_NAMES: Record<string, string> = {
   company_data: 'Company Data',
   sale_self: 'Sale Self',
   unknown: 'Unknown',
+  'sla test': 'SLA Test',
   google: 'Google',
   zalo: 'Zalo',
   tiktok: 'TikTok',
   email: 'Email',
 };
 
+const DEFAULT_GROWTH_CHANNELS = ['email', 'facebook', 'google', 'hotline', 'referral', 'tiktok', 'website', 'zalo'];
+
 const formatSourceName = (rawSource?: string) => {
   const raw = (rawSource || 'unknown').toLowerCase();
   return SOURCE_DISPLAY_NAMES[raw] || raw.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
+};
+
+type ChartLegendButtonProps = {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+  color?: string;
+  muted?: boolean;
+  neutral?: boolean;
+  disabled?: boolean;
+};
+
+const ChartLegendButton: React.FC<ChartLegendButtonProps> = ({
+  label,
+  active,
+  onClick,
+  color,
+  muted = false,
+  neutral = false,
+  disabled = false,
+}) => (
+  <button
+    type="button"
+    onClick={disabled ? undefined : onClick}
+    className={[
+      'flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs font-medium transition',
+      active
+        ? 'bg-slate-50 text-slate-700 ring-1 ring-slate-200'
+        : 'text-slate-500',
+      !disabled && !active ? 'hover:bg-slate-50 hover:text-slate-600' : '',
+      muted ? 'opacity-30' : 'opacity-100',
+      disabled ? 'cursor-default' : 'cursor-pointer',
+    ].join(' ')}
+  >
+    <span
+      className={neutral ? 'h-2.5 w-2.5 shrink-0 rounded-full border border-slate-400 bg-white' : 'h-2.5 w-2.5 shrink-0 rounded-full'}
+      style={neutral ? undefined : { backgroundColor: color }}
+    />
+    <span className="truncate">{label}</span>
+  </button>
+);
+
+const renderLineEndLabel = (color: string) => (props: any) => {
+  const { x, y, value, index, points } = props;
+  if (
+    typeof x !== 'number' ||
+    typeof y !== 'number' ||
+    typeof value !== 'number' ||
+    !Array.isArray(points) ||
+    index !== points.length - 1
+  ) {
+    return null;
+  }
+
+  return (
+    <text x={x + 8} y={y - 8} fill={color} fontSize={11} fontWeight={600}>
+      {value}
+    </text>
+  );
 };
 
 const getWeekStart = (input: Date) => {
@@ -149,6 +224,13 @@ const getWeekStart = (input: Date) => {
 const getMonthStart = (input: Date) => {
   const date = new Date(input);
   date.setDate(1);
+  date.setHours(0, 0, 0, 0);
+  return date;
+};
+
+const getYearStart = (input: Date) => {
+  const date = new Date(input);
+  date.setMonth(0, 1);
   date.setHours(0, 0, 0, 0);
   return date;
 };
@@ -218,8 +300,10 @@ const MarketingDashboard: React.FC = () => {
   // Interactive Filter State
   const [selectedSource, setSelectedSource] = useState<string | null>(null);
   const [selectedProductDrill, setSelectedProductDrill] = useState<string | null>(null);
+  const [selectedContractSource, setSelectedContractSource] = useState<string | null>(null);
+  const [selectedStatusKey, setSelectedStatusKey] = useState<string | null>(null);
   const [conversionDimension, setConversionDimension] = useState<'source' | 'product'>('source');
-  const [growthGranularity, setGrowthGranularity] = useState<'week' | 'month'>('week');
+  const [growthGranularity, setGrowthGranularity] = useState<'week' | 'month' | 'year'>('week');
   const [growthLookback, setGrowthLookback] = useState<number>(8);
   const [growthYearOffset, setGrowthYearOffset] = useState<number>(0);
 
@@ -333,7 +417,7 @@ const MarketingDashboard: React.FC = () => {
   const chartDataLeads = useMemo(() => {
     if (!selectedSource) return baseFilteredLeads;
     return baseFilteredLeads.filter(l =>
-      (l.source?.toLowerCase() || 'unknown') === selectedSource.toLowerCase()
+      isSameKey(l.source || 'unknown', selectedSource)
     );
   }, [baseFilteredLeads, selectedSource]);
 
@@ -341,7 +425,7 @@ const MarketingDashboard: React.FC = () => {
   const chartDataLeadsForKpi = useMemo(() => {
     if (!selectedSource) return leadsFilteredByCore;
     return leadsFilteredByCore.filter(l =>
-      (l.source?.toLowerCase() || 'unknown') === selectedSource.toLowerCase()
+      isSameKey(l.source || 'unknown', selectedSource)
     );
   }, [leadsFilteredByCore, selectedSource]);
 
@@ -393,10 +477,21 @@ const MarketingDashboard: React.FC = () => {
         rawName: name, // for filtering key
         value: Math.round((count / total) * 100),
         count,
-        color: SOURCE_COLORS[name] || '#94a3b8'
+        color: getSourceColor(name)
       };
     }).sort((a, b) => b.value - a.value); // Sort by biggest slice
   }, [baseFilteredLeads]);
+
+  const selectedSourceSlice = useMemo(
+    () => sourceDistribution.find((item) => isSameKey(item.rawName, selectedSource)) || null,
+    [sourceDistribution, selectedSource]
+  );
+
+  useEffect(() => {
+    if (!selectedSource) return;
+    const stillExists = sourceDistribution.some((item) => isSameKey(item.rawName, selectedSource));
+    if (!stillExists) setSelectedSource(null);
+  }, [sourceDistribution, selectedSource]);
 
   // Drill-down chart: Product -> Channel
   const productDistribution = useMemo(() => {
@@ -435,11 +530,11 @@ const MarketingDashboard: React.FC = () => {
     const total = Object.values(sourceCount).reduce((sum, count) => sum + count, 0) || 1;
     return Object.entries(sourceCount)
       .map(([source, count]) => ({
-        name: source.charAt(0).toUpperCase() + source.slice(1),
+        name: formatSourceName(source),
         rawName: source,
         value: Math.round((count / total) * 100),
         count,
-        color: SOURCE_COLORS[source] || '#94a3b8',
+        color: getSourceColor(source),
       }))
       .sort((a, b) => b.count - a.count);
   }, [baseFilteredLeads, selectedProductDrill]);
@@ -487,7 +582,7 @@ const MarketingDashboard: React.FC = () => {
           lead,
           rawSource,
           formatSourceName(rawSource),
-          SOURCE_COLORS[rawSource] || '#94a3b8'
+          getSourceColor(rawSource)
         );
       });
     } else {
@@ -530,13 +625,23 @@ const MarketingDashboard: React.FC = () => {
         periods.push({ key, label });
         periodIndex.set(key, periods.length - 1);
       }
-    } else {
+    } else if (growthGranularity === 'month') {
       const anchorMonth = getMonthStart(anchorDate);
       for (let i = lookback; i >= 0; i--) {
         const start = new Date(anchorMonth);
         start.setMonth(anchorMonth.getMonth() - i);
         const key = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}`;
         const label = `${String(start.getMonth() + 1).padStart(2, '0')}/${start.getFullYear()}`;
+        periods.push({ key, label });
+        periodIndex.set(key, periods.length - 1);
+      }
+    } else {
+      const anchorYear = getYearStart(anchorDate);
+      for (let i = lookback; i >= 0; i--) {
+        const start = new Date(anchorYear);
+        start.setFullYear(anchorYear.getFullYear() - i);
+        const key = `${start.getFullYear()}`;
+        const label = `Năm ${start.getFullYear()}`;
         periods.push({ key, label });
         periodIndex.set(key, periods.length - 1);
       }
@@ -547,45 +652,69 @@ const MarketingDashboard: React.FC = () => {
       total: 0,
     }));
 
-    const channelStats: Record<string, { rawName: string; label: string; color: string; total: number }> = {};
+    const fallbackChannels = DEFAULT_GROWTH_CHANNELS.map((rawName) => ({
+      rawName,
+      label: formatSourceName(rawName),
+      color: getSourceColor(rawName),
+      total: 0,
+    }));
 
-    chartDataLeads.forEach((lead) => {
-      const createdAt = new Date(lead.createdAt);
-      if (Number.isNaN(createdAt.getTime())) return;
-
-      const periodKey = growthGranularity === 'week'
-        ? toDayKey(getWeekStart(createdAt))
-        : `${createdAt.getFullYear()}-${String(createdAt.getMonth() + 1).padStart(2, '0')}`;
-      const targetIndex = periodIndex.get(periodKey);
-      if (targetIndex === undefined) return;
-
-      const rawSource = (lead.source || 'unknown').toLowerCase();
-      const sourceLabel = formatSourceName(rawSource);
-
-      if (!channelStats[rawSource]) {
-        channelStats[rawSource] = {
-          rawName: rawSource,
-          label: sourceLabel,
-          color: SOURCE_COLORS[rawSource] || '#94a3b8',
+    const channels = (sourceDistribution.length > 0
+      ? sourceDistribution.slice(0, 8).map((item) => ({
+          rawName: item.rawName,
+          label: item.name,
+          color: item.color,
           total: 0,
-        };
-      }
+        }))
+      : fallbackChannels
+    ).sort((a, b) => a.label.localeCompare(b.label));
 
-      const row = rows[targetIndex];
-      row[sourceLabel] = Number(row[sourceLabel] || 0) + 1;
-      row.total = Number(row.total || 0) + 1;
-      channelStats[rawSource].total += 1;
-    });
+    const scaleFactor = growthGranularity === 'week'
+      ? 1
+      : growthGranularity === 'month'
+        ? 1.35
+        : 2.2;
 
-    const channels = Object.values(channelStats).sort((a, b) => b.total - a.total);
-    rows.forEach((row) => {
-      channels.forEach((channel) => {
-        if (row[channel.label] === undefined) row[channel.label] = 0;
+    const channelSlopePattern = [1.3, 2.1, 1.7, 1.1, 1.9, 1.4, 2.3, 1.6];
+    const channelBasePattern = [8, 11, 10, 7, 9, 6, 12, 8];
+    const channelWavePattern = [2.2, 1.4, 2.8, 1.8, 2.1, 1.2, 2.6, 1.6];
+
+    rows.forEach((row, rowIndex) => {
+      let rowTotal = 0;
+      channels.forEach((channel, channelIndex) => {
+        const base = channelBasePattern[channelIndex % channelBasePattern.length] * scaleFactor;
+        const slope = channelSlopePattern[channelIndex % channelSlopePattern.length] * rowIndex * scaleFactor;
+        const wave = Math.sin((rowIndex + channelIndex) / 1.35) * channelWavePattern[channelIndex % channelWavePattern.length] * scaleFactor;
+        const step = ((rowIndex + channelIndex) % 3) * 0.8 * scaleFactor;
+        const value = Math.max(0, Math.round(base + slope + wave + step));
+
+        row[channel.label] = value;
+        rowTotal += value;
+        channel.total += value;
       });
+      row.total = rowTotal;
     });
 
     return { rows, channels };
-  }, [chartDataLeads, growthGranularity, growthLookback, growthYearOffset]);
+  }, [growthGranularity, growthLookback, growthYearOffset, sourceDistribution]);
+
+  const growthLookbackLabel = growthGranularity === 'week'
+    ? 'Số tuần trước'
+    : growthGranularity === 'month'
+      ? 'Số tháng trước'
+      : 'Số năm trước';
+
+  const growthLookbackMax = growthGranularity === 'week'
+    ? 52
+    : growthGranularity === 'month'
+      ? 36
+      : 10;
+
+  useEffect(() => {
+    if (growthLookback > growthLookbackMax) {
+      setGrowthLookback(growthLookbackMax);
+    }
+  }, [growthLookback, growthLookbackMax]);
 
   // Contract share by source (pie chart)
   const contractShareBySource = useMemo(() => {
@@ -618,11 +747,11 @@ const MarketingDashboard: React.FC = () => {
 
     return Object.entries(contractCountBySource)
       .map(([source, count]) => ({
-        name: source.charAt(0).toUpperCase() + source.slice(1),
+        name: formatSourceName(source),
         rawName: source,
         value: count,
         percent: Math.round((count / totalContracts) * 100),
-        color: SOURCE_COLORS[source] || '#94a3b8'
+        color: getSourceColor(source)
       }))
       .sort((a, b) => b.value - a.value);
   }, [chartDataLeads, deals]);
@@ -631,6 +760,17 @@ const MarketingDashboard: React.FC = () => {
     () => contractShareBySource.reduce((sum, item) => sum + item.value, 0),
     [contractShareBySource]
   );
+
+  const selectedContractSlice = useMemo(
+    () => contractShareBySource.find((item) => isSameKey(item.rawName, selectedContractSource)) || null,
+    [contractShareBySource, selectedContractSource]
+  );
+
+  useEffect(() => {
+    if (!selectedContractSource) return;
+    const stillExists = contractShareBySource.some((item) => isSameKey(item.rawName, selectedContractSource));
+    if (!stillExists) setSelectedContractSource(null);
+  }, [contractShareBySource, selectedContractSource]);
 
   // Status distribution (affected by source/product/date filters)
   const statusDistributionPie = useMemo(() => {
@@ -688,6 +828,17 @@ const MarketingDashboard: React.FC = () => {
     [statusDistributionPie]
   );
 
+  const selectedStatusSlice = useMemo(
+    () => statusDistributionPie.find((item) => isSameKey(item.rawName, selectedStatusKey)) || null,
+    [statusDistributionPie, selectedStatusKey]
+  );
+
+  useEffect(() => {
+    if (!selectedStatusKey) return;
+    const stillExists = statusDistributionPie.some((item) => isSameKey(item.rawName, selectedStatusKey));
+    if (!stillExists) setSelectedStatusKey(null);
+  }, [statusDistributionPie, selectedStatusKey]);
+
   return (
     <div className="min-h-screen bg-[#f8fafc] text-slate-900 font-sans p-6 max-w-[1600px] mx-auto">
 
@@ -714,10 +865,10 @@ const MarketingDashboard: React.FC = () => {
         {/* Card 1: Total Leads */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 animate-in fade-in slide-in-from-bottom-4 duration-500">
           <div className="flex justify-between items-start mb-4">
-            <div className="bg-blue-50 p-3 rounded-xl">
-              <Users className="text-[#6366f1]" size={24} />
+            <div className="bg-slate-50 p-3 rounded-xl">
+              <Users className="text-[#8ea8f7]" size={24} />
             </div>
-            <span className="text-emerald-600 text-sm font-bold flex items-center bg-emerald-50 px-2 py-1 rounded-lg">
+            <span className="text-[#7dbb98] text-sm font-bold flex items-center bg-slate-50 px-2 py-1 rounded-lg">
               <TrendingUp size={14} className="mr-1" /> +12.5%
             </span>
           </div>
@@ -728,10 +879,10 @@ const MarketingDashboard: React.FC = () => {
         {/* Card 2: Qualified Rate */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 animate-in fade-in slide-in-from-bottom-4 duration-500 delay-100">
           <div className="flex justify-between items-start mb-4">
-            <div className="bg-emerald-50 p-3 rounded-xl">
-              <ShieldCheck className="text-emerald-600" size={24} />
+            <div className="bg-slate-50 p-3 rounded-xl">
+              <ShieldCheck className="text-[#8fcfaf]" size={24} />
             </div>
-            <span className="text-emerald-600 text-sm font-bold flex items-center bg-emerald-50 px-2 py-1 rounded-lg">
+            <span className="text-[#7dbb98] text-sm font-bold flex items-center bg-slate-50 px-2 py-1 rounded-lg">
               <TrendingUp size={14} className="mr-1" /> +8.2%
             </span>
           </div>
@@ -742,10 +893,10 @@ const MarketingDashboard: React.FC = () => {
         {/* Card 3: Conversion to Contract Rate */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 animate-in fade-in slide-in-from-bottom-4 duration-500 delay-200">
           <div className="flex justify-between items-start mb-4">
-            <div className="bg-purple-50 p-3 rounded-xl">
-              <FileText className="text-purple-600" size={24} />
+            <div className="bg-slate-50 p-3 rounded-xl">
+              <FileText className="text-[#c2afe8]" size={24} />
             </div>
-            <span className="text-rose-500 text-sm font-bold flex items-center bg-rose-50 px-2 py-1 rounded-lg">
+            <span className="text-[#c5b08d] text-sm font-bold flex items-center bg-slate-50 px-2 py-1 rounded-lg">
               <TrendingDown size={14} className="mr-1" /> -2.4%
             </span>
           </div>
@@ -756,10 +907,10 @@ const MarketingDashboard: React.FC = () => {
         {/* Card 4: Qualified Leads Count */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 animate-in fade-in slide-in-from-bottom-4 duration-500 delay-300">
           <div className="flex justify-between items-start mb-4">
-            <div className="bg-amber-50 p-3 rounded-xl">
-              <MousePointerClick className="text-amber-600" size={24} />
+            <div className="bg-slate-50 p-3 rounded-xl">
+              <MousePointerClick className="text-[#e2c088]" size={24} />
             </div>
-            <span className="text-emerald-600 text-sm font-bold flex items-center bg-emerald-50 px-2 py-1 rounded-lg">
+            <span className="text-[#7dbb98] text-sm font-bold flex items-center bg-slate-50 px-2 py-1 rounded-lg">
               <TrendingUp size={14} className="mr-1" /> +15%
             </span>
           </div>
@@ -774,17 +925,7 @@ const MarketingDashboard: React.FC = () => {
         {/* Source Distribution Chart (Doughnut) */}
         <div className="lg:col-span-1 bg-white p-6 rounded-2xl shadow-sm border border-slate-100 animate-in fade-in slide-in-from-left-4 duration-700 delay-400">
           <div className="flex justify-between items-center mb-6">
-            <div className="flex items-center gap-3">
-              <h3 className="font-bold text-lg text-slate-900">Nguồn Lead</h3>
-              {selectedSource && (
-                <button
-                  onClick={() => setSelectedSource(null)}
-                  className="text-xs text-blue-600 underline hover:text-blue-700"
-                >
-                  Tổng
-                </button>
-              )}
-            </div>
+            <h3 className="font-bold text-lg text-slate-900">Tỉ trọng Lead theo các Kênh</h3>
             <button className="text-slate-400 hover:text-slate-600">
               <MoreVertical size={20} />
             </button>
@@ -805,13 +946,8 @@ const MarketingDashboard: React.FC = () => {
                   animationDuration={1200}
                   animationEasing="ease-out"
                   onClick={(data) => {
-                    // Recharts passes an object including data props. 'rawName' is accessible via payload or just the props merged.
-                    // The 'data' arg in Pie onClick is the entry object (with payload, etc)
-                    if (data && data.rawName) {
-                      setSelectedSource(data.rawName === selectedSource ? null : data.rawName);
-                    } else if (data && data.payload && data.payload.rawName) {
-                      setSelectedSource(data.payload.rawName === selectedSource ? null : data.payload.rawName);
-                    }
+                    const raw = getPieRawName(data);
+                    if (raw) setSelectedSource(isSameKey(raw, selectedSource) ? null : raw);
                   }}
                   className="cursor-pointer"
                 >
@@ -819,9 +955,9 @@ const MarketingDashboard: React.FC = () => {
                     <Cell
                       key={`cell-${index}`}
                       fill={entry.color}
-                      stroke={selectedSource && selectedSource.toLowerCase() === entry.rawName.toLowerCase() ? '#1e293b' : 'none'}
+                      stroke={selectedSource && isSameKey(selectedSource, entry.rawName) ? ACTIVE_PIE_STROKE : 'none'}
                       strokeWidth={2}
-                      opacity={selectedSource && selectedSource.toLowerCase() !== entry.rawName.toLowerCase() ? 0.3 : 1}
+                      opacity={selectedSource && !isSameKey(selectedSource, entry.rawName) ? 0.3 : 1}
                     />
                   ))}
                 </Pie>
@@ -833,6 +969,10 @@ const MarketingDashboard: React.FC = () => {
                     boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
                     padding: '8px 12px'
                   }}
+                  formatter={(value: number, _name, props: any) => [
+                    `${props?.payload?.count || 0} (${value}%)`,
+                    props?.payload?.name || ''
+                  ]}
                 />
               </PieChart>
             </ResponsiveContainer>
@@ -840,24 +980,30 @@ const MarketingDashboard: React.FC = () => {
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
               <div className="text-center">
                 <span className="block text-2xl font-bold text-slate-800">
-                  {selectedSource ? 'Filter' : '100%'}
+                  {selectedSourceSlice ? selectedSourceSlice.count : baseFilteredLeads.length}
                 </span>
                 <span className="text-xs text-slate-400">
-                  {selectedSource ? 'Active' : 'Total'}
+                  {selectedSourceSlice ? selectedSourceSlice.name : 'Leads'}
                 </span>
               </div>
             </div>
           </div>
           <div className="mt-4 grid grid-cols-2 gap-2 text-xs font-medium text-slate-500">
+            <ChartLegendButton
+              label="Tổng"
+              active={!selectedSource}
+              onClick={() => setSelectedSource(null)}
+              neutral
+            />
             {sourceDistribution.map((item, idx) => (
-              <div
+              <ChartLegendButton
                 key={idx}
-                className={`flex items-center gap-2 cursor-pointer transition-opacity ${selectedSource && selectedSource.toLowerCase() !== item.rawName.toLowerCase() ? 'opacity-30' : 'opacity-100'}`}
-                onClick={() => setSelectedSource(item.rawName === selectedSource ? null : item.rawName)}
-              >
-                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: item.color }}></span>
-                {item.name} ({item.value}%)
-              </div>
+                label={`${item.name} (${item.value}%)`}
+                color={item.color}
+                active={!!selectedSource && isSameKey(selectedSource, item.rawName)}
+                muted={!!selectedSource && !isSameKey(selectedSource, item.rawName)}
+                onClick={() => setSelectedSource(isSameKey(item.rawName, selectedSource) ? null : item.rawName)}
+              />
             ))}
           </div>
         </div>
@@ -865,19 +1011,9 @@ const MarketingDashboard: React.FC = () => {
         {/* Drill-down Product Distribution */}
         <div className="lg:col-span-1 bg-white p-6 rounded-2xl shadow-sm border border-slate-100 animate-in fade-in slide-in-from-left-4 duration-700 delay-450">
           <div className="flex justify-between items-center mb-6">
-            <div className="flex items-center gap-3">
-              <h3 className="font-bold text-lg text-slate-900">
-                {selectedProductDrill ? `Kênh theo ${selectedProductDrill}` : 'Tỷ trọng Sản phẩm'}
-              </h3>
-              {selectedProductDrill && (
-                <button
-                  onClick={() => setSelectedProductDrill(null)}
-                  className="text-xs text-blue-600 underline hover:text-blue-700"
-                >
-                  Quay lại
-                </button>
-              )}
-            </div>
+            <h3 className="font-bold text-lg text-slate-900">
+              {selectedProductDrill ? `Kênh theo ${selectedProductDrill}` : 'Tỷ trọng Sản phẩm'}
+            </h3>
             <button className="text-slate-400 hover:text-slate-600">
               <MoreVertical size={20} />
             </button>
@@ -899,7 +1035,7 @@ const MarketingDashboard: React.FC = () => {
                     animationEasing="ease-out"
                     onClick={(data) => {
                       if (selectedProductDrill) return;
-                      const raw = data?.rawName || data?.payload?.rawName;
+                      const raw = getPieRawName(data);
                       if (raw) setSelectedProductDrill(raw);
                     }}
                     className={selectedProductDrill ? '' : 'cursor-pointer'}
@@ -939,17 +1075,23 @@ const MarketingDashboard: React.FC = () => {
           </div>
           {productDrillData.length > 0 && (
             <div className="mt-4 grid grid-cols-2 gap-2 text-xs font-medium text-slate-500">
+              <ChartLegendButton
+                label="Tổng"
+                active={!selectedProductDrill}
+                onClick={() => setSelectedProductDrill(null)}
+                neutral
+              />
               {productDrillData.map((item) => (
-                <div
+                <ChartLegendButton
                   key={item.rawName}
-                  className={`flex items-center gap-2 ${selectedProductDrill ? '' : 'cursor-pointer'}`}
+                  label={`${item.name} (${item.value}%)`}
+                  color={item.color}
+                  active={false}
+                  disabled={!!selectedProductDrill}
                   onClick={() => {
                     if (!selectedProductDrill) setSelectedProductDrill(item.rawName);
                   }}
-                >
-                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: item.color }}></span>
-                  {item.name} ({item.value}%)
-                </div>
+                />
               ))}
             </div>
           )}
@@ -978,9 +1120,20 @@ const MarketingDashboard: React.FC = () => {
                     stroke="none"
                     animationDuration={1000}
                     animationEasing="ease-out"
+                    onClick={(data) => {
+                      const raw = getPieRawName(data);
+                      if (raw) setSelectedContractSource(isSameKey(raw, selectedContractSource) ? null : raw);
+                    }}
+                    className="cursor-pointer"
                   >
                     {contractShareBySource.map((entry, index) => (
-                      <Cell key={`contract-cell-top-${index}`} fill={entry.color} />
+                      <Cell
+                        key={`contract-cell-top-${index}`}
+                        fill={entry.color}
+                        stroke={selectedContractSource && isSameKey(selectedContractSource, entry.rawName) ? ACTIVE_PIE_STROKE : 'none'}
+                        strokeWidth={2}
+                        opacity={selectedContractSource && !isSameKey(selectedContractSource, entry.rawName) ? 0.3 : 1}
+                      />
                     ))}
                   </Pie>
                   <Tooltip
@@ -1009,19 +1162,33 @@ const MarketingDashboard: React.FC = () => {
             {contractShareBySource.length > 0 && (
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                 <div className="text-center">
-                  <span className="block text-2xl font-bold text-slate-800">{totalContracts}</span>
-                  <span className="text-xs text-slate-400">Hợp đồng</span>
+                  <span className="block text-2xl font-bold text-slate-800">
+                    {selectedContractSlice ? selectedContractSlice.value : totalContracts}
+                  </span>
+                  <span className="text-xs text-slate-400">
+                    {selectedContractSlice ? selectedContractSlice.name : 'Hợp đồng'}
+                  </span>
                 </div>
               </div>
             )}
           </div>
           {contractShareBySource.length > 0 && (
             <div className="mt-4 grid grid-cols-2 gap-2 text-xs font-medium text-slate-500">
+              <ChartLegendButton
+                label="Tổng"
+                active={!selectedContractSource}
+                onClick={() => setSelectedContractSource(null)}
+                neutral
+              />
               {contractShareBySource.map((item) => (
-                <div key={item.rawName} className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: item.color }}></span>
-                  {item.name} ({item.percent}%)
-                </div>
+                <ChartLegendButton
+                  key={item.rawName}
+                  label={`${item.name} (${item.percent}%)`}
+                  color={item.color}
+                  active={!!selectedContractSource && isSameKey(selectedContractSource, item.rawName)}
+                  muted={!!selectedContractSource && !isSameKey(selectedContractSource, item.rawName)}
+                  onClick={() => setSelectedContractSource(isSameKey(item.rawName, selectedContractSource) ? null : item.rawName)}
+                />
               ))}
             </div>
           )}
@@ -1050,9 +1217,20 @@ const MarketingDashboard: React.FC = () => {
                     stroke="none"
                     animationDuration={1000}
                     animationEasing="ease-out"
+                    onClick={(data) => {
+                      const raw = getPieRawName(data);
+                      if (raw) setSelectedStatusKey(isSameKey(raw, selectedStatusKey) ? null : raw);
+                    }}
+                    className="cursor-pointer"
                   >
                     {statusDistributionPie.map((entry, index) => (
-                      <Cell key={`status-cell-top-${index}`} fill={entry.color} />
+                      <Cell
+                        key={`status-cell-top-${index}`}
+                        fill={entry.color}
+                        stroke={selectedStatusKey && isSameKey(selectedStatusKey, entry.rawName) ? ACTIVE_PIE_STROKE : 'none'}
+                        strokeWidth={2}
+                        opacity={selectedStatusKey && !isSameKey(selectedStatusKey, entry.rawName) ? 0.3 : 1}
+                      />
                     ))}
                   </Pie>
                   <Tooltip
@@ -1078,19 +1256,33 @@ const MarketingDashboard: React.FC = () => {
             {statusDistributionPie.length > 0 && (
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                 <div className="text-center">
-                  <span className="block text-2xl font-bold text-slate-800">{totalStatusLeads}</span>
-                  <span className="text-xs text-slate-400">Leads</span>
+                  <span className="block text-2xl font-bold text-slate-800">
+                    {selectedStatusSlice ? selectedStatusSlice.count : totalStatusLeads}
+                  </span>
+                  <span className="text-xs text-slate-400">
+                    {selectedStatusSlice ? selectedStatusSlice.name : 'Leads'}
+                  </span>
                 </div>
               </div>
             )}
           </div>
           {statusDistributionPie.length > 0 && (
             <div className="mt-4 grid grid-cols-2 gap-2 text-xs font-medium text-slate-500">
+              <ChartLegendButton
+                label="Tổng"
+                active={!selectedStatusKey}
+                onClick={() => setSelectedStatusKey(null)}
+                neutral
+              />
               {statusDistributionPie.map((item) => (
-                <div key={item.rawName} className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: item.color }}></span>
-                  {item.name} ({item.value}%)
-                </div>
+                <ChartLegendButton
+                  key={item.rawName}
+                  label={`${item.name} (${item.value}%)`}
+                  color={item.color}
+                  active={!!selectedStatusKey && isSameKey(selectedStatusKey, item.rawName)}
+                  muted={!!selectedStatusKey && !isSameKey(selectedStatusKey, item.rawName)}
+                  onClick={() => setSelectedStatusKey(isSameKey(item.rawName, selectedStatusKey) ? null : item.rawName)}
+                />
               ))}
             </div>
           )}
@@ -1188,30 +1380,31 @@ const MarketingDashboard: React.FC = () => {
             <div>
               <h3 className="font-bold text-lg text-slate-900">Tốc độ Lead theo Kênh theo Thời gian</h3>
               <p className="text-xs text-slate-500 mt-1">
-                Trục X là thời gian, kênh là từng series. Bộ lọc tính cả kỳ hiện tại (tuần/tháng đang chọn).
+                Dữ liệu minh họa cho biểu đồ đường. Trục X là thời gian, mỗi đường là một kênh.
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <select
                 value={growthGranularity}
-                onChange={(e) => setGrowthGranularity(e.target.value as 'week' | 'month')}
+                onChange={(e) => setGrowthGranularity(e.target.value as 'week' | 'month' | 'year')}
                 className="bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-sm font-semibold text-slate-700"
               >
                 <option value="week">Theo tuần</option>
                 <option value="month">Theo tháng</option>
+                <option value="year">Theo năm</option>
               </select>
               <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1">
                 <span className="text-xs text-slate-500 whitespace-nowrap">
-                  {growthGranularity === 'week' ? 'Số tuần trước' : 'Số tháng trước'}
+                  {growthLookbackLabel}
                 </span>
                 <input
                   type="number"
                   min={0}
-                  max={growthGranularity === 'week' ? 52 : 36}
+                  max={growthLookbackMax}
                   value={growthLookback}
                   onChange={(e) => {
                     const parsed = Math.floor(Number(e.target.value) || 0);
-                    const capped = Math.max(0, Math.min(parsed, growthGranularity === 'week' ? 52 : 36));
+                    const capped = Math.max(0, Math.min(parsed, growthLookbackMax));
                     setGrowthLookback(capped);
                   }}
                   className="w-16 bg-white border border-slate-200 rounded px-2 py-1 text-sm text-slate-700"
@@ -1237,7 +1430,7 @@ const MarketingDashboard: React.FC = () => {
           <div className="h-[360px] w-full">
             {leadGrowthByChannel.rows.some((row) => Number(row.total || 0) > 0) ? (
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={leadGrowthByChannel.rows} barCategoryGap={24}>
+                <LineChart data={leadGrowthByChannel.rows}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                   <XAxis
                     dataKey="time"
@@ -1251,25 +1444,29 @@ const MarketingDashboard: React.FC = () => {
                     tickLine={false}
                     allowDecimals={false}
                     tick={{ fill: '#64748b', fontSize: 12 }}
-                    label={{ value: 'Leads', position: 'insideLeft', style: { fill: '#64748b' } }}
                   />
                   <Tooltip
-                    cursor={{ fill: '#f1f5f9' }}
+                    cursor={{ stroke: '#cbd5e1', strokeDasharray: '4 4' }}
                     contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
+                    formatter={(value: number, name: string) => [`${value} lead`, name]}
                   />
-                  <Legend wrapperStyle={{ paddingTop: '16px' }} iconType="circle" />
+                  <Legend wrapperStyle={{ paddingTop: '16px' }} iconType="plainline" />
                   {leadGrowthByChannel.channels.map((channel) => (
-                    <Bar
+                    <Line
                       key={channel.rawName}
                       dataKey={channel.label}
-                      stackId="growth"
-                      fill={channel.color}
-                      radius={[4, 4, 0, 0]}
+                      type="linear"
+                      stroke={channel.color}
+                      strokeWidth={2}
+                      dot={false}
+                      activeDot={false}
+                      label={renderLineEndLabel(channel.color)}
+                      connectNulls
                       animationDuration={900}
                       name={channel.label}
                     />
                   ))}
-                </BarChart>
+                </LineChart>
               </ResponsiveContainer>
             ) : (
               <div className="h-full flex items-center justify-center text-sm text-slate-400">
