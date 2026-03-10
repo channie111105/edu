@@ -12,6 +12,7 @@ import LeadSLAPage from './pages/LeadSLAPage';
 import LeadImport from './pages/LeadImport';
 import LeadBatches from './pages/LeadBatches';
 import LoginPage from './pages/LoginPage';
+import ModuleSelectionPage from './pages/ModuleSelectionPage';
 import AssignmentRules from './pages/AssignmentRules';
 import Pipeline from './pages/Pipeline';
 import DealDetails from './pages/DealDetails';
@@ -103,6 +104,7 @@ const AppRoutes = () => {
   return (
     <Routes>
       <Route path="/login" element={isAuthenticated ? <Navigate to="/" replace /> : <LoginPage />} />
+      <Route path="/module-selection" element={isAuthenticated ? <Navigate to="/" replace /> : <ModuleSelectionPage />} />
 
       <Route element={<ProtectedRoute />}>
         <Route path="/" element={<Layout />}>
