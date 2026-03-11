@@ -8,7 +8,6 @@ import {
   Layers3,
   Plus,
   Save,
-  Target,
   TrendingUp,
   X,
 } from 'lucide-react';
@@ -790,14 +789,13 @@ const SalesKPIs: React.FC = () => {
                   <th className="px-4 py-2.5 text-right">Doanh thu thực tế</th>
                   <th className="px-4 py-2.5 text-right">Target HĐ</th>
                   <th className="px-4 py-2.5 text-right">HĐ thực tế</th>
-                  <th className="px-4 py-2.5 text-right">Pipeline</th>
                   <th className="px-4 py-2.5">Tiến độ</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {teamRows.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-4 py-8 text-center text-[13px] text-slate-500">
+                    <td colSpan={7} className="px-4 py-8 text-center text-[13px] text-slate-500">
                       Chưa có dữ liệu KPI team theo bộ lọc hiện tại.
                     </td>
                   </tr>
@@ -821,9 +819,6 @@ const SalesKPIs: React.FC = () => {
                         </td>
                         <td className="px-4 py-3 text-right font-semibold text-slate-700">{row.targetContracts}</td>
                         <td className="px-4 py-3 text-right font-semibold text-emerald-700">{row.actualContracts}</td>
-                        <td className="px-4 py-3 text-right font-semibold text-blue-700">
-                          {formatCurrency(row.pipelineValue)}
-                        </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2.5">
                             <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100">
@@ -873,14 +868,13 @@ const SalesKPIs: React.FC = () => {
                   <th className="px-4 py-2.5 text-right">Doanh thu thực tế</th>
                   <th className="px-4 py-2.5 text-right">Target HĐ</th>
                   <th className="px-4 py-2.5 text-right">HĐ thực tế</th>
-                  <th className="px-4 py-2.5 text-right">Pipeline</th>
                   <th className="px-4 py-2.5">Tiến độ</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {memberRows.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-4 py-8 text-center text-[13px] text-slate-500">
+                    <td colSpan={7} className="px-4 py-8 text-center text-[13px] text-slate-500">
                       Chưa có nhân sự hoặc KPI khớp với bộ lọc.
                     </td>
                   </tr>
@@ -912,9 +906,6 @@ const SalesKPIs: React.FC = () => {
                         </td>
                         <td className="px-4 py-3 text-right font-semibold text-slate-700">{row.targetContracts}</td>
                         <td className="px-4 py-3 text-right font-semibold text-emerald-700">{row.actualContracts}</td>
-                        <td className="px-4 py-3 text-right font-semibold text-blue-700">
-                          {formatCurrency(row.pipelineValue)}
-                        </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2.5">
                             <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100">
@@ -939,88 +930,41 @@ const SalesKPIs: React.FC = () => {
           </div>
         </section>
 
-        <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h2 className="text-[17px] font-bold text-slate-900">Nhóm / team & nhân sự</h2>
-            </div>
-          </div>
-
-          <div className="mt-4 grid gap-3 lg:grid-cols-2">
-            {teams.map((team) => (
-              <div key={team.id} className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
-                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                  <div>
-                    <h3 className="text-[17px] font-bold text-slate-900">{team.name}</h3>
-                    <p className="mt-1 text-[13px] text-slate-600">
-                      {team.branch} • {team.productFocus}
-                    </p>
-                  </div>
-
-                  <div className="space-y-1.5 md:max-w-[54%] md:text-right">
-                    <div className="flex flex-wrap items-center gap-1.5 md:justify-end">
-                      <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Từ khóa</div>
-                      <div className="rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-700">
-                        {team.members.length} nhân sự
-                      </div>
-                    </div>
-
-                    <div className="flex flex-wrap gap-1.5 md:justify-end">
-                      {team.assignKeywords.map((keyword) => (
-                        <span
-                          key={`${team.id}-${keyword}`}
-                          className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700"
-                        >
-                          {keyword}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-3">
-                  <div className="mt-1.5 space-y-2">
-                    {team.members.map((member) => (
-                      <div
-                        key={`${team.id}-${member.userId}`}
-                        className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2.5"
-                      >
-                        <div className="flex items-center gap-2.5">
-                          <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-blue-100 bg-blue-50 text-[13px] font-bold text-blue-700">
-                            {getInitials(member.name)}
-                          </div>
-                          <div>
-                            <div className="font-semibold text-slate-900">{member.name}</div>
-                            <div className="text-[13px] text-slate-500">{member.role || 'Sales Rep'}</div>
-                          </div>
-                        </div>
-                        <div className="text-[13px] font-semibold text-slate-600">{member.branch || team.branch}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
       </div>
 
       {showCreateModal ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 px-4 py-4 backdrop-blur-sm">
           <div className="flex max-h-[95vh] w-full max-w-[1100px] flex-col overflow-hidden rounded-[16px] border border-slate-200 bg-white shadow-2xl">
-            <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 px-4 py-3.5">
-              <div className="space-y-1">
-                <h3 className="text-[22px] font-bold tracking-tight text-slate-900">Thiết lập KPI theo tháng</h3>
-                <p className="max-w-lg text-[13px] leading-5 text-slate-600">
-                  Chọn một hoặc nhiều nhân sự để áp KPI cùng lúc. Có thể copy KPI từ tháng trước để
-                  điền nhanh rồi chỉnh lại doanh thu và số hợp đồng nếu cần.
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-blue-700">
-                  <Target size={12} />
-                  Tạo KPI cá nhân
+            <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 px-4 py-3.5">
+              <h3 className="shrink-0 text-[22px] font-bold tracking-tight text-slate-900">Thiết lập KPI theo tháng</h3>
+
+              <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="flex h-9 items-center gap-2 rounded-md border border-slate-200 bg-white px-2.5">
+                    <input
+                      type="checkbox"
+                      checked={copyPreviousMonth}
+                      onChange={(event) => handleToggleCopyPrevious(event.target.checked)}
+                      className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <div className="flex items-center gap-1.5 text-[13px] font-semibold text-slate-800">
+                      <Copy size={14} className="text-blue-600" />
+                      Copy KPI từ tháng trước
+                    </div>
+                  </label>
+
+                  <input
+                    type="month"
+                    value={draftPeriod}
+                    onChange={(event) => handleDraftPeriodChange(event.target.value)}
+                    className="h-9 w-[190px] max-w-full rounded-md border border-slate-300 bg-white px-2.5 text-[13px] font-semibold text-slate-800 outline-none transition focus:border-blue-500"
+                  />
+
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Kỳ áp dụng
+                  </span>
                 </div>
+
                 <button
                   type="button"
                   onClick={closeCreateModal}
@@ -1032,50 +976,11 @@ const SalesKPIs: React.FC = () => {
             </div>
 
             <div className="flex-1 overflow-y-auto px-4 py-3">
-              <div className="grid gap-2.5 rounded-lg border border-slate-200 bg-slate-50/70 p-2.5 lg:grid-cols-[0.8fr,0.9fr,1.02fr]">
-                <label className="space-y-1">
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Kỳ áp dụng</span>
-                  <input
-                    type="month"
-                    value={draftPeriod}
-                    onChange={(event) => handleDraftPeriodChange(event.target.value)}
-                    className="h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-[13px] font-semibold text-slate-800 outline-none transition focus:border-blue-500"
-                  />
-                </label>
-
-                <label className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-2.5 py-2">
-                  <input
-                    type="checkbox"
-                    checked={copyPreviousMonth}
-                    onChange={(event) => handleToggleCopyPrevious(event.target.checked)}
-                    className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                  />
-                  <div>
-                    <div className="flex items-center gap-1.5 text-[13px] font-semibold text-slate-800">
-                      <Copy size={14} className="text-blue-600" />
-                      Copy KPI từ tháng trước
-                    </div>
-                    <div className="text-[12px] leading-4.5 text-slate-500">
-                      Nếu có dữ liệu tháng trước, hệ thống sẽ tự fill vào các dòng đã chọn.
-                    </div>
-                  </div>
-                </label>
-
-                <div className="rounded-md border border-dashed border-blue-200 bg-blue-50 px-2.5 py-2 text-[12px] text-slate-700">
-                  <div className="text-[13px] font-semibold text-blue-700">Hướng dẫn nhanh</div>
-                  <div className="mt-0.5 leading-5">
-                    Bạn có thể chọn <span className="font-semibold">all</span> để áp KPI cho toàn bộ nhân sự,
-                    hoặc chọn vài người theo từng team rồi bấm <span className="font-semibold">Lưu & Tạo tiếp</span>.
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-3 grid gap-3 lg:grid-cols-[272px,1fr]">
+              <div className="grid gap-3 lg:grid-cols-[272px,1fr]">
                 <div className="rounded-lg border border-slate-200 bg-white">
                   <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2">
                     <div>
                       <h4 className="text-[15px] font-bold text-slate-900">Chọn nhân sự áp dụng</h4>
-                      <p className="text-[13px] text-slate-500">{selectedMemberIds.length} người đang được chọn</p>
                     </div>
                     <button
                       type="button"
@@ -1126,9 +1031,6 @@ const SalesKPIs: React.FC = () => {
                 <div className="rounded-lg border border-slate-200 bg-white">
                   <div className="border-b border-slate-200 px-3 py-2">
                     <h4 className="text-[15px] font-bold text-slate-900">Nhập mục tiêu</h4>
-                    <p className="text-[13px] text-slate-500">
-                      Mỗi dòng gồm doanh thu mục tiêu và số hợp đồng mục tiêu cho từng nhân sự.
-                    </p>
                   </div>
 
                   <div className="max-h-[480px] overflow-auto">
@@ -1160,7 +1062,6 @@ const SalesKPIs: React.FC = () => {
                               <tr key={memberId}>
                                 <td className="px-3 py-2.5">
                                   <div className="text-[15px] font-semibold text-slate-900">{member?.name || memberId}</div>
-                                  <div className="text-[13px] text-slate-500">{member?.branch || 'Chưa xác định'}</div>
                                 </td>
                                 <td className="px-3 py-2.5 text-[13px] font-semibold text-slate-700">
                                   {member?.teamName || 'Chưa gán team'}
@@ -1200,10 +1101,7 @@ const SalesKPIs: React.FC = () => {
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-4 py-2.5">
-              <div className="text-[13px] text-slate-500">
-                KPI sẽ được lưu theo <span className="font-semibold text-slate-800">{getPeriodLabel(draftPeriod)}</span>.
-              </div>
+            <div className="flex flex-wrap items-center justify-end gap-3 border-t border-slate-200 px-4 py-2.5">
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"

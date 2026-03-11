@@ -24,6 +24,7 @@ import Students from './pages/Students';
 import StudentList from './pages/StudentList';
 import StudentProfile from './pages/StudentProfile';
 import Contracts from './pages/Contracts';
+import EnrollmentContracts from './pages/EnrollmentContracts';
 import ContractDashboard from './pages/ContractDashboard';
 import Quotations from './pages/Quotations';
 import QuotationDetails from './pages/QuotationDetails';
@@ -104,7 +105,7 @@ const AppRoutes = () => {
   return (
     <Routes>
       <Route path="/login" element={isAuthenticated ? <Navigate to="/" replace /> : <LoginPage />} />
-      <Route path="/module-selection" element={isAuthenticated ? <Navigate to="/" replace /> : <ModuleSelectionPage />} />
+      <Route path="/module-selection" element={<ModuleSelectionPage />} />
 
       <Route element={<ProtectedRoute />}>
         <Route path="/" element={<Layout />}>
@@ -152,6 +153,7 @@ const AppRoutes = () => {
           {/* Contracts Module */}
           <Route path="contracts/dashboard" element={<ContractDashboard />} />
           <Route path="contracts" element={<Contracts />} />
+          <Route path="contracts/contracts-list" element={<EnrollmentContracts />} />
           <Route path="contracts/quotations" element={<Quotations />} />
           <Route path="contracts/quotations/:id/contract" element={<ContractPreview />} />
           <Route path="contracts/quotations/:id" element={<QuotationDetails />} />

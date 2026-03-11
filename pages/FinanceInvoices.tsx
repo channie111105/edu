@@ -1,11 +1,12 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect, useMemo } from 'react';
 import {
-   Search, FileText, Send, Download, Printer, MoreHorizontal, Filter,
+   FileText, Send, Download, Printer, MoreHorizontal, Filter,
    ChevronLeft, ChevronRight, CheckCircle2, Clock, AlertCircle, Plus, X
 } from 'lucide-react';
 import { IInvoice, InvoiceStatus, UserRole } from '../types';
 import { getInvoices, addInvoice, updateInvoice, getQuotations } from '../utils/storage';
 import { useAuth } from '../contexts/AuthContext';
+import PinnedSearchInput, { PinnedSearchChip } from '../components/PinnedSearchInput';
 
 const FinanceInvoices: React.FC = () => {
    const { user } = useAuth();
@@ -93,6 +94,35 @@ const FinanceInvoices: React.FC = () => {
       return matchesTab && matchesSearch;
    });
 
+   const tabLabelMap: Record<string, string> = {
+      ALL: 'Tất cả',
+      [InvoiceStatus.DRAFT]: 'Nháp',
+      [InvoiceStatus.SENT]: 'Đã gửi',
+      [InvoiceStatus.PRINTED]: 'Đã in',
+      [InvoiceStatus.CANCELLED]: 'Đã hủy'
+   };
+
+   const activeSearchChips = useMemo<PinnedSearchChip[]>(() => {
+      if (activeTab === 'ALL') return [];
+      return [
+         {
+            key: 'status',
+            label: `Trạng thái: ${tabLabelMap[activeTab] || activeTab}`
+         }
+      ];
+   }, [activeTab]);
+
+   const removeSearchChip = (chipKey: string) => {
+      if (chipKey === 'status') {
+         setActiveTab('ALL');
+      }
+   };
+
+   const clearAllSearchFilters = () => {
+      setSearchTerm('');
+      setActiveTab('ALL');
+   };
+
    // Get locked SOs for dropdown
    const lockedSOs = getQuotations()?.filter(q => q.status === 'Locked' || q.status === 'Sale Order') || [];
 
@@ -128,14 +158,16 @@ const FinanceInvoices: React.FC = () => {
 
             {/* Filters */}
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm mb-6 flex flex-wrap items-center gap-4">
-               <div className="relative flex-1 min-w-[300px]">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                  <input
-                     type="text"
-                     placeholder="Tìm theo mã hóa đơn, tên học viên..."
+               <div className="flex-1 min-w-[300px]">
+                  <PinnedSearchInput
                      value={searchTerm}
-                     onChange={(e) => setSearchTerm(e.target.value)}
-                     className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                     onChange={setSearchTerm}
+                     placeholder="Tìm theo mã hóa đơn, tên học viên..."
+                     chips={activeSearchChips}
+                     onRemoveChip={removeSearchChip}
+                     onClearAll={clearAllSearchFilters}
+                     clearAllAriaLabel="Xóa tất cả bộ lọc hóa đơn"
+                     inputClassName="text-sm h-7"
                   />
                </div>
                <div className="flex gap-2">

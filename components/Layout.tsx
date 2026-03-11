@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { NAV_ITEMS, APP_NAME } from '../constants';
-import { LogOut, Menu, X, User as UserIcon } from 'lucide-react';
+import { ArrowLeft, LogOut, Menu, X, User as UserIcon } from 'lucide-react';
 
 const Layout: React.FC = () => {
   const { user, logout } = useAuth();
@@ -15,6 +15,11 @@ const Layout: React.FC = () => {
   const handleLogout = () => {
     logout();
     navigate('/login');
+  };
+
+  const handleBackToModules = () => {
+    setIsMobileMenuOpen(false);
+    navigate('/module-selection');
   };
 
   const visibleNavItems = NAV_ITEMS.filter(item => {
@@ -100,6 +105,13 @@ const Layout: React.FC = () => {
                 <p className="text-xs text-slate-500 truncate">{user.role}</p>
               </div>
             </div>
+            <button
+              onClick={handleBackToModules}
+              className="w-full mb-2 flex items-center justify-center gap-2 px-4 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg text-sm font-medium transition-colors"
+            >
+              <ArrowLeft size={18} />
+              Back
+            </button>
             <button
               onClick={handleLogout}
               className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-slate-50 hover:bg-slate-100 text-slate-700 rounded-lg text-sm font-medium transition-colors"

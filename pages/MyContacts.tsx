@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getContacts, getStudents, getContracts, addContact, saveContact } from '../utils/storage';
 import {
-    Search,
     Phone,
     Mail,
     Plus,
@@ -20,6 +19,7 @@ import {
 import ContactDrawer from '../components/ContactDrawer';
 import CreateContactModal from '../components/CreateContactModal';
 import Toast from '../components/Toast';
+import PinnedSearchInput, { PinnedSearchChip } from '../components/PinnedSearchInput';
 import { IContact, ContractStatus } from '../types';
 
 type ContactFilter = 'all' | 'debt' | 'student' | 'signed';
@@ -159,6 +159,29 @@ const MyContacts: React.FC = () => {
                 return bTime - aTime;
             });
     }, [contacts, searchTerm, filterType, studentByPhone, signedCountByName, debtByName]);
+
+    const filterTypeLabelMap: Record<ContactFilter, string> = {
+        all: 'Tat ca',
+        student: 'Hoc sinh',
+        signed: 'Da ky hop dong',
+        debt: 'Co cong no'
+    };
+
+    const activeSearchChips = useMemo<PinnedSearchChip[]>(() => {
+        if (filterType === 'all') return [];
+        return [
+            {
+                key: 'filterType',
+                label: `Bo loc: ${filterTypeLabelMap[filterType]}`
+            }
+        ];
+    }, [filterType]);
+
+    const removeSearchChip = (chipKey: string) => {
+        if (chipKey === 'filterType') {
+            setFilterType('all');
+        }
+    };
 
     const handleSaveContact = (contactData: Partial<IContact>, createNew: boolean) => {
         try {
@@ -428,14 +451,14 @@ const MyContacts: React.FC = () => {
 
             <div className="bg-white border border-slate-200 rounded-xl p-3 mb-4 shadow-sm">
                 <div className="flex flex-wrap items-center gap-2">
-                    <div className="relative flex-1 min-w-[280px]">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                        <input
-                            type="text"
-                            placeholder="Tìm kiếm theo tên, số điện thoại, email..."
-                            className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-50 focus:border-blue-300 outline-none transition-all"
+                    <div className="flex-1 min-w-[280px]">
+                        <PinnedSearchInput
                             value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
+                            onChange={setSearchTerm}
+                            placeholder="Tim kiem theo ten, so dien thoai, email..."
+                            chips={activeSearchChips}
+                            onRemoveChip={removeSearchChip}
+                            inputClassName="text-sm h-7"
                         />
                     </div>
 

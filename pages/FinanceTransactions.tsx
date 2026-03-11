@@ -1,9 +1,10 @@
 ﻿import React, { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, Lock, Search, XCircle, Unlock } from 'lucide-react';
+import { CheckCircle2, Lock, XCircle, Unlock } from 'lucide-react';
 import { IQuotation, ITransaction, QuotationStatus, UserRole } from '../types';
 import { getQuotations, getTransactions } from '../utils/storage';
 import { approveTransaction, lockQuotationAfterAccounting, rejectTransaction, unlockQuotationAfterAccounting } from '../services/financeFlow.service';
 import { useAuth } from '../contexts/AuthContext';
+import PinnedSearchInput, { PinnedSearchChip } from '../components/PinnedSearchInput';
 
 const FinanceTransactions: React.FC = () => {
   const { user } = useAuth();
@@ -43,6 +44,34 @@ const FinanceTransactions: React.FC = () => {
         .includes(q);
     });
   }, [transactions, statusFilter, search]);
+
+  const statusLabelMap: Record<'ALL' | ITransaction['status'], string> = {
+    ALL: 'Tất cả',
+    CHO_DUYET: 'Chờ duyệt',
+    DA_DUYET: 'Đã duyệt',
+    TU_CHOI: 'Từ chối'
+  };
+
+  const activeSearchChips = useMemo<PinnedSearchChip[]>(() => {
+    if (statusFilter === 'ALL') return [];
+    return [
+      {
+        key: 'status',
+        label: `Trạng thái: ${statusLabelMap[statusFilter]}`
+      }
+    ];
+  }, [statusFilter]);
+
+  const removeSearchChip = (chipKey: string) => {
+    if (chipKey === 'status') {
+      setStatusFilter('ALL');
+    }
+  };
+
+  const clearAllSearchFilters = () => {
+    setSearch('');
+    setStatusFilter('ALL');
+  };
 
   const statusBadge = (status: ITransaction['status']) => {
     if (status === 'CHO_DUYET') return <span className="px-2 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-700">CHO_DUYET</span>;
@@ -121,13 +150,16 @@ const FinanceTransactions: React.FC = () => {
         <button onClick={() => setStatusFilter('TU_CHOI')} className={`px-3 py-1.5 rounded text-sm font-semibold ${statusFilter === 'TU_CHOI' ? 'bg-rose-600 text-white' : 'bg-slate-100 text-slate-600'}`}>Từ chối</button>
       </div>
 
-      <div className="relative mb-4 max-w-md">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-        <input
+      <div className="mb-4 max-w-2xl">
+        <PinnedSearchInput
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={setSearch}
           placeholder="Tìm theo SO, học viên, mã UNC..."
-          className="w-full pl-9 pr-4 py-2 border border-slate-300 rounded-lg"
+          chips={activeSearchChips}
+          onRemoveChip={removeSearchChip}
+          onClearAll={clearAllSearchFilters}
+          clearAllAriaLabel="Xóa tất cả bộ lọc duyệt giao dịch"
+          inputClassName="text-sm h-7"
         />
       </div>
 

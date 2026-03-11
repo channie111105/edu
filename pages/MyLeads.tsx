@@ -140,6 +140,15 @@ const MyLeads: React.FC = () => {
       source: 'Nguồn',
    };
 
+   const statusFilterLabels: Record<string, string> = {
+      overdue: 'DS qua han',
+      today_care: 'Cham soc hom nay',
+      [LeadStatus.NEW]: 'Cho tiep nhan',
+      [LeadStatus.CONTACTED]: 'Dang lien he',
+      [LeadStatus.QUALIFIED]: 'Dat',
+      [DealStage.LOST]: 'Mat'
+   };
+
    const toggleColumn = (columnId: string) => {
       setVisibleColumns(prev =>
          prev.includes(columnId)
@@ -824,11 +833,11 @@ const MyLeads: React.FC = () => {
          });
       }
 
-      if (statusFilterSource === 'advanced' && statusFilter !== 'all') {
+      if (statusFilter !== 'all') {
          chips.push({
             field: 'advanced_status',
-            label: 'Trạng thái',
-            value: String(statusFilter),
+            label: 'Trang thai',
+            value: statusFilterLabels[statusFilter] || String(statusFilter),
             type: 'filter',
             origin: 'synthetic',
             syntheticKey: 'status',
@@ -879,7 +888,7 @@ const MyLeads: React.FC = () => {
       groupBy,
       groupByLabels,
       statusFilter,
-      statusFilterSource,
+      statusFilterLabels,
       timeFilterField,
       timeFieldOptions,
       timePresets,
@@ -929,10 +938,8 @@ const MyLeads: React.FC = () => {
       setTimeRangeType('all');
       setCustomRange(null);
       setShowTimePicker(false);
-      if (statusFilterSource === 'advanced') {
-         setStatusFilter('all');
-         setStatusFilterSource(null);
-      }
+      setStatusFilter('all');
+      setStatusFilterSource(null);
    };
 
    const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {

@@ -48,14 +48,14 @@ const MONTH_LABELS = [
 const DAY_LABELS = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
 
 const PRESET_OPTIONS: Array<{ key: PresetKey; label: string }> = [
-  { key: 'today', label: 'Today' },
-  { key: 'yesterday', label: 'Yesterday' },
-  { key: 'thisWeek', label: 'This Week' },
-  { key: 'last7Days', label: 'Last 7 Days' },
-  { key: 'last30Days', label: 'Last 30 Days' },
-  { key: 'thisMonth', label: 'This Month' },
-  { key: 'lastMonth', label: 'Last Month' },
-  { key: 'custom', label: 'Custom Range' }
+  { key: 'today', label: 'Hôm nay' },
+  { key: 'yesterday', label: 'Hôm qua' },
+  { key: 'thisWeek', label: 'Tuần này' },
+  { key: 'last7Days', label: '7 ngày qua' },
+  { key: 'last30Days', label: '30 ngày qua' },
+  { key: 'thisMonth', label: 'Tháng này' },
+  { key: 'lastMonth', label: 'Tháng trước' },
+  { key: 'custom', label: 'Tùy chọn' }
 ];
 
 const EMPTY_RANGE: DateRange = { startDate: null, endDate: null, label: 'Tùy chọn' };
@@ -93,36 +93,36 @@ const getPresetRange = (presetKey: Exclude<PresetKey, 'custom'>): DateRange => {
 
   switch (presetKey) {
     case 'today':
-      return { startDate: todayStart, endDate: todayEnd, label: 'Today' };
+      return { startDate: todayStart, endDate: todayEnd, label: 'Hôm nay' };
     case 'yesterday': {
       const yesterday = new Date(todayStart);
       yesterday.setDate(yesterday.getDate() - 1);
-      return { startDate: yesterday, endDate: endOfDay(yesterday), label: 'Yesterday' };
+      return { startDate: yesterday, endDate: endOfDay(yesterday), label: 'Hôm qua' };
     }
     case 'thisWeek': {
       const start = new Date(todayStart);
       const dayOfWeek = start.getDay() === 0 ? 7 : start.getDay();
       start.setDate(start.getDate() - dayOfWeek + 1);
-      return { startDate: start, endDate: todayEnd, label: 'This Week' };
+      return { startDate: start, endDate: todayEnd, label: 'Tuần này' };
     }
     case 'last7Days': {
       const start = new Date(todayStart);
       start.setDate(start.getDate() - 6);
-      return { startDate: start, endDate: todayEnd, label: 'Last 7 Days' };
+      return { startDate: start, endDate: todayEnd, label: '7 ngày qua' };
     }
     case 'last30Days': {
       const start = new Date(todayStart);
       start.setDate(start.getDate() - 29);
-      return { startDate: start, endDate: todayEnd, label: 'Last 30 Days' };
+      return { startDate: start, endDate: todayEnd, label: '30 ngày qua' };
     }
     case 'thisMonth': {
       const start = new Date(now.getFullYear(), now.getMonth(), 1);
-      return { startDate: start, endDate: todayEnd, label: 'This Month' };
+      return { startDate: start, endDate: todayEnd, label: 'Tháng này' };
     }
     case 'lastMonth': {
       const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
       const end = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
-      return { startDate: start, endDate: end, label: 'Last Month' };
+      return { startDate: start, endDate: end, label: 'Tháng trước' };
     }
   }
 };
@@ -309,7 +309,7 @@ const AdvancedDateFilter: React.FC<AdvancedDateFilterProps> = ({
     const days: React.ReactNode[] = [];
 
     for (let index = 0; index < firstDay; index += 1) {
-      days.push(<div key={`empty-${offset}-${index}`} className="h-9 w-9" />);
+      days.push(<div key={`empty-${offset}-${index}`} className="h-7 w-7" />);
     }
 
     for (let day = 1; day <= daysInMonth; day += 1) {
@@ -322,7 +322,7 @@ const AdvancedDateFilter: React.FC<AdvancedDateFilterProps> = ({
           key={`${offset}-${day}`}
           type="button"
           onClick={() => handleDateClick(date)}
-          className={`relative z-10 flex h-9 w-9 items-center justify-center rounded-md text-sm transition-colors ${
+          className={`relative z-10 flex h-7 w-7 items-center justify-center rounded-md text-xs transition-colors ${
             selected
               ? 'bg-blue-600 font-bold text-white'
               : inRange
@@ -336,8 +336,8 @@ const AdvancedDateFilter: React.FC<AdvancedDateFilterProps> = ({
     }
 
     return (
-      <div className="w-[286px] p-3">
-        <div className="mb-3 flex items-center justify-between gap-2">
+      <div className="w-[228px] p-2">
+        <div className="mb-1.5 flex items-center justify-between gap-1.5">
           <div className="flex items-center gap-1">
             {offset === 0 ? (
               <button
@@ -348,13 +348,13 @@ const AdvancedDateFilter: React.FC<AdvancedDateFilterProps> = ({
                 <ChevronLeft size={16} />
               </button>
             ) : (
-              <div className="h-8 w-8" />
+              <div className="h-7 w-7" />
             )}
 
             <select
               value={month}
               onChange={(event) => setCalendarMonthYear(offset, Number(event.target.value), year)}
-              className="rounded-md border border-slate-200 px-2 py-1 text-sm font-semibold text-slate-700 outline-none"
+              className="rounded-md border border-slate-200 px-1.5 py-0.5 text-xs font-semibold text-slate-700 outline-none"
             >
               {MONTH_LABELS.map((item, index) => (
                 <option key={item} value={index}>
@@ -366,7 +366,7 @@ const AdvancedDateFilter: React.FC<AdvancedDateFilterProps> = ({
             <select
               value={year}
               onChange={(event) => setCalendarMonthYear(offset, month, Number(event.target.value))}
-              className="rounded-md border border-slate-200 px-2 py-1 text-sm font-semibold text-slate-700 outline-none"
+              className="rounded-md border border-slate-200 px-1.5 py-0.5 text-xs font-semibold text-slate-700 outline-none"
             >
               {yearOptions.map((item) => (
                 <option key={item} value={item}>
@@ -385,17 +385,17 @@ const AdvancedDateFilter: React.FC<AdvancedDateFilterProps> = ({
               <ChevronRight size={16} />
             </button>
           ) : (
-            <div className="h-8 w-8" />
+            <div className="h-7 w-7" />
           )}
         </div>
 
-        <div className="mb-2 grid grid-cols-7 justify-items-center text-[11px] font-semibold text-slate-400">
+        <div className="mb-1.5 grid grid-cols-7 justify-items-center text-[10px] font-semibold text-slate-400">
           {DAY_LABELS.map((day) => (
             <span key={`${offset}-${day}`}>{day}</span>
           ))}
         </div>
 
-        <div className="grid grid-cols-7 justify-items-center gap-y-1">{days}</div>
+        <div className="grid grid-cols-7 justify-items-center gap-y-0">{days}</div>
       </div>
     );
   };
@@ -434,18 +434,18 @@ const AdvancedDateFilter: React.FC<AdvancedDateFilterProps> = ({
         >
           <div
             className={`flex max-w-[calc(100vw-32px)] flex-col bg-white ${
-              showPresets ? 'md:min-w-[860px] md:flex-row' : 'md:w-[572px]'
+              showPresets ? 'md:flex-row' : 'md:w-[456px]'
             }`}
           >
             {showPresets ? (
-              <div className="border-b border-slate-100 bg-slate-50/70 md:w-[172px] md:border-b-0 md:border-r">
-                <div className="flex flex-col gap-1 p-3">
+              <div className="border-b border-slate-100 bg-slate-50/70 md:w-[136px] md:border-b-0 md:border-r">
+                <div className="flex flex-col gap-1 p-2">
                   {PRESET_OPTIONS.map((preset) => (
                     <button
                       key={preset.key}
                       type="button"
                       onClick={() => handlePresetSelect(preset.key)}
-                      className={`rounded-lg px-3 py-2 text-left text-[13px] font-medium transition-colors ${
+                      className={`rounded-lg px-2.5 py-1.5 text-left text-[12px] font-medium transition-colors ${
                         selectedPreset === preset.key
                           ? 'bg-blue-600 text-white'
                           : 'text-slate-600 hover:bg-white hover:text-slate-900'
@@ -458,20 +458,20 @@ const AdvancedDateFilter: React.FC<AdvancedDateFilterProps> = ({
               </div>
             ) : null}
 
-            <div className="flex min-w-0 flex-1 flex-col">
+            <div className="flex min-w-0 w-full flex-col md:w-[456px]">
               <div className="flex flex-col divide-y divide-slate-100 md:flex-row md:divide-x md:divide-y-0">
                 {renderCalendar(0)}
                 {renderCalendar(1)}
               </div>
 
-              <div className="flex flex-col gap-3 border-t border-slate-100 px-4 py-3 md:flex-row md:items-center md:justify-between md:px-5">
+              <div className="flex flex-col gap-2 border-t border-slate-100 px-3 py-2 md:flex-row md:items-center md:justify-between md:px-3.5">
                 <div className="text-xs font-medium text-slate-500">{tempRangeLabel}</div>
 
                 <div className="flex items-center justify-end gap-2">
                   <button
                     type="button"
                     onClick={() => setOpen(false)}
-                    className="rounded-md border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50"
+                    className="rounded-md border border-slate-200 px-2.5 py-1 text-xs font-bold text-slate-600 hover:bg-slate-50"
                   >
                     Hủy
                   </button>
@@ -479,7 +479,7 @@ const AdvancedDateFilter: React.FC<AdvancedDateFilterProps> = ({
                     type="button"
                     onClick={handleApply}
                     disabled={!tempRange.startDate || !tempRange.endDate}
-                    className="rounded-md bg-emerald-500 px-3 py-1.5 text-xs font-bold text-white shadow-sm hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-40"
+                    className="rounded-md bg-emerald-500 px-2.5 py-1 text-xs font-bold text-white shadow-sm hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     Áp dụng
                   </button>

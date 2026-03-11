@@ -3,7 +3,6 @@ import {
   ArrowLeft,
   Plus,
   Filter,
-  Search,
   FileText,
   History
 } from 'lucide-react';
@@ -18,6 +17,7 @@ import {
   saveActualTransactions,
   updateActualTransaction
 } from '../utils/storage';
+import PinnedSearchInput, { PinnedSearchChip } from '../components/PinnedSearchInput';
 
 const OUT_STATUSES: TransactionStatus[] = ['PROPOSED', 'APPROVED', 'PAID'];
 const IN_STATUSES: TransactionStatus[] = ['PLANNED', 'RECEIVED'];
@@ -217,6 +217,48 @@ const FinanceMoneyOut: React.FC = () => {
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [transactions, typeFilter, statusFilter, searchTerm]);
 
+  const typeLabelMap: Record<'ALL' | TransactionType, string> = {
+    ALL: 'Tất cả',
+    IN: TYPE_META.IN.label,
+    OUT: TYPE_META.OUT.label
+  };
+
+  const activeSearchChips = useMemo<PinnedSearchChip[]>(() => {
+    const chips: PinnedSearchChip[] = [];
+
+    if (typeFilter !== 'ALL') {
+      chips.push({
+        key: 'type',
+        label: `Loại: ${typeLabelMap[typeFilter]}`
+      });
+    }
+
+    if (statusFilter !== 'ALL') {
+      chips.push({
+        key: 'status',
+        label: `Trạng thái: ${STATUS_META[statusFilter].label}`
+      });
+    }
+
+    return chips;
+  }, [typeFilter, statusFilter]);
+
+  const removeSearchChip = (chipKey: string) => {
+    if (chipKey === 'type') {
+      setTypeFilter('ALL');
+      return;
+    }
+    if (chipKey === 'status') {
+      setStatusFilter('ALL');
+    }
+  };
+
+  const clearAllSearchFilters = () => {
+    setSearchTerm('');
+    setTypeFilter('ALL');
+    setStatusFilter('ALL');
+  };
+
   const getAllowedStatuses = (type: TransactionType) => (type === 'OUT' ? OUT_STATUSES : IN_STATUSES);
 
   const createLog = (transactionId: string, action: IActualTransactionLog['action'], message: string) => {
@@ -295,8 +337,8 @@ const FinanceMoneyOut: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col h-full bg-[#f8fafc] text-[#111418] font-sans overflow-hidden">
-      <div className="flex flex-col flex-1 overflow-y-auto p-6 lg:p-8 max-w-[1600px] mx-auto w-full">
+    <div className="bg-[#f8fafc] text-[#111418] font-sans">
+      <div className="p-6 lg:p-8 max-w-[1600px] mx-auto w-full">
         <div className="flex items-center gap-4 mb-6">
           <button onClick={() => navigate(-1)} className="p-2 hover:bg-slate-200 rounded-full transition-colors">
             <ArrowLeft size={24} className="text-slate-600" />
@@ -311,14 +353,16 @@ const FinanceMoneyOut: React.FC = () => {
 
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="p-4 border-b border-slate-200 flex flex-wrap lg:flex-nowrap items-center gap-2 bg-slate-50">
-            <div className="relative flex-1 min-w-[260px]">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-              <input
-                type="text"
+            <div className="flex-1 min-w-[260px]">
+              <PinnedSearchInput
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={setSearchTerm}
                 placeholder="Tìm theo tên khoản, chứng từ, bộ phận..."
-                className="pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm w-full focus:ring-2 focus:ring-blue-500 outline-none"
+                chips={activeSearchChips}
+                onRemoveChip={removeSearchChip}
+                onClearAll={clearAllSearchFilters}
+                clearAllAriaLabel="Xóa tất cả bộ lọc thu chi"
+                inputClassName="text-sm h-7"
               />
             </div>
 

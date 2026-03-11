@@ -1,9 +1,10 @@
 ﻿import React, { useEffect, useMemo, useState } from 'react';
-import { AlertCircle, CheckCircle2, GraduationCap, Search } from 'lucide-react';
+import { AlertCircle, CheckCircle2, GraduationCap } from 'lucide-react';
 import { IAdmission, IQuotation, IStudent, QuotationStatus, StudentStatus } from '../types';
 import { getAdmissions, getQuotations, getStudents } from '../utils/storage';
 import { createAdmission } from '../services/enrollmentFlow.service';
 import { useAuth } from '../contexts/AuthContext';
+import PinnedSearchInput, { PinnedSearchChip } from '../components/PinnedSearchInput';
 
 const MOCK_CLASSES = ['GER-A1-K35', 'GER-A1-K36', 'GER-B1-K12', 'AUS-COOK-K01'];
 const MOCK_CAMPUSES = ['Ha Noi', 'HCM', 'Da Nang'];
@@ -53,6 +54,33 @@ const Students: React.FC = () => {
       return statusOk && searchOk;
     });
   }, [students, filter, search]);
+
+  const filterLabelMap: Record<'ALL' | 'CHUA_GHI_DANH' | 'DA_GHI_DANH', string> = {
+    ALL: 'Tat ca',
+    CHUA_GHI_DANH: 'Chua ghi danh',
+    DA_GHI_DANH: 'Da ghi danh'
+  };
+
+  const activeSearchChips = useMemo<PinnedSearchChip[]>(() => {
+    if (filter === 'ALL') return [];
+    return [
+      {
+        key: 'enrollmentStatus',
+        label: `Trang thai: ${filterLabelMap[filter]}`
+      }
+    ];
+  }, [filter]);
+
+  const removeSearchChip = (chipKey: string) => {
+    if (chipKey === 'enrollmentStatus') {
+      setFilter('ALL');
+    }
+  };
+
+  const clearAllSearchFilters = () => {
+    setSearch('');
+    setFilter('ALL');
+  };
 
   const openEnroll = (student: IStudent) => {
     const lockedQuotation = quotations.find((q) => q.studentId === student.id && q.status === QuotationStatus.LOCKED);
@@ -112,14 +140,16 @@ const Students: React.FC = () => {
         <button onClick={() => setFilter('ALL')} className={`px-4 py-2 rounded-md text-sm font-bold ${filter === 'ALL' ? 'bg-white text-slate-900' : 'text-slate-500'}`}>Tat ca</button>
       </div>
 
-      <div className="relative mb-6 max-w-md">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-        <input
-          type="text"
+      <div className="mb-6 max-w-2xl">
+        <PinnedSearchInput
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={setSearch}
           placeholder="Tim theo ten, ma, SDT..."
-          className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
+          chips={activeSearchChips}
+          onRemoveChip={removeSearchChip}
+          onClearAll={clearAllSearchFilters}
+          clearAllAriaLabel="Xoa tat ca bo loc hoc vien"
+          inputClassName="text-sm h-7"
         />
       </div>
 

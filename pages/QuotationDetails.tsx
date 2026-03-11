@@ -1,7 +1,7 @@
 ﻿import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Save, CheckCircle2, Printer, ChevronRight, ChevronDown, FileText, Link2, Lock } from 'lucide-react';
-import { IContract, IQuotation, QuotationStatus, UserRole } from '../types';
+import { IContract, IQuotation, IQuotationLogNote, QuotationStatus, UserRole } from '../types';
 import { addQuotation, getContacts, getContractByQuotationId, getDealById, getLeadById, getLeads, getQuotations, updateContract, updateQuotation, upsertLinkedContractFromQuotation } from '../utils/storage';
 import { useAuth } from '../contexts/AuthContext';
 import { confirmSale, lockQuotationAfterAccounting } from '../services/financeFlow.service';
@@ -85,6 +85,100 @@ const formatDisplayDate = (value?: string) => {
 };
 
 const formatCurrency = (value?: number) => `${(value || 0).toLocaleString('vi-VN')} đ`;
+
+const QUOTATION_AUDIT_FIELD_LABELS: Partial<Record<keyof IQuotation, string>> = {
+  customerName: 'Khách hàng',
+  product: 'Sản phẩm',
+  amount: 'Tổng tiền',
+  discount: 'Chiết khấu',
+  finalAmount: 'Thành tiền',
+  paymentMethod: 'Phương thức thanh toán',
+  paymentProof: 'Chứng từ thanh toán',
+  classCode: 'Mã lớp dự kiến',
+  schedule: 'Lịch học',
+  identityCard: 'CCCD',
+  studentPhone: 'Số điện thoại',
+  studentEmail: 'Email',
+  studentDob: 'Ngày sinh',
+  studentAddress: 'Địa chỉ',
+  guardianName: 'Người bảo hộ',
+  guardianPhone: 'SĐT người bảo hộ',
+  branchName: 'Chi nhánh',
+  status: 'Trạng thái SO',
+  transactionStatus: 'Trạng thái giao dịch',
+  contractStatus: 'Trạng thái hợp đồng',
+  serviceType: 'Loại dịch vụ'
+};
+
+const QUOTATION_AUDIT_FIELDS: (keyof IQuotation)[] = [
+  'customerName',
+  'product',
+  'amount',
+  'discount',
+  'finalAmount',
+  'paymentMethod',
+  'paymentProof',
+  'classCode',
+  'schedule',
+  'identityCard',
+  'studentPhone',
+  'studentEmail',
+  'studentDob',
+  'studentAddress',
+  'guardianName',
+  'guardianPhone',
+  'branchName',
+  'serviceType',
+  'status',
+  'transactionStatus',
+  'contractStatus'
+];
+
+const formatAuditValue = (value: unknown) => {
+  if (value === null || value === undefined || value === '') return '(Trống)';
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+};
+
+const buildQuotationAuditLogNote = (
+  before: IQuotation | undefined,
+  after: IQuotation,
+  actor: string
+): IQuotationLogNote | null => {
+  const timestamp = new Date().toISOString();
+
+  if (!before) {
+    return {
+      id: `q-log-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      timestamp,
+      user: actor,
+      action: 'Tạo SO',
+      detail: `Khởi tạo ${after.soCode || 'SO mới'}`
+    };
+  }
+
+  const changes: string[] = [];
+  for (const field of QUOTATION_AUDIT_FIELDS) {
+    const oldValue = (before as any)[field];
+    const newValue = (after as any)[field];
+    if (JSON.stringify(oldValue) === JSON.stringify(newValue)) continue;
+    const label = QUOTATION_AUDIT_FIELD_LABELS[field] || String(field);
+    changes.push(`${label}: ${formatAuditValue(oldValue)} -> ${formatAuditValue(newValue)}`);
+  }
+
+  if (changes.length === 0) return null;
+
+  const shortDetail = changes.slice(0, 6).join(' | ');
+  const remaining = changes.length - 6;
+
+  return {
+    id: `q-log-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    timestamp,
+    user: actor,
+    action: 'Cập nhật SO',
+    detail: remaining > 0 ? `${shortDetail} | +${remaining} thay đổi khác` : shortDetail
+  };
+};
 
 const normalizeImportToken = (value: string) =>
   value
@@ -438,6 +532,7 @@ const QuotationDetails: React.FC = () => {
     const now = new Date().toISOString();
     const quotationDate = formData.quotationDate || formData.createdAt || now;
     const existing = formData.id ? getQuotations().find((quotation) => quotation.id === formData.id) : undefined;
+    const actor = user?.name || user?.id || 'system';
 
     let dataToSave: IQuotation = {
       ...existing,
@@ -460,6 +555,17 @@ const QuotationDetails: React.FC = () => {
       status: nextStatus,
       id: formData.id || `Q-${Date.now()}`,
       soCode: formData.soCode || `SO${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`
+    };
+
+    const baseLogNotes = Array.isArray(formData.logNotes)
+      ? formData.logNotes
+      : Array.isArray(existing?.logNotes)
+        ? existing.logNotes
+        : [];
+    const auditLog = buildQuotationAuditLogNote(existing, dataToSave, actor);
+    dataToSave = {
+      ...dataToSave,
+      logNotes: auditLog ? [auditLog, ...baseLogNotes] : baseLogNotes
     };
 
     if (existing) updateQuotation(dataToSave);
@@ -707,7 +813,7 @@ const QuotationDetails: React.FC = () => {
   const handleSaveContractDraft = () => {
     const savedQuotation = persistQuotation({ syncContract: false });
     syncLinkedContract(savedQuotation);
-    alert('Đã lưu dữ liệu hợp đồng tách riêng để in theo mẫu');
+    alert('Đã lưu dữ liệu hợp đồng tách riêng và đồng bộ vào trang Hợp đồng');
   };
 
   const activityLogs = useMemo(() => {
@@ -792,6 +898,9 @@ const QuotationDetails: React.FC = () => {
             )}
             <button onClick={handleSaveContractDraft} className="px-3 py-1.5 rounded border border-slate-200 bg-slate-50 text-xs font-semibold text-slate-700 inline-flex items-center gap-1">
               <FileText size={13} /> Lưu hợp đồng
+            </button>
+            <button onClick={() => navigate('/contracts/contracts-list')} className="px-3 py-1.5 rounded border border-slate-200 bg-white text-xs font-semibold text-slate-700 inline-flex items-center gap-1">
+              <FileText size={13} /> DS hợp đồng
             </button>
             {formData.status === QuotationStatus.LOCKED && (
               <button onClick={() => navigate(`/contracts/quotations/${formData.id}/contract`)} className="px-3 py-1.5 rounded bg-blue-600 text-white text-xs font-semibold inline-flex items-center gap-1">
@@ -1236,6 +1345,9 @@ guardianPhone: 0909999999`}
                     <div className="flex flex-wrap gap-2">
                       <button type="button" onClick={handleSaveContractDraft} className="inline-flex items-center gap-2 rounded bg-blue-600 px-4 py-2 text-xs font-semibold text-white">
                         <Save size={14} /> Lưu contract riêng
+                      </button>
+                      <button type="button" onClick={() => navigate('/contracts/contracts-list')} className="inline-flex items-center gap-2 rounded border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700">
+                        <FileText size={14} /> Danh sách hợp đồng
                       </button>
                       {formData.status === QuotationStatus.LOCKED && (
                         <button type="button" onClick={() => navigate(`/contracts/quotations/${formData.id}/contract`)} className="inline-flex items-center gap-2 rounded border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700">

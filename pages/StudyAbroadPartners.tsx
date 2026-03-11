@@ -1,6 +1,5 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
-  Search,
   Plus,
   ChevronDown,
   ChevronUp,
@@ -14,6 +13,7 @@ import {
   BookOpen,
   School
 } from 'lucide-react';
+import PinnedSearchInput, { PinnedSearchChip } from '../components/PinnedSearchInput';
 
 type PartnerLevel = 'GOLD' | 'SILVER' | 'PREMIUM';
 
@@ -144,6 +144,8 @@ const PARTNERS: IStudyAbroadPartner[] = [
 const StudyAbroadPartners: React.FC = () => {
   const [expandedId, setExpandedId] = useState<number | null>(1); // Default expand first one
   const [searchTerm, setSearchTerm] = useState('');
+  const [countryFilter, setCountryFilter] = useState<'ALL' | IStudyAbroadPartner['country']>('ALL');
+  const [levelFilter, setLevelFilter] = useState<'ALL' | PartnerLevel>('ALL');
 
   const toggleExpand = (id: number) => {
     setExpandedId(expandedId === id ? null : id);
@@ -162,6 +164,68 @@ const StudyAbroadPartners: React.FC = () => {
     }
   };
 
+  const levelLabelMap: Record<'ALL' | PartnerLevel, string> = {
+    ALL: 'Tất cả',
+    GOLD: 'Vàng',
+    SILVER: 'Bạc',
+    PREMIUM: 'Cao cấp'
+  };
+
+  const countryLabelMap: Record<'ALL' | IStudyAbroadPartner['country'], string> = {
+    ALL: 'Tất cả',
+    Germany: 'Đức',
+    China: 'Trung Quốc'
+  };
+
+  const activeSearchChips = useMemo<PinnedSearchChip[]>(() => {
+    const chips: PinnedSearchChip[] = [];
+
+    if (countryFilter !== 'ALL') {
+      chips.push({
+        key: 'country',
+        label: `Quốc gia: ${countryLabelMap[countryFilter]}`
+      });
+    }
+
+    if (levelFilter !== 'ALL') {
+      chips.push({
+        key: 'level',
+        label: `Cấp độ: ${levelLabelMap[levelFilter]}`
+      });
+    }
+
+    return chips;
+  }, [countryFilter, levelFilter]);
+
+  const removeSearchChip = (chipKey: string) => {
+    if (chipKey === 'country') {
+      setCountryFilter('ALL');
+      return;
+    }
+    if (chipKey === 'level') {
+      setLevelFilter('ALL');
+    }
+  };
+
+  const clearAllSearchFilters = () => {
+    setSearchTerm('');
+    setCountryFilter('ALL');
+    setLevelFilter('ALL');
+  };
+
+  const filteredPartners = useMemo(() => {
+    const keyword = searchTerm.trim().toLowerCase();
+
+    return PARTNERS.filter((partner) => {
+      const matchesSearch =
+        !keyword ||
+        [partner.name, partner.type, partner.ranking, partner.intake].join(' ').toLowerCase().includes(keyword);
+      const matchesCountry = countryFilter === 'ALL' || partner.country === countryFilter;
+      const matchesLevel = levelFilter === 'ALL' || partner.level === levelFilter;
+      return matchesSearch && matchesCountry && matchesLevel;
+    });
+  }, [searchTerm, countryFilter, levelFilter]);
+
   return (
     <div className="flex flex-col h-full bg-[#f8fafc] text-[#0d141b] font-sans overflow-y-auto">
       <div className="flex flex-col flex-1 p-6 lg:p-10 max-w-[1600px] mx-auto w-full gap-6">
@@ -177,29 +241,39 @@ const StudyAbroadPartners: React.FC = () => {
           </button>
         </div>
 
-        {/* Filters - Chart Section Removed */}
+                {/* Filters - Odoo-like pinned search */}
         <div className="flex flex-wrap gap-3 items-center bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-          <div className="flex-1 min-w-[300px] relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-            <input
-              className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-200 text-sm focus:ring-2 focus:ring-[#0d47a1] focus:border-transparent outline-none"
-              placeholder="Tìm kiếm theo tên trường..."
-              type="text"
+          <div className="flex-1 min-w-[300px]">
+            <PinnedSearchInput
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={setSearchTerm}
+              placeholder="Tìm kiếm theo tên trường..."
+              chips={activeSearchChips}
+              onRemoveChip={removeSearchChip}
+              onClearAll={clearAllSearchFilters}
+              clearAllAriaLabel="Xóa tất cả bộ lọc đối tác trường"
+              inputClassName="text-sm h-7"
             />
           </div>
           <div className="flex gap-2">
-            <select className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium text-slate-600 focus:outline-none focus:ring-2 focus:ring-[#0d47a1]">
-              <option>Quốc gia: Tất cả</option>
-              <option>Đức</option>
-              <option>Trung Quốc</option>
+            <select
+              value={countryFilter}
+              onChange={(event) => setCountryFilter(event.target.value as 'ALL' | IStudyAbroadPartner['country'])}
+              className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium text-slate-600 focus:outline-none focus:ring-2 focus:ring-[#0d47a1]"
+            >
+              <option value="ALL">Quốc gia: Tất cả</option>
+              <option value="Germany">Đức</option>
+              <option value="China">Trung Quốc</option>
             </select>
-            <select className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium text-slate-600 focus:outline-none focus:ring-2 focus:ring-[#0d47a1]">
-              <option>Cấp độ: Tất cả</option>
-              <option>Vàng</option>
-              <option>Bạc</option>
-              <option>Cao cấp</option>
+            <select
+              value={levelFilter}
+              onChange={(event) => setLevelFilter(event.target.value as 'ALL' | PartnerLevel)}
+              className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium text-slate-600 focus:outline-none focus:ring-2 focus:ring-[#0d47a1]"
+            >
+              <option value="ALL">Cấp độ: Tất cả</option>
+              <option value="GOLD">Vàng</option>
+              <option value="SILVER">Bạc</option>
+              <option value="PREMIUM">Cao cấp</option>
             </select>
           </div>
         </div>
@@ -219,7 +293,7 @@ const StudyAbroadPartners: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {PARTNERS.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase())).map((partner) => (
+              {filteredPartners.map((partner) => (
                 <React.Fragment key={partner.id}>
                   <tr
                     onClick={() => toggleExpand(partner.id)}
@@ -390,6 +464,13 @@ const StudyAbroadPartners: React.FC = () => {
                   )}
                 </React.Fragment>
               ))}
+              {filteredPartners.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="px-6 py-10 text-center text-sm text-slate-500">
+                    Không có đối tác phù hợp với bộ lọc hiện tại.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
 
@@ -412,3 +493,4 @@ const StudyAbroadPartners: React.FC = () => {
 };
 
 export default StudyAbroadPartners;
+

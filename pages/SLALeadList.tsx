@@ -1,7 +1,6 @@
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
-   Search,
    Phone,
    Clock,
    AlertCircle,
@@ -23,6 +22,7 @@ import { calculateSLAWarnings, SLAWarning, SLAConfig } from '../utils/slaUtils';
 import UnifiedLeadDrawer from '../components/UnifiedLeadDrawer';
 import AdvancedDateFilter, { DateRange } from '../components/AdvancedDateFilter';
 import { useAuth } from '../contexts/AuthContext';
+import PinnedSearchInput, { PinnedSearchChip } from '../components/PinnedSearchInput';
 
 // Mock Sales Reps
 const SALES_REPS = [
@@ -607,6 +607,97 @@ const SLALeadList: React.FC = () => {
    }, [leads, slowHistory, slowEvents]);
    const uniqueStatuses = useMemo(() => Array.from(new Set(leads.map(l => l.status).filter(Boolean))), [leads]);
 
+   const formatChipDate = (value?: string | null) => {
+      if (!value) return '';
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return value;
+      return date.toLocaleDateString('vi-VN');
+   };
+
+   const activeSearchChips = useMemo<PinnedSearchChip[]>(() => {
+      const chips: PinnedSearchChip[] = [];
+
+      if (branchFilter !== 'all') {
+         chips.push({ key: 'branch', label: `Co so: ${branchFilter}` });
+      }
+
+      if (dateRange.startDate) {
+         const start = formatChipDate(dateRange.startDate);
+         const end = formatChipDate(dateRange.endDate || dateRange.startDate);
+         chips.push({ key: 'dateRange', label: `Ngay: ${start} - ${end}` });
+      }
+
+      if (activeTab === 'slow_list' && historyTypeFilter !== 'all') {
+         chips.push({ key: 'historyType', label: `Danh sach cham: ${SLA_STATUS_LABELS[historyTypeFilter]}` });
+      }
+
+      if (advancedFilters.myPipeline) {
+         chips.push({ key: 'myPipeline', label: 'Bo loc: Lead cua toi' });
+      }
+
+      if (advancedFilters.unassigned) {
+         chips.push({ key: 'unassigned', label: 'Bo loc: Chua phan cong' });
+      }
+
+      advancedFilters.status.forEach((statusValue) => {
+         chips.push({ key: `status:${statusValue}`, label: `Trang thai: ${statusValue}` });
+      });
+
+      advancedFilters.source.forEach((sourceValue) => {
+         chips.push({ key: `source:${sourceValue}`, label: `Nguon: ${sourceValue}` });
+      });
+
+      advancedFilters.ownerId.forEach((ownerIdValue) => {
+         chips.push({ key: `owner:${ownerIdValue}`, label: `Sales: ${getRepDisplayName(ownerIdValue)}` });
+      });
+
+      return chips;
+   }, [activeTab, advancedFilters, branchFilter, dateRange, historyTypeFilter]);
+
+   const removeSearchChip = (chipKey: string) => {
+      if (chipKey === 'branch') {
+         setBranchFilter('all');
+         return;
+      }
+
+      if (chipKey === 'dateRange') {
+         setDateRange({ startDate: null, endDate: null });
+         return;
+      }
+
+      if (chipKey === 'historyType') {
+         setHistoryTypeFilter('all');
+         return;
+      }
+
+      if (chipKey === 'myPipeline') {
+         setAdvancedFilters(prev => ({ ...prev, myPipeline: false }));
+         return;
+      }
+
+      if (chipKey === 'unassigned') {
+         setAdvancedFilters(prev => ({ ...prev, unassigned: false }));
+         return;
+      }
+
+      if (chipKey.startsWith('status:')) {
+         const target = chipKey.slice('status:'.length);
+         setAdvancedFilters(prev => ({ ...prev, status: prev.status.filter(item => item !== target) }));
+         return;
+      }
+
+      if (chipKey.startsWith('source:')) {
+         const target = chipKey.slice('source:'.length);
+         setAdvancedFilters(prev => ({ ...prev, source: prev.source.filter(item => item !== target) }));
+         return;
+      }
+
+      if (chipKey.startsWith('owner:')) {
+         const target = chipKey.slice('owner:'.length);
+         setAdvancedFilters(prev => ({ ...prev, ownerId: prev.ownerId.filter(item => item !== target) }));
+      }
+   };
+
    return (
       <div className="flex flex-col min-h-full bg-[#f8fafc] text-[#0d141b] font-sans">
          <div className="flex flex-col flex-1 p-6 lg:p-8 max-w-[1400px] mx-auto w-full gap-6">
@@ -747,14 +838,14 @@ const SLALeadList: React.FC = () => {
             {/* TOOLBAR: Search & Filters */}
             <div className="flex flex-wrap items-center justify-between gap-3">
                {/* Search */}
-               <div className="relative flex-1 min-w-[240px] max-w-md">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                  <input
-                     type="text"
-                     placeholder="Tìm tên, số điện thoại..."
-                     className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none shadow-sm"
+               <div className="flex-1 min-w-[240px] max-w-xl">
+                  <PinnedSearchInput
                      value={searchTerm}
-                     onChange={(e) => setSearchTerm(e.target.value)}
+                     onChange={setSearchTerm}
+                     placeholder="Tim ten, so dien thoai..."
+                     chips={activeSearchChips}
+                     onRemoveChip={removeSearchChip}
+                     inputClassName="text-sm h-7"
                   />
                </div>
 
@@ -786,7 +877,7 @@ const SLALeadList: React.FC = () => {
                   )}
 
                   {/* Date Filter */}
-                  <AdvancedDateFilter onChange={setDateRange} label="Average time" />
+                  <AdvancedDateFilter onChange={setDateRange} label="Thời gian" />
 
                   {/* Branch Filter */}
                   <div className="relative">

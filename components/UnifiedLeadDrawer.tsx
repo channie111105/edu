@@ -131,6 +131,109 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
         potential: 'Mức độ tiềm năng'
     };
 
+    const LEAD_FIELD_LABELS: Partial<Record<keyof ILead, string>> = {
+        name: 'Họ và tên',
+        phone: 'Số điện thoại',
+        email: 'Email',
+        source: 'Nguồn data',
+        ownerId: 'Người phụ trách',
+        targetCountry: 'Thị trường mục tiêu',
+        educationLevel: 'Trình độ học vấn',
+        dob: 'Ngày sinh',
+        notes: 'Ghi chú',
+        identityCard: 'Số CCCD/Hộ chiếu',
+        identityDate: 'Ngày cấp',
+        identityPlace: 'Nơi cấp',
+        address: 'Địa chỉ',
+        expectedClosingDate: 'Ngày dự kiến chốt',
+        probability: 'Xác suất thành công',
+        discountReason: 'Lý do giảm giá'
+    };
+
+    const formatAuditValue = (value: any): string => {
+        if (value === null || value === undefined || value === '') return '(Trống)';
+        if (typeof value === 'object') return JSON.stringify(value);
+        return String(value);
+    };
+
+    const toValidTimestamp = (value?: string): string => {
+        const parsed = Date.parse(value || '');
+        if (Number.isNaN(parsed)) return new Date().toISOString();
+        return new Date(parsed).toISOString();
+    };
+
+    const mapLeadActivityToQuotationLogNote = (activity: any): IQuotationLogNote => ({
+        id: `lead-log-${activity?.id || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`}`,
+        timestamp: toValidTimestamp(activity?.timestamp || activity?.datetime),
+        user: activity?.user || 'System',
+        action: `Lead: ${activity?.title || activity?.type || 'Cập nhật'}`,
+        detail: activity?.description || activity?.content || ''
+    });
+
+    const mergeQuotationLogNotes = (
+        currentLogs: IQuotationLogNote[] = [],
+        leadActivities: any[] = []
+    ): IQuotationLogNote[] => {
+        const leadLogs = Array.isArray(leadActivities) ? leadActivities.map(mapLeadActivityToQuotationLogNote) : [];
+        const merged = [...currentLogs, ...leadLogs];
+        const seen = new Set<string>();
+        const deduped: IQuotationLogNote[] = [];
+
+        for (const item of merged) {
+            const key = item.id || `${item.timestamp}|${item.user}|${item.action}|${item.detail || ''}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            deduped.push(item);
+        }
+
+        return deduped.sort((a, b) => {
+            const tsA = Date.parse(a.timestamp || '');
+            const tsB = Date.parse(b.timestamp || '');
+            const safeA = Number.isNaN(tsA) ? 0 : tsA;
+            const safeB = Number.isNaN(tsB) ? 0 : tsB;
+            return safeB - safeA;
+        });
+    };
+
+    const areQuotationLogsEqual = (a: IQuotationLogNote[] = [], b: IQuotationLogNote[] = []) => {
+        if (a.length !== b.length) return false;
+        for (let i = 0; i < a.length; i++) {
+            const left = a[i];
+            const right = b[i];
+            if (
+                left.id !== right.id ||
+                left.timestamp !== right.timestamp ||
+                left.user !== right.user ||
+                left.action !== right.action ||
+                (left.detail || '') !== (right.detail || '')
+            ) {
+                return false;
+            }
+        }
+        return true;
+    };
+
+    const syncLeadHistoryToQuotationLogs = (leadSnapshot: ILead) => {
+        if (!leadSnapshot?.id || !Array.isArray(leadSnapshot.activities) || leadSnapshot.activities.length === 0) return;
+
+        const relatedQuotations = getQuotations().filter(
+            (quotation) => quotation.leadId === leadSnapshot.id || quotation.customerId === leadSnapshot.id
+        );
+
+        if (relatedQuotations.length === 0) return;
+
+        relatedQuotations.forEach((quotation) => {
+            const nextLogNotes = mergeQuotationLogNotes(quotation.logNotes || [], leadSnapshot.activities || []);
+            if (areQuotationLogsEqual(quotation.logNotes || [], nextLogNotes)) return;
+
+            updateQuotation({
+                ...quotation,
+                logNotes: nextLogNotes,
+                updatedAt: new Date().toISOString()
+            });
+        });
+    };
+
     // Quotation Specific Fields
     const [quotationData, setQuotationData] = useState({
         paymentMethod: '',
@@ -165,6 +268,10 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
     useEffect(() => {
         setAllAvailableTags(getTags());
     }, []);
+
+    useEffect(() => {
+        syncLeadHistoryToQuotationLogs(lead);
+    }, [lead.id, lead.activities]);
 
     const handleAddTag = (tag: string) => {
         if (!tag.trim()) return;
@@ -431,8 +538,10 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
             if (lastLoggedValues.current[`field-${field}`] === valStr) return;
             lastLoggedValues.current[`field-${field}`] = valStr;
 
-            const fieldLabel = field.toString();
-            const logMsg = `Cập nhật ${fieldLabel}: ${currentValue}`;
+            const fieldLabel = LEAD_FIELD_LABELS[field] || field.toString();
+            const oldValueText = formatAuditValue(lead[field]);
+            const newValueText = formatAuditValue(currentValue);
+            const logMsg = `${user?.name || 'Admin'} cập nhật ${fieldLabel}: ${oldValueText} -> ${newValueText}`;
 
             // Create activity log
             const newLogEntry: any = {
@@ -441,7 +550,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                 timestamp: new Date().toISOString(),
                 description: logMsg,
                 user: user?.name || 'Admin',
-                title: 'Cập nhật hệ thông'
+                title: 'Cập nhật hệ thống'
             };
 
             const updatedLead = {
@@ -480,11 +589,13 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
         setTimeout(() => setIsSaving(false), 2000);
 
         const fieldLabel = INTERNAL_NOTE_LABELS[field] || field;
+        const oldValueText = formatAuditValue(currentVal);
+        const newValueText = formatAuditValue(value);
         const newLogEntry: any = {
             id: `act-${Date.now()}-int-${field}`,
             type: 'system',
             timestamp: new Date().toISOString(),
-            description: `Sale đã cập nhật ${fieldLabel}: ${value || '(Trống)'}`,
+            description: `${user?.name || 'Admin'} cập nhật ${fieldLabel}: ${oldValueText} -> ${newValueText}`,
             user: user?.name || 'Admin',
             title: 'Cập nhật ghi chú nội bộ'
         };
@@ -865,11 +976,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
         setChatterTab('note');
     };
 
-    const handleSendQuote = () => {
-        if (productItems.length === 0) {
-            showToast("Vui lòng thêm sản phẩm vào báo giá trước.", 'error');
-            return;
-        }
+    const handleCreateQuote = () => {
         const existingQuotation = getQuotations().find(q => q.leadId === lead.id);
         if (existingQuotation) {
             setActiveQuotationId(existingQuotation.id);
@@ -893,6 +1000,9 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
         } else {
             setActiveQuotationId(null);
             setQuotationWorkflowStatus('draft');
+            if ((productItems || []).length === 0) {
+                setProductItems([{ id: `item-${Date.now()}`, name: '', price: 0, quantity: 1 }]);
+            }
         }
         setQuotationCreatorTab('order_lines');
         setShowQuotationCreator(true);
@@ -922,7 +1032,8 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
         const mappedPayment = mapPaymentMethod();
         const subtotal = productItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
         const finalAmount = Math.max(subtotal - (discount || 0), 0);
-        const logNotes = [buildQuotationLogNote(action, detail), ...(existing?.logNotes || [])];
+        const baseLogNotes = [buildQuotationLogNote(action, detail), ...(existing?.logNotes || [])];
+        const logNotes = mergeQuotationLogNotes(baseLogNotes, lead.activities || []);
 
         const payload: IQuotation = {
             id: existing?.id || `Q-${Date.now()}`,
@@ -962,13 +1073,9 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
             guardianName: lead.guardianName || '',
             guardianPhone: lead.guardianPhone || '',
             paymentMethod: mappedPayment,
-            paymentProof: quotationData.internalNote || undefined,
-            paymentDocuments: mappedPayment ? {
-                method: mappedPayment,
-                note: quotationData.internalNote || '',
-                loggedAt: now,
-                loggedBy: user?.name || 'System'
-            } : existing?.paymentDocuments,
+            // Bill/chứng từ chỉ nhập tại màn Ghi danh (QuotationDetails), không lấy từ Pipeline.
+            paymentProof: existing?.paymentProof,
+            paymentDocuments: existing?.paymentDocuments,
             needInvoice: quotationData.needInvoice,
             logNotes,
             createdBy: user?.name || 'System'
@@ -984,33 +1091,28 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
     };
 
     const handleSaveQuotationDraft = () => {
-        upsertQuotation(QuotationStatus.DRAFT, 'Lưu báo giá nháp', `Bảng giá: ${quotationData.pricelist}`);
+        upsertQuotation(QuotationStatus.DRAFT, 'Lưu báo giá nháp', `Chính sách giá: ${quotationData.pricelist}`);
         setQuotationWorkflowStatus('draft');
         showToast("Đã lưu báo giá nháp.", 'success');
     };
 
-    const finalizeQuotation = () => {
-        if (!quotationData.paymentMethod) {
-            showToast("Vui lòng chọn phương thức thanh toán trước khi gửi báo giá.", 'error');
-            return;
-        }
+    const handleCreateQuotation = () => {
         const savedQuotation = upsertQuotation(
-            QuotationStatus.SENT,
-            'Gửi báo giá qua Email',
-            `PTTT: ${quotationData.paymentMethod} | Hạn: ${quotationData.expirationDate}`
+            QuotationStatus.DRAFT,
+            'Tạo báo giá',
+            `Chính sách giá: ${quotationData.pricelist} | Hạn: ${quotationData.expirationDate || 'N/A'}`
         );
         const statusLog: any = {
             id: `act-${Date.now()}`,
             type: 'system',
             timestamp: new Date().toISOString(),
-            description: `Báo giá đã được gửi. Trạng thái: ${lead.status || 'Mới'} → ${DealStage.NEGOTIATION}`,
+            description: `Đã tạo báo giá ${savedQuotation.soCode}.`,
             user: user?.name || 'Admin',
-            title: 'Gửi báo giá'
+            title: 'Tạo báo giá'
         };
 
         const updatedLead = {
             ...lead,
-            status: DealStage.NEGOTIATION as any,
             activities: [statusLog, ...(lead.activities || [])],
             productItems: productItems,
             discount: discount,
@@ -1019,10 +1121,9 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
 
         setLead(updatedLead);
         onUpdate(updatedLead);
-        setQuotationWorkflowStatus('sent');
+        setQuotationWorkflowStatus('draft');
         setShowQuotationCreator(false);
-        showToast(`Đã gửi báo giá thành công (${savedQuotation.soCode})!`, 'success');
-        openNextActivityModal('Theo dõi phản hồi báo giá');
+        showToast(`Đã tạo báo giá thành công (${savedQuotation.soCode})!`, 'success');
     };
 
     const handleConfirmQuotation = () => {
@@ -1175,6 +1276,15 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                                         <Phone size={13} className="fill-blue-100" /> GỌI ĐIỆN
                                     </button>
 
+                                    {!isWon && !isContract && !isLost && (
+                                        <button
+                                            onClick={handleCreateQuote}
+                                            className="px-4 py-1.5 text-[11px] font-black text-indigo-700 bg-white border border-indigo-200 rounded hover:bg-indigo-50 flex items-center gap-2 shadow-sm transition-all active:scale-95"
+                                        >
+                                            <FileText size={13} /> TẠO BÁO GIÁ
+                                        </button>
+                                    )}
+
                                     {/* 2. ASSIGN BUTTON - Matching Style */}
                                     {!isWon && !isContract && !isLost && user?.role !== UserRole.MARKETING && (
                                         <button
@@ -1241,7 +1351,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                     .field-input:focus { background-color: #fff; border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1); }
                     .field-input:disabled { background-color: #e2e8f0; color: #94a3b8; cursor: not-allowed; }
                     .field-input.locked { background-color: #f0fdf4; border-color: #bbf7d0; color: #166534; pointer-events: none; }
-                    .section-title { font-size: 14px; font-weight: 800; color: #1e40af; border-bottom: 2px solid #e0e7ff; padding-bottom: 8px; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+                    .section-title { display: none; }
                     .badge-section { background: #dbeafe; color: #1e40af; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; }
                     .dimmed-section { opacity: 0.5; pointer-events: none; filter: grayscale(100%); transition: all 0.3s; }
                     .active-section { opacity: 1; pointer-events: auto; filter: none; }
@@ -1254,9 +1364,15 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                     }
                 `}</style>
 
-                        {/* SECTION 1: LEAD INFO (MARKETING) - Locked after Qualified */}
+                        <div className="mb-4 pb-2 border-b border-blue-100 flex items-center gap-2">
+                            <h3 className="text-[14px] font-extrabold text-blue-800 uppercase tracking-wide">THÔNG TIN LEAD</h3>
+                            {isQualified && <Lock size={12} className="text-green-600" />}
+                            {isNotPickedUp && <span className="text-[10px] text-red-500 font-bold animate-pulse inline-flex items-center gap-1"><Lock size={10} /> {lockedMsg}</span>}
+                        </div>
+
+                        {/* CORE LEAD INFO */}
                         <div className="mb-10">
-                            <h3 className="section-title"><span className="badge-section">1</span> THÔNG TIN LEAD (MKT) {isQualified && <Lock size={12} className="text-green-600 ml-2" />}</h3>
+                            <h3 className="section-title">Thông tin lead</h3>
                             <div className="grid grid-cols-2 gap-x-6 gap-y-4">
                                 <div>
                                     <label className="field-label">Họ và tên <span className="text-red-500">*</span></label>
@@ -1266,13 +1382,99 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                                     <label className="field-label">Số điện thoại <span className="text-red-500">*</span></label>
                                     <input className={`field-input font-bold ${isQualified ? 'locked' : ''}`} defaultValue={lead.phone} onBlur={e => handleFieldBlur('phone', e.target.value)} disabled={isQualified || isContract || isLost} />
                                 </div>
-                                <div><label className="field-label">Email</label><input className={`field-input ${isQualified ? 'locked' : ''}`} defaultValue={lead.email} onBlur={e => handleFieldBlur('email', e.target.value)} disabled={isQualified || isContract || isLost} /></div>
                                 <div>
                                     <label className="field-label">Nguồn Data</label>
                                     <select className={`field-input ${isQualified ? 'locked' : ''}`} defaultValue={lead.source} onChange={e => handleFieldBlur('source', e.target.value)} disabled={isQualified || isContract || isLost}>
                                         <option value="Facebook">Facebook</option><option value="TikTok">TikTok</option><option value="Google">Google Search</option><option value="Hotline">Hotline</option><option value="Referral">Giới thiệu</option>
                                     </select>
                                 </div>
+                                <div><label className="field-label">Email</label><input className={`field-input ${isQualified ? 'locked' : ''}`} defaultValue={lead.email} onBlur={e => handleFieldBlur('email', e.target.value)} disabled={isQualified || isContract || isLost} /></div>
+                            </div>
+                        </div>
+
+                        {/* PROFILING */}
+                        <div className={`mb-10 p-4 border rounded-lg ${!isLeadStage ? 'bg-white border-blue-100 active-section' : 'bg-slate-50 border-slate-200'}`}>
+                            <h3 className="section-title">Hồ sơ năng lực</h3>
+                            <div className="grid grid-cols-2 gap-x-6 gap-y-4">
+                                <div>
+                                    <label className="field-label">Thị trường mục tiêu</label>
+                                    <select className="field-input" defaultValue={lead.targetCountry} onChange={e => handleFieldBlur('targetCountry', e.target.value)} disabled={isContract || isLost}>
+                                        <option value="">-- Chọn --</option><option value="Đức">Đức</option><option value="Úc">Úc</option><option value="Nhật Bản">Nhật Bản</option><option value="Hàn Quốc">Hàn Quốc</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="field-label">Trình độ học vấn <span className="text-red-500">*</span></label>
+                                    <select className="field-input" defaultValue={lead.educationLevel} onChange={e => handleFieldBlur('educationLevel', e.target.value)} disabled={isContract || isLost} >
+                                        <option value="">-- Chọn --</option><option value="THPT">Tốt nghiệp THPT</option><option value="Cao đẳng">Cao đẳng</option><option value="Đại học">Đại học</option><option value="Thạc sĩ">Thạc sĩ</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="field-label">Ngày sinh <span className="text-red-500">* (Bắt buộc Qualified)</span></label>
+                                    <input type="date" className="field-input" defaultValue={lead.dob} onBlur={e => handleFieldBlur('dob', e.target.value)} disabled={isContract || isLost} />
+                                </div>
+                                <div><label className="field-label">GPA / Điểm ngoại ngữ</label><input className="field-input" placeholder="VD: GPA 7.5 - IELTS 6.0" defaultValue={lead.studentInfo?.languageLevel} onBlur={e => handleFieldBlur('studentInfo', { ...lead.studentInfo, languageLevel: e.target.value })} disabled={isContract || isLost} /></div>
+                            </div>
+                        </div>
+
+                        {/* INTERNAL NOTES */}
+                        <div className="mb-10 p-4 border rounded-lg bg-slate-50 border-slate-200">
+                            <h3 className="section-title">Ghi chú nội bộ</h3>
+                            <div className="grid grid-cols-2 gap-x-6 gap-y-4">
+                                <div title={isNotPickedUp ? lockedMsg : ""}>
+                                    <label className="field-label">Mức độ tiềm năng</label>
+                                    <select className="field-input" value={lead.internalNotes?.potential || ''} onChange={e => handleInternalNoteBlur('potential', e.target.value as any)} disabled={isNotPickedUp || isConverted || isLost}>
+                                        <option value="">-- Chọn --</option>
+                                        <option value="Nóng">Nóng</option>
+                                        <option value="Tiềm năng">Tiềm năng</option>
+                                        <option value="Tham khảo">Tham khảo</option>
+                                    </select>
+                                </div>
+                                <div title={isNotPickedUp ? lockedMsg : ""}>
+                                    <label className="field-label">Thời gian dự kiến tham gia</label>
+                                    <input className="field-input" placeholder="VD: 06/2026" defaultValue={lead.internalNotes?.expectedStart || ''} onBlur={e => handleInternalNoteBlur('expectedStart', e.target.value)} disabled={isNotPickedUp || isConverted || isLost} />
+                                </div>
+                                <div title={isNotPickedUp ? lockedMsg : ""}>
+                                    <label className="field-label">Tài chính</label>
+                                    <input className="field-input" placeholder="Đủ / Thiếu / Cần hỗ trợ" defaultValue={lead.internalNotes?.financial || ''} onBlur={e => handleInternalNoteBlur('financial', e.target.value)} disabled={isNotPickedUp || isConverted || isLost} />
+                                </div>
+                                <div title={isNotPickedUp ? lockedMsg : ""}>
+                                    <label className="field-label">Ý kiến bố mẹ</label>
+                                    <input className="field-input" placeholder="Đồng ý / Cần cân nhắc..." defaultValue={lead.internalNotes?.parentOpinion || ''} onBlur={e => handleInternalNoteBlur('parentOpinion', e.target.value)} disabled={isNotPickedUp || isConverted || isLost} />
+                                </div>
+                                <div className="col-span-2" title={isNotPickedUp ? lockedMsg : ""}>
+                                    <label className="field-label">Ghi chú khác</label>
+                                    <textarea className={`field-input h-20 resize-none ${isConverted ? 'locked' : ''}`} defaultValue={lead.notes || ''} onBlur={e => handleFieldBlur('notes', e.target.value)} disabled={isNotPickedUp || isConverted || isLost} />
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* LEGAL INFO */}
+                        <div className={`mb-20 ${isPipeline || isContract ? 'active-section' : 'dimmed-section'}`}>
+                            <h3 className="section-title text-red-700 border-red-100 bg-red-50 pl-2 py-1 rounded-sm"><ShieldCheck size={16} /> Thông tin pháp lý</h3>
+
+                            <div className="grid grid-cols-3 gap-x-4 gap-y-4 border border-red-100 rounded p-4 bg-white relative">
+                                <div className="col-span-1">
+                                    <label className="field-label text-red-800">Số CCCD / Hộ chiếu <span className="text-red-500">*</span></label>
+                                    <input className="field-input font-bold border-red-200" placeholder="Số giấy tờ" defaultValue={lead.identityCard} onBlur={e => handleFieldBlur('identityCard', e.target.value)} disabled={isWon || isContract || isLost} />
+                                </div>
+                                <div className="col-span-1">
+                                    <label className="field-label text-red-800">Ngày cấp <span className="text-red-500">*</span></label>
+                                    <input type="date" className="field-input border-red-200" defaultValue={lead.identityDate} onBlur={e => handleFieldBlur('identityDate', e.target.value)} disabled={isWon || isContract || isLost} />
+                                </div>
+                                <div className="col-span-1">
+                                    <label className="field-label text-red-800">Nơi cấp <span className="text-red-500">*</span></label>
+                                    <input className="field-input border-red-200" placeholder="Cục CS QLHC..." defaultValue={lead.identityPlace} onBlur={e => handleFieldBlur('identityPlace', e.target.value)} disabled={isWon || isContract || isLost} />
+                                </div>
+                                <div className="col-span-3">
+                                    <label className="field-label text-red-800">Địa chỉ thường trú (Full) <span className="text-red-500">*</span></label>
+                                    <input className="field-input border-red-200" placeholder="Số nhà, Đường, Phường/Xã, Quận/Huyện, Tỉnh/TP" defaultValue={lead.address} onBlur={e => handleFieldBlur('address', e.target.value)} disabled={isWon || isContract || isLost} />
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* MARKETING META */}
+                        <div className="mb-10 p-4 border rounded-lg bg-slate-50 border-slate-200">
+                            <div className="grid grid-cols-2 gap-x-6 gap-y-4">
                                 <div>
                                     <label className="field-label">Ngày tạo lead</label>
                                     <input className="field-input" value={formatMetaDateTime(lead.createdAt)} readOnly disabled />
@@ -1289,7 +1491,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                                         </button>
                                     </label>
 
-                                    <div className="flex flex-wrap gap-2 mb-2 p-3 bg-slate-50 border border-dashed border-slate-300 rounded-lg min-h-[40px]">
+                                    <div className="flex flex-wrap gap-2 mb-2 p-3 bg-white border border-dashed border-slate-300 rounded-lg min-h-[40px]">
                                         {(lead.marketingData?.tags || []).length > 0 ? (
                                             (lead.marketingData?.tags || []).map((t, idx) => (
                                                 <span key={idx} className="flex items-center gap-1 bg-white border border-blue-200 text-blue-700 px-2 py-1 rounded text-[11px] font-bold shadow-sm group">
@@ -1333,235 +1535,6 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                             </div>
                         </div>
 
-                        {/* Internal Notes */}
-                        <div className="mb-10 p-4 border rounded-lg bg-slate-50 border-slate-200">
-                            <h3 className="section-title">
-                                <span className="badge-section">1.1</span> GHI CHÚ NỘI BỘ (INTERNAL NOTES)
-                                {isNotPickedUp && <span className="ml-3 text-[10px] text-red-500 font-bold animate-pulse inline-flex items-center gap-1"><Lock size={10} /> {lockedMsg}</span>}
-                            </h3>
-                            <div className="grid grid-cols-2 gap-x-6 gap-y-4">
-                                <div title={isNotPickedUp ? lockedMsg : ""}>
-                                    <label className="field-label">Thời gian dự kiến tham gia</label>
-                                    <input className="field-input" placeholder="VD: 06/2026" defaultValue={lead.internalNotes?.expectedStart || ''} onBlur={e => handleInternalNoteBlur('expectedStart', e.target.value)} disabled={isNotPickedUp || isConverted || isLost} />
-                                </div>
-                                <div title={isNotPickedUp ? lockedMsg : ""}>
-                                    <label className="field-label">Ý kiến bố mẹ</label>
-                                    <input className="field-input" placeholder="Đồng ý / Cần cân nhắc..." defaultValue={lead.internalNotes?.parentOpinion || ''} onBlur={e => handleInternalNoteBlur('parentOpinion', e.target.value)} disabled={isNotPickedUp || isConverted || isLost} />
-                                </div>
-                                <div title={isNotPickedUp ? lockedMsg : ""}>
-                                    <label className="field-label">Tài chính</label>
-                                    <input className="field-input" placeholder="Đủ / Thiếu / Cần hỗ trợ" defaultValue={lead.internalNotes?.financial || ''} onBlur={e => handleInternalNoteBlur('financial', e.target.value)} disabled={isNotPickedUp || isConverted || isLost} />
-                                </div>
-                                <div title={isNotPickedUp ? lockedMsg : ""}>
-                                    <label className="field-label">Mức độ tiềm năng</label>
-                                    <select className="field-input" value={lead.internalNotes?.potential || ''} onChange={e => handleInternalNoteBlur('potential', e.target.value as any)} disabled={isNotPickedUp || isConverted || isLost}>
-                                        <option value="">-- Chọn --</option>
-                                        <option value="Nóng">Nóng</option>
-                                        <option value="Tiềm năng">Tiềm năng</option>
-                                        <option value="Tham khảo">Tham khảo</option>
-                                    </select>
-                                </div>
-                                <div className="col-span-2" title={isNotPickedUp ? lockedMsg : ""}>
-                                    <label className="field-label">Ghi chú khác</label>
-                                    <textarea className={`field-input h-20 resize-none ${isConverted ? 'locked' : ''}`} defaultValue={lead.notes || ''} onBlur={e => handleFieldBlur('notes', e.target.value)} disabled={isNotPickedUp || isConverted || isLost} />
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* SECTION 2: PROFILING (QUALIFIED) */}
-                        <div className={`mb-10 p-4 border rounded-lg ${!isLeadStage ? 'bg-white border-blue-100 active-section' : 'bg-slate-50 border-slate-200'}`}>
-                            <h3 className="section-title"><span className="badge-section">2</span> HỒ SƠ NĂNG LỰC (PROFILING) {!isLeadStage && <CheckCircle2 size={14} className="text-green-500 ml-auto" />}</h3>
-                            <div className="grid grid-cols-2 gap-x-6 gap-y-4">
-                                <div>
-                                    <label className="field-label">Ngày sinh <span className="text-red-500">* (Bắt buộc Qualified)</span></label>
-                                    <input type="date" className="field-input" defaultValue={lead.dob} onBlur={e => handleFieldBlur('dob', e.target.value)} disabled={isContract || isLost} />
-                                </div>
-                                <div>
-                                    <label className="field-label">Trình độ học vấn <span className="text-red-500">*</span></label>
-                                    <select className="field-input" defaultValue={lead.educationLevel} onChange={e => handleFieldBlur('educationLevel', e.target.value)} disabled={isContract || isLost} >
-                                        <option value="">-- Chọn --</option><option value="THPT">Tốt nghiệp THPT</option><option value="Cao đẳng">Cao đẳng</option><option value="Đại học">Đại học</option><option value="Thạc sĩ">Thạc sĩ</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="field-label">Thị trường mục tiêu</label>
-                                    <select className="field-input" defaultValue={lead.targetCountry} onChange={e => handleFieldBlur('targetCountry', e.target.value)} disabled={isContract || isLost}>
-                                        <option value="">-- Chọn --</option><option value="Đức">Đức</option><option value="Úc">Úc</option><option value="Nhật Bản">Nhật Bản</option><option value="Hàn Quốc">Hàn Quốc</option>
-                                    </select>
-                                </div>
-                                <div><label className="field-label">GPA / Điểm ngoại ngữ</label><input className="field-input" placeholder="VD: GPA 7.5 - IELTS 6.0" defaultValue={lead.studentInfo?.languageLevel} onBlur={e => handleFieldBlur('studentInfo', { ...lead.studentInfo, languageLevel: e.target.value })} disabled={isContract || isLost} /></div>
-                            </div>
-                        </div>
-
-                        {/* SECTION 3: QUOTATION (PROPOSAL) */}
-                        <div className={`mb-10 ${isPipeline || isContract ? 'active-section' : 'dimmed-section'}`}>
-                            <h3 className="section-title"><span className="badge-section">3</span> BÁO GIÁ & LỘ TRÌNH (QUOTATION)</h3>
-                            <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
-                                {/* Product Table */}
-                                <table className="w-full text-left text-xs mb-4">
-                                    <thead>
-                                        <tr className="text-slate-500 border-b border-slate-200">
-                                            <th className="pb-2 font-bold w-[40%]">Sản phẩm / Dịch vụ</th>
-                                            <th className="pb-2 font-bold w-[25%]">Đơn giá (₫)</th>
-                                            <th className="pb-2 font-bold w-[15%]">SL</th>
-                                            <th className="pb-2 font-bold w-[20%] text-right">Thành tiền</th>
-                                            <th className="w-6"></th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-100">
-                                        {productItems.map((item) => (
-                                            <tr key={item.id} className="group">
-                                                <td className="py-2">
-                                                    <input
-                                                        list="products"
-                                                        className="bg-transparent w-full outline-none font-medium placeholder:text-slate-300"
-                                                        placeholder="Chọn hoặc nhập tên..."
-                                                        value={item.name}
-                                                        onChange={e => handleProductSelect(item.id, e.target.value)}
-                                                        disabled={isContract || isLost}
-                                                    />
-                                                    <datalist id="products">
-                                                        {PRODUCT_CATALOG.map(p => <option key={p.name} value={p.name} />)}
-                                                    </datalist>
-                                                </td>
-                                                <td className="py-2"><input type="number" className="bg-transparent w-full outline-none" placeholder="0" value={item.price} onChange={e => updateProductItem(item.id, 'price', Number(e.target.value))} disabled={isContract || isLost} /></td>
-                                                <td className="py-2"><input type="number" className="bg-transparent w-full outline-none" value={item.quantity} onChange={e => updateProductItem(item.id, 'quantity', Number(e.target.value))} disabled={isContract || isLost} /></td>
-                                                <td className="py-2 text-right font-bold text-slate-700">{(item.price * item.quantity).toLocaleString()}</td>
-                                                <td className="py-2 text-center">
-                                                    {!isContract && !isLost && <button onClick={() => removeProductItem(item.id)} className="text-slate-300 hover:text-red-500"><Trash2 size={12} /></button>}
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                                {!isContract && !isLost && <button onClick={addProductItem} className="text-xs font-bold text-blue-600 hover:bg-blue-50 px-2 py-1 rounded flex items-center gap-1"><Plus size={12} /> Thêm dòng</button>}
-
-                                <div className="border-t border-slate-200 mt-4 pt-4">
-                                    <div className="flex justify-between items-center mb-2">
-                                        <span className="text-sm font-bold text-slate-500">Tổng giá trị niêm yết:</span>
-                                        <span className="text-slate-700 font-bold">
-                                            {productItems.reduce((sum, item) => sum + (item.price * item.quantity), 0).toLocaleString()} ₫
-                                        </span>
-                                    </div>
-
-                                    <label className="field-label mt-4">Lộ trình đóng phí dự kiến (Payment Schedule)</label>
-                                    <textarea
-                                        className="field-input h-20 resize-none"
-                                        placeholder="- Đợt 1: Đặt cọc 10tr&#10;- Đợt 2: Khi có Visa đóng nốt..."
-                                        defaultValue={lead.paymentRoadmap}
-                                        onBlur={e => handleFieldBlur('paymentRoadmap', e.target.value)}
-                                        disabled={isWon || isLost}
-                                    />
-                                    {!isWon && !isLost && (
-                                        <div className="mt-3 flex justify-end">
-                                            <button
-                                                onClick={handleSendQuote}
-                                                className="px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700"
-                                            >
-                                                Gửi báo giá → Đàm phán
-                                            </button>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* SECTION 4: NEGOTIATION (THƯƠNG THẢO) */}
-                        <div className={`mb-10 ${(isPipeline && lead.status !== DealStage.PROPOSAL && lead.status !== DealStage.DEEP_CONSULTING) || isWon ? 'active-section' : 'dimmed-section'}`}>
-                            <h3 className="section-title"><span className="badge-section">4</span> THƯƠNG THẢO & CAM KẾT (NEGOTIATION)</h3>
-                            <div className="grid grid-cols-2 gap-x-6 gap-y-4 border border-blue-100 rounded-lg p-4 bg-white">
-
-                                {/* Discount & Final Price */}
-                                <div className="col-span-2 flex justify-between items-start border-b border-blue-50 pb-4 mb-2">
-                                    <div className="flex-1 mr-8">
-                                        <div className="flex items-center gap-4 text-sm mb-2">
-                                            <span className="text-slate-500 font-bold whitespace-nowrap">Giảm giá / Voucher (₫):</span>
-                                            <input
-                                                type="number"
-                                                className={`w-32 text-right border-b border-red-200 text-red-600 font-bold focus:border-red-500 outline-none p-1 bg-transparent ${(discount > ((lead.value || 0) + discount) * 0.1) ? 'border-red-500 bg-red-50' : ''}`}
-                                                value={discount}
-                                                onChange={e => setDiscount(Number(e.target.value))}
-                                                disabled={isWon || isLost}
-                                                placeholder="0"
-                                            />
-                                            {/* Approval Warning */}
-                                            {productItems.length > 0 && discount > (productItems.reduce((sum, item) => sum + (item.price * item.quantity), 0) * 0.1) && (
-                                                <button onClick={() => showToast("Đã gửi yêu cầu phê duyệt giảm giá > 10% tới Manager!", 'success')} className="text-[10px] bg-red-100 text-red-700 px-2 py-1 rounded font-bold animate-pulse hover:bg-red-200">
-                                                    YÊU CẦU DUYỆT
-                                                </button>
-                                            )}
-                                        </div>
-                                        <div className="flex items-center gap-4 text-sm">
-                                            <span className="text-slate-500 font-bold whitespace-nowrap">Lý do giảm giá <span className="text-red-500">*</span>:</span>
-                                            <input
-                                                className="flex-1 field-input py-1"
-                                                placeholder="VD: Học bổng, Voucher sự kiện, Người quen..."
-                                                defaultValue={lead.discountReason}
-                                                onBlur={e => handleFieldBlur('discountReason', e.target.value)}
-                                                disabled={isWon || isLost}
-                                            />
-                                        </div>
-                                    </div>
-                                    <div className="text-right">
-                                        <span className="block text-xs text-slate-400 mb-1">TỔNG GIÁ TRỊ DEAL (SAU GIẢM)</span>
-                                        <span className="text-2xl font-extrabold text-blue-700 block">{calculatedTotal.toLocaleString()} ₫</span>
-                                    </div>
-                                </div>
-
-                                {/* Probability Slider */}
-                                <div>
-                                    <label className="field-label flex justify-between">
-                                        Xác suất thành công (%)
-                                        <span className="text-blue-600 font-bold">{lead.probability || 20}%</span>
-                                    </label>
-                                    <input
-                                        type="range" min="0" max="100" step="10"
-                                        className="w-full accent-blue-600 cursor-pointer"
-                                        defaultValue={lead.probability || 20}
-                                        onChange={e => handleFieldBlur('probability', Number(e.target.value))} // Live update better? Maybe on mouse up
-                                        onMouseUp={e => handleFieldBlur('probability', Number(e.currentTarget.value))}
-                                        disabled={isContract || isLost}
-                                    />
-                                </div>
-
-                                {/* Expected Close Date */}
-                                <div>
-                                    <label className="field-label">Ngày dự kiến chốt <span className="text-red-500">*</span></label>
-                                    <input
-                                        type="date"
-                                        className="field-input font-bold text-blue-800"
-                                        defaultValue={lead.expectedClosingDate?.split('T')[0]} // Format YYYY-MM-DD
-                                        onBlur={e => handleFieldBlur('expectedClosingDate', e.target.value)}
-                                        disabled={isContract || isLost}
-                                    />
-                                </div>
-
-                            </div>
-                        </div>
-
-                        {/* SECTION 5: LEGAL (PRE-WON) */}
-                        <div className={`mb-20 ${isPipeline || isContract ? 'active-section' : 'dimmed-section'}`}>
-                            <h3 className="section-title text-red-700 border-red-100 bg-red-50 pl-2 py-1 rounded-sm"><ShieldCheck size={16} /> 5. THÔNG TIN PHÁP LÝ (BẮT BUỘC ĐỂ WON)</h3>
-
-                            <div className="grid grid-cols-3 gap-x-4 gap-y-4 border border-red-100 rounded p-4 bg-white relative">
-                                <div className="col-span-1">
-                                    <label className="field-label text-red-800">Số CCCD / Hộ chiếu <span className="text-red-500">*</span></label>
-                                    <input className="field-input font-bold border-red-200" placeholder="Số giấy tờ" defaultValue={lead.identityCard} onBlur={e => handleFieldBlur('identityCard', e.target.value)} disabled={isWon || isContract || isLost} />
-                                </div>
-                                <div className="col-span-1">
-                                    <label className="field-label text-red-800">Ngày cấp <span className="text-red-500">*</span></label>
-                                    <input type="date" className="field-input border-red-200" defaultValue={lead.identityDate} onBlur={e => handleFieldBlur('identityDate', e.target.value)} disabled={isWon || isContract || isLost} />
-                                </div>
-                                <div className="col-span-1">
-                                    <label className="field-label text-red-800">Nơi cấp <span className="text-red-500">*</span></label>
-                                    <input className="field-input border-red-200" placeholder="Cục CS QLHC..." defaultValue={lead.identityPlace} onBlur={e => handleFieldBlur('identityPlace', e.target.value)} disabled={isWon || isContract || isLost} />
-                                </div>
-                                <div className="col-span-3">
-                                    <label className="field-label text-red-800">Địa chỉ thường trú (Full) <span className="text-red-500">*</span></label>
-                                    <input className="field-input border-red-200" placeholder="Số nhà, Đường, Phường/Xã, Quận/Huyện, Tỉnh/TP" defaultValue={lead.address} onBlur={e => handleFieldBlur('address', e.target.value)} disabled={isWon || isContract || isLost} />
-                                </div>
-                            </div>
-                        </div>
-
                         {/* ACTION BUTTON */}
                         <div className="sticky bottom-0 bg-white pt-4 pb-2 border-t border-slate-100 flex justify-between gap-3 shadow-[0_-5px_15px_rgba(0,0,0,0.05)] z-20">
                             {isContract ? (
@@ -1580,7 +1553,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                                 </div>
                             ) : (
                                 <>
-                                    <span className="text-xs text-slate-400 italic flex items-center">Điền thông tin theo từng giai đoạn.</span>
+                                    <span className="text-xs text-slate-400 italic flex items-center">Cập nhật đầy đủ thông tin lead.</span>
                                     <div className="flex gap-2">
                                         <button
                                             onClick={() => { addLog('system', 'Lưu thủ công'); showToast('Đã lưu dữ liệu!', 'success'); }}
@@ -1877,10 +1850,10 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                             <div className="bg-white border-b border-slate-200 px-6 py-2 flex items-center justify-between">
                                 <div className="flex gap-2">
                                     <button
-                                        onClick={finalizeQuotation}
+                                        onClick={handleCreateQuotation}
                                         className="px-3 py-1 bg-[#2b5a83] text-white text-[10px] font-bold rounded uppercase hover:bg-[#1f4463] shadow-sm transition-colors"
                                     >
-                                        Gửi qua Email
+                                        Tạo báo giá
                                     </button>
                                     <button onClick={handlePrintQuotation} className="px-3 py-1 border border-slate-300 text-slate-600 text-[10px] font-bold rounded uppercase hover:bg-slate-50 transition-colors">In</button>
                                     <button onClick={handleConfirmQuotation} className="px-3 py-1 border border-slate-300 text-slate-600 text-[10px] font-bold rounded uppercase hover:bg-slate-50 transition-colors">Xác nhận</button>
@@ -1934,7 +1907,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                                                 </select>
                                             </div>
                                             {!quotationData.paymentMethod && (
-                                                <div className="text-[11px] text-red-600 font-bold pl-40">* Bắt buộc chọn trước khi gửi báo giá</div>
+                                                <div className="text-[11px] text-red-600 font-bold pl-40">* Bắt buộc chọn trước khi xác nhận đơn hàng</div>
                                             )}
                                         </div>
 
@@ -1951,7 +1924,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                                                 </div>
                                             </div>
                                             <div className="flex min-h-[32px] items-center">
-                                                <label className="w-40 text-[13px] font-bold text-slate-700">Bảng giá</label>
+                                                <label className="w-40 text-[13px] font-bold text-slate-700">Chính sách giá</label>
                                                 <div className="flex-1 flex gap-2">
                                                     <select
                                                         className="flex-1 px-3 py-1.5 bg-blue-50 border border-slate-300 rounded text-[13px] outline-none focus:border-blue-500 transition-colors"
@@ -2027,13 +2000,13 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                                     )}
 
                                     {quotationCreatorTab === 'other_info' && (
-                                        <div className="grid grid-cols-2 gap-5 border border-slate-200 rounded-lg p-5 bg-slate-50">
+                                        <div className="grid grid-cols-2 gap-3 border border-slate-200 rounded-lg p-4 bg-slate-50">
                                             <div>
-                                                <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Loại dịch vụ</label>
+                                                <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Loại dịch vụ</label>
                                                 <select
                                                     value={quotationData.serviceType}
                                                     onChange={e => setQuotationData({ ...quotationData, serviceType: e.target.value as 'StudyAbroad' | 'Training' | 'Combo' })}
-                                                    className="w-full px-3 py-2 border border-slate-300 rounded text-sm bg-white"
+                                                    className="w-full h-9 px-3 py-1.5 border border-slate-300 rounded text-[13px] bg-white"
                                                 >
                                                     <option value="Training">Đào tạo</option>
                                                     <option value="StudyAbroad">Du học</option>
@@ -2041,25 +2014,43 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                                                 </select>
                                             </div>
                                             <div>
-                                                <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Mã lớp dự kiến</label>
+                                                <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Mã lớp dự kiến</label>
                                                 <input
                                                     value={quotationData.classCode}
                                                     onChange={e => setQuotationData({ ...quotationData, classCode: e.target.value })}
-                                                    className="w-full px-3 py-2 border border-slate-300 rounded text-sm bg-white"
+                                                    className="w-full h-9 px-3 py-1.5 border border-slate-300 rounded text-[13px] bg-white"
                                                     placeholder="VD: DE-A1-02/2026"
                                                 />
                                             </div>
                                             <div>
-                                                <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Lịch học mong muốn</label>
+                                                <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Lịch học mong muốn</label>
                                                 <input
                                                     value={quotationData.schedule}
                                                     onChange={e => setQuotationData({ ...quotationData, schedule: e.target.value })}
-                                                    className="w-full px-3 py-2 border border-slate-300 rounded text-sm bg-white"
+                                                    className="w-full h-9 px-3 py-1.5 border border-slate-300 rounded text-[13px] bg-white"
                                                     placeholder="VD: T2-T4-T6, 19:00-21:00"
                                                 />
                                             </div>
-                                            <div className="flex items-end">
-                                                <label className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
+                                            <div>
+                                                <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Ghi chú chính sách giá</label>
+                                                <input
+                                                    value={quotationData.pricingNote}
+                                                    onChange={e => setQuotationData({ ...quotationData, pricingNote: e.target.value })}
+                                                    className="w-full h-9 px-3 py-1.5 border border-slate-300 rounded text-[13px] bg-white"
+                                                    placeholder="Nêu lý do giảm giá/chính sách áp dụng..."
+                                                />
+                                            </div>
+                                            <div className="col-span-2 grid grid-cols-[minmax(0,1fr)_auto] gap-3 items-end">
+                                                <div>
+                                                    <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Thông tin khác</label>
+                                                    <textarea
+                                                        value={quotationData.internalNote}
+                                                        onChange={e => setQuotationData({ ...quotationData, internalNote: e.target.value })}
+                                                        className="w-full px-3 py-2 border border-slate-300 rounded text-[13px] bg-white h-14 resize-none"
+                                                        placeholder="Ghi chú nội bộ hoặc yêu cầu xử lý..."
+                                                    />
+                                                </div>
+                                                <label className="inline-flex items-center gap-2 text-[13px] font-semibold text-slate-700 whitespace-nowrap pb-2">
                                                     <input
                                                         type="checkbox"
                                                         checked={quotationData.needInvoice}
@@ -2068,24 +2059,6 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                                                     />
                                                     KH cần in hóa đơn VAT
                                                 </label>
-                                            </div>
-                                            <div className="col-span-2">
-                                                <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Ghi chú chính sách giá</label>
-                                                <textarea
-                                                    value={quotationData.pricingNote}
-                                                    onChange={e => setQuotationData({ ...quotationData, pricingNote: e.target.value })}
-                                                    className="w-full px-3 py-2 border border-slate-300 rounded text-sm bg-white h-20 resize-none"
-                                                    placeholder="Nêu lý do giảm giá/chính sách áp dụng..."
-                                                />
-                                            </div>
-                                            <div className="col-span-2">
-                                                <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Thông tin khác / Chứng từ</label>
-                                                <textarea
-                                                    value={quotationData.internalNote}
-                                                    onChange={e => setQuotationData({ ...quotationData, internalNote: e.target.value })}
-                                                    className="w-full px-3 py-2 border border-slate-300 rounded text-sm bg-white h-20 resize-none"
-                                                    placeholder="Mã bill, ghi chú nội bộ, yêu cầu kế toán..."
-                                                />
                                             </div>
                                         </div>
                                     )}

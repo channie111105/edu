@@ -29,19 +29,19 @@ const ModuleCard: React.FC<ModuleCardProps> = ({ role, icon: Icon, title, subtit
     <button
       type="button"
       onClick={() => onSelectRole(role)}
-      className="group flex h-[185px] flex-col rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-md"
+      className="group flex flex-col rounded-xl border border-slate-200 bg-white p-6 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-md"
     >
-      <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-blue-50 text-blue-700 transition-colors group-hover:bg-blue-600 group-hover:text-white">
-        <Icon size={18} />
+      <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-blue-50 text-blue-700 transition-colors group-hover:bg-blue-600 group-hover:text-white">
+        <Icon size={22} />
       </div>
 
-      <h3 className="text-[1.85rem] font-bold leading-tight text-slate-900">{title}</h3>
-      <p className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-blue-600">{subtitle}</p>
+      <h3 className="text-lg font-bold text-slate-900">{title}</h3>
+      <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-blue-600">{subtitle}</p>
 
-      <div className="mt-2 space-y-1.5">
+      <div className="mt-4 space-y-2">
         {features.map((feature) => (
-          <div key={feature} className="flex items-center gap-1.5 text-xs text-slate-500">
-            <CircleCheck size={12} className="text-slate-400" />
+          <div key={feature} className="flex items-center gap-2 text-sm text-slate-500">
+            <CircleCheck size={14} className="text-slate-400" />
             <span>{feature}</span>
           </div>
         ))}
@@ -60,19 +60,19 @@ const ModuleSelectionPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen overflow-y-auto bg-[#eef3f9] px-4 py-6 md:h-screen md:overflow-hidden md:px-8">
-      <div className="mx-auto flex h-full w-full max-w-6xl flex-col">
-        <header className="mb-5 text-center md:mb-6">
+    <div className="min-h-screen bg-[#eef3f9] px-4 py-12 sm:px-8">
+      <div className="mx-auto w-full max-w-7xl">
+        <header className="mb-12 text-center">
           <h1 className="text-3xl font-extrabold text-slate-900 sm:text-4xl">
             <span className="text-blue-600">ULA</span> EduCRM
           </h1>
-          <p className="mx-auto mt-2 max-w-2xl text-base text-slate-600 md:text-lg">
+          <p className="mx-auto mt-4 max-w-2xl text-lg text-slate-600">
             Hệ thống quản trị tập trung dành cho trung tâm đào tạo và tư vấn du học.
             Vui lòng chọn phân hệ làm việc để truy cập hệ thống.
           </p>
         </header>
 
-        <main className="grid flex-1 grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <main className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
           <ModuleCard
             role={UserRole.MARKETING}
             icon={Target}
@@ -146,8 +146,8 @@ const ModuleSelectionPage: React.FC = () => {
           />
         </main>
 
-        <footer className="mt-4 text-center text-xs text-slate-400 md:mt-3 md:text-sm">
-          © 2026 ULA EduCRM. Powered by React & Gemini AI.
+        <footer className="mt-12 text-center text-sm text-slate-400">
+          © 2024 ULA EduCRM. Powered by React & Gemini AI.
         </footer>
       </div>
     </div>

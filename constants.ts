@@ -12,6 +12,7 @@ import {
   LineChart,
   Target,
   FileSignature,
+  FileText,
   Files,
   Undo2,
   Receipt,
@@ -132,6 +133,7 @@ export const NAV_ITEMS = [
   // --- ROLE HỢP ĐỒNG --- (Removed ADMIN)
   { label: 'Tổng quan', path: '/contracts/dashboard', icon: LayoutDashboard, roles: [UserRole.SALES_LEADER] },
   { label: 'Báo giá', path: '/contracts/quotations', icon: Receipt, roles: [UserRole.SALES_LEADER] }, // Remove SALES_REP
+  { label: 'Hợp đồng', path: '/contracts/contracts-list', icon: FileText, roles: [UserRole.SALES_LEADER] },
 
   // NEW ENROLLMENT FLOW
   { label: 'Học viên (Students)', path: '/enrollment/students', icon: GraduationCap, roles: [UserRole.ADMIN, UserRole.FOUNDER] },

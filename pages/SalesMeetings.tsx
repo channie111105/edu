@@ -1,6 +1,6 @@
 ﻿import React, { useEffect, useMemo, useState } from 'react';
 import {
-    Calendar, Search, Filter, XCircle,
+    Calendar, Filter, XCircle,
     FileText, User, MapPin,
     Building2, ClipboardList, Monitor, Pencil, Plus
 } from 'lucide-react';
@@ -9,6 +9,7 @@ import { getMeetings, updateMeeting, getLeadById, saveLead } from '../utils/stor
 import { useAuth } from '../contexts/AuthContext';
 import CreateMeetingModal from '../components/CreateMeetingModal';
 import { MEETING_TEACHERS, hasTeacherConflict } from '../utils/meetingHelpers';
+import PinnedSearchInput, { PinnedSearchChip } from '../components/PinnedSearchInput';
 
 const normalizeCampus = (value?: string) => {
     const normalized = value?.trim().toLowerCase();
@@ -191,6 +192,83 @@ const SalesMeetings: React.FC = () => {
         return matchesSearch && matchesStatus && matchesBranch && matchesType && matchesDate;
     }), [meetings, searchTerm, filterStatus, filterBranch, filterType, filterDate, customStartDate, customEndDate]);
 
+    const statusLabelMap: Record<string, string> = {
+        all: 'Tat ca trang thai',
+        [MeetingStatus.DRAFT]: 'Draft',
+        [MeetingStatus.CONFIRMED]: 'Confirm',
+        [MeetingStatus.SUBMITTED]: 'Submit',
+        [MeetingStatus.CANCELLED]: 'Cancel'
+    };
+
+    const typeLabelMap: Record<string, string> = {
+        all: 'Tat ca hinh thuc',
+        [MeetingType.OFFLINE]: 'Offline',
+        [MeetingType.ONLINE]: 'Online'
+    };
+
+    const dateLabelMap: Record<string, string> = {
+        all: 'Tat ca thoi gian',
+        today: 'Hom nay',
+        tomorrow: 'Ngay mai',
+        week: 'Tuan nay',
+        custom: 'Tuy bien'
+    };
+
+    const activeSearchChips = useMemo<PinnedSearchChip[]>(() => {
+        const chips: PinnedSearchChip[] = [];
+
+        if (filterDate !== 'all') {
+            const customLabel = filterDate === 'custom'
+                ? [customStartDate, customEndDate].filter(Boolean).join(' - ') || 'Tuy bien'
+                : dateLabelMap[filterDate] || filterDate;
+            chips.push({ key: 'date', label: `Thoi gian: ${customLabel}` });
+        }
+
+        if (filterBranch !== 'all') {
+            chips.push({ key: 'branch', label: `Co so: ${filterBranch}` });
+        }
+
+        if (filterStatus !== 'all') {
+            chips.push({ key: 'status', label: `Trang thai: ${statusLabelMap[filterStatus] || filterStatus}` });
+        }
+
+        if (filterType !== 'all') {
+            chips.push({ key: 'type', label: `Hinh thuc: ${typeLabelMap[filterType] || filterType}` });
+        }
+
+        return chips;
+    }, [filterDate, customStartDate, customEndDate, filterBranch, filterStatus, filterType, dateLabelMap, statusLabelMap, typeLabelMap]);
+
+    const removeSearchChip = (chipKey: string) => {
+        if (chipKey === 'date') {
+            setFilterDate('all');
+            setCustomStartDate('');
+            setCustomEndDate('');
+            return;
+        }
+        if (chipKey === 'branch') {
+            setFilterBranch('all');
+            return;
+        }
+        if (chipKey === 'status') {
+            setFilterStatus('all');
+            return;
+        }
+        if (chipKey === 'type') {
+            setFilterType('all');
+        }
+    };
+
+    const clearAllSearchFilters = () => {
+        setSearchTerm('');
+        setFilterDate('all');
+        setCustomStartDate('');
+        setCustomEndDate('');
+        setFilterBranch('all');
+        setFilterStatus('all');
+        setFilterType('all');
+    };
+
     const getStatusBadge = (status: MeetingStatus) => {
         switch (status) {
             case MeetingStatus.DRAFT:
@@ -225,14 +303,16 @@ const SalesMeetings: React.FC = () => {
             </div>
 
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm mb-6 flex flex-wrap gap-4 items-center">
-                <div className="relative flex-1 min-w-[300px]">
-                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                    <input
-                        type="text"
-                        placeholder="Tìm tên, SĐT..."
-                        className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:bg-white focus:border-blue-500 transition-all shadow-sm"
+                <div className="flex-1 min-w-[300px]">
+                    <PinnedSearchInput
                         value={searchTerm}
-                        onChange={e => setSearchTerm(e.target.value)}
+                        onChange={setSearchTerm}
+                        placeholder="Tim ten, SDT..."
+                        chips={activeSearchChips}
+                        onRemoveChip={removeSearchChip}
+                        onClearAll={clearAllSearchFilters}
+                        clearAllAriaLabel="Xoa tat ca bo loc lich hen"
+                        inputClassName="text-sm h-7"
                     />
                 </div>
 

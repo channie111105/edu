@@ -8,10 +8,10 @@ import {
   List,
   Plus,
   RotateCcw,
-  Search,
   Star
 } from 'lucide-react';
 import AdvancedDateFilter, { DateRange } from '../components/AdvancedDateFilter';
+import PinnedSearchInput from '../components/PinnedSearchInput';
 import { IQuotation, IStudent, QuotationStatus } from '../types';
 import { getQuotations, getStudents } from '../utils/storage';
 
@@ -73,6 +73,11 @@ type TimeRangeType = (typeof TIME_PRESETS)[number]['value'];
 type DataScope = (typeof DATA_SCOPE_OPTIONS)[number]['value'];
 type GroupMode = (typeof GROUP_OPTIONS)[number]['value'];
 type FavoriteMode = (typeof FAVORITE_OPTIONS)[number]['value'];
+type ActiveToolbarChipKey = 'dataScope' | 'groupMode' | 'favoriteMode' | 'time';
+type ActiveToolbarChip = {
+  key: ActiveToolbarChipKey;
+  label: string;
+};
 
 type SelectOption = {
   value: string;
@@ -275,6 +280,9 @@ const getTimePresetLabel = (timeFilterField: TimeFilterField, timeRangeType: Tim
 
   return TIME_PRESETS.find((preset) => preset.value === timeRangeType)?.label || 'Mọi ngày';
 };
+
+const getOptionLabelByValue = (options: readonly SelectOption[], value: string) =>
+  options.find((option) => option.value === value)?.label || value;
 
 const getGroupPrefix = (groupMode: GroupMode) => {
   switch (groupMode) {
@@ -582,6 +590,32 @@ const Quotations: React.FC = () => {
     setCurrentPage(1);
   };
 
+  const removeToolbarChip = (key: ActiveToolbarChipKey) => {
+    switch (key) {
+      case 'dataScope':
+        setDataScope('all');
+        break;
+      case 'groupMode':
+        setGroupMode('none');
+        break;
+      case 'favoriteMode':
+        setFavoriteMode('all');
+        break;
+      case 'time':
+        setTimeFilterField('confirmDate');
+        setTimeRangeType('all');
+        setCustomTimeRange({ startDate: null, endDate: null, label: 'Tuy chon' });
+        setIsCustomRangeOpen(false);
+        break;
+      default:
+        break;
+    }
+  };
+
+  const handleRemoveToolbarChip = (chipKey: string) => {
+    removeToolbarChip(chipKey as ActiveToolbarChipKey);
+  };
+
   const groupedRows = useMemo(() => {
     let lastGroup = '';
 
@@ -713,6 +747,46 @@ const Quotations: React.FC = () => {
     [timeFilterField]
   );
 
+  const activeToolbarChips = useMemo<ActiveToolbarChip[]>(() => {
+    const chips: ActiveToolbarChip[] = [];
+
+    if (dataScope !== 'all') {
+      chips.push({
+        key: 'dataScope',
+        label: `Bo loc: ${getOptionLabelByValue(DATA_SCOPE_OPTIONS, dataScope)}`
+      });
+    }
+
+    if (groupMode !== 'none') {
+      chips.push({
+        key: 'groupMode',
+        label: `Nhom: ${getOptionLabelByValue(GROUP_OPTIONS, groupMode)}`
+      });
+    }
+
+    if (favoriteMode !== 'all') {
+      chips.push({
+        key: 'favoriteMode',
+        label: `Yeu thich: ${getOptionLabelByValue(FAVORITE_OPTIONS, favoriteMode)}`
+      });
+    }
+
+    if (timeFilterField !== 'confirmDate' || timeRangeType !== 'all') {
+      const timeFieldLabel = getOptionLabelByValue(TIME_FIELD_OPTIONS, timeFilterField);
+      const timeRangeLabel =
+        timeRangeType === 'custom'
+          ? customTimeRange.label || 'Tuy chon'
+          : getTimePresetLabel(timeFilterField, timeRangeType);
+
+      chips.push({
+        key: 'time',
+        label: `${timeFieldLabel}: ${timeRangeLabel}`
+      });
+    }
+
+    return chips;
+  }, [customTimeRange.label, dataScope, favoriteMode, groupMode, timeFilterField, timeRangeType]);
+
   return (
     <div className="flex h-full flex-col bg-[#f6f8fc] text-slate-800">
       <div className="mx-auto flex w-full max-w-[1600px] flex-1 flex-col gap-5 p-5 lg:p-7">
@@ -772,19 +846,16 @@ const Quotations: React.FC = () => {
               </div>
 
               <div className="min-w-[320px] flex-1 lg:min-w-0">
-                <div className="relative">
-                  <Search
-                    size={16}
-                    className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
-                  />
-                  <input
-                    type="text"
-                    value={searchTerm}
-                    onChange={(event) => setSearchTerm(event.target.value)}
-                    placeholder="Tìm số báo giá, khách hàng, học viên, tư vấn..."
-                    className="h-[34px] w-full rounded-lg border border-slate-200 bg-white pl-10 pr-3.5 text-[12px] outline-none transition-colors focus:border-blue-500"
-                  />
-                </div>
+                <PinnedSearchInput
+                  value={searchTerm}
+                  onChange={setSearchTerm}
+                  placeholder="Tim so bao gia, khach hang, hoc vien, tu van..."
+                  chips={activeToolbarChips}
+                  onRemoveChip={handleRemoveToolbarChip}
+                  onClearAll={resetToolbar}
+                  clearAllAriaLabel="Xoa tat ca bo loc bao gia"
+                  inputClassName="text-[12px] h-7 min-w-[210px]"
+                />
               </div>
             </div>
 
@@ -898,4 +969,3 @@ const Quotations: React.FC = () => {
 };
 
 export default Quotations;
-

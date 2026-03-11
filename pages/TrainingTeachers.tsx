@@ -1,9 +1,10 @@
 ﻿import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Plus, Phone, Briefcase, Award } from 'lucide-react';
+import { Plus, Phone, Briefcase, Award } from 'lucide-react';
 import { ITeacher } from '../types';
 import { addTeacher, getTeachers, getTrainingClasses } from '../utils/storage';
 import { useAuth } from '../contexts/AuthContext';
+import PinnedSearchInput, { PinnedSearchChip } from '../components/PinnedSearchInput';
 
 const DEFAULT_TEACHER: Partial<ITeacher> = {
   status: 'ACTIVE',
@@ -58,6 +59,33 @@ const TrainingTeachers: React.FC = () => {
     return matchesSearch && matchesStatus;
   });
 
+  const statusLabelMap: Record<'ALL' | 'ACTIVE' | 'INACTIVE', string> = {
+    ALL: 'Tat ca',
+    ACTIVE: 'Dang hoat dong',
+    INACTIVE: 'Da nghi'
+  };
+
+  const activeSearchChips = useMemo<PinnedSearchChip[]>(() => {
+    if (filterStatus === 'ALL') return [];
+    return [
+      {
+        key: 'status',
+        label: `Trang thai: ${statusLabelMap[filterStatus]}`
+      }
+    ];
+  }, [filterStatus]);
+
+  const removeSearchChip = (chipKey: string) => {
+    if (chipKey === 'status') {
+      setFilterStatus('ALL');
+    }
+  };
+
+  const clearAllSearchFilters = () => {
+    setSearchTerm('');
+    setFilterStatus('ALL');
+  };
+
   const handleCreateTeacher = (e: React.FormEvent) => {
     e.preventDefault();
     const nextIndex = teachers.length + 1;
@@ -104,34 +132,37 @@ const TrainingTeachers: React.FC = () => {
       </div>
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="p-4 border-b border-slate-200 flex flex-wrap gap-4 justify-between items-center bg-slate-50/50">
-          <div className="flex items-center gap-2">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-              <input
-                placeholder="Tìm theo tên hoặc SĐT..."
-                className="pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm w-72 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+        <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50/50">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <div className="min-w-[280px] max-w-[520px] flex-1">
+              <PinnedSearchInput
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={setSearchTerm}
+                placeholder="Tim theo ten, ma giao vien, SDT..."
+                chips={activeSearchChips}
+                onRemoveChip={removeSearchChip}
+                onClearAll={clearAllSearchFilters}
+                clearAllAriaLabel="Xoa tat ca bo loc giao vien"
+                inputClassName="text-sm h-7"
               />
             </div>
 
-            <div className="flex items-center bg-white border border-slate-200 rounded-lg p-1">
+            <div className="flex shrink-0 items-center bg-white border border-slate-200 rounded-lg p-1">
               <button
                 onClick={() => setFilterStatus('ALL')}
-                className={`px-3 py-1.5 rounded text-xs font-bold transition-all ${filterStatus === 'ALL' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:bg-slate-50'}`}
+                className={`shrink-0 whitespace-nowrap px-3 py-1.5 rounded text-xs font-bold transition-all ${filterStatus === 'ALL' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:bg-slate-50'}`}
               >
                 Tất cả
               </button>
               <button
                 onClick={() => setFilterStatus('ACTIVE')}
-                className={`px-3 py-1.5 rounded text-xs font-bold transition-all ${filterStatus === 'ACTIVE' ? 'bg-emerald-50 text-emerald-700' : 'text-slate-500 hover:bg-slate-50'}`}
+                className={`shrink-0 whitespace-nowrap px-3 py-1.5 rounded text-xs font-bold transition-all ${filterStatus === 'ACTIVE' ? 'bg-emerald-50 text-emerald-700' : 'text-slate-500 hover:bg-slate-50'}`}
               >
                 Đang hoạt động
               </button>
               <button
                 onClick={() => setFilterStatus('INACTIVE')}
-                className={`px-3 py-1.5 rounded text-xs font-bold transition-all ${filterStatus === 'INACTIVE' ? 'bg-rose-50 text-rose-700' : 'text-slate-500 hover:bg-slate-50'}`}
+                className={`shrink-0 whitespace-nowrap px-3 py-1.5 rounded text-xs font-bold transition-all ${filterStatus === 'INACTIVE' ? 'bg-rose-50 text-rose-700' : 'text-slate-500 hover:bg-slate-50'}`}
               >
                 Đã nghỉ
               </button>

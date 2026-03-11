@@ -1,7 +1,6 @@
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
-    Search,
     Plus,
     MapPin,
     Users,
@@ -28,6 +27,7 @@ import {
 import { getLeads, getCollaborators, saveCollaborators } from '../utils/storage';
 import { LeadStatus, IActivityLog, UserRole } from '../types';
 import { useAuth } from '../contexts/AuthContext';
+import PinnedSearchInput, { PinnedSearchChip } from '../components/PinnedSearchInput';
 
 // Mock Data for Collaborators
 interface ICollaborator {
@@ -512,6 +512,25 @@ const Collaborators: React.FC = () => {
         });
     }, [visibleCollaborators, searchTerm, filterCity, filterIndustry]);
 
+    const activeSearchChips = useMemo<PinnedSearchChip[]>(() => {
+        const chips: PinnedSearchChip[] = [];
+
+        if (filterCity !== 'All') {
+            chips.push({ key: 'city', label: `Khu vuc: ${filterCity}` });
+        }
+
+        if (filterIndustry !== 'All') {
+            chips.push({ key: 'industry', label: `Nganh nghe: ${filterIndustry}` });
+        }
+
+        return chips;
+    }, [filterCity, filterIndustry]);
+
+    const removeSearchChip = (chipKey: string) => {
+        if (chipKey === 'city') setFilterCity('All');
+        if (chipKey === 'industry') setFilterIndustry('All');
+    };
+
     // Stats Calculation
     const getStats = (ctvName: string) => {
         const referrals = leads.filter(l => l.referredBy && l.referredBy.toLowerCase() === ctvName.toLowerCase());
@@ -640,14 +659,14 @@ const Collaborators: React.FC = () => {
                 {/* Toolbar & Filters */}
                 <div className="flex flex-col md:flex-row gap-4 bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
                     {/* Search */}
-                    <div className="relative flex-[1.5] min-w-[250px]">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                        <input
-                            type="text"
-                            placeholder="Tìm kiếm theo Tên, SĐT, Thành phố..."
-                            className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 focus:bg-white focus:border-blue-400 focus:ring-0 outline-none transition-all"
+                    <div className="flex-[1.5] min-w-[250px]">
+                        <PinnedSearchInput
                             value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
+                            onChange={setSearchTerm}
+                            placeholder="Tim kiem theo ten, SDT, thanh pho..."
+                            chips={activeSearchChips}
+                            onRemoveChip={removeSearchChip}
+                            inputClassName="text-sm"
                         />
                     </div>
 

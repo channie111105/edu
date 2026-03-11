@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { GraduationCap, Search, Settings2 } from 'lucide-react';
+import { GraduationCap, Settings2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import {
   getStudyAbroadCaseList,
@@ -9,6 +9,7 @@ import {
   StudyAbroadInvoiceStatus,
   StudyAbroadServiceStatus
 } from '../services/studyAbroadCases.local';
+import PinnedSearchInput, { PinnedSearchChip } from '../components/PinnedSearchInput';
 
 type ColumnId =
   | 'student'
@@ -228,6 +229,48 @@ const StudyAbroadStudentList: React.FC = () => {
     });
   }, [countryFilter, rows, searchTerm, statusFilter]);
 
+  const statusLabelMap: Record<'ALL' | StudyAbroadServiceStatus, string> = {
+    ALL: 'Tat ca',
+    UNPROCESSED: 'Chua xu ly',
+    PROCESSING: 'Dang xu ly'
+  };
+
+  const activeSearchChips = useMemo<PinnedSearchChip[]>(() => {
+    const chips: PinnedSearchChip[] = [];
+
+    if (countryFilter !== 'ALL') {
+      chips.push({
+        key: 'country',
+        label: `Quoc gia: ${countryFilter}`
+      });
+    }
+
+    if (statusFilter !== 'ALL') {
+      chips.push({
+        key: 'status',
+        label: `Trang thai: ${statusLabelMap[statusFilter]}`
+      });
+    }
+
+    return chips;
+  }, [countryFilter, statusFilter]);
+
+  const removeSearchChip = (chipKey: string) => {
+    if (chipKey === 'country') {
+      setCountryFilter('ALL');
+      return;
+    }
+    if (chipKey === 'status') {
+      setStatusFilter('ALL');
+    }
+  };
+
+  const clearAllSearchFilters = () => {
+    setSearchTerm('');
+    setCountryFilter('ALL');
+    setStatusFilter('ALL');
+  };
+
   const visibleColumnList = useMemo(
     () => COLUMN_CONFIGS.filter((column) => visibleColumns[column.id]),
     [visibleColumns]
@@ -313,19 +356,19 @@ const StudyAbroadStudentList: React.FC = () => {
         </div>
 
         <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-[#cfdbe7] bg-white px-4 py-3 shadow-sm">
-          <label className="h-10 min-w-72 flex-1">
-            <div className="flex h-full w-full items-stretch rounded-lg">
-              <div className="flex items-center justify-center rounded-l-lg bg-[#e7edf3] pl-4 text-[#4c739a]">
-                <Search size={18} />
-              </div>
-              <input
-                value={searchTerm}
-                onChange={(event) => setSearchTerm(event.target.value)}
-                placeholder="Tìm kiếm học viên, mã hồ sơ, sales, SĐT..."
-                className="h-full w-full rounded-r-lg border-none bg-[#e7edf3] px-3 text-sm text-[#111418] outline-none placeholder:text-[#4c739a]"
-              />
-            </div>
-          </label>
+          <div className="min-w-72 flex-1">
+            <PinnedSearchInput
+              value={searchTerm}
+              onChange={setSearchTerm}
+              placeholder="Tim kiem hoc vien, ma ho so, sales, SDT..."
+              chips={activeSearchChips}
+              onRemoveChip={removeSearchChip}
+              onClearAll={clearAllSearchFilters}
+              clearAllAriaLabel="Xoa tat ca bo loc ho so du hoc"
+              className="border-[#cfdbe7] bg-[#e7edf3]"
+              inputClassName="h-7 text-sm text-[#111418] placeholder:text-[#4c739a]"
+            />
+          </div>
 
           <select
             value={countryFilter}
@@ -457,3 +500,4 @@ const StudyAbroadStudentList: React.FC = () => {
 };
 
 export default StudyAbroadStudentList;
+

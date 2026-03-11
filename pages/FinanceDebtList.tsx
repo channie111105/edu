@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CalendarClock, CheckCircle2, Search } from 'lucide-react';
+import { AlertTriangle, CalendarClock, CheckCircle2 } from 'lucide-react';
 import { getClassStudents, getStudents, getTrainingClasses } from '../utils/storage';
 import { IClassStudent } from '../types';
+import PinnedSearchInput, { PinnedSearchChip } from '../components/PinnedSearchInput';
 
 type DebtStatus = 'THIEU' | 'QUA_HAN' | 'DA_DONG';
 type StatusFilter = 'ALL' | DebtStatus;
@@ -141,6 +142,34 @@ const FinanceDebtList: React.FC = () => {
     });
   }, [rows, statusFilter, searchTerm]);
 
+  const filterLabelMap: Record<StatusFilter, string> = {
+    ALL: 'Tất cả',
+    THIEU: STATUS_META.THIEU.label,
+    QUA_HAN: STATUS_META.QUA_HAN.label,
+    DA_DONG: STATUS_META.DA_DONG.label
+  };
+
+  const activeSearchChips = useMemo<PinnedSearchChip[]>(() => {
+    if (statusFilter === 'ALL') return [];
+    return [
+      {
+        key: 'status',
+        label: `Trạng thái: ${filterLabelMap[statusFilter]}`
+      }
+    ];
+  }, [statusFilter]);
+
+  const removeSearchChip = (chipKey: string) => {
+    if (chipKey === 'status') {
+      setStatusFilter('ALL');
+    }
+  };
+
+  const clearAllSearchFilters = () => {
+    setSearchTerm('');
+    setStatusFilter('ALL');
+  };
+
   const summary = useMemo(() => {
     const totalDebt = rows.reduce((sum, item) => sum + item.totalDebt, 0);
     const overdueRows = rows.filter((item) => item.status === 'QUA_HAN' && item.totalDebt > 0);
@@ -230,13 +259,16 @@ const FinanceDebtList: React.FC = () => {
             </button>
           </div>
 
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-            <input
+          <div className="w-[420px] max-w-full">
+            <PinnedSearchInput
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={setSearchTerm}
               placeholder="Tìm theo học viên, mã học viên, lớp..."
-              className="pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm w-[340px] focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              chips={activeSearchChips}
+              onRemoveChip={removeSearchChip}
+              onClearAll={clearAllSearchFilters}
+              clearAllAriaLabel="Xóa tất cả bộ lọc công nợ"
+              inputClassName="text-sm h-7"
             />
           </div>
         </div>
@@ -298,4 +330,3 @@ const FinanceDebtList: React.FC = () => {
 };
 
 export default FinanceDebtList;
-

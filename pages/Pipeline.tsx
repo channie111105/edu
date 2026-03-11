@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect, useRef } from 'react';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 import { DealStage, IDeal, ILead, LeadStatus, IContact, Activity, ActivityType } from '../types';
 import { getDeals, saveDeals, getContacts, addContact, updateDeal, saveContact } from '../utils/storage';
@@ -99,6 +99,22 @@ const Pipeline: React.FC = () => {
   const [selectedDeal, setSelectedDeal] = useState<IDeal | null>(null);
   const [drawerLead, setDrawerLead] = useState<ILead | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const skipNextDrawerAutoCloseRef = useRef(false);
+
+  const syncDrawerQuery = (dealId: string | null, replace = false) => {
+    const params = new URLSearchParams(location.search);
+    if (dealId) params.set('drawer', dealId);
+    else params.delete('drawer');
+    const nextSearch = params.toString() ? `?${params.toString()}` : '';
+    if (nextSearch === location.search) return;
+    navigate(
+      {
+        pathname: location.pathname,
+        search: nextSearch
+      },
+      { replace }
+    );
+  };
 
   // Column Management
   const ALL_COLUMNS = [
@@ -154,6 +170,20 @@ const Pipeline: React.FC = () => {
     if (!showNextActivityModal) return;
     setNextActivityDate(getDefaultActivityDate(nextActivityType));
   }, [nextActivityType, showNextActivityModal]);
+
+  // Browser back while drawer open: close drawer first, stay on Pipeline.
+  useEffect(() => {
+    if (skipNextDrawerAutoCloseRef.current) {
+      skipNextDrawerAutoCloseRef.current = false;
+      return;
+    }
+    const params = new URLSearchParams(location.search);
+    const hasDrawerQuery = Boolean(params.get('drawer'));
+    if (!hasDrawerQuery && drawerLead) {
+      setDrawerLead(null);
+      setSelectedDeal(null);
+    }
+  }, [location.search, drawerLead]);
 
   // Drag and Drop Handler
   const onDragEnd = (result: DropResult) => {
@@ -492,8 +522,10 @@ const Pipeline: React.FC = () => {
         lastInteraction: deal.createdAt,
       };
 
+      skipNextDrawerAutoCloseRef.current = true;
       setDrawerLead(unifiedLead);
       setSelectedDeal(deal);
+      syncDrawerQuery(deal.id);
     } else {
       alert("Không tìm thấy thông tin contact gốc của deal này.");
     }
@@ -1065,7 +1097,11 @@ const Pipeline: React.FC = () => {
         <UnifiedLeadDrawer
           isOpen={!!drawerLead}
           lead={drawerLead}
-          onClose={() => { setDrawerLead(null); setSelectedDeal(null); }}
+          onClose={() => {
+            setDrawerLead(null);
+            setSelectedDeal(null);
+            syncDrawerQuery(null, true);
+          }}
           onUpdate={handleDrawerUpdate}
         />
       )}

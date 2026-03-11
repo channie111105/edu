@@ -81,6 +81,39 @@ const Leads: React.FC = () => {
     { id: 'u4', name: 'Alex Rivera', team: 'Team Du học', avatar: 'AR', color: 'bg-green-100 text-green-700' },
   ];
 
+  const normalizeStatusToken = (value?: string) =>
+    (value || '')
+      .trim()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '');
+
+  const STATUS_NORMALIZATION_MAP: Record<string, string> = {
+    new: LeadStatus.NEW,
+    moi: LeadStatus.NEW,
+    assigned: LeadStatus.ASSIGNED,
+    daphanbo: LeadStatus.ASSIGNED,
+    contacted: LeadStatus.CONTACTED,
+    danglienhe: LeadStatus.CONTACTED,
+    qualified: LeadStatus.QUALIFIED,
+    datchuan: LeadStatus.QUALIFIED,
+    converted: LeadStatus.CONVERTED,
+    dachuyendoi: LeadStatus.CONVERTED,
+    disqualified: LeadStatus.DISQUALIFIED,
+    khongdat: LeadStatus.DISQUALIFIED,
+    won: DealStage.WON,
+    chotthanhcongwon: DealStage.WON,
+    lost: DealStage.LOST,
+    thatbailost: DealStage.LOST
+  };
+
+  const normalizeLeadStatus = (status?: string) => {
+    if (!status) return LeadStatus.NEW;
+    const token = normalizeStatusToken(status);
+    return STATUS_NORMALIZATION_MAP[token] || status;
+  };
+
   const assignOwnersBySystemMode = (incomingLeads: ILead[]) => {
     const distributionConfig = getLeadDistributionConfig();
     if (distributionConfig.mode !== 'auto') return incomingLeads;
@@ -106,7 +139,16 @@ const Leads: React.FC = () => {
 
   // Load data
   useEffect(() => {
-    setLeads(getLeads());
+    const rawLeads = getLeads();
+    const normalizedLeads = rawLeads.map((lead) => ({
+      ...lead,
+      status: normalizeLeadStatus(lead.status as string) as any
+    }));
+    setLeads(normalizedLeads);
+    const hasNormalizedDiff = rawLeads.some((lead, idx) => lead.status !== normalizedLeads[idx].status);
+    if (hasNormalizedDiff) {
+      saveLeads(normalizedLeads);
+    }
     setAvailableTags(getTags());
   }, []);
 
@@ -124,7 +166,7 @@ const Leads: React.FC = () => {
   const [newLeadData, setNewLeadData] = useState({
     name: '', phone: '', email: '', source: 'hotline', program: 'Tiếng Đức', notes: '',
     title: '', company: '', province: '', city: '', ward: '', street: '', salesperson: '', campaign: '', tags: [] as string[], referredBy: '',
-    product: '', market: '', channel: '', status: 'NEW'
+    product: '', market: '', channel: '', status: LeadStatus.NEW
   });
   const [availableTags, setAvailableTags] = useState<string[]>([]);
   const [isAddingTag, setIsAddingTag] = useState(false);
@@ -181,7 +223,7 @@ const Leads: React.FC = () => {
         product: '',
         market: '',
         medium: '',
-        status: selectedLead.status
+        status: normalizeLeadStatus(selectedLead.status as string)
       });
     }
   }, [selectedLead]);
@@ -294,7 +336,7 @@ const Leads: React.FC = () => {
       notes: editLeadData.notes,
       company: editLeadData.company,
       ownerId: editLeadData.salesperson,
-      status: editLeadData.status as any,
+      status: normalizeLeadStatus(editLeadData.status as string) as any,
       marketingData: {
         ...selectedLead.marketingData,
         campaign: editLeadData.campaign,
@@ -504,7 +546,7 @@ const Leads: React.FC = () => {
         company: row.company,
         source: row.source,
         program: row.program,
-        status: 'NEW',
+        status: LeadStatus.NEW,
         ownerId: '', // Set below
         marketingData: {
           campaign: row.campaign || importBatchName,
@@ -595,11 +637,17 @@ const Leads: React.FC = () => {
     }
 
     if (openOps) {
-      result = result.filter(l => !['WON', 'LOST', 'Mất', 'Đạt'].includes(l.status as string));
+      result = result.filter(l => {
+        const normalizedStatus = normalizeLeadStatus(l.status as string);
+        return normalizedStatus !== DealStage.WON && normalizedStatus !== DealStage.LOST;
+      });
     }
 
     if (status.length > 0) {
-      result = result.filter(l => status.includes(l.status));
+      result = result.filter(l => {
+        const normalizedStatus = normalizeLeadStatus(l.status as string);
+        return status.includes(l.status as string) || status.includes(normalizedStatus);
+      });
     }
 
     if (createdDate) {
@@ -677,7 +725,7 @@ const Leads: React.FC = () => {
               lead.email,
               lead.source,
               lead.program || '',
-              lead.status,
+              normalizeLeadStatus(lead.status as string),
               lead.ownerId || '',
               (lead as any).city || '',
               (lead as any).company || ''
@@ -693,7 +741,7 @@ const Leads: React.FC = () => {
     // 4. Tab Specific Status Filtering
     switch (activeTab) {
       case 'new':
-        return result.filter(l => l.status === LeadStatus.NEW || !l.status);
+        return result.filter(l => normalizeLeadStatus(l.status as string) === LeadStatus.NEW || !l.status);
       case 'sla_risk':
         return result.filter(l => l.slaStatus === 'danger');
       default:
@@ -704,11 +752,14 @@ const Leads: React.FC = () => {
   // --- STATS CALCULATION ---
   const stats = useMemo(() => {
     const total = leads.length;
-    const newLeads = leads.filter(l => l.status === LeadStatus.NEW).length;
+    const newLeads = leads.filter(l => normalizeLeadStatus(l.status as string) === LeadStatus.NEW).length;
     const slaRisk = leads.filter(l => l.slaStatus === 'danger' || l.slaStatus === 'warning').length;
 
     // Calculate Qualified Rate
-    const qualifiedCount = leads.filter(l => l.status === LeadStatus.QUALIFIED || l.status === LeadStatus.CONVERTED || l.status === DealStage.WON).length;
+    const qualifiedCount = leads.filter(l => {
+      const normalizedStatus = normalizeLeadStatus(l.status as string);
+      return normalizedStatus === LeadStatus.QUALIFIED || normalizedStatus === LeadStatus.CONVERTED || normalizedStatus === DealStage.WON;
+    }).length;
     const rate = total > 0 ? ((qualifiedCount / total) * 100).toFixed(1) : '0.0';
 
     return { total, newLeads, slaRisk, rate };
@@ -727,6 +778,165 @@ const Leads: React.FC = () => {
   const handleClickableField = (e: React.MouseEvent, field: string, label: string, value: string, color?: string) => {
     e.stopPropagation(); // Prevent opening drawer
     addFilter(field, label, value, color);
+  };
+
+  const getAdvancedDateLabel = (filter: { type: 'month' | 'quarter' | 'year'; value: number } | null) => {
+    if (!filter) return '';
+    if (filter.type === 'month') return `Thang ${filter.value}`;
+    if (filter.type === 'quarter') return `Quy ${filter.value}`;
+    return `Nam ${filter.value}`;
+  };
+
+  const toolbarFilterChips = useMemo(() => {
+    const chips: Array<SearchFilter & {
+      origin: 'search' | 'synthetic';
+      originalIndex?: number;
+      syntheticKey?: string;
+    }> = searchFilters.map((filter, index) => ({
+      ...filter,
+      origin: 'search',
+      originalIndex: index
+    }));
+
+    if (advancedFilters.myPipeline) {
+      chips.push({
+        field: 'my_pipeline',
+        label: 'Bo loc',
+        value: 'Lead cua toi',
+        origin: 'synthetic',
+        syntheticKey: 'myPipeline'
+      });
+    }
+
+    if (advancedFilters.unassigned) {
+      chips.push({
+        field: 'unassigned',
+        label: 'Bo loc',
+        value: 'Chua phan cong',
+        origin: 'synthetic',
+        syntheticKey: 'unassigned'
+      });
+    }
+
+    if (advancedFilters.openOps) {
+      chips.push({
+        field: 'open_ops',
+        label: 'Bo loc',
+        value: 'Mo co hoi',
+        origin: 'synthetic',
+        syntheticKey: 'openOps'
+      });
+    }
+
+    advancedFilters.status.forEach((statusValue) => {
+      chips.push({
+        field: 'status',
+        label: 'Trang thai',
+        value: statusValue,
+        origin: 'synthetic',
+        syntheticKey: `status:${statusValue}`
+      });
+    });
+
+    if (advancedFilters.createdDate) {
+      chips.push({
+        field: 'created_date',
+        label: 'Ngay tao',
+        value: getAdvancedDateLabel(advancedFilters.createdDate),
+        origin: 'synthetic',
+        syntheticKey: 'createdDate'
+      });
+    }
+
+    if (advancedFilters.closedDate) {
+      chips.push({
+        field: 'closed_date',
+        label: 'Ngay dong',
+        value: getAdvancedDateLabel(advancedFilters.closedDate),
+        origin: 'synthetic',
+        syntheticKey: 'closedDate'
+      });
+    }
+
+    if (timeFilterField !== 'createdAt' || timeRangeType !== 'all') {
+      const presetLabel = timePresets.find((item) => item.id === timeRangeType)?.label || timeRangeType;
+      const timeLabel = timeRangeType === 'custom' && customRange?.start && customRange?.end
+        ? `${customRange.start} - ${customRange.end}`
+        : presetLabel;
+      chips.push({
+        field: 'time',
+        label: 'Moc thoi gian',
+        value: `${fieldLabels[timeFilterField]}: ${timeLabel}`,
+        origin: 'synthetic',
+        syntheticKey: 'time'
+      });
+    }
+
+    return chips;
+  }, [searchFilters, advancedFilters, timeFilterField, timeRangeType, customRange, timePresets, fieldLabels]);
+
+  const handleToolbarFilterRemove = (index: number) => {
+    const chip = toolbarFilterChips[index];
+    if (!chip) return;
+
+    if (chip.origin === 'search' && typeof chip.originalIndex === 'number') {
+      setSearchFilters(prev => prev.filter((_, i) => i !== chip.originalIndex));
+      return;
+    }
+
+    if (chip.syntheticKey === 'myPipeline') {
+      setAdvancedFilters(prev => ({ ...prev, myPipeline: false }));
+      return;
+    }
+
+    if (chip.syntheticKey === 'unassigned') {
+      setAdvancedFilters(prev => ({ ...prev, unassigned: false }));
+      return;
+    }
+
+    if (chip.syntheticKey === 'openOps') {
+      setAdvancedFilters(prev => ({ ...prev, openOps: false }));
+      return;
+    }
+
+    if (chip.syntheticKey === 'createdDate') {
+      setAdvancedFilters(prev => ({ ...prev, createdDate: null }));
+      return;
+    }
+
+    if (chip.syntheticKey === 'closedDate') {
+      setAdvancedFilters(prev => ({ ...prev, closedDate: null }));
+      return;
+    }
+
+    if (chip.syntheticKey === 'time') {
+      setTimeFilterField('createdAt');
+      setTimeRangeType('all');
+      setCustomRange(null);
+      setShowTimePicker(false);
+      return;
+    }
+
+    if (chip.syntheticKey?.startsWith('status:')) {
+      const statusValue = chip.syntheticKey.slice('status:'.length);
+      setAdvancedFilters(prev => ({ ...prev, status: prev.status.filter((item) => item !== statusValue) }));
+    }
+  };
+
+  const handleClearToolbarFilters = () => {
+    setSearchFilters([]);
+    setAdvancedFilters({
+      myPipeline: false,
+      unassigned: false,
+      openOps: false,
+      createdDate: null,
+      closedDate: null,
+      status: []
+    });
+    setTimeFilterField('createdAt');
+    setTimeRangeType('all');
+    setCustomRange(null);
+    setShowTimePicker(false);
   };
 
   // --- ACTIONS ---
@@ -841,7 +1051,7 @@ const Leads: React.FC = () => {
         channel: newLeadData.channel,
         market: newLeadData.market
       },
-      status: newLeadData.status as any,
+      status: normalizeLeadStatus(newLeadData.status as string) as any,
       createdAt: new Date().toISOString(),
       score: 10,
       lastActivityDate: new Date().toISOString(),
@@ -856,7 +1066,7 @@ const Leads: React.FC = () => {
       setNewLeadData({
         name: '', phone: '', email: '', source: 'hotline', program: 'Tiếng Đức', notes: '',
         title: '', company: '', province: '', city: '', ward: '', street: '', salesperson: '', campaign: '', tags: [], referredBy: '',
-        product: '', market: '', channel: '', status: 'NEW'
+        product: '', market: '', channel: '', status: LeadStatus.NEW
       });
       alert("Tạo Lead thành công!");
     } else {
@@ -949,7 +1159,7 @@ const Leads: React.FC = () => {
       'Email': l.email,
       'Cơ sở': l.company,
       'Nguồn': l.source,
-      'Trạng thái': l.status
+      'Trạng thái': normalizeLeadStatus(l.status as string)
     })));
     const wb = utils.book_new();
     utils.book_append_sheet(wb, ws, "Leads");
@@ -1070,11 +1280,11 @@ const Leads: React.FC = () => {
           </div>
           <div className="p-4 flex gap-4 items-center">
             <SmartSearchBar
-              filters={searchFilters}
-              onAddFilter={(filter) => setSearchFilters([...searchFilters, filter])}
-              onRemoveFilter={(index) => setSearchFilters(searchFilters.filter((_, i) => i !== index))}
-              onClearAll={() => setSearchFilters([])}
-              placeholder="Tìm kiếm..."
+              filters={toolbarFilterChips}
+              onAddFilter={(filter) => addFilter(filter.field, filter.label, filter.value, filter.color)}
+              onRemoveFilter={handleToolbarFilterRemove}
+              onClearAll={handleClearToolbarFilters}
+              placeholder="Tim kiem..."
             />
 
             {/* View Switcher */}
@@ -1610,6 +1820,7 @@ const Leads: React.FC = () => {
                       // @ts-ignore
                       const nextActivity = (lead.activities || []).find(a => a.type === 'activity');
                       const deadline = lead.expectedClosingDate ? new Date(lead.expectedClosingDate).toLocaleDateString('vi-VN') : '-';
+                      const normalizedStatus = normalizeLeadStatus(lead.status as string);
 
                       return (
                         <tr
@@ -1731,22 +1942,22 @@ const Leads: React.FC = () => {
                           {visibleColumns.includes('status') && (
                             <td className="p-2 text-center">
                               <span
-                                className={`px-1 py-0.5 rounded text-[9px] font-bold border uppercase tracking-tighter cursor-pointer hover:opacity-80 whitespace-nowrap ${lead.status === LeadStatus.NEW ? 'bg-blue-50 text-blue-700 border-blue-200' :
-                                  lead.status === LeadStatus.QUALIFIED ? 'bg-cyan-50 text-cyan-700 border-cyan-200' :
-                                    lead.status === DealStage.WON ? 'bg-green-50 text-green-700 border-green-200' :
-                                      lead.status === DealStage.LOST ? 'bg-red-50 text-red-700 border-red-200' :
+                                className={`px-1 py-0.5 rounded text-[9px] font-bold border uppercase tracking-tighter cursor-pointer hover:opacity-80 whitespace-nowrap ${normalizedStatus === LeadStatus.NEW ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                                  normalizedStatus === LeadStatus.QUALIFIED ? 'bg-cyan-50 text-cyan-700 border-cyan-200' :
+                                    normalizedStatus === DealStage.WON ? 'bg-green-50 text-green-700 border-green-200' :
+                                      normalizedStatus === DealStage.LOST ? 'bg-red-50 text-red-700 border-red-200' :
                                         'bg-slate-50 text-slate-600 border-slate-200'
                                   }`}
-                                onClick={(e) => handleClickableField(e, 'status', 'Trạng thái', lead.status,
-                                  lead.status === LeadStatus.NEW ? 'bg-blue-100 text-blue-700' :
-                                    lead.status === LeadStatus.QUALIFIED ? 'bg-cyan-100 text-cyan-700' :
-                                      lead.status === DealStage.WON ? 'bg-green-100 text-green-700' :
-                                        lead.status === DealStage.LOST ? 'bg-red-100 text-red-700' :
+                                onClick={(e) => handleClickableField(e, 'status', 'Trạng thái', normalizedStatus,
+                                  normalizedStatus === LeadStatus.NEW ? 'bg-blue-100 text-blue-700' :
+                                    normalizedStatus === LeadStatus.QUALIFIED ? 'bg-cyan-100 text-cyan-700' :
+                                      normalizedStatus === DealStage.WON ? 'bg-green-100 text-green-700' :
+                                        normalizedStatus === DealStage.LOST ? 'bg-red-100 text-red-700' :
                                           'bg-slate-100 text-slate-700'
                                 )}
-                                title={lead.status}
+                                title={normalizedStatus}
                               >
-                                {lead.status}
+                                {normalizedStatus}
                               </span>
                             </td>
                           )}
@@ -1901,10 +2112,10 @@ const Leads: React.FC = () => {
                     <div className="flex items-center gap-4">
                       <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Trạng thái</label>
                       <select className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm outline-none bg-white" value={editLeadData.status} onChange={e => setEditLeadData({ ...editLeadData, status: e.target.value })}>
-                        <option value="NEW">Mới</option>
-                        <option value="CONTACTED">Đã liên hệ</option>
-                        <option value="QUALIFIED">Tiềm năng</option>
-                        <option value="LOST">Thất bại</option>
+                        <option value={LeadStatus.NEW}>Mới</option>
+                        <option value={LeadStatus.CONTACTED}>Đã liên hệ</option>
+                        <option value={LeadStatus.QUALIFIED}>Tiềm năng</option>
+                        <option value={DealStage.LOST}>Thất bại</option>
                       </select>
                     </div>
                     <div className="flex items-start gap-4">
@@ -2199,10 +2410,10 @@ const Leads: React.FC = () => {
                         value={newLeadData.status}
                         onChange={e => setNewLeadData({ ...newLeadData, status: e.target.value })}
                       >
-                        <option value="NEW">Mới</option>
-                        <option value="CONTACTED">Đã liên hệ</option>
-                        <option value="QUALIFIED">Tiềm năng</option>
-                        <option value="LOST">Thất bại</option>
+                        <option value={LeadStatus.NEW}>Mới</option>
+                        <option value={LeadStatus.CONTACTED}>Đã liên hệ</option>
+                        <option value={LeadStatus.QUALIFIED}>Tiềm năng</option>
+                        <option value={DealStage.LOST}>Thất bại</option>
                       </select>
                     </div>
 
@@ -2754,7 +2965,7 @@ const Leads: React.FC = () => {
                           <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider">ID: {lead.id}</p>
                           <h4 className="font-bold text-slate-900 text-base">{lead.name}</h4>
                           <span className="text-[10px] bg-blue-100 text-blue-700 font-bold px-2 py-0.5 rounded mt-1 inline-block uppercase">
-                            {lead.status}
+                            {normalizeLeadStatus(lead.status as string)}
                           </span>
                         </div>
                         <button
@@ -2901,4 +3112,6 @@ const Leads: React.FC = () => {
 };
 
 export default Leads;
+
+
 
