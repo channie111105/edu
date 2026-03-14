@@ -1,13 +1,20 @@
 ﻿import React, { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, CheckCircle2, GraduationCap } from 'lucide-react';
 import { IAdmission, IQuotation, IStudent, QuotationStatus, StudentStatus } from '../types';
-import { getAdmissions, getQuotations, getStudents } from '../utils/storage';
+import { getAdmissions, getQuotations, getStudents, quotationLinksToStudent } from '../utils/storage';
 import { createAdmission } from '../services/enrollmentFlow.service';
 import { useAuth } from '../contexts/AuthContext';
 import PinnedSearchInput, { PinnedSearchChip } from '../components/PinnedSearchInput';
 
 const MOCK_CLASSES = ['GER-A1-K35', 'GER-A1-K36', 'GER-B1-K12', 'AUS-COOK-K01'];
 const MOCK_CAMPUSES = ['Ha Noi', 'HCM', 'Da Nang'];
+
+const formatDisplayDate = (value?: string) => {
+  if (!value) return '--/--/----';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString('vi-VN');
+};
 
 const Students: React.FC = () => {
   const { user } = useAuth();
@@ -44,16 +51,28 @@ const Students: React.FC = () => {
     };
   }, []);
 
-  const hasLockedQuotation = (studentId: string) => quotations.some((q) => q.studentId === studentId && q.status === QuotationStatus.LOCKED);
+  const getLockedQuotationsForStudent = (student: IStudent) =>
+    quotations.filter((q) => q.status === QuotationStatus.LOCKED && quotationLinksToStudent(q, student));
+
+  const hasLockedQuotation = (studentId: string) => {
+    const student = students.find((item) => item.id === studentId);
+    if (!student) return false;
+    return getLockedQuotationsForStudent(student).length > 0;
+  };
 
   const filteredData = useMemo(() => {
     return students.filter((s) => {
+      const linkedToEnrollmentFlow =
+        getLockedQuotationsForStudent(s).length > 0 ||
+        admissions.some((admission) => admission.studentId === s.id);
+      if (!linkedToEnrollmentFlow) return false;
+
       const status = s.enrollmentStatus || (s.status === StudentStatus.ENROLLED ? 'DA_GHI_DANH' : 'CHUA_GHI_DANH');
       const statusOk = filter === 'ALL' || status === filter;
-      const searchOk = `${s.code} ${s.name} ${s.phone}`.toLowerCase().includes(search.toLowerCase());
+      const searchOk = `${s.code} ${s.name} ${s.phone} ${s.dob || ''} ${s.payerName || ''}`.toLowerCase().includes(search.toLowerCase());
       return statusOk && searchOk;
     });
-  }, [students, filter, search]);
+  }, [admissions, filter, quotations, search, students]);
 
   const filterLabelMap: Record<'ALL' | 'CHUA_GHI_DANH' | 'DA_GHI_DANH', string> = {
     ALL: 'Tat ca',
@@ -83,7 +102,7 @@ const Students: React.FC = () => {
   };
 
   const openEnroll = (student: IStudent) => {
-    const lockedQuotation = quotations.find((q) => q.studentId === student.id && q.status === QuotationStatus.LOCKED);
+    const lockedQuotation = getLockedQuotationsForStudent(student)[0];
     setSelectedStudent(student);
     setEnrollData({
       quotationId: lockedQuotation?.id || '',
@@ -176,6 +195,9 @@ const Students: React.FC = () => {
                     <td className="px-6 py-4">
                       <div className="font-bold text-slate-900">{student.name}</div>
                       <div className="text-xs text-slate-500">{student.phone}</div>
+                      <div className="text-[11px] text-slate-400">
+                        NS: {formatDisplayDate(student.dob)}{student.payerName ? ` • Lead/thu tiền: ${student.payerName}` : ''}
+                      </div>
                     </td>
                     <td className="px-6 py-4">
                       <div>{student.campus || '-'}</div>
@@ -224,7 +246,7 @@ const Students: React.FC = () => {
                 <label className="text-sm font-semibold block mb-1">SO LOCKED lien quan</label>
                 <select className="w-full border border-slate-300 rounded p-2" value={enrollData.quotationId} onChange={(e) => setEnrollData((p) => ({ ...p, quotationId: e.target.value }))}>
                   <option value="">-- Chon SO --</option>
-                  {quotations.filter((q) => q.studentId === selectedStudent.id && q.status === QuotationStatus.LOCKED).map((q) => (
+                  {getLockedQuotationsForStudent(selectedStudent).map((q) => (
                     <option key={q.id} value={q.id}>{q.soCode} - {q.customerName}</option>
                   ))}
                 </select>

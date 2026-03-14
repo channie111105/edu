@@ -1,10 +1,19 @@
 ﻿import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Save, CheckCircle2, Printer, ChevronRight, ChevronDown, FileText, Link2, Lock } from 'lucide-react';
-import { IContract, IQuotation, IQuotationLogNote, QuotationStatus, UserRole } from '../types';
-import { addQuotation, getContacts, getContractByQuotationId, getDealById, getLeadById, getLeads, getQuotations, updateContract, updateQuotation, upsertLinkedContractFromQuotation } from '../utils/storage';
+import { Save, Printer, ChevronRight, ChevronDown, FileText, Lock, Plus } from 'lucide-react';
+import { useRef } from 'react';
+import { Paperclip, Send, X } from 'lucide-react';
+import { IContract, IQuotation, IQuotationLineItem, IQuotationLogNote, ITeacher, ITrainingClass, QuotationStatus, UserRole } from '../types';
+import { addQuotation, getContacts, getContractByQuotationId, getContracts, getDealById, getLeadById, getLeads, getQuotations, getTeachers, getTrainingClasses, updateContract, updateQuotation, upsertLinkedContractFromQuotation } from '../utils/storage';
 import { useAuth } from '../contexts/AuthContext';
 import { confirmSale, lockQuotationAfterAccounting } from '../services/financeFlow.service';
+import {
+  DEFAULT_QUOTATION_RECEIPT_TYPE,
+  normalizeQuotationReceiptType,
+  QUOTATION_RECEIPT_TYPE_OPTIONS
+} from '../utils/quotationReceiptType';
+import ClassCodeLookupInput from '../components/ClassCodeLookupInput';
+import { buildTrainingClassLookupOptions } from '../utils/trainingClassLookup';
 
 const SERVICES = [
   { id: 'StudyAbroad', name: 'Du học' },
@@ -30,19 +39,13 @@ const STATUS_STEPS = [
 const DEFAULT_CONTRACT_TEMPLATE_NAME = 'Mẫu hợp đồng đào tạo';
 
 const CONTRACT_FIELD_CONFIG = [
-  { key: 'centerRepresentative', label: 'Đại diện trung tâm', placeholder: 'Người ký phía trung tâm' },
-  { key: 'studentName', label: 'Khách hàng / học viên', placeholder: 'Họ tên trên hợp đồng' },
-  { key: 'studentPhone', label: 'Số điện thoại', placeholder: 'SĐT học viên' },
-  { key: 'studentEmail', label: 'Email', placeholder: 'Email học viên' },
-  { key: 'address', label: 'Địa chỉ', placeholder: 'Địa chỉ liên hệ / thường trú' },
-  { key: 'identityCard', label: 'CCCD', placeholder: 'Số CCCD/Hộ chiếu' },
-  { key: 'guardianName', label: 'Người bảo hộ', placeholder: 'Tên phụ huynh / người bảo hộ' },
-  { key: 'guardianPhone', label: 'SĐT người bảo hộ', placeholder: 'SĐT phụ huynh / người bảo hộ' },
-  { key: 'branchName', label: 'Chi nhánh / cơ sở', placeholder: 'Tên cơ sở ký hợp đồng' },
-  { key: 'contractNote', label: 'Ghi chú hợp đồng', placeholder: 'Điều khoản hoặc ghi chú riêng' }
+  { key: 'customerName', label: 'Tên khách hàng / Bên B', placeholder: 'Tên khách hàng đứng tên hợp đồng' },
+  { key: 'studentName', label: 'Tên học sinh', placeholder: 'Họ tên học sinh' },
+  { key: 'studentPhone', label: 'SĐT học sinh', placeholder: 'Số điện thoại học sinh' },
+  { key: 'identityCard', label: 'CCCD học sinh', placeholder: 'Số CCCD học sinh' }
 ] as const;
 
-type QuotationTab = 'order_lines' | 'other_info' | 'payment' | 'contract';
+type QuotationTab = 'order_lines' | 'other_info' | 'contract';
 
 type ContractDraftState = {
   templateName: string;
@@ -50,10 +53,168 @@ type ContractDraftState = {
   templateFields: Record<string, string>;
 };
 
-type ContractImportResult = {
-  importedKeys: string[];
-  unknownKeys: string[];
+type CreatorMarket = 'Đức' | 'Trung Quốc';
+type CreatorServicePackage = 'Du học' | 'Combo' | 'Đào tạo';
+
+type OrderCatalogItem = {
+  id: string;
+  product: string;
+  market: CreatorMarket;
+  servicePackage: CreatorServicePackage;
+  serviceType: IQuotation['serviceType'];
+  courseOptions: string[];
+  programOptions: string[];
+  defaultPrice: number;
 };
+
+type CreatorOrderDraft = {
+  id: string;
+  productId?: string;
+  productName: string;
+  studentName: string;
+  studentDob: string;
+  testerId: string;
+  courseName: string;
+  targetMarket: CreatorMarket | '';
+  servicePackage: CreatorServicePackage | '';
+  programs: string[];
+  classId: string;
+  unitPrice: number;
+  discountPercent: number;
+  additionalInfo: string;
+};
+
+type CustomerOption = {
+  id: string;
+  name: string;
+  phone: string;
+  email: string;
+  source: 'contact' | 'lead';
+};
+
+const ORDER_LINE_CATALOG: OrderCatalogItem[] = [
+  {
+    id: 'order-de-training-a12',
+    product: 'Khóa tiếng Đức A1-A2',
+    market: 'Đức',
+    servicePackage: 'Đào tạo',
+    serviceType: 'Training',
+    courseOptions: ['Tiếng Đức A1', 'Tiếng Đức A2'],
+    programOptions: ['A1', 'A2'],
+    defaultPrice: 15000000
+  },
+  {
+    id: 'order-de-training-b12',
+    product: 'Khóa tiếng Đức B1-B2',
+    market: 'Đức',
+    servicePackage: 'Đào tạo',
+    serviceType: 'Training',
+    courseOptions: ['Tiếng Đức B1', 'Tiếng Đức B2'],
+    programOptions: ['B1', 'B2'],
+    defaultPrice: 25000000
+  },
+  {
+    id: 'order-de-combo',
+    product: 'Combo tiếng Đức A1-B1',
+    market: 'Đức',
+    servicePackage: 'Combo',
+    serviceType: 'Combo',
+    courseOptions: ['Combo tiếng Đức A1-B1'],
+    programOptions: ['A1', 'A2', 'B1'],
+    defaultPrice: 45000000
+  },
+  {
+    id: 'order-de-abroad',
+    product: 'Du học Đức - Trọn gói',
+    market: 'Đức',
+    servicePackage: 'Du học',
+    serviceType: 'StudyAbroad',
+    courseOptions: ['Hồ sơ du học Đức', 'Luyện phỏng vấn', 'Định hướng trước bay'],
+    programOptions: ['A1', 'A2', 'B1', 'APS', 'Visa'],
+    defaultPrice: 210000000
+  },
+  {
+    id: 'order-cn-training-hsk123',
+    product: 'Khóa tiếng Trung HSK1-HSK3',
+    market: 'Trung Quốc',
+    servicePackage: 'Đào tạo',
+    serviceType: 'Training',
+    courseOptions: ['HSK 1', 'HSK 2', 'HSK 3'],
+    programOptions: ['HSK1', 'HSK2', 'HSK3'],
+    defaultPrice: 12000000
+  },
+  {
+    id: 'order-cn-training-hsk45',
+    product: 'Khóa tiếng Trung HSK4-HSK5',
+    market: 'Trung Quốc',
+    servicePackage: 'Đào tạo',
+    serviceType: 'Training',
+    courseOptions: ['HSK 4', 'HSK 5'],
+    programOptions: ['HSK4', 'HSK5'],
+    defaultPrice: 18000000
+  },
+  {
+    id: 'order-cn-combo',
+    product: 'Combo tiếng HSK1-HSK3',
+    market: 'Trung Quốc',
+    servicePackage: 'Combo',
+    serviceType: 'Combo',
+    courseOptions: ['Combo tiếng HSK1-HSK3'],
+    programOptions: ['HSK1', 'HSK2', 'HSK3'],
+    defaultPrice: 20000000
+  },
+  {
+    id: 'order-cn-abroad',
+    product: 'Du học Trung Quốc - Trọn gói',
+    market: 'Trung Quốc',
+    servicePackage: 'Du học',
+    serviceType: 'StudyAbroad',
+    courseOptions: ['Hồ sơ du học Trung Quốc', 'Luyện phỏng vấn', 'Định hướng trước bay'],
+    programOptions: ['HSK4', 'HSK5', 'Visa', 'Hồ sơ'],
+    defaultPrice: 160000000
+  }
+];
+
+const CREATOR_MARKETS: CreatorMarket[] = ['Đức', 'Trung Quốc'];
+
+const CREATOR_CLASS_FALLBACKS: ITrainingClass[] = [
+  {
+    id: 'CN-HSK1-K01',
+    code: 'CN-HSK1-K01',
+    name: 'Lớp HSK1 K01',
+    campus: 'Hà Nội',
+    schedule: 'T2-4-6 19:00',
+    language: 'Tiếng Trung',
+    level: 'HSK1',
+    classType: 'Offline',
+    status: 'ACTIVE',
+    teacherId: 'T003'
+  },
+  {
+    id: 'CN-HSK3-K02',
+    code: 'CN-HSK3-K02',
+    name: 'Lớp HSK3 K02',
+    campus: 'Hà Nội',
+    schedule: 'T3-5-7 18:30',
+    language: 'Tiếng Trung',
+    level: 'HSK3',
+    classType: 'Offline',
+    status: 'ACTIVE',
+    teacherId: 'T003'
+  },
+  {
+    id: 'CN-HSK5-K03',
+    code: 'CN-HSK5-K03',
+    name: 'Lớp HSK5 K03',
+    campus: 'TP.HCM',
+    schedule: 'T2-4 20:00',
+    language: 'Tiếng Trung',
+    level: 'HSK5',
+    classType: 'Online',
+    status: 'ACTIVE',
+    teacherId: 'T003'
+  }
+];
 
 const toInputDate = (value?: string) => {
   if (!value) return '';
@@ -85,6 +246,59 @@ const formatDisplayDate = (value?: string) => {
 };
 
 const formatCurrency = (value?: number) => `${(value || 0).toLocaleString('vi-VN')} đ`;
+const toNumberOrZero = (value: number | string | undefined) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const readFileAsDataUrl = (file: File) =>
+  new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+    reader.onerror = () => reject(reader.error || new Error('Không thể đọc file'));
+    reader.readAsDataURL(file);
+  });
+
+const isImageAttachment = (value: string) =>
+  value.startsWith('data:image/') || /\.(png|jpe?g|gif|webp|svg)(\?.*)?$/i.test(value);
+
+const getCatalogByProduct = (productName: string) =>
+  ORDER_LINE_CATALOG.find((item) => item.product === productName);
+
+const createOrderDraft = (
+  formData: Partial<IQuotation>,
+  base?: Partial<CreatorOrderDraft>,
+  lineItem?: IQuotationLineItem
+): CreatorOrderDraft => ({
+  id: lineItem?.id || base?.id || `line-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+  productId: lineItem?.productId || base?.productId,
+  productName: lineItem?.name || base?.productName || '',
+  studentName: lineItem?.studentName || base?.studentName || formData.customerName || '',
+  studentDob: toInputDate(lineItem?.studentDob || base?.studentDob || formData.studentDob),
+  testerId: lineItem?.testerId || base?.testerId || '',
+  courseName: lineItem?.courseName || base?.courseName || '',
+  targetMarket: (lineItem?.targetMarket as CreatorMarket) || base?.targetMarket || (formData.targetCountry as CreatorMarket) || '',
+  servicePackage: (lineItem?.servicePackage as CreatorServicePackage) || base?.servicePackage || '',
+  programs: Array.isArray(lineItem?.programs) ? lineItem.programs : base?.programs || [],
+  classId: lineItem?.classId || base?.classId || '',
+  unitPrice: lineItem?.unitPrice || base?.unitPrice || 0,
+  discountPercent: lineItem?.discount || base?.discountPercent || 0,
+  additionalInfo: lineItem?.additionalInfo || base?.additionalInfo || ''
+});
+
+const getPrimaryQuotationStudentName = (quotation?: Partial<IQuotation> | null) => {
+  const lineItems = Array.isArray(quotation?.lineItems) ? quotation.lineItems : [];
+  const primaryStudentName = lineItems
+    .map((item) => String(item?.studentName || '').trim())
+    .find(Boolean);
+
+  return primaryStudentName || String(quotation?.customerName || '').trim();
+};
+
+const normalizeTemplateDraftName = (templateName?: string) => {
+  const normalized = String(templateName || '').trim();
+  return normalized && normalized !== DEFAULT_CONTRACT_TEMPLATE_NAME ? normalized : '';
+};
 
 const QUOTATION_AUDIT_FIELD_LABELS: Partial<Record<keyof IQuotation, string>> = {
   customerName: 'Khách hàng',
@@ -152,6 +366,7 @@ const buildQuotationAuditLogNote = (
       id: `q-log-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       timestamp,
       user: actor,
+      type: 'system',
       action: 'Tạo SO',
       detail: `Khởi tạo ${after.soCode || 'SO mới'}`
     };
@@ -175,97 +390,9 @@ const buildQuotationAuditLogNote = (
     id: `q-log-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     timestamp,
     user: actor,
+    type: 'system',
     action: 'Cập nhật SO',
     detail: remaining > 0 ? `${shortDetail} | +${remaining} thay đổi khác` : shortDetail
-  };
-};
-
-const normalizeImportToken = (value: string) =>
-  value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '');
-
-const CONTRACT_IMPORT_ALIASES: Record<string, keyof ContractDraftState | string> = {
-  template: 'templateName',
-  templatename: 'templateName',
-  mauhopdong: 'templateName',
-  file: 'fileUrl',
-  fileurl: 'fileUrl',
-  filelink: 'fileUrl',
-  linkfile: 'fileUrl',
-  centerrepresentative: 'centerRepresentative',
-  daidientrungtam: 'centerRepresentative',
-  studentname: 'studentName',
-  customername: 'studentName',
-  hocvien: 'studentName',
-  khachhang: 'studentName',
-  studentphone: 'studentPhone',
-  sodienthoai: 'studentPhone',
-  phone: 'studentPhone',
-  studentemail: 'studentEmail',
-  email: 'studentEmail',
-  address: 'address',
-  diachi: 'address',
-  identitycard: 'identityCard',
-  cccd: 'identityCard',
-  socccd: 'identityCard',
-  guardianname: 'guardianName',
-  nguoibaoho: 'guardianName',
-  phuhuynh: 'guardianName',
-  guardianphone: 'guardianPhone',
-  sdtnguoibaoho: 'guardianPhone',
-  branchname: 'branchName',
-  chinhanh: 'branchName',
-  coso: 'branchName',
-  contractnote: 'contractNote',
-  ghichuhopdong: 'contractNote',
-  quotationdate: 'quotationDate',
-  ngaybaogia: 'quotationDate',
-  confirmdate: 'confirmDate',
-  ngayconfirm: 'confirmDate'
-};
-
-const parseContractImportText = (value: string) => {
-  const lines = value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  const meta: Partial<ContractDraftState> = {};
-  const templateFields: Record<string, string> = {};
-  const importedKeys = new Set<string>();
-  const unknownKeys: string[] = [];
-
-  lines.forEach((line) => {
-    const separatorIndex = line.includes(':') ? line.indexOf(':') : line.indexOf('=');
-    if (separatorIndex === -1) {
-      unknownKeys.push(line);
-      return;
-    }
-
-    const rawKey = line.slice(0, separatorIndex).trim();
-    const rawValue = line.slice(separatorIndex + 1).trim();
-    if (!rawKey || !rawValue) return;
-
-    const mappedKey = CONTRACT_IMPORT_ALIASES[normalizeImportToken(rawKey)];
-    if (!mappedKey) {
-      unknownKeys.push(rawKey);
-      return;
-    }
-
-    if (mappedKey === 'templateName' || mappedKey === 'fileUrl') {
-      meta[mappedKey] = rawValue;
-      importedKeys.add(mappedKey);
-      return;
-    }
-
-    templateFields[mappedKey] = rawValue;
-    importedKeys.add(mappedKey);
-  });
-
-  return {
-    meta,
-    templateFields,
-    importedKeys: Array.from(importedKeys),
-    unknownKeys
   };
 };
 
@@ -281,17 +408,27 @@ const QuotationDetails: React.FC = () => {
   const initialTab = searchParams.get('tab');
 
   const [activeTab, setActiveTab] = useState<QuotationTab>('order_lines');
+  const [quotationCreatorWorkflowStatus, setQuotationCreatorWorkflowStatus] = useState<'draft' | 'sent' | 'sale_order' | 'cancelled'>('draft');
+  const [creatorLineItems, setCreatorLineItems] = useState<IQuotationLineItem[]>([]);
+  const [showOrderLineModal, setShowOrderLineModal] = useState(false);
+  const [editingCreatorLineId, setEditingCreatorLineId] = useState<string | null>(null);
+  const [programDropdownOpen, setProgramDropdownOpen] = useState(false);
+  const [contractTemplateDropdownOpen, setContractTemplateDropdownOpen] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
   const [customerQuery, setCustomerQuery] = useState('');
   const [linkedContract, setLinkedContract] = useState<IContract | null>(null);
   const [contractDraft, setContractDraft] = useState<ContractDraftState>({
-    templateName: DEFAULT_CONTRACT_TEMPLATE_NAME,
+    templateName: '',
     fileUrl: '',
     templateFields: {}
   });
-  const [contractImportText, setContractImportText] = useState('');
-  const [contractImportResult, setContractImportResult] = useState<ContractImportResult | null>(null);
+  const [logNoteContent, setLogNoteContent] = useState('');
+  const [pendingLogAttachments, setPendingLogAttachments] = useState<string[]>([]);
+  const logAttachmentInputRef = useRef<HTMLInputElement | null>(null);
+  const programDropdownRef = useRef<HTMLDivElement | null>(null);
+  const contractTemplateDropdownRef = useRef<HTMLDivElement | null>(null);
+  const quotationPrintRestoreTabRef = useRef<QuotationTab | null>(null);
 
   const [formData, setFormData] = useState<Partial<IQuotation>>({
     status: QuotationStatus.DRAFT,
@@ -299,27 +436,77 @@ const QuotationDetails: React.FC = () => {
     amount: 0,
     discount: 0,
     finalAmount: 0,
+    expirationDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+    pricelist: '[Center 11] Base Price (VND)',
+    orderMode: DEFAULT_QUOTATION_RECEIPT_TYPE,
+    needInvoice: false,
     createdAt: new Date().toISOString(),
     quotationDate: new Date().toISOString()
   });
+  const [orderLineDraft, setOrderLineDraft] = useState<CreatorOrderDraft>(() => createOrderDraft({
+    customerName: '',
+    studentDob: ''
+  }));
 
   useEffect(() => {
-    if (initialTab === 'order_lines' || initialTab === 'other_info' || initialTab === 'payment' || initialTab === 'contract') {
+    if (initialTab === 'order_lines' || initialTab === 'other_info' || initialTab === 'contract') {
       setActiveTab(initialTab);
     }
   }, [initialTab]);
 
   useEffect(() => {
+    if (!programDropdownOpen) return;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (programDropdownRef.current && !programDropdownRef.current.contains(event.target as Node)) {
+        setProgramDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [programDropdownOpen]);
+
+  useEffect(() => {
+    if (!contractTemplateDropdownOpen) return;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (contractTemplateDropdownRef.current && !contractTemplateDropdownRef.current.contains(event.target as Node)) {
+        setContractTemplateDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [contractTemplateDropdownOpen]);
+
+  const loadClassCodeOptions = () =>
+    buildTrainingClassLookupOptions([...getTrainingClasses(), ...CREATOR_CLASS_FALLBACKS]);
+
+  useEffect(() => {
     if (isNew) {
+      setQuotationCreatorWorkflowStatus('draft');
+      setCreatorLineItems([]);
       setLinkedContract(null);
       setContractDraft({
-        templateName: DEFAULT_CONTRACT_TEMPLATE_NAME,
+        templateName: '',
         fileUrl: '',
         templateFields: {}
       });
       if (dealId) {
         const deal = getDealById(dealId);
         if (deal) {
+          setCreatorLineItems([
+            {
+              id: `line-${deal.id}`,
+              productId: deal.id,
+              name: deal.title,
+              quantity: 1,
+              unitPrice: deal.value,
+              discount: 0,
+              total: deal.value
+            }
+          ]);
           setFormData((prev) => ({
             ...prev,
             dealId: deal.id,
@@ -328,7 +515,18 @@ const QuotationDetails: React.FC = () => {
             product: deal.title,
             amount: deal.value,
             finalAmount: deal.value,
-            quotationDate: prev.quotationDate || prev.createdAt || new Date().toISOString()
+            quotationDate: prev.quotationDate || prev.createdAt || new Date().toISOString(),
+            lineItems: [
+              {
+                id: `line-${deal.id}`,
+                productId: deal.id,
+                name: deal.title,
+                quantity: 1,
+                unitPrice: deal.value,
+                discount: 0,
+                total: deal.value
+              }
+            ]
           }));
           const lead = getLeadById(deal.leadId);
           if (lead) {
@@ -336,6 +534,8 @@ const QuotationDetails: React.FC = () => {
               ...prev,
               customerName: lead.name,
               customerId: lead.id,
+              targetCountry: lead.targetCountry || prev.targetCountry,
+              studentDob: lead.dob || prev.studentDob,
               studentPhone: lead.phone || prev.studentPhone,
               studentEmail: lead.email || prev.studentEmail,
               studentAddress: lead.address || prev.studentAddress,
@@ -343,6 +543,14 @@ const QuotationDetails: React.FC = () => {
               guardianName: lead.guardianName || prev.guardianName,
               guardianPhone: lead.guardianPhone || prev.guardianPhone
             }));
+            setCreatorLineItems((prev) =>
+              prev.map((item) => ({
+                ...item,
+                studentName: lead.name,
+                studentDob: lead.dob || item.studentDob,
+                targetMarket: (lead.targetCountry as CreatorMarket) || item.targetMarket
+              }))
+            );
             setCustomerQuery(lead.name);
           }
         }
@@ -360,11 +568,22 @@ const QuotationDetails: React.FC = () => {
     }
 
     const contract = getContractByQuotationId(found.id) || null;
-    setFormData(found);
+    setFormData({
+      ...found,
+      orderMode: normalizeQuotationReceiptType(found.orderMode)
+    });
     setLinkedContract(contract);
+    setQuotationCreatorWorkflowStatus(
+      found.status === QuotationStatus.SALE_ORDER || found.status === QuotationStatus.SALE_CONFIRMED
+        ? 'sale_order'
+        : found.status === QuotationStatus.SENT
+          ? 'sent'
+          : 'draft'
+    );
+    setCreatorLineItems(found.lineItems || []);
     setCustomerQuery(found.customerName || '');
     setContractDraft({
-      templateName: contract?.templateName || DEFAULT_CONTRACT_TEMPLATE_NAME,
+      templateName: normalizeTemplateDraftName(contract?.templateName),
       fileUrl: contract?.fileUrl || '',
       templateFields: contract?.templateFields || {}
     });
@@ -372,6 +591,42 @@ const QuotationDetails: React.FC = () => {
       setShowConfirmModal(true);
     }
   }, [dealId, id, initialAction, isNew, navigate]);
+
+  useEffect(() => {
+    if (!isNew) return;
+
+    const subtotal = creatorLineItems.reduce((sum, item) => sum + (item.unitPrice || 0) * (item.quantity || 0), 0);
+    const finalTotal = creatorLineItems.reduce((sum, item) => sum + (item.total || 0), 0);
+    const nextLineItems = creatorLineItems.map((item) => ({
+      ...item,
+      total: Math.max(0, (item.unitPrice || 0) * (item.quantity || 0) * (1 - (item.discount || 0) / 100))
+    }));
+
+    setFormData((prev) => ({
+      ...prev,
+      lineItems: nextLineItems,
+      product: nextLineItems.map((item) => item.name).filter(Boolean).join(' + ') || prev.product || '',
+      targetCountry: nextLineItems[0]?.targetMarket || prev.targetCountry,
+      serviceType:
+        nextLineItems[0]?.servicePackage === 'Du học'
+          ? 'StudyAbroad'
+          : nextLineItems[0]?.servicePackage === 'Combo'
+            ? 'Combo'
+            : nextLineItems[0]?.servicePackage === 'Đào tạo'
+              ? 'Training'
+              : prev.serviceType,
+      amount: subtotal,
+      discount: Math.max(0, subtotal - finalTotal),
+      finalAmount: finalTotal
+    }));
+  }, [creatorLineItems, isNew]);
+
+  useEffect(() => {
+    if (!isNew || showOrderLineModal) return;
+    setOrderLineDraft((prev) =>
+      editingCreatorLineId ? prev : createOrderDraft(formData, prev)
+    );
+  }, [editingCreatorLineId, formData, isNew, showOrderLineModal]);
 
   const isLocked = formData.status === QuotationStatus.LOCKED;
   const userRole = user?.role as UserRole | undefined;
@@ -399,15 +654,15 @@ const QuotationDetails: React.FC = () => {
 
   const derivedContractFields = useMemo(
     () => ({
-      studentName: formData.customerName || linkedContract?.customerName || '',
+      customerName: formData.customerName || linkedContract?.customerName || getPrimaryQuotationStudentName(formData),
+      studentName:
+        getPrimaryQuotationStudentName(formData) ||
+        String(linkedContract?.templateFields?.studentName || '').trim() ||
+        formData.customerName ||
+        linkedContract?.customerName ||
+        '',
       studentPhone: formData.studentPhone || '',
-      studentEmail: formData.studentEmail || '',
-      address: formData.studentAddress || '',
       identityCard: formData.identityCard || '',
-      guardianName: formData.guardianName || '',
-      guardianPhone: formData.guardianPhone || '',
-      branchName: formData.branchName || '',
-      contractNote: '',
       quotationCode: formData.soCode || '',
       quotationDate: formatDisplayDate(formData.quotationDate || formData.createdAt),
       confirmDate: formatDisplayDate(
@@ -422,14 +677,12 @@ const QuotationDetails: React.FC = () => {
     }),
     [
       formData.amount,
-      formData.branchName,
       formData.confirmDate,
       formData.createdAt,
       formData.customerName,
       formData.finalAmount,
-      formData.guardianName,
-      formData.guardianPhone,
       formData.identityCard,
+      formData.lineItems,
       formData.lockedAt,
       formData.paymentMethod,
       formData.product,
@@ -437,38 +690,92 @@ const QuotationDetails: React.FC = () => {
       formData.saleConfirmedAt,
       formData.soCode,
       formData.status,
-      formData.studentAddress,
-      formData.studentEmail,
       formData.studentPhone,
       formData.updatedAt,
-      linkedContract?.customerName
+      linkedContract?.customerName,
+      linkedContract?.templateFields?.studentName
     ]
   );
 
   const getContractFieldValue = (key: string) =>
     contractDraft.templateFields[key] ?? derivedContractFields[key as keyof typeof derivedContractFields] ?? '';
 
+  const contractTemplateOptions = useMemo(() => {
+    const options = new Map<string, { id: string; templateName: string; code: string; customerName: string }>();
+
+    getContracts().forEach((contract) => {
+      const templateName = normalizeTemplateDraftName(contract.templateName);
+      if (!templateName) return;
+
+      options.set(contract.id, {
+        id: contract.id,
+        templateName,
+        code: contract.code || '',
+        customerName: contract.customerName || ''
+      });
+    });
+
+    const linkedTemplateName = normalizeTemplateDraftName(linkedContract?.templateName);
+    if (linkedContract?.id && linkedTemplateName) {
+      options.set(linkedContract.id, {
+        id: linkedContract.id,
+        templateName: linkedTemplateName,
+        code: linkedContract.code || '',
+        customerName: linkedContract.customerName || ''
+      });
+    }
+
+    const draftTemplateName = contractDraft.templateName.trim();
+    if (draftTemplateName) {
+      options.set(`draft-${draftTemplateName}`, {
+        id: `draft-${draftTemplateName}`,
+        templateName: draftTemplateName,
+        code: '',
+        customerName: ''
+      });
+    }
+
+    return Array.from(options.values()).sort((left, right) => {
+      const byTemplate = left.templateName.localeCompare(right.templateName, 'vi');
+      return byTemplate !== 0 ? byTemplate : left.code.localeCompare(right.code, 'vi');
+    });
+  }, [contractDraft.templateName, linkedContract?.code, linkedContract?.customerName, linkedContract?.id, linkedContract?.templateName]);
+
+  const filteredContractTemplateOptions = useMemo(() => {
+    const keyword = contractDraft.templateName.trim().toLowerCase();
+    const source = keyword
+      ? contractTemplateOptions.filter((contractOption) =>
+          [contractOption.templateName, contractOption.code, contractOption.customerName]
+            .join(' ')
+            .toLowerCase()
+            .includes(keyword)
+        )
+      : contractTemplateOptions;
+
+    return source.slice(0, 8);
+  }, [contractDraft.templateName, contractTemplateOptions]);
+
   const hasContractCustomData = useMemo(
     () =>
       Boolean(
         linkedContract ||
-          contractDraft.fileUrl.trim() ||
-          (contractDraft.templateName || '').trim() !== DEFAULT_CONTRACT_TEMPLATE_NAME ||
+          Boolean((contractDraft.templateName || '').trim()) ||
           Object.values(contractDraft.templateFields).some((value) => value.trim())
       ),
-    [contractDraft.fileUrl, contractDraft.templateFields, contractDraft.templateName, linkedContract]
+    [contractDraft.templateFields, contractDraft.templateName, linkedContract]
   );
 
   const syncLinkedContract = (quotation: IQuotation) => {
     const quotationDerivedFields = {
-      studentName: quotation.customerName || linkedContract?.customerName || '',
+      customerName: quotation.customerName || linkedContract?.customerName || getPrimaryQuotationStudentName(quotation),
+      studentName:
+        getPrimaryQuotationStudentName(quotation) ||
+        String(linkedContract?.templateFields?.studentName || '').trim() ||
+        quotation.customerName ||
+        linkedContract?.customerName ||
+        '',
       studentPhone: quotation.studentPhone || '',
-      studentEmail: quotation.studentEmail || '',
-      address: quotation.studentAddress || '',
       identityCard: quotation.identityCard || '',
-      guardianName: quotation.guardianName || '',
-      guardianPhone: quotation.guardianPhone || '',
-      branchName: quotation.branchName || '',
       quotationCode: quotation.soCode || '',
       quotationDate: formatDisplayDate(quotation.quotationDate || quotation.createdAt),
       confirmDate: formatDisplayDate(
@@ -490,16 +797,10 @@ const QuotationDetails: React.FC = () => {
       fileUrl: contractDraft.fileUrl || baseContract.fileUrl,
       templateFields: {
         ...baseContract.templateFields,
-        centerRepresentative: resolveDraftValue('centerRepresentative', baseContract.templateFields?.centerRepresentative || ''),
+        customerName: resolveDraftValue('customerName', quotationDerivedFields.customerName),
         studentName: resolveDraftValue('studentName', quotationDerivedFields.studentName),
         studentPhone: resolveDraftValue('studentPhone', quotationDerivedFields.studentPhone),
-        studentEmail: resolveDraftValue('studentEmail', quotationDerivedFields.studentEmail),
-        address: resolveDraftValue('address', quotationDerivedFields.address),
         identityCard: resolveDraftValue('identityCard', quotationDerivedFields.identityCard),
-        guardianName: resolveDraftValue('guardianName', quotationDerivedFields.guardianName),
-        guardianPhone: resolveDraftValue('guardianPhone', quotationDerivedFields.guardianPhone),
-        branchName: resolveDraftValue('branchName', quotationDerivedFields.branchName),
-        contractNote: resolveDraftValue('contractNote', baseContract.templateFields?.contractNote || ''),
         quotationCode: quotationDerivedFields.quotationCode,
         quotationDate: quotationDerivedFields.quotationDate,
         confirmDate: quotationDerivedFields.confirmDate,
@@ -514,7 +815,7 @@ const QuotationDetails: React.FC = () => {
     updateContract(mergedContract);
     setLinkedContract(mergedContract);
     setContractDraft({
-      templateName: mergedContract.templateName || DEFAULT_CONTRACT_TEMPLATE_NAME,
+      templateName: normalizeTemplateDraftName(mergedContract.templateName),
       fileUrl: mergedContract.fileUrl || '',
       templateFields: mergedContract.templateFields || {}
     });
@@ -550,6 +851,7 @@ const QuotationDetails: React.FC = () => {
       product: formData.product || '',
       paymentMethod: formData.paymentMethod,
       paymentProof: formData.paymentProof,
+      orderMode: normalizeQuotationReceiptType(formData.orderMode),
       createdBy: formData.createdBy || user?.id || 'system',
       updatedAt: now,
       status: nextStatus,
@@ -623,6 +925,7 @@ const QuotationDetails: React.FC = () => {
 
     setFormData({
       ...res.quotation,
+      orderMode: normalizeQuotationReceiptType(res.quotation.orderMode),
       paymentMethod: savedQuotation.paymentMethod,
       paymentProof: savedQuotation.paymentProof
     });
@@ -655,7 +958,10 @@ const QuotationDetails: React.FC = () => {
       return;
     }
 
-    setFormData(res.quotation);
+    setFormData({
+      ...res.quotation,
+      orderMode: normalizeQuotationReceiptType(res.quotation.orderMode)
+    });
     setLinkedContract(getContractByQuotationId(res.quotation.id) || null);
     syncLinkedContract(res.quotation);
     alert('Đã khóa đơn hàng và tạo hồ sơ học viên');
@@ -713,6 +1019,178 @@ const QuotationDetails: React.FC = () => {
     return { clickable: false, title: 'Bước khởi tạo' };
   };
 
+  const calculateCreatorLineTotal = (unitPrice: number, discountPercent: number) =>
+    Math.max(0, unitPrice * (1 - discountPercent / 100));
+
+  const openNewOrderLineModal = () => {
+    setEditingCreatorLineId(null);
+    setProgramDropdownOpen(false);
+    setOrderLineDraft(createOrderDraft(formData));
+    setShowOrderLineModal(true);
+  };
+
+  const openEditOrderLineModal = (lineId: string) => {
+    const foundLine = creatorLineItems.find((item) => item.id === lineId);
+    if (!foundLine) return;
+    setEditingCreatorLineId(lineId);
+    setProgramDropdownOpen(false);
+    setOrderLineDraft(createOrderDraft(formData, undefined, foundLine));
+    setShowOrderLineModal(true);
+  };
+
+  const closeOrderLineModal = () => {
+    setProgramDropdownOpen(false);
+    setShowOrderLineModal(false);
+    setEditingCreatorLineId(null);
+    setOrderLineDraft(createOrderDraft(formData));
+  };
+
+  const handleOrderDraftMarketChange = (market: CreatorMarket | '') => {
+    setProgramDropdownOpen(false);
+    setOrderLineDraft((prev) => ({
+      ...prev,
+      targetMarket: market,
+      servicePackage: '',
+      productId: undefined,
+      productName: '',
+      courseName: '',
+      programs: [],
+      classId: '',
+      unitPrice: 0
+    }));
+  };
+
+  const handleOrderDraftServiceChange = (servicePackage: CreatorServicePackage | '') => {
+    setProgramDropdownOpen(false);
+    setOrderLineDraft((prev) => ({
+      ...prev,
+      servicePackage,
+      productId: undefined,
+      productName: '',
+      courseName: '',
+      programs: [],
+      classId: '',
+      unitPrice: 0
+    }));
+  };
+
+  const handleOrderDraftProductChange = (productName: string) => {
+    const catalog = getCatalogByProduct(productName);
+    setProgramDropdownOpen(false);
+    setOrderLineDraft((prev) => ({
+      ...prev,
+      productId: catalog?.id,
+      productName,
+      courseName: catalog?.courseOptions[0] || '',
+      programs: [],
+      classId: '',
+      unitPrice: catalog?.defaultPrice || 0
+    }));
+  };
+
+  const handleOrderDraftProgramToggle = (program: string) => {
+    setOrderLineDraft((prev) => ({
+      ...prev,
+      programs: prev.programs.includes(program)
+        ? prev.programs.filter((item) => item !== program)
+        : [...prev.programs, program],
+      classId: ''
+    }));
+  };
+
+  const handleRemoveOrderLine = () => {
+    if (editingCreatorLineId) {
+      setCreatorLineItems((prev) => prev.filter((item) => item.id !== editingCreatorLineId));
+    }
+    closeOrderLineModal();
+  };
+
+  const handleSaveOrderLine = (mode: 'close' | 'new') => {
+    if (!orderLineDraft.productName || !orderLineDraft.studentName || !orderLineDraft.targetMarket || !orderLineDraft.servicePackage) {
+      alert('Vui lòng nhập đủ sản phẩm, tên học sinh, thị trường mục tiêu và gói dịch vụ.');
+      return;
+    }
+
+    const selectedTester = getTeachers().find((teacher) => teacher.id === orderLineDraft.testerId);
+    const selectedClass = [...getTrainingClasses(), ...CREATOR_CLASS_FALLBACKS].find((item) => item.id === orderLineDraft.classId);
+    const total = calculateCreatorLineTotal(orderLineDraft.unitPrice, orderLineDraft.discountPercent);
+
+    const nextLineItem: IQuotationLineItem = {
+      id: editingCreatorLineId || orderLineDraft.id,
+      productId: orderLineDraft.productId,
+      name: orderLineDraft.productName,
+      quantity: 1,
+      unitPrice: orderLineDraft.unitPrice,
+      discount: orderLineDraft.discountPercent,
+      total,
+      studentName: orderLineDraft.studentName,
+      studentDob: fromInputDate(orderLineDraft.studentDob, formData.studentDob),
+      testerId: orderLineDraft.testerId || undefined,
+      testerName: selectedTester?.fullName,
+      courseName: orderLineDraft.courseName || undefined,
+      targetMarket: orderLineDraft.targetMarket || undefined,
+      servicePackage: orderLineDraft.servicePackage || undefined,
+      programs: orderLineDraft.programs,
+      classId: orderLineDraft.classId || undefined,
+      className: selectedClass?.name,
+      additionalInfo: orderLineDraft.additionalInfo || undefined
+    };
+
+    setCreatorLineItems((prev) =>
+      editingCreatorLineId
+        ? prev.map((item) => (item.id === editingCreatorLineId ? nextLineItem : item))
+        : [...prev, nextLineItem]
+    );
+
+    if (mode === 'new') {
+      setEditingCreatorLineId(null);
+      setOrderLineDraft(createOrderDraft(formData, {
+        studentName: orderLineDraft.studentName,
+        studentDob: orderLineDraft.studentDob,
+        targetMarket: orderLineDraft.targetMarket
+      }));
+      return;
+    }
+
+    closeOrderLineModal();
+  };
+
+  const handleSaveCreatorDraft = () => {
+    persistQuotation({ syncContract: false, navigateToList: true });
+    setQuotationCreatorWorkflowStatus('draft');
+  };
+
+  const handleCreateCreatorQuotation = () => {
+    const savedQuotation = persistQuotation({ syncContract: false });
+    setQuotationCreatorWorkflowStatus('draft');
+    alert(`Đã tạo báo giá thành công (${savedQuotation.soCode})`);
+  };
+
+  const handlePrintCreatorQuotation = () => {
+    const savedQuotation = persistQuotation({ syncContract: false });
+    setQuotationCreatorWorkflowStatus('draft');
+    alert(`Đang mở bản in cho ${savedQuotation.soCode}`);
+    window.print();
+  };
+
+  const handleConfirmCreatorQuotation = () => {
+    if (!formData.paymentMethod) {
+      alert('Phương thức thanh toán là bắt buộc trước khi xác nhận.');
+      return;
+    }
+
+    const savedQuotation = persistQuotation({
+      nextStatus: QuotationStatus.SALE_ORDER,
+      syncContract: false
+    });
+    setQuotationCreatorWorkflowStatus('sale_order');
+    alert(`Đã xác nhận ${savedQuotation.soCode} thành đơn bán hàng`);
+  };
+
+  const handleCancelCreatorQuotation = () => {
+    setQuotationCreatorWorkflowStatus('cancelled');
+  };
+
   const productOptions = useMemo(() => {
     if (!formData.product) return PRODUCTS;
     const exists = PRODUCTS.some((p) => p.name === formData.product);
@@ -727,7 +1205,7 @@ const QuotationDetails: React.FC = () => {
     ];
   }, [formData.product, formData.amount, formData.finalAmount]);
 
-  const customerOptions = useMemo(() => {
+  const customerOptions = useMemo<CustomerOption[]>(() => {
     const contacts = getContacts().map((c) => ({
       id: c.id,
       name: c.name,
@@ -752,68 +1230,925 @@ const QuotationDetails: React.FC = () => {
       .slice(0, 20);
   }, [customerQuery]);
 
-  const handleApplyContractImport = () => {
-    if (!contractImportText.trim()) {
-      alert('Vui lòng nhập nội dung import hợp đồng');
-      return;
-    }
-
-    const parsed = parseContractImportText(contractImportText);
-    if (parsed.importedKeys.length === 0) {
-      alert('Không tìm thấy field hợp lệ để import');
-      return;
-    }
-
-    setContractDraft((prev) => ({
-      templateName: (parsed.meta.templateName as string) || prev.templateName,
-      fileUrl: (parsed.meta.fileUrl as string) || prev.fileUrl,
-      templateFields: {
-        ...prev.templateFields,
-        ...parsed.templateFields
-      }
-    }));
-
+  const applyCustomerSelection = (customer: CustomerOption, options?: { includeDob?: boolean }) => {
+    const sourceLead = customer.source === 'lead' ? getLeadById(customer.id) : undefined;
     setFormData((prev) => ({
       ...prev,
-      customerName: parsed.templateFields.studentName || prev.customerName,
-      studentPhone: parsed.templateFields.studentPhone || prev.studentPhone,
-      studentEmail: parsed.templateFields.studentEmail || prev.studentEmail,
-      studentAddress: parsed.templateFields.address || prev.studentAddress,
-      identityCard: parsed.templateFields.identityCard || prev.identityCard,
-      guardianName: parsed.templateFields.guardianName || prev.guardianName,
-      guardianPhone: parsed.templateFields.guardianPhone || prev.guardianPhone,
-      branchName: parsed.templateFields.branchName || prev.branchName
+      customerName: customer.name,
+      customerId: customer.id,
+      leadId: customer.source === 'lead' ? customer.id : prev.leadId,
+      studentPhone: customer.phone || prev.studentPhone || sourceLead?.phone,
+      studentEmail: customer.email || prev.studentEmail || sourceLead?.email,
+      studentDob: options?.includeDob ? sourceLead?.dob || prev.studentDob : prev.studentDob,
+      studentAddress: sourceLead?.address || prev.studentAddress,
+      identityCard: sourceLead?.identityCard || prev.identityCard,
+      guardianName: sourceLead?.guardianName || prev.guardianName,
+      guardianPhone: sourceLead?.guardianPhone || prev.guardianPhone
     }));
-
-    if (parsed.templateFields.studentName) {
-      setCustomerQuery(parsed.templateFields.studentName);
-    }
-
-    if (parsed.templateFields.quotationDate) {
-      setFormData((prev) => ({
-        ...prev,
-        quotationDate: fromInputDate(parsed.templateFields.quotationDate, prev.quotationDate || prev.createdAt) || prev.quotationDate
-      }));
-    }
-
-    if (parsed.templateFields.confirmDate) {
-      setFormData((prev) => ({
-        ...prev,
-        confirmDate: fromInputDate(parsed.templateFields.confirmDate, prev.confirmDate || prev.updatedAt) || prev.confirmDate
-      }));
-    }
-
-    setContractImportResult({
-      importedKeys: parsed.importedKeys,
-      unknownKeys: parsed.unknownKeys
-    });
-    alert(`Đã import ${parsed.importedKeys.length} trường hợp đồng`);
+    setCustomerQuery(customer.name);
+    setCustomerDropdownOpen(false);
   };
+
+  const creatorTeachers = useMemo(() => getTeachers(), []);
+
+  const creatorClasses = useMemo(() => {
+    const classes = [...getTrainingClasses(), ...CREATOR_CLASS_FALLBACKS];
+    const seen = new Set<string>();
+    return classes.filter((item) => {
+      if (seen.has(item.id)) return false;
+      seen.add(item.id);
+      return true;
+    });
+  }, []);
+
+  const availableServicePackages = useMemo(() => {
+    if (!orderLineDraft.targetMarket) return [];
+    return Array.from(
+      new Set(
+        ORDER_LINE_CATALOG.filter((item) => item.market === orderLineDraft.targetMarket).map((item) => item.servicePackage)
+      )
+    );
+  }, [orderLineDraft.targetMarket]);
+
+  const availableProducts = useMemo(() => {
+    if (!orderLineDraft.targetMarket || !orderLineDraft.servicePackage) return [];
+    return ORDER_LINE_CATALOG.filter(
+      (item) => item.market === orderLineDraft.targetMarket && item.servicePackage === orderLineDraft.servicePackage
+    );
+  }, [orderLineDraft.servicePackage, orderLineDraft.targetMarket]);
+
+  const availableCourseOptions = useMemo(() => {
+    const productCatalog = availableProducts.find((item) => item.product === orderLineDraft.productName);
+    if (productCatalog) return productCatalog.courseOptions;
+    return Array.from(new Set(availableProducts.flatMap((item) => item.courseOptions)));
+  }, [availableProducts, orderLineDraft.productName]);
+
+  const availableProgramOptions = useMemo(() => {
+    const productCatalog = availableProducts.find((item) => item.product === orderLineDraft.productName);
+    if (productCatalog) return productCatalog.programOptions;
+    return Array.from(new Set(availableProducts.flatMap((item) => item.programOptions)));
+  }, [availableProducts, orderLineDraft.productName]);
+
+  const availableTesterOptions = useMemo(() => {
+    if (!orderLineDraft.targetMarket) return creatorTeachers;
+    return creatorTeachers.filter((teacher) => {
+      if (orderLineDraft.targetMarket === 'Đức') {
+        return teacher.teachSubjects.includes('German') || teacher.teachLevels.some((level) => /A|B/i.test(level));
+      }
+      return teacher.teachSubjects.includes('Chinese') || teacher.teachLevels.some((level) => /HSK/i.test(level));
+    });
+  }, [creatorTeachers, orderLineDraft.targetMarket]);
+
+  const availableClassOptions = useMemo(() => {
+    if (!orderLineDraft.targetMarket) return creatorClasses;
+
+    return creatorClasses.filter((trainingClass) => {
+      const language = (trainingClass.language || '').toLowerCase();
+      const matchesMarket =
+        orderLineDraft.targetMarket === 'Đức' ? language.includes('đức') || language.includes('german') : language.includes('trung') || language.includes('chinese');
+
+      if (!matchesMarket) return false;
+      if (orderLineDraft.programs.length === 0) return true;
+
+      const classTokens = `${trainingClass.level || ''} ${trainingClass.name || ''}`.toLowerCase();
+      return orderLineDraft.programs.some((program) => classTokens.includes(program.toLowerCase()));
+    });
+  }, [creatorClasses, orderLineDraft.programs, orderLineDraft.targetMarket]);
+
+  const creatorSubtotal = useMemo(
+    () => creatorLineItems.reduce((sum, item) => sum + (Number(item.total) || 0), 0),
+    [creatorLineItems]
+  );
+
+  const creatorGrandTotal = creatorSubtotal;
+  const quotationServicePackageSummary = useMemo(() => {
+    const packageNames = Array.from(
+      new Set(
+        creatorLineItems
+          .map((item) => String(item.servicePackage || '').trim())
+          .filter(Boolean)
+      )
+    );
+
+    if (packageNames.length > 0) {
+      return packageNames.join(', ');
+    }
+
+    return SERVICES.find((service) => service.id === formData.serviceType)?.name || '-';
+  }, [creatorLineItems, formData.serviceType]);
+  const quotationAmountDisplay = formatCurrency(creatorGrandTotal || formData.finalAmount || formData.amount || 0);
+  const quotationPrintSummaryItems = useMemo(
+    () => [
+      { label: 'Khách hàng', value: formData.customerName || '-', wide: false },
+      { label: 'SĐT khách hàng', value: formData.studentPhone || '-', wide: false },
+      { label: 'Gói dịch vụ', value: quotationServicePackageSummary || '-', wide: false },
+      { label: 'Địa chỉ khách hàng', value: formData.studentAddress || '-', wide: true },
+      { label: 'Chính sách bán', value: formData.pricelist || '-', wide: false },
+      { label: 'Ngày hết hạn báo giá', value: formatDisplayDate(formData.expirationDate) || '-', wide: false },
+      { label: 'Giá tiền', value: quotationAmountDisplay, wide: false }
+    ],
+    [
+      formData.customerName,
+      formData.expirationDate,
+      formData.pricelist,
+      formData.studentAddress,
+      formData.studentPhone,
+      quotationAmountDisplay,
+      quotationServicePackageSummary
+    ]
+  );
+  const editableOrderLineItems = useMemo<IQuotationLineItem[]>(() => {
+    if (creatorLineItems.length > 0) return creatorLineItems;
+
+    return [
+      {
+        id: formData.id ? `${formData.id}-line-1` : 'quotation-line-1',
+        productId: productOptions.find((item) => item.name === formData.product)?.id,
+        name: formData.product || '',
+        quantity: 1,
+        unitPrice: toNumberOrZero(formData.finalAmount || formData.amount),
+        discount: 0,
+        total: toNumberOrZero(formData.finalAmount || formData.amount),
+        studentName: getPrimaryQuotationStudentName(formData),
+        studentDob: formData.studentDob,
+        courseName: Array.isArray(formData.lineItems)
+          ? formData.lineItems.map((item) => String(item.courseName || '').trim()).filter(Boolean).join(', ')
+          : '',
+        servicePackage: formData.lineItems?.[0]?.servicePackage,
+        programs: Array.isArray(formData.lineItems?.[0]?.programs) ? formData.lineItems?.[0]?.programs : [],
+        additionalInfo: formData.lineItems?.[0]?.additionalInfo || formData.internalNote || ''
+      }
+    ];
+  }, [creatorLineItems, formData, productOptions]);
+
+  const syncEditableOrderLineItems = (nextItems: IQuotationLineItem[]) => {
+    const normalizedItems = nextItems.map((item, index) => {
+      const quantity = Math.max(1, toNumberOrZero(item.quantity || 1));
+      const unitPrice = Math.max(0, toNumberOrZero(item.unitPrice));
+      const discount = Math.max(0, toNumberOrZero(item.discount));
+      const total = Math.max(0, unitPrice * quantity * (1 - discount / 100));
+
+      return {
+        ...item,
+        id: item.id || `quotation-line-${index + 1}`,
+        quantity,
+        unitPrice,
+        discount,
+        total
+      };
+    });
+
+    const subtotal = normalizedItems.reduce((sum, item) => sum + (item.unitPrice || 0) * (item.quantity || 0), 0);
+    const finalTotal = normalizedItems.reduce((sum, item) => sum + (item.total || 0), 0);
+    const primaryLineItem = normalizedItems[0];
+    const nextProduct = normalizedItems.map((item) => item.name).filter(Boolean).join(' + ');
+
+    setCreatorLineItems(normalizedItems);
+    setFormData((prev) => ({
+      ...prev,
+      lineItems: normalizedItems,
+      product: nextProduct || prev.product || '',
+      amount: subtotal,
+      discount: Math.max(0, subtotal - finalTotal),
+      finalAmount: finalTotal,
+      serviceType:
+        primaryLineItem?.servicePackage === 'Du học'
+          ? 'StudyAbroad'
+          : primaryLineItem?.servicePackage === 'Combo'
+            ? 'Combo'
+            : primaryLineItem?.servicePackage === 'Đào tạo'
+              ? 'Training'
+              : prev.serviceType,
+      studentDob: primaryLineItem?.studentDob || prev.studentDob,
+      internalNote: primaryLineItem?.additionalInfo || prev.internalNote
+    }));
+  };
+
+  const handleEditableOrderLineChange = (
+    lineId: string,
+    field: 'name' | 'studentName' | 'studentDob' | 'courseName' | 'unitPrice' | 'additionalInfo',
+    value: string
+  ) => {
+    const nextItems = editableOrderLineItems.map((item) => {
+      if (item.id !== lineId) return item;
+
+      if (field === 'unitPrice') {
+        const unitPrice = Math.max(0, toNumberOrZero(value));
+        return {
+          ...item,
+          unitPrice,
+          total: Math.max(0, unitPrice * (item.quantity || 1) * (1 - (item.discount || 0) / 100))
+        };
+      }
+
+      return {
+        ...item,
+        [field]: value
+      };
+    });
+
+    syncEditableOrderLineItems(nextItems);
+  };
+
+  const newQuotationView = isNew ? (
+      <div className="min-h-screen bg-slate-100 p-4 md:p-6 text-sm text-slate-800">
+        <div className="mx-auto max-w-7xl">
+          <div className="mb-4 flex items-center gap-2 text-slate-500">
+            <button onClick={() => navigate('/contracts/quotations')} className="hover:text-blue-600">Báo giá</button>
+            <ChevronRight size={14} />
+            <span className="font-semibold text-slate-900">Mới</span>
+          </div>
+
+          <div className="overflow-hidden rounded-lg border bg-white shadow-sm">
+            <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-6 py-2">
+              <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
+                <span>Quy trình</span>
+                <ChevronRight size={14} />
+                <span>[Center-2]Groupclass</span>
+                <ChevronRight size={14} />
+                <span className="font-bold text-slate-900">Mới</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={handleSaveCreatorDraft} className="flex items-center gap-2 rounded bg-blue-600 px-5 py-1.5 text-xs font-bold uppercase text-white shadow-sm hover:bg-blue-700">
+                  <Save size={14} /> Lưu
+                </button>
+                <button onClick={() => navigate('/contracts/quotations')} className="rounded border border-slate-300 bg-white px-5 py-1.5 text-xs font-bold uppercase text-slate-600 shadow-sm hover:bg-slate-50">
+                  Bỏ qua
+                </button>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-2">
+              <div className="flex gap-2">
+                <button onClick={handleCreateCreatorQuotation} className="rounded bg-[#2b5a83] px-3 py-1 text-[10px] font-bold uppercase text-white shadow-sm transition-colors hover:bg-[#1f4463]">
+                  Tạo báo giá
+                </button>
+                <button onClick={handlePrintCreatorQuotation} className="rounded border border-slate-300 px-3 py-1 text-[10px] font-bold uppercase text-slate-600 transition-colors hover:bg-slate-50">
+                  In
+                </button>
+                <button onClick={handleConfirmCreatorQuotation} className="rounded border border-slate-300 px-3 py-1 text-[10px] font-bold uppercase text-slate-600 transition-colors hover:bg-slate-50">
+                  Xác nhận
+                </button>
+                <button onClick={handleCancelCreatorQuotation} className="rounded border border-slate-300 px-3 py-1 text-[10px] font-bold uppercase text-slate-600 transition-colors hover:bg-slate-50">
+                  Hủy
+                </button>
+              </div>
+
+              <div className="flex h-8">
+                <div className="flex items-center">
+                  <div className={`rounded-l-md border border-slate-200 px-5 py-1.5 text-[10px] font-extrabold uppercase ${quotationCreatorWorkflowStatus === 'draft' ? 'bg-blue-50 text-[#2b5a83]' : 'bg-white text-slate-400'}`}>Báo giá</div>
+                  <div className="relative h-full w-[16px] overflow-hidden">
+                    <div className={`absolute left-[-8px] top-[-8px] h-[32px] w-[32px] rotate-45 border border-slate-200 ${quotationCreatorWorkflowStatus === 'draft' ? 'bg-blue-50' : 'bg-white'}`} />
+                  </div>
+                </div>
+                <div className="ml-[-12px] flex items-center">
+                  <div className={`border-y border-slate-200 px-5 py-1.5 text-[10px] font-bold uppercase ${quotationCreatorWorkflowStatus === 'sent' ? 'bg-blue-50 text-[#2b5a83]' : 'bg-white text-slate-400'}`}>Đã gửi báo giá</div>
+                  <div className="relative h-full w-[16px] overflow-hidden">
+                    <div className={`absolute left-[-8px] top-[-8px] h-[32px] w-[32px] rotate-45 border border-slate-200 ${quotationCreatorWorkflowStatus === 'sent' ? 'bg-blue-50' : 'bg-white'}`} />
+                  </div>
+                </div>
+                <div className="ml-[-12px] flex items-center">
+                  <div className={`rounded-r-md border border-slate-200 px-5 py-1.5 text-[10px] font-bold uppercase ${quotationCreatorWorkflowStatus === 'sale_order' ? 'bg-blue-50 text-[#2b5a83]' : 'bg-white text-slate-400'}`}>Đơn bán hàng</div>
+                </div>
+                {quotationCreatorWorkflowStatus === 'cancelled' && (
+                  <div className="ml-2 rounded-md border border-red-200 bg-red-50 px-3 py-1.5 text-[10px] font-bold uppercase text-red-600">Đã hủy</div>
+                )}
+              </div>
+            </div>
+
+            <div className="overflow-y-auto bg-white p-12">
+              <div className="mx-auto max-w-4xl">
+                <h2 className="mb-8 text-3xl font-bold tracking-tight text-slate-800">Mới</h2>
+
+                <div className="mb-12 grid grid-cols-1 gap-x-20 gap-y-5 lg:grid-cols-2">
+                  <div className="space-y-4">
+                    <div className="flex min-h-[32px] items-center">
+                      <label className="w-40 text-[13px] font-bold text-slate-700">Khách hàng</label>
+                      <div className="relative flex-1">
+                        <div className="flex items-center rounded border border-slate-300 bg-blue-50 px-3 py-1.5">
+                          <input
+                            className="w-full bg-transparent text-[13px] font-bold text-blue-900 outline-none"
+                            value={customerQuery || formData.customerName || ''}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              setCustomerQuery(value);
+                              setFormData((prev) => ({ ...prev, customerName: value }));
+                              setCustomerDropdownOpen(true);
+                            }}
+                            onFocus={() => setCustomerDropdownOpen(true)}
+                            onBlur={() => setTimeout(() => setCustomerDropdownOpen(false), 120)}
+                            placeholder="Chọn hoặc nhập khách hàng"
+                          />
+                          <button
+                            type="button"
+                            className="text-slate-500 hover:text-slate-700"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => setCustomerDropdownOpen((prev) => !prev)}
+                          >
+                            <ChevronDown size={16} />
+                          </button>
+                        </div>
+
+                        {customerDropdownOpen && (
+                          <div className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded border bg-white shadow">
+                            {customerOptions.length > 0 ? (
+                              customerOptions.map((customer) => {
+                                return (
+                                  <button
+                                    key={`${customer.source}-${customer.id}`}
+                                    type="button"
+                                    className="w-full border-b px-3 py-2 text-left hover:bg-slate-50"
+                                    onMouseDown={(e) => {
+                                      e.preventDefault();
+                                      applyCustomerSelection(customer, { includeDob: true });
+                                    }}
+                                  >
+                                    <div className="font-medium text-slate-800">{customer.name}</div>
+                                    <div className="text-xs text-slate-500">{customer.phone || customer.email || 'Không có thông tin liên hệ'}</div>
+                                  </button>
+                                );
+                              })
+                            ) : (
+                              <div className="px-3 py-2 text-xs text-slate-500">Không có khách hàng phù hợp</div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex min-h-[32px] items-center">
+                      <label className="w-40 text-[13px] font-bold text-slate-700">Phương thức thanh toán</label>
+                      <select
+                        className={`flex-1 rounded border px-3 py-1.5 text-[13px] outline-none transition-colors ${formData.paymentMethod ? 'border-slate-300 bg-blue-50 focus:border-blue-500' : 'border-red-300 bg-blue-50 focus:border-red-500'}`}
+                        value={formData.paymentMethod === 'CASH' ? 'Tiền mặt' : formData.paymentMethod === 'CK' ? 'Chuyển khoản' : ''}
+                        onChange={(e) =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            paymentMethod: e.target.value === 'Tiền mặt' ? 'CASH' : e.target.value === 'Chuyển khoản' ? 'CK' : undefined
+                          }))
+                        }
+                      >
+                        <option value="">-- Chọn phương thức --</option>
+                        <option value="Tiền mặt">Tiền mặt</option>
+                        <option value="Chuyển khoản">Chuyển khoản</option>
+                      </select>
+                    </div>
+                    {!formData.paymentMethod && (
+                      <div className="pl-40 text-[11px] font-bold text-red-600">* Bắt buộc chọn trước khi xác nhận đơn hàng</div>
+                    )}
+                  </div>
+
+                  <div className="space-y-4">
+                    <div className="flex min-h-[32px] items-center">
+                      <label className="w-[148px] text-[13px] font-bold text-slate-700">Ngày hết hạn</label>
+                      <div className="flex-1">
+                        <input
+                          type="date"
+                          className="w-full rounded border border-slate-300 bg-white px-3 py-1.5 text-[13px] outline-none transition-colors focus:border-blue-500"
+                          value={formData.expirationDate || ''}
+                          onChange={(e) => setFormData((prev) => ({ ...prev, expirationDate: e.target.value }))}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex min-h-[32px] items-center">
+                      <label className="w-[148px] text-[13px] font-bold text-slate-700">Chính sách giá</label>
+                      <div className="flex-1">
+                        <select
+                          className="w-full rounded border border-slate-300 bg-blue-50 px-3 py-1.5 text-[13px] outline-none transition-colors focus:border-blue-500"
+                          value={formData.pricelist || '[Center 11] Base Price (VND)'}
+                          onChange={(e) => setFormData((prev) => ({ ...prev, pricelist: e.target.value }))}
+                        >
+                          <option value="[Center 11] Base Price (VND)">[Center 11] Base Price (VND)</option>
+                          <option value="VIP Pricelist">VIP Pricelist</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="flex min-h-[32px] items-center">
+                      <label className="w-[148px] text-[13px] font-bold text-slate-700">Loại phiếu thu</label>
+                      <div className="flex-1">
+                        <select
+                          className="w-full appearance-none rounded border border-slate-300 bg-blue-50 px-3 py-1.5 text-[13px] outline-none transition-colors focus:border-blue-500"
+                          value={normalizeQuotationReceiptType(formData.orderMode)}
+                          onChange={(e) => setFormData((prev) => ({ ...prev, orderMode: e.target.value }))}
+                        >
+                          {QUOTATION_RECEIPT_TYPE_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mb-6 flex gap-8 border-b border-slate-200 px-2">
+                  <button onClick={() => setActiveTab('order_lines')} className={`pb-3 text-[11px] font-extrabold uppercase tracking-wider ${activeTab === 'order_lines' ? 'border-b-2 border-blue-700 text-blue-700' : 'text-slate-400 transition-colors hover:text-slate-600'}`}>Chi tiết đơn hàng</button>
+                  <button onClick={() => setActiveTab('other_info')} className={`pb-3 text-[11px] font-extrabold uppercase tracking-wider ${activeTab === 'other_info' ? 'border-b-2 border-blue-700 text-blue-700' : 'text-slate-400 transition-colors hover:text-slate-600'}`}>Thông tin khác</button>
+                </div>
+
+                {activeTab === 'order_lines' && (
+                  <div className="overflow-x-auto">
+                    <table className="w-full table-fixed border-collapse text-left text-[12px]">
+                      <colgroup>
+                        <col className="w-[16%]" />
+                        <col className="w-[15%]" />
+                        <col className="w-[12%]" />
+                        <col className="w-[27%]" />
+                        <col className="w-[10%]" />
+                        <col className="w-[9%]" />
+                        <col className="w-[11%]" />
+                      </colgroup>
+                      <thead className="bg-[#f8f9fa] font-bold uppercase text-slate-700">
+                        <tr className="border-b border-slate-200">
+                          <th className="p-3">Sản phẩm</th>
+                          <th className="p-3">Tên học sinh</th>
+                          <th className="p-3">Ngày sinh</th>
+                          <th className="p-3">Mô tả</th>
+                          <th className="p-3 text-right">Đơn giá</th>
+                          <th className="p-3 text-center">Giảm giá (%)</th>
+                          <th className="p-3 text-right">Thành tiền</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {creatorLineItems.map((item) => (
+                          <tr
+                            key={item.id}
+                            className="cursor-pointer border-b border-slate-100 transition-colors hover:bg-slate-50"
+                            onClick={() => openEditOrderLineModal(item.id)}
+                          >
+                            <td className="align-top p-3 font-bold text-blue-700">{item.name || '-'}</td>
+                            <td className="align-top p-3 text-slate-900">{item.studentName || formData.customerName || customerQuery || '-'}</td>
+                            <td className="align-top p-3 text-slate-600">{item.studentDob ? formatDisplayDate(item.studentDob) : '--/--/----'}</td>
+                            <td className="align-top p-3 text-slate-500">
+                              <div className="text-[11px] leading-5">
+                                <div className="font-semibold text-slate-700">
+                                  {[item.targetMarket, item.servicePackage, item.courseName].filter(Boolean).join(' • ') || '-'}
+                                </div>
+                                {item.testerName && (
+                                  <div>
+                                    <span className="font-semibold text-slate-500">Tester:</span> {item.testerName}
+                                  </div>
+                                )}
+                                {item.programs?.length ? (
+                                  <div>
+                                    <span className="font-semibold text-slate-500">Chương trình:</span> {item.programs.join(', ')}
+                                  </div>
+                                ) : null}
+                                {item.className && (
+                                  <div>
+                                    <span className="font-semibold text-slate-500">Lớp:</span> {item.className}
+                                  </div>
+                                )}
+                                {item.additionalInfo && (
+                                  <div>
+                                    <span className="font-semibold text-slate-500">Thông tin thêm:</span> {item.additionalInfo}
+                                  </div>
+                                )}
+                                {!item.testerName && !item.programs?.length && !item.className && !item.additionalInfo && (
+                                  <div className="italic text-slate-400">Không có thông tin thêm</div>
+                                )}
+                              </div>
+                            </td>
+                            <td className="align-top p-3 text-right text-slate-700">{(item.unitPrice || 0).toLocaleString('vi-VN')}</td>
+                            <td className="align-top p-3 text-center text-slate-700">{item.discount || 0}</td>
+                            <td className="align-top p-3 text-right font-bold text-slate-900">{(item.total || 0).toLocaleString('vi-VN')}</td>
+                          </tr>
+                        ))}
+                        <tr className="bg-slate-50/30">
+                          <td colSpan={7} className="p-3">
+                            <button onClick={openNewOrderLineModal} className="flex items-center gap-1 font-bold text-blue-600 transition-all hover:underline">
+                              <Plus size={14} /> Thêm đơn hàng
+                            </button>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {activeTab === 'other_info' && (
+                  <div className="grid grid-cols-1 gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 md:grid-cols-2">
+                    <div>
+                      <label className="mb-1 block text-[10px] font-bold uppercase text-slate-600">Loại dịch vụ</label>
+                      <select
+                        value={formData.serviceType || 'Training'}
+                        onChange={(e) => setFormData((prev) => ({ ...prev, serviceType: e.target.value as IQuotation['serviceType'] }))}
+                        className="h-9 w-full rounded border border-slate-300 bg-white px-3 py-1.5 text-[13px]"
+                      >
+                        <option value="Training">Đào tạo</option>
+                        <option value="StudyAbroad">Du học</option>
+                        <option value="Combo">Combo</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-[10px] font-bold uppercase text-slate-600">Mã lớp dự kiến</label>
+                      <ClassCodeLookupInput
+                        value={formData.classCode || ''}
+                        onChange={(value) => setFormData((prev) => ({ ...prev, classCode: value }))}
+                        loadOptions={loadClassCodeOptions}
+                        disabled={isLocked}
+                        placeholder="VD: DE-A1-02/2026"
+                        inputClassName="h-9 w-full rounded border border-slate-300 bg-white px-3 py-1.5 text-[13px] outline-none focus:border-blue-500"
+                        buttonClassName="h-9 rounded border border-slate-300 bg-white px-3 text-[12px] font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-[10px] font-bold uppercase text-slate-600">Lịch học mong muốn</label>
+                      <input
+                        value={formData.schedule || ''}
+                        onChange={(e) => setFormData((prev) => ({ ...prev, schedule: e.target.value }))}
+                        className="h-9 w-full rounded border border-slate-300 bg-white px-3 py-1.5 text-[13px]"
+                        placeholder="VD: T2-T4-T6, 19:00-21:00"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-[10px] font-bold uppercase text-slate-600">Ghi chú chính sách giá</label>
+                      <input
+                        value={formData.pricingNote || ''}
+                        onChange={(e) => setFormData((prev) => ({ ...prev, pricingNote: e.target.value }))}
+                        className="h-9 w-full rounded border border-slate-300 bg-white px-3 py-1.5 text-[13px]"
+                        placeholder="Nêu lý do giảm giá/chính sách áp dụng..."
+                      />
+                    </div>
+                    <div className="col-span-1 grid items-end gap-3 md:col-span-2 md:grid-cols-[minmax(0,1fr)_auto]">
+                      <div>
+                        <label className="mb-1 block text-[10px] font-bold uppercase text-slate-600">Thông tin khác</label>
+                        <textarea
+                          value={formData.internalNote || ''}
+                          onChange={(e) => setFormData((prev) => ({ ...prev, internalNote: e.target.value }))}
+                          className="h-14 w-full resize-none rounded border border-slate-300 bg-white px-3 py-2 text-[13px]"
+                          placeholder="Ghi chú nội bộ hoặc yêu cầu xử lý..."
+                        />
+                      </div>
+                      <label className="inline-flex whitespace-nowrap pb-2 text-[13px] font-semibold text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={!!formData.needInvoice}
+                          onChange={(e) => setFormData((prev) => ({ ...prev, needInvoice: e.target.checked }))}
+                          className="mr-2 rounded border-slate-300"
+                        />
+                        KH cần in hóa đơn VAT
+                      </label>
+                    </div>
+                  </div>
+                )}
+
+                <div className="mt-16 flex justify-end">
+                  <div className="w-80 space-y-2 border-t border-slate-800 pt-4">
+                    <div className="flex justify-between py-1 text-[13px]">
+                      <span className="font-bold text-slate-500">Số tiền trước thuế:</span>
+                      <span className="border-b border-slate-200 px-6 font-bold text-slate-900">{creatorSubtotal.toLocaleString('vi-VN')} ₫</span>
+                    </div>
+                    <div className="flex justify-between py-1 text-[13px]">
+                      <span className="font-bold text-slate-500">Thuế:</span>
+                      <span className="border-b border-slate-200 px-6 font-bold text-slate-900">0 ₫</span>
+                    </div>
+                    <div className="mt-2 flex items-center justify-between border-t border-slate-200 py-5">
+                      <span className="text-lg font-black uppercase tracking-tighter text-slate-800">Tổng cộng:</span>
+                      <span className="border-b-2 border-slate-800 px-6 text-2xl font-black tracking-tight text-blue-700">{creatorGrandTotal.toLocaleString('vi-VN')} ₫</span>
+                    </div>
+                  </div>
+                </div>
+
+                {showOrderLineModal && (
+                  <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
+                    <div className="w-full max-w-5xl rounded-lg bg-white shadow-2xl">
+                      <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+                        <h3 className="text-lg font-bold text-slate-900">
+                          {editingCreatorLineId ? 'Cập nhật đơn hàng' : 'Thêm đơn hàng'}
+                        </h3>
+                        <button type="button" onClick={closeOrderLineModal} className="text-slate-400 transition-colors hover:text-slate-700">
+                          <X size={18} />
+                        </button>
+                      </div>
+
+                      <div className="grid gap-5 px-6 py-5 md:grid-cols-2">
+                        <div className="space-y-4">
+                          <div>
+                            <label className="mb-1 block text-xs font-bold uppercase text-slate-600">Tên học sinh</label>
+                            <input
+                              value={orderLineDraft.studentName}
+                              onChange={(e) => setOrderLineDraft((prev) => ({ ...prev, studentName: e.target.value }))}
+                              className="h-10 w-full rounded border border-slate-300 bg-white px-3 text-sm outline-none focus:border-blue-500"
+                              placeholder="Nhập tên học sinh"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="mb-1 block text-xs font-bold uppercase text-slate-600">Ngày sinh</label>
+                            <input
+                              type="date"
+                              value={orderLineDraft.studentDob}
+                              onChange={(e) => setOrderLineDraft((prev) => ({ ...prev, studentDob: e.target.value }))}
+                              className="h-10 w-full rounded border border-slate-300 bg-white px-3 text-sm outline-none focus:border-blue-500"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="mb-1 block text-xs font-bold uppercase text-slate-600">Thị trường mục tiêu</label>
+                            <select
+                              value={orderLineDraft.targetMarket}
+                              onChange={(e) => handleOrderDraftMarketChange(e.target.value as CreatorMarket | '')}
+                              className="h-10 w-full rounded border border-slate-300 bg-white px-3 text-sm outline-none focus:border-blue-500"
+                            >
+                              <option value="">-- Chọn thị trường --</option>
+                              {CREATOR_MARKETS.map((market) => (
+                                <option key={market} value={market}>{market}</option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div>
+                            <label className="mb-1 block text-xs font-bold uppercase text-slate-600">Gói dịch vụ</label>
+                            <select
+                              value={orderLineDraft.servicePackage}
+                              onChange={(e) => handleOrderDraftServiceChange(e.target.value as CreatorServicePackage | '')}
+                              className="h-10 w-full rounded border border-slate-300 bg-white px-3 text-sm outline-none focus:border-blue-500"
+                            >
+                              <option value="">-- Chọn gói dịch vụ --</option>
+                              {availableServicePackages.map((servicePackage) => (
+                                <option key={servicePackage} value={servicePackage}>{servicePackage}</option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div>
+                            <label className="mb-1 block text-xs font-bold uppercase text-slate-600">Sản phẩm</label>
+                            <select
+                              value={orderLineDraft.productName}
+                              onChange={(e) => handleOrderDraftProductChange(e.target.value)}
+                              className="h-10 w-full rounded border border-slate-300 bg-white px-3 text-sm outline-none focus:border-blue-500"
+                            >
+                              <option value="">-- Chọn sản phẩm --</option>
+                              {availableProducts.map((product) => (
+                                <option key={product.id} value={product.product}>{product.product}</option>
+                              ))}
+                            </select>
+                          </div>
+
+                        </div>
+
+                        <div className="space-y-4">
+                          <div>
+                            <label className="mb-1 block text-xs font-bold uppercase text-slate-600">Khóa học</label>
+                            <select
+                              value={orderLineDraft.courseName}
+                              onChange={(e) => setOrderLineDraft((prev) => ({ ...prev, courseName: e.target.value }))}
+                              className="h-10 w-full rounded border border-slate-300 bg-white px-3 text-sm outline-none focus:border-blue-500"
+                            >
+                              <option value="">-- Chọn khóa học --</option>
+                              {availableCourseOptions.map((course) => (
+                                <option key={course} value={course}>{course}</option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div ref={programDropdownRef} className="relative">
+                            <label className="mb-1 block text-xs font-bold uppercase text-slate-600">Chương trình</label>
+                            <button
+                              type="button"
+                              onClick={() => setProgramDropdownOpen((prev) => !prev)}
+                              className="flex min-h-[44px] w-full items-start justify-between gap-3 rounded border border-slate-300 bg-white px-3 py-2 text-left text-sm outline-none transition-colors hover:border-blue-400 focus:border-blue-500"
+                            >
+                              <div className="flex flex-1 flex-wrap gap-2">
+                                {orderLineDraft.programs.length > 0 ? (
+                                  orderLineDraft.programs.map((program) => (
+                                    <span key={program} className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
+                                      {program}
+                                    </span>
+                                  ))
+                                ) : (
+                                  <span className="pt-1 text-sm text-slate-400">
+                                    -- Chọn chương trình --
+                                  </span>
+                                )}
+                              </div>
+                              <ChevronDown size={16} className={`mt-1 shrink-0 text-slate-400 transition-transform ${programDropdownOpen ? 'rotate-180' : ''}`} />
+                            </button>
+
+                            {programDropdownOpen && (
+                              <div className="absolute z-30 mt-1 w-full rounded border border-slate-200 bg-white shadow-lg">
+                                <div className="max-h-56 overflow-auto py-1">
+                                  {availableProgramOptions.length > 0 ? (
+                                    availableProgramOptions.map((program) => (
+                                      <label key={program} className="flex cursor-pointer items-center gap-3 px-3 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-50">
+                                        <input
+                                          type="checkbox"
+                                          checked={orderLineDraft.programs.includes(program)}
+                                          onChange={() => handleOrderDraftProgramToggle(program)}
+                                          className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                        />
+                                        <span>{program}</span>
+                                      </label>
+                                    ))
+                                  ) : (
+                                    <div className="px-3 py-2 text-sm text-slate-400">Chưa có chương trình phù hợp</div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+
+                          <div>
+                            <label className="mb-1 block text-xs font-bold uppercase text-slate-600">Lớp</label>
+                            <select
+                              value={orderLineDraft.classId}
+                              onChange={(e) => setOrderLineDraft((prev) => ({ ...prev, classId: e.target.value }))}
+                              className="h-10 w-full rounded border border-slate-300 bg-white px-3 text-sm outline-none focus:border-blue-500"
+                            >
+                              <option value="">-- Chọn lớp --</option>
+                              {availableClassOptions.map((trainingClass) => (
+                                <option key={trainingClass.id} value={trainingClass.id}>
+                                  {trainingClass.name} {trainingClass.schedule ? `• ${trainingClass.schedule}` : ''}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div>
+                            <label className="mb-1 block text-xs font-bold uppercase text-slate-600">Tester</label>
+                            <select
+                              value={orderLineDraft.testerId}
+                              onChange={(e) => setOrderLineDraft((prev) => ({ ...prev, testerId: e.target.value }))}
+                              className="h-10 w-full rounded border border-slate-300 bg-white px-3 text-sm outline-none focus:border-blue-500"
+                            >
+                              <option value="">-- Chọn người cho test --</option>
+                              {availableTesterOptions.map((teacher) => (
+                                <option key={teacher.id} value={teacher.id}>{teacher.fullName}</option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <label className="mb-1 block text-xs font-bold uppercase text-slate-600">Đơn giá</label>
+                              <input
+                                type="number"
+                                min={0}
+                                value={orderLineDraft.unitPrice}
+                                onChange={(e) => setOrderLineDraft((prev) => ({ ...prev, unitPrice: Math.max(0, Number(e.target.value) || 0) }))}
+                                className="h-10 w-full rounded border border-slate-300 bg-white px-3 text-sm outline-none focus:border-blue-500"
+                              />
+                            </div>
+                            <div>
+                              <label className="mb-1 block text-xs font-bold uppercase text-slate-600">Giảm giá (%)</label>
+                              <input
+                                type="number"
+                                min={0}
+                                max={100}
+                                value={orderLineDraft.discountPercent}
+                                onChange={(e) => setOrderLineDraft((prev) => ({ ...prev, discountPercent: Math.min(100, Math.max(0, Number(e.target.value) || 0)) }))}
+                                className="h-10 w-full rounded border border-slate-300 bg-white px-3 text-sm outline-none focus:border-blue-500"
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="md:col-span-2">
+                          <label className="mb-1 block text-xs font-bold uppercase text-slate-600">Thông tin thêm</label>
+                          <textarea
+                            value={orderLineDraft.additionalInfo}
+                            onChange={(e) => setOrderLineDraft((prev) => ({ ...prev, additionalInfo: e.target.value }))}
+                            className="h-24 w-full resize-none rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500"
+                            placeholder="Nhập ghi chú hoặc yêu cầu đặc biệt..."
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between border-t border-slate-200 px-6 py-4">
+                        <div className="text-sm font-semibold text-slate-600">
+                          Thành tiền: <span className="text-base text-blue-700">{calculateCreatorLineTotal(orderLineDraft.unitPrice, orderLineDraft.discountPercent).toLocaleString('vi-VN')} đ</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleSaveOrderLine('close')}
+                            className="rounded bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700"
+                          >
+                            Lưu và đóng
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleSaveOrderLine('new')}
+                            className="rounded border border-blue-200 bg-blue-50 px-4 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-100"
+                          >
+                            Lưu và thêm
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleRemoveOrderLine}
+                            className="rounded border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                          >
+                            Loại bỏ
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    ) : null;
 
   const handleSaveContractDraft = () => {
     const savedQuotation = persistQuotation({ syncContract: false });
     syncLinkedContract(savedQuotation);
     alert('Đã lưu dữ liệu hợp đồng tách riêng và đồng bộ vào trang Hợp đồng');
+  };
+
+  const handlePrintQuotation = () => {
+    const previousTab = activeTab;
+
+    const restoreActiveTab = () => {
+      const restoreTab = quotationPrintRestoreTabRef.current;
+      if (restoreTab) {
+        setActiveTab(restoreTab);
+        quotationPrintRestoreTabRef.current = null;
+      }
+    };
+
+    if (previousTab !== 'order_lines') {
+      quotationPrintRestoreTabRef.current = previousTab;
+      setActiveTab('order_lines');
+      window.addEventListener('afterprint', restoreActiveTab, { once: true });
+      window.setTimeout(() => window.print(), 80);
+      return;
+    }
+
+    window.print();
+  };
+
+  const handleLogAttachmentChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []).filter(
+      (file) => file.type.startsWith('image/') || file.type === 'application/pdf'
+    );
+    if (files.length === 0) {
+      event.target.value = '';
+      return;
+    }
+
+    try {
+      const nextAttachments = await Promise.all(files.map(readFileAsDataUrl));
+      setPendingLogAttachments((prev) => [...prev, ...nextAttachments.filter(Boolean)]);
+    } catch {
+      alert('Không thể tải chứng từ lên. Vui lòng thử lại.');
+    } finally {
+      event.target.value = '';
+    }
+  };
+
+  const handleRemovePendingAttachment = (index: number) => {
+    setPendingLogAttachments((prev) => prev.filter((_, currentIndex) => currentIndex !== index));
+  };
+
+  const handleSaveLogNote = () => {
+    const trimmedContent = logNoteContent.trim();
+    if (!trimmedContent && pendingLogAttachments.length === 0) return;
+
+    const persistedQuotation =
+      formData.id && !isNew
+        ? getQuotations().find((quotation) => quotation.id === formData.id)
+        : persistQuotation({ syncContract: false });
+
+    if (!persistedQuotation) return;
+
+    const detail =
+      trimmedContent ||
+      (pendingLogAttachments.length === 1 ? 'Đã tải 1 chứng từ' : `Đã tải ${pendingLogAttachments.length} chứng từ`);
+
+    const nextLog: IQuotationLogNote = {
+      id: `q-note-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      timestamp: new Date().toISOString(),
+      user: user?.name || user?.id || 'System',
+      type: 'note',
+      action: 'Log Note',
+      detail,
+      attachments: pendingLogAttachments.length > 0 ? pendingLogAttachments : undefined
+    };
+
+    const currentLogs =
+      Array.isArray(persistedQuotation.logNotes) && persistedQuotation.logNotes.length > 0
+        ? persistedQuotation.logNotes
+        : Array.isArray(formData.logNotes) && formData.logNotes.length > 0
+          ? formData.logNotes
+          : activityLogs;
+    const nextLogNotes = [nextLog, ...currentLogs];
+    updateQuotation({
+      ...persistedQuotation,
+      logNotes: nextLogNotes
+    });
+
+    setFormData((prev) => ({
+      ...prev,
+      id: persistedQuotation.id,
+      logNotes: nextLogNotes
+    }));
+    setLogNoteContent('');
+    setPendingLogAttachments([]);
   };
 
   const activityLogs = useMemo(() => {
@@ -823,35 +2158,177 @@ const QuotationDetails: React.FC = () => {
 
     const fallback = [];
     if (formData.status === QuotationStatus.SALE_CONFIRMED || formData.status === QuotationStatus.SALE_ORDER) {
-      fallback.push({
-        id: 'fallback-confirmed',
-        timestamp: formData.saleConfirmedAt || formData.updatedAt || formData.createdAt || new Date().toISOString(),
-        user: 'System',
-        action: 'Sale Confirmed',
-        detail: 'Trạng thái đổi từ Quotation sang Confirm'
-      });
-    }
-    if (formData.paymentProof) {
-      fallback.push({
-        id: 'fallback-payment',
-        timestamp: formData.updatedAt || formData.createdAt || new Date().toISOString(),
-        user: 'System',
-        action: 'Payment Proof',
-        detail: `Đã cập nhật chứng từ: ${formData.paymentProof}`
-      });
-    }
     fallback.push({
-      id: 'fallback-created',
-      timestamp: formData.createdAt || new Date().toISOString(),
-      user: formData.createdBy || 'System',
-      action: 'Create Quotation',
-      detail: 'Tạo SO'
+      id: 'fallback-confirmed',
+      timestamp: formData.saleConfirmedAt || formData.updatedAt || formData.createdAt || new Date().toISOString(),
+      user: 'System',
+      type: 'system',
+      action: 'Sale Confirmed',
+      detail: 'Trạng thái đổi từ Quotation sang Confirm'
     });
-    return fallback;
-  }, [formData.createdAt, formData.createdBy, formData.logNotes, formData.paymentProof, formData.saleConfirmedAt, formData.status, formData.updatedAt]);
+  }
+  if (formData.paymentProof) {
+    fallback.push({
+      id: 'fallback-payment',
+      timestamp: formData.updatedAt || formData.createdAt || new Date().toISOString(),
+      user: 'System',
+      type: 'system',
+      action: 'Payment Proof',
+      detail: `Đã cập nhật chứng từ: ${formData.paymentProof}`
+    });
+  }
+  fallback.push({
+    id: 'fallback-created',
+    timestamp: formData.createdAt || new Date().toISOString(),
+    user: formData.createdBy || 'System',
+    type: 'system',
+    action: 'Create Quotation',
+    detail: 'Tạo SO'
+  });
+  return fallback;
+}, [formData.createdAt, formData.createdBy, formData.logNotes, formData.paymentProof, formData.saleConfirmedAt, formData.status, formData.updatedAt]);
+
+  const groupedActivityLogs = useMemo(() => {
+    const groups: Record<string, IQuotationLogNote[]> = {};
+    const sortedLogs = [...activityLogs].sort((a, b) => {
+      const tsA = Date.parse(a.timestamp || '');
+      const tsB = Date.parse(b.timestamp || '');
+      return (Number.isNaN(tsB) ? 0 : tsB) - (Number.isNaN(tsA) ? 0 : tsA);
+    });
+
+    sortedLogs.forEach((item) => {
+      const dateKey = new Date(item.timestamp).toLocaleDateString('vi-VN');
+      if (!groups[dateKey]) groups[dateKey] = [];
+      groups[dateKey].push(item);
+    });
+
+    return groups;
+  }, [activityLogs]);
+
+  if (newQuotationView) return newQuotationView;
 
   return (
     <div className="min-h-screen bg-slate-100 p-4 md:p-6 text-sm text-slate-800">
+      <style>{`
+        @media screen {
+          .quotation-print-only { display: none !important; }
+        }
+
+        @page {
+          size: A4 portrait;
+          margin: 12mm 10mm;
+        }
+
+        @media print {
+          html, body {
+            background: #fff !important;
+          }
+          body * { visibility: hidden !important; }
+          #quotation-print-root, #quotation-print-root * { visibility: visible !important; }
+          #quotation-print-root {
+            position: absolute;
+            inset: 0;
+            width: auto !important;
+            border: none !important;
+            box-shadow: none !important;
+            border-radius: 0 !important;
+            background: #fff !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            color: #0f172a !important;
+          }
+          .quotation-print-hide { display: none !important; }
+          .quotation-screen-only { display: none !important; }
+          .quotation-print-only { display: block !important; }
+          .quotation-print-summary-grid {
+            display: grid !important;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 10px 22px !important;
+            margin: 0 0 18px 0 !important;
+          }
+          .quotation-print-summary-card {
+            break-inside: avoid;
+            padding: 0 0 8px 0;
+            min-height: 0;
+            border: none;
+            border-bottom: 1px solid #dbe2ea;
+            background: transparent;
+          }
+          .quotation-print-summary-card--wide {
+            grid-column: span 2;
+          }
+          .quotation-print-label {
+            display: block;
+            margin-bottom: 6px;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            color: #64748b;
+          }
+          .quotation-print-value {
+            font-size: 13px;
+            line-height: 1.45;
+            font-weight: 600;
+            color: #0f172a;
+            white-space: normal;
+            overflow-wrap: anywhere;
+          }
+          .quotation-print-table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+          }
+          .quotation-print-table th,
+          .quotation-print-table td {
+            border-bottom: 1px solid #dbe2ea;
+            padding: 10px 8px;
+            vertical-align: top;
+            text-align: left;
+            white-space: normal;
+            overflow-wrap: anywhere;
+          }
+          .quotation-print-table th {
+            background: #f8fafc;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            color: #475569;
+          }
+          .quotation-print-table td {
+            font-size: 12px;
+            color: #0f172a;
+          }
+          .quotation-print-table .text-right {
+            text-align: right;
+          }
+          .quotation-print-total {
+            break-inside: avoid;
+            margin-top: 16px;
+            margin-left: auto;
+            width: 280px;
+            border: 1px solid #dbe2ea;
+            border-radius: 8px;
+            padding: 12px 14px;
+          }
+          .quotation-print-total-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 16px;
+            padding: 4px 0;
+            font-size: 12px;
+          }
+          .quotation-print-total-row--grand {
+            margin-top: 6px;
+            padding-top: 8px;
+            border-top: 1px solid #cbd5e1;
+            font-size: 18px;
+            font-weight: 700;
+            color: #1d4ed8;
+          }
+        }
+      `}</style>
       <div className="max-w-7xl mx-auto">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2 text-slate-500">
@@ -896,15 +2373,9 @@ const QuotationDetails: React.FC = () => {
                 Giao diện kế toán
               </button>
             )}
-            <button onClick={handleSaveContractDraft} className="px-3 py-1.5 rounded border border-slate-200 bg-slate-50 text-xs font-semibold text-slate-700 inline-flex items-center gap-1">
-              <FileText size={13} /> Lưu hợp đồng
-            </button>
-            <button onClick={() => navigate('/contracts/contracts-list')} className="px-3 py-1.5 rounded border border-slate-200 bg-white text-xs font-semibold text-slate-700 inline-flex items-center gap-1">
-              <FileText size={13} /> DS hợp đồng
-            </button>
             {formData.status === QuotationStatus.LOCKED && (
-              <button onClick={() => navigate(`/contracts/quotations/${formData.id}/contract`)} className="px-3 py-1.5 rounded bg-blue-600 text-white text-xs font-semibold inline-flex items-center gap-1">
-                <Printer size={14} /> In hợp đồng
+              <button onClick={handlePrintQuotation} className="px-3 py-1.5 rounded bg-blue-600 text-white text-xs font-semibold inline-flex items-center gap-1">
+                <Printer size={14} /> In báo giá
               </button>
             )}
             {formData.transactionStatus && formData.transactionStatus !== 'NONE' && (
@@ -942,8 +2413,8 @@ const QuotationDetails: React.FC = () => {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-4">
-          <div className="bg-white border rounded p-6">
+        <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_380px] gap-4">
+          <div id="quotation-print-root" className="bg-white border rounded p-6">
             <div className="flex items-start justify-between mb-6">
               <div>
                 <div className="flex items-center gap-2 mb-2">
@@ -965,7 +2436,7 @@ const QuotationDetails: React.FC = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 mb-8">
+            <div className="quotation-screen-only mb-8 grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
               <div>
                 <label className="text-xs font-bold uppercase text-blue-800">Khách hàng</label>
                 <div className="relative">
@@ -1005,22 +2476,9 @@ const QuotationDetails: React.FC = () => {
                             key={`${customer.source}-${customer.id}`}
                             type="button"
                             className="w-full border-b px-3 py-2 text-left hover:bg-slate-50"
-                            onClick={() => {
-                              const sourceLead = customer.source === 'lead' ? getLeadById(customer.id) : undefined;
-                              setFormData((p) => ({
-                                ...p,
-                                customerName: customer.name,
-                                customerId: customer.id,
-                                leadId: customer.source === 'lead' ? customer.id : p.leadId,
-                                studentPhone: customer.phone || p.studentPhone || sourceLead?.phone,
-                                studentEmail: customer.email || p.studentEmail || sourceLead?.email,
-                                studentAddress: sourceLead?.address || p.studentAddress,
-                                identityCard: sourceLead?.identityCard || p.identityCard,
-                                guardianName: sourceLead?.guardianName || p.guardianName,
-                                guardianPhone: sourceLead?.guardianPhone || p.guardianPhone
-                              }));
-                              setCustomerQuery(customer.name);
-                              setCustomerDropdownOpen(false);
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              applyCustomerSelection(customer);
                             }}
                           >
                             <div className="font-medium text-slate-800">{customer.name}</div>
@@ -1037,91 +2495,239 @@ const QuotationDetails: React.FC = () => {
                 </div>
               </div>
               <div>
-                <label className="text-xs font-bold uppercase text-blue-800">Quotation date</label>
+                <label className="text-xs font-bold uppercase text-blue-800">SĐT khách hàng</label>
                 <input
-                  type="date"
                   className="w-full border-b py-1 outline-none"
-                  value={toInputDate(formData.quotationDate || formData.createdAt)}
-                  onChange={(e) => !isLocked && setFormData((p) => ({ ...p, quotationDate: fromInputDate(e.target.value, p.quotationDate || p.createdAt) }))}
+                  value={formData.studentPhone || ''}
+                  onChange={(e) => !isLocked && setFormData((p) => ({ ...p, studentPhone: e.target.value }))}
                   disabled={isLocked}
+                  placeholder="Nhập số điện thoại"
                 />
               </div>
               <div>
-                <label className="text-xs font-bold uppercase text-blue-800">Confirm date</label>
+                <label className="text-xs font-bold uppercase text-blue-800">Gói dịch vụ</label>
                 <input
-                  type="date"
-                  className="w-full border-b py-1 outline-none"
-                  value={toInputDate(formData.confirmDate)}
-                  onChange={(e) => !isLocked && setFormData((p) => ({ ...p, confirmDate: fromInputDate(e.target.value, p.confirmDate || p.updatedAt) }))}
-                  disabled={isLocked}
+                  className="w-full border-b py-1 outline-none text-slate-700"
+                  value={quotationServicePackageSummary}
+                  readOnly
+                  disabled
                 />
               </div>
               <div>
-                <label className="text-xs font-bold uppercase text-blue-800">Loại dịch vụ</label>
-                <select
+                <label className="text-xs font-bold uppercase text-blue-800">Chính sách bán</label>
+                <input
                   className="w-full border-b py-1 outline-none"
-                  value={formData.serviceType || 'Training'}
-                  onChange={(e) => !isLocked && setFormData((p) => ({ ...p, serviceType: e.target.value as IQuotation['serviceType'] }))}
+                  value={formData.pricelist || ''}
+                  onChange={(e) => !isLocked && setFormData((p) => ({ ...p, pricelist: e.target.value }))}
                   disabled={isLocked}
-                >
-                  {SERVICES.map((s) => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
-                  ))}
-                </select>
+                  placeholder="VD: [Center 11] Base Price (VND)"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-bold uppercase text-blue-800">Ngày hết hạn báo giá</label>
+                <input
+                  type="date"
+                  className="w-full border-b py-1 outline-none"
+                  value={toInputDate(formData.expirationDate)}
+                  onChange={(e) => !isLocked && setFormData((p) => ({ ...p, expirationDate: fromInputDate(e.target.value, p.expirationDate) }))}
+                  disabled={isLocked}
+                />
+              </div>
+              <div className="xl:col-span-2">
+                <label className="text-xs font-bold uppercase text-blue-800">Địa chỉ khách hàng</label>
+                <input
+                  className="w-full border-b py-1 outline-none"
+                  value={formData.studentAddress || ''}
+                  onChange={(e) => !isLocked && setFormData((p) => ({ ...p, studentAddress: e.target.value }))}
+                  disabled={isLocked}
+                  placeholder="Nhập địa chỉ khách hàng"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-bold uppercase text-blue-800">Giá tiền</label>
+                <input
+                  className="w-full border-b py-1 font-semibold text-slate-800 outline-none"
+                  value={quotationAmountDisplay}
+                  readOnly
+                  disabled
+                />
               </div>
             </div>
 
-            <div className="flex items-center gap-6 border-b mb-4">
+            <div className="quotation-print-only">
+              <div className="mb-3 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">Thông tin báo giá</div>
+              <div className="quotation-print-summary-grid">
+                {quotationPrintSummaryItems.map((item) => (
+                  <div
+                    key={item.label}
+                    className={`quotation-print-summary-card ${item.wide ? 'quotation-print-summary-card--wide' : ''}`}
+                  >
+                    <span className="quotation-print-label">{item.label}</span>
+                    <span className="quotation-print-value">{item.value}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="quotation-print-hide flex items-center gap-6 border-b mb-4">
               <button onClick={() => setActiveTab('order_lines')} className={`pb-2 font-semibold ${activeTab === 'order_lines' ? 'text-blue-700 border-b-2 border-blue-700' : 'text-slate-500'}`}>Chi tiết đơn hàng</button>
               <button onClick={() => setActiveTab('other_info')} className={`pb-2 font-semibold ${activeTab === 'other_info' ? 'text-blue-700 border-b-2 border-blue-700' : 'text-slate-500'}`}>Thông tin khác</button>
-              <button onClick={() => setActiveTab('payment')} className={`pb-2 font-semibold inline-flex items-center gap-2 ${activeTab === 'payment' ? 'text-blue-700 border-b-2 border-blue-700' : 'text-slate-500'}`}>Thanh toán {(formData.status === QuotationStatus.SALE_CONFIRMED || isLocked) && <CheckCircle2 size={14} className="text-green-600" />}</button>
               <button onClick={() => setActiveTab('contract')} className={`pb-2 font-semibold inline-flex items-center gap-2 ${activeTab === 'contract' ? 'text-blue-700 border-b-2 border-blue-700' : 'text-slate-500'}`}>Hợp đồng {linkedContract && <FileText size={14} className="text-blue-600" />}</button>
             </div>
 
             {activeTab === 'order_lines' && (
               <div>
-                <table className="w-full text-left text-sm mb-4">
-                  <thead>
-                    <tr className="border-b-2 border-slate-800 text-xs uppercase">
-                      <th className="py-2">Sản phẩm</th>
-                      <th className="py-2 text-center">Số lượng</th>
-                      <th className="py-2 text-right">Đơn giá</th>
-                      <th className="py-2 text-right">Thành tiền</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td className="py-3">
-                        <select
-                          className="w-full border rounded p-2"
-                          value={formData.product || ''}
-                          onChange={(e) => {
-                            if (isLocked) return;
-                            const prod = productOptions.find((p) => p.name === e.target.value);
-                            setFormData((prev) => ({
-                              ...prev,
-                              product: e.target.value,
-                              amount: prod ? prod.price : 0,
-                              finalAmount: prod ? prod.price - (prev.discount || 0) : 0
-                            }));
-                          }}
-                          disabled={isLocked}
-                        >
-                          <option value="">-- Chọn sản phẩm --</option>
-                          {productOptions.map((p) => <option key={p.id} value={p.name}>{p.name}</option>)}
-                        </select>
-                      </td>
-                      <td className="py-3 text-center">1</td>
-                      <td className="py-3 text-right">{(formData.amount || 0).toLocaleString('vi-VN')}</td>
-                      <td className="py-3 text-right font-semibold">{(formData.finalAmount || 0).toLocaleString('vi-VN')}</td>
-                    </tr>
-                  </tbody>
-                </table>
+                <div className="quotation-print-only">
+                  <div className="mb-3 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">Chi tiết đơn hàng</div>
+                  <table className="quotation-print-table">
+                    <colgroup>
+                      <col style={{ width: '19%' }} />
+                      <col style={{ width: '16%' }} />
+                      <col style={{ width: '14%' }} />
+                      <col style={{ width: '24%' }} />
+                      <col style={{ width: '13%' }} />
+                      <col style={{ width: '14%' }} />
+                    </colgroup>
+                    <thead>
+                      <tr>
+                        <th>Sản phẩm</th>
+                        <th>Học sinh</th>
+                        <th>Ngày sinh</th>
+                        <th>Chương trình</th>
+                        <th className="text-right">Giá đơn hàng</th>
+                        <th>Ghi chú</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {editableOrderLineItems.map((item) => (
+                        <tr key={`print-${item.id}`}>
+                          <td>{item.name || '-'}</td>
+                          <td>{item.studentName || '-'}</td>
+                          <td>{formatDisplayDate(item.studentDob) || '-'}</td>
+                          <td>{item.courseName || item.programs?.join(', ') || '-'}</td>
+                          <td className="text-right">{formatCurrency(item.unitPrice || 0)}</td>
+                          <td>{item.additionalInfo || '-'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
 
-                <div className="w-full md:w-80 ml-auto border rounded p-4 bg-slate-50 space-y-2">
-                  <div className="flex justify-between"><span>Tổng giá trị:</span><span>{(formData.amount || 0).toLocaleString('vi-VN')} VND</span></div>
-                  <div className="flex justify-between"><span>Chiết khấu:</span><span>{(formData.discount || 0).toLocaleString('vi-VN')}</span></div>
-                  <div className="flex justify-between text-2xl text-blue-700 font-bold"><span>Tổng tiền:</span><span>{(formData.finalAmount || 0).toLocaleString('vi-VN')} đ</span></div>
+                  <div className="quotation-print-total">
+                    <div className="quotation-print-total-row">
+                      <span>Tổng giá trị</span>
+                      <span>{formatCurrency(formData.amount || 0)}</span>
+                    </div>
+                    <div className="quotation-print-total-row">
+                      <span>Chiết khấu</span>
+                      <span>{formatCurrency(formData.discount || 0)}</span>
+                    </div>
+                    <div className="quotation-print-total-row quotation-print-total-row--grand">
+                      <span>Tổng tiền</span>
+                      <span>{formatCurrency(formData.finalAmount || 0)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="quotation-screen-only">
+                  <table className="w-full text-left text-sm mb-4">
+                    <thead>
+                      <tr className="border-b-2 border-slate-800 text-xs uppercase">
+                        <th className="py-2">Sản phẩm</th>
+                        <th className="py-2">Học sinh</th>
+                        <th className="py-2">Ngày sinh</th>
+                        <th className="py-2">Chương trình</th>
+                        <th className="py-2 text-right">Giá đơn hàng</th>
+                        <th className="py-2">Ghi chú</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {editableOrderLineItems.map((item) => (
+                        <tr key={item.id}>
+                          <td className="py-3 pr-3 align-top">
+                            <select
+                              className="w-full rounded border p-2"
+                              value={item.name || ''}
+                              onChange={(e) => {
+                                if (isLocked) return;
+                                const productName = e.target.value;
+                                const product = productOptions.find((option) => option.name === productName);
+                                const nextUnitPrice = product?.price ?? item.unitPrice;
+                                const nextLine = {
+                                  ...item,
+                                  name: productName,
+                                  productId: product?.id || item.productId,
+                                  unitPrice: nextUnitPrice,
+                                  total: Math.max(0, nextUnitPrice * (item.quantity || 1) * (1 - (item.discount || 0) / 100))
+                                };
+                                syncEditableOrderLineItems(
+                                  editableOrderLineItems.map((currentItem) => (currentItem.id === item.id ? nextLine : currentItem))
+                                );
+                              }}
+                              disabled={isLocked}
+                            >
+                              <option value="">-- Chọn sản phẩm --</option>
+                              {productOptions.map((product) => (
+                                <option key={product.id} value={product.name}>{product.name}</option>
+                              ))}
+                            </select>
+                          </td>
+                          <td className="py-3 pr-3 align-top">
+                            <input
+                              className="w-full rounded border p-2"
+                              value={item.studentName || ''}
+                              onChange={(e) => !isLocked && handleEditableOrderLineChange(item.id, 'studentName', e.target.value)}
+                              disabled={isLocked}
+                              placeholder="Tên học sinh"
+                            />
+                          </td>
+                          <td className="py-3 pr-3 align-top">
+                            <input
+                              type="date"
+                              className="w-full rounded border p-2"
+                              value={toInputDate(item.studentDob)}
+                              onChange={(e) => !isLocked && handleEditableOrderLineChange(item.id, 'studentDob', fromInputDate(e.target.value, item.studentDob) || '')}
+                              disabled={isLocked}
+                            />
+                          </td>
+                          <td className="py-3 pr-3 align-top">
+                            <input
+                              className="w-full rounded border p-2"
+                              value={item.courseName || item.programs?.join(', ') || ''}
+                              onChange={(e) => !isLocked && handleEditableOrderLineChange(item.id, 'courseName', e.target.value)}
+                              disabled={isLocked}
+                              placeholder="Chương trình"
+                            />
+                          </td>
+                          <td className="py-3 pr-3 align-top">
+                            <input
+                              type="number"
+                              min="0"
+                              className="w-full rounded border p-2 text-right"
+                              value={item.unitPrice || 0}
+                              onChange={(e) => !isLocked && handleEditableOrderLineChange(item.id, 'unitPrice', e.target.value)}
+                              disabled={isLocked}
+                              placeholder="0"
+                            />
+                          </td>
+                          <td className="py-3 align-top">
+                            <input
+                              className="w-full rounded border p-2"
+                              value={item.additionalInfo || ''}
+                              onChange={(e) => !isLocked && handleEditableOrderLineChange(item.id, 'additionalInfo', e.target.value)}
+                              disabled={isLocked}
+                              placeholder="Ghi chú"
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+
+                  <div className="w-full md:w-80 ml-auto border rounded p-4 bg-slate-50 space-y-2">
+                    <div className="flex justify-between"><span>Tổng giá trị:</span><span>{(formData.amount || 0).toLocaleString('vi-VN')} VND</span></div>
+                    <div className="flex justify-between"><span>Chiết khấu:</span><span>{(formData.discount || 0).toLocaleString('vi-VN')}</span></div>
+                    <div className="flex justify-between text-2xl text-blue-700 font-bold"><span>Tổng tiền:</span><span>{(formData.finalAmount || 0).toLocaleString('vi-VN')} đ</span></div>
+                  </div>
                 </div>
               </div>
             )}
@@ -1147,12 +2753,15 @@ const QuotationDetails: React.FC = () => {
                   <h3 className="font-bold text-sm uppercase border-b pb-2">Thông tin bổ sung</h3>
                   <div className="flex justify-between items-center">
                     <span>Mã lớp dự kiến</span>
-                    <input
-                      type="text"
+                    <ClassCodeLookupInput
                       value={formData.classCode || ''}
-                      onChange={(e) => !isLocked && setFormData((p) => ({ ...p, classCode: e.target.value }))}
+                      onChange={(value) => !isLocked && setFormData((p) => ({ ...p, classCode: value }))}
+                      loadOptions={loadClassCodeOptions}
                       disabled={isLocked}
-                      className="w-40 border-b bg-transparent text-right outline-none"
+                      placeholder="VD: DE-A1-02/2026"
+                      wrapperClassName="w-56"
+                      inputClassName="w-full border-b bg-transparent px-1 py-1 text-right outline-none"
+                      buttonClassName="rounded border border-slate-300 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100"
                     />
                   </div>
                   <div className="flex justify-between items-center">
@@ -1179,67 +2788,13 @@ const QuotationDetails: React.FC = () => {
               </div>
             )}
 
-            {activeTab === 'payment' && (
-              <div className="space-y-4">
-                <div className="grid md:grid-cols-2 gap-6 p-4 rounded border bg-blue-50">
-                  <div>
-                    <div className="text-xs uppercase font-bold text-slate-500 mb-1">Hình thức thanh toán</div>
-                    <div className="flex gap-3">
-                      <label className="inline-flex items-center gap-2">
-                        <input
-                          type="radio"
-                          checked={(formData.paymentMethod || 'CK') === 'CK'}
-                          onChange={() => !isLocked && setFormData((p) => ({ ...p, paymentMethod: 'CK' }))}
-                          disabled={isLocked}
-                        />
-                        Chuyển khoản
-                      </label>
-                      <label className="inline-flex items-center gap-2">
-                        <input
-                          type="radio"
-                          checked={formData.paymentMethod === 'CASH'}
-                          onChange={() => !isLocked && setFormData((p) => ({ ...p, paymentMethod: 'CASH' }))}
-                          disabled={isLocked}
-                        />
-                        Tiền mặt
-                      </label>
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-xs uppercase font-bold text-slate-500 mb-1">Trạng thái giao dịch</div>
-                    <div className="font-semibold">
-                      {formData.transactionStatus === 'DA_DUYET'
-                        ? 'Đã duyệt'
-                        : formData.transactionStatus === 'CHO_DUYET'
-                          ? 'Chờ duyệt'
-                          : formData.transactionStatus === 'TU_CHOI'
-                            ? 'Từ chối'
-                            : isLocked || formData.status === QuotationStatus.SALE_CONFIRMED
-                              ? 'Đã thanh toán'
-                              : 'Chưa xác nhận'}
-                    </div>
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-sm font-bold mb-1">Minh chứng (Bill/Phiếu thu)</label>
-                  <textarea
-                    value={formData.paymentProof || ''}
-                    onChange={(e) => !isLocked && setFormData((p) => ({ ...p, paymentProof: e.target.value }))}
-                    disabled={isLocked}
-                    placeholder="Nhập mã giao dịch hoặc ghi chú"
-                    className="w-full h-40 border rounded p-3"
-                  />
-                </div>
-              </div>
-            )}
-
             {activeTab === 'contract' && (
               <div className="space-y-6">
                 <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
                   <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                     <div>
                       <div className="font-semibold text-blue-900">Hợp đồng đang lưu riêng</div>
-                      <div className="text-xs text-blue-700">Dữ liệu import sẽ map vào contract riêng để in theo mẫu.</div>
+                      <div className="text-xs text-blue-700">Dữ liệu field map sẽ nối vào contract riêng để in theo mẫu.</div>
                     </div>
                     {linkedContract ? (
                       <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-blue-700 shadow-sm">{linkedContract.code}</span>
@@ -1248,67 +2803,75 @@ const QuotationDetails: React.FC = () => {
                     )}
                   </div>
 
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div>
+                  <div>
+                    <div ref={contractTemplateDropdownRef} className="relative">
                       <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Mẫu hợp đồng</label>
-                      <input
-                        type="text"
-                        value={contractDraft.templateName}
-                        onChange={(e) => setContractDraft((prev) => ({ ...prev, templateName: e.target.value }))}
-                        className="w-full rounded border bg-white px-3 py-2 outline-none focus:border-blue-500"
-                        placeholder="Tên mẫu dùng để in"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Link file / nguồn mẫu</label>
-                      <div className="flex items-center gap-2">
-                        <Link2 size={14} className="text-slate-400" />
+                      <div className="relative">
                         <input
                           type="text"
-                          value={contractDraft.fileUrl}
-                          onChange={(e) => setContractDraft((prev) => ({ ...prev, fileUrl: e.target.value }))}
-                          className="w-full rounded border bg-white px-3 py-2 outline-none focus:border-blue-500"
-                          placeholder="https://... hoặc đường dẫn nội bộ"
+                          value={contractDraft.templateName}
+                          onFocus={() => setContractTemplateDropdownOpen(true)}
+                          onChange={(e) => {
+                            const templateName = e.target.value;
+                            setContractDraft((prev) => ({ ...prev, templateName }));
+                            setContractTemplateDropdownOpen(true);
+                          }}
+                          className="w-full rounded border bg-white px-3 py-2 pr-10 outline-none focus:border-blue-500"
+                          placeholder="Tìm hoặc chọn mẫu hợp đồng"
                         />
+                        <button
+                          type="button"
+                          onClick={() => setContractTemplateDropdownOpen((prev) => !prev)}
+                          className="absolute inset-y-0 right-2 my-auto inline-flex h-7 w-7 items-center justify-center rounded text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700"
+                          title="Xổ danh sách mẫu hợp đồng"
+                        >
+                          <ChevronDown
+                            size={16}
+                            className={`transition-transform ${contractTemplateDropdownOpen ? 'rotate-180' : ''}`}
+                          />
+                        </button>
                       </div>
+                      {contractTemplateDropdownOpen && (
+                        <div className="absolute left-0 right-0 z-20 mt-1 max-h-56 overflow-y-auto rounded border border-slate-200 bg-white p-1 shadow-lg">
+                          {filteredContractTemplateOptions.length > 0 ? (
+                            filteredContractTemplateOptions.map((contractOption) => (
+                              <button
+                                key={contractOption.id}
+                                type="button"
+                                onClick={() => {
+                                  setContractDraft((prev) => ({ ...prev, templateName: contractOption.templateName }));
+                                  setContractTemplateDropdownOpen(false);
+                                }}
+                                className={`block w-full rounded px-3 py-2 text-left text-sm transition-colors ${
+                                  contractDraft.templateName === contractOption.templateName
+                                    ? 'bg-blue-600 text-white'
+                                    : 'text-slate-700 hover:bg-slate-100'
+                                }`}
+                              >
+                                <div className="font-medium">{contractOption.templateName}</div>
+                                <div
+                                  className={`text-xs ${
+                                    contractDraft.templateName === contractOption.templateName ? 'text-blue-100' : 'text-slate-400'
+                                  }`}
+                                >
+                                  {contractOption.code || 'Chưa có mã hợp đồng'}
+                                  {contractOption.customerName ? ` • ${contractOption.customerName}` : ''}
+                                </div>
+                              </button>
+                            ))
+                          ) : (
+                            <div className="px-3 py-2 text-sm text-slate-400">Không có hợp đồng phù hợp</div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
 
-                <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-sm font-bold uppercase text-slate-800">Import field hợp đồng</h3>
-                      <button type="button" onClick={handleApplyContractImport} className="rounded bg-slate-800 px-3 py-1.5 text-xs font-semibold text-white">
-                        Import field
-                      </button>
-                    </div>
-                    <textarea
-                      value={contractImportText}
-                      onChange={(e) => setContractImportText(e.target.value)}
-                      className="h-52 w-full rounded border p-3 font-mono text-xs outline-none focus:border-blue-500"
-                      placeholder={`template: Mẫu hợp đồng du học
-studentName: Nguyễn Văn A
-studentPhone: 0901234567
-address: Hà Nội
-identityCard: 012345678901
-guardianName: Trần Thị B
-guardianPhone: 0909999999`}
-                    />
-                    {contractImportResult && (
-                      <div className="rounded border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
-                        <div>Đã import: <span className="font-semibold text-slate-800">{contractImportResult.importedKeys.join(', ')}</span></div>
-                        {contractImportResult.unknownKeys.length > 0 && (
-                          <div className="mt-1">Bỏ qua: <span className="font-semibold text-amber-700">{contractImportResult.unknownKeys.join(', ')}</span></div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="space-y-4">
+                <div className="space-y-4">
                     <div>
                       <h3 className="mb-3 text-sm font-bold uppercase text-slate-800">Field map đã nối</h3>
-                      <div className="grid gap-3 md:grid-cols-2">
+                      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                         {CONTRACT_FIELD_CONFIG.map((field) => (
                           <div key={field.key}>
                             <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1">{field.label}</label>
@@ -1332,7 +2895,7 @@ guardianPhone: 0909999999`}
 
                     <div className="rounded border border-slate-200 bg-slate-50 p-4">
                       <div className="text-xs font-bold uppercase text-slate-500 mb-2">Field lấy từ SO</div>
-                      <div className="grid gap-2 text-xs text-slate-600 md:grid-cols-2">
+                      <div className="grid gap-2 text-xs text-slate-600 md:grid-cols-2 xl:grid-cols-3">
                         <div>Quotation code: <span className="font-semibold text-slate-800">{derivedContractFields.quotationCode || '-'}</span></div>
                         <div>Quotation date: <span className="font-semibold text-slate-800">{derivedContractFields.quotationDate || '-'}</span></div>
                         <div>Confirm date: <span className="font-semibold text-slate-800">{derivedContractFields.confirmDate || '-'}</span></div>
@@ -1342,12 +2905,9 @@ guardianPhone: 0909999999`}
                       </div>
                     </div>
 
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-wrap justify-end gap-2">
                       <button type="button" onClick={handleSaveContractDraft} className="inline-flex items-center gap-2 rounded bg-blue-600 px-4 py-2 text-xs font-semibold text-white">
                         <Save size={14} /> Lưu contract riêng
-                      </button>
-                      <button type="button" onClick={() => navigate('/contracts/contracts-list')} className="inline-flex items-center gap-2 rounded border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700">
-                        <FileText size={14} /> Danh sách hợp đồng
                       </button>
                       {formData.status === QuotationStatus.LOCKED && (
                         <button type="button" onClick={() => navigate(`/contracts/quotations/${formData.id}/contract`)} className="inline-flex items-center gap-2 rounded border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700">
@@ -1355,35 +2915,174 @@ guardianPhone: 0909999999`}
                         </button>
                       )}
                     </div>
-                  </div>
                 </div>
               </div>
             )}
           </div>
 
-          <div className="bg-white border rounded h-fit">
-            <div className="p-3 border-b font-bold">Lịch sử hoạt động</div>
-            <div className="p-4 space-y-4 text-sm">
-              {isNew && <div>Đang tạo báo giá mới...</div>}
-              {activityLogs.map((item) => (
-                <div key={item.id} className="border-b border-slate-100 pb-3 last:border-none last:pb-0">
-                  <div className="font-semibold text-slate-800">{item.action}</div>
-                  <div className="mt-1 text-xs text-slate-500">{item.detail || 'Không có mô tả chi tiết'}</div>
-                  <div className="mt-1 text-[11px] text-slate-400">
-                    {item.user} • {new Date(item.timestamp).toLocaleString('vi-VN')}
-                  </div>
-                </div>
-              ))}
+          <div className="h-fit overflow-hidden rounded border bg-white xl:sticky xl:top-4">
+            <div className="border-b px-4 py-3 font-bold">Log Note</div>
 
-              {linkedContract && (
-                <div className="rounded border border-blue-100 bg-blue-50 p-3 text-xs text-blue-800">
-                  <div className="mb-1 flex items-center gap-2 font-semibold">
-                    <Lock size={12} />
-                    Contract riêng
-                  </div>
-                  <div>Mã: {linkedContract.code}</div>
-                  <div>Mẫu: {linkedContract.templateName || DEFAULT_CONTRACT_TEMPLATE_NAME}</div>
-                  <div>Imported by: {linkedContract.importedBy || 'system'}</div>
+            <div className="border-b border-slate-200 bg-white p-4">
+              <textarea
+                className="h-24 w-full resize-none rounded border border-amber-200 bg-amber-50 p-3 text-sm outline-none transition-colors focus:border-amber-400"
+                placeholder="Ghi chú nhanh cho team..."
+                value={logNoteContent}
+                onChange={(e) => setLogNoteContent(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSaveLogNote();
+                  }
+                }}
+              />
+
+              <input
+                ref={logAttachmentInputRef}
+                type="file"
+                accept="image/*,.pdf"
+                multiple
+                className="hidden"
+                onChange={handleLogAttachmentChange}
+              />
+
+              <div className="mt-3 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => logAttachmentInputRef.current?.click()}
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-600 transition-colors hover:border-blue-300 hover:text-blue-700"
+                    title="Tải chứng từ"
+                  >
+                    <Paperclip size={15} />
+                  </button>
+                  <span className="text-xs font-medium text-slate-500">
+                    {pendingLogAttachments.length > 0 ? `${pendingLogAttachments.length} chứng từ đã tải` : 'Tải chứng từ'}
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleSaveLogNote}
+                  disabled={!logNoteContent.trim() && pendingLogAttachments.length === 0}
+                  className="inline-flex items-center gap-2 rounded bg-amber-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Send size={14} />
+                  Gửi / Lưu
+                </button>
+              </div>
+
+              {pendingLogAttachments.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {pendingLogAttachments.map((attachment, index) => (
+                    <div key={`${attachment.slice(0, 24)}-${index}`} className="group relative h-16 w-16 overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+                      {isImageAttachment(attachment) ? (
+                        <img src={attachment} alt={`attachment-${index + 1}`} className="h-full w-full object-cover" />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center bg-white px-2 text-center text-[10px] font-semibold text-blue-700">
+                          PDF
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleRemovePendingAttachment(index)}
+                        className="absolute right-1 top-1 inline-flex h-5 w-5 items-center justify-center rounded-full bg-slate-900/70 text-white opacity-0 transition-opacity group-hover:opacity-100"
+                        title="Bỏ chứng từ"
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="max-h-[560px] overflow-auto p-4">
+              {isNew && activityLogs.length === 0 ? (
+                <div className="text-sm text-slate-500">Đang tạo báo giá mới...</div>
+              ) : (
+                <div className="space-y-6">
+                  {Object.entries(groupedActivityLogs).map(([date, logs]) => (
+                    <div key={date}>
+                      <div className="mb-4 flex items-center gap-4">
+                        <div className="h-px flex-1 bg-slate-200" />
+                        <span className="whitespace-nowrap rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-bold text-slate-400">
+                          {date}
+                        </span>
+                        <div className="h-px flex-1 bg-slate-200" />
+                      </div>
+
+                      <div className="space-y-4">
+                        {logs.map((item) => {
+                          const isNote = item.type === 'note';
+                          return (
+                            <div key={item.id} className="group relative ml-2 border-l border-slate-200 pb-2 pl-6 last:border-0">
+                              <div className={`absolute -left-[17px] top-0 z-10 flex h-8 w-8 items-center justify-center rounded-full border-2 bg-white text-[10px] font-bold ${isNote ? 'border-amber-200 text-amber-700' : 'border-slate-200 text-slate-500'}`}>
+                                {(item.user || 'U').charAt(0).toUpperCase()}
+                              </div>
+
+                              <div className="flex items-start justify-between gap-3">
+                                <span className="text-xs font-bold text-slate-800">{item.user || 'System'}</span>
+                                <span className="text-[10px] text-slate-400">
+                                  {new Date(item.timestamp).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                              </div>
+
+                              <div className={`mt-1 rounded-lg border p-3 text-xs shadow-sm ${isNote ? 'border-amber-100 bg-amber-50 text-slate-800' : 'border-slate-200 bg-slate-50 text-slate-700'}`}>
+                                {isNote ? (
+                                  <span className="mr-2 rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide text-amber-700">
+                                    Log Note
+                                  </span>
+                                ) : (
+                                  <div className="mb-1 text-[11px] font-semibold text-slate-800">{item.action}</div>
+                                )}
+
+                                <div>{item.detail || (isNote ? 'Không có nội dung ghi chú' : 'Không có mô tả chi tiết')}</div>
+
+                                {Array.isArray(item.attachments) && item.attachments.length > 0 && (
+                                  <div className="mt-3 flex flex-wrap gap-2">
+                                    {item.attachments.map((attachment, index) => (
+                                      <a
+                                        key={`${attachment.slice(0, 24)}-${index}`}
+                                        href={attachment}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="block"
+                                      >
+                                        {isImageAttachment(attachment) ? (
+                                          <img
+                                            src={attachment}
+                                            alt={`log-attachment-${index + 1}`}
+                                            className="h-20 w-20 rounded-lg border border-slate-200 object-cover"
+                                          />
+                                        ) : (
+                                          <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-[11px] font-medium text-blue-700">
+                                            Tệp đính kèm {index + 1}
+                                          </div>
+                                        )}
+                                      </a>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+
+                  {linkedContract && (
+                    <div className="rounded border border-blue-100 bg-blue-50 p-3 text-xs text-blue-800">
+                      <div className="mb-1 flex items-center gap-2 font-semibold">
+                        <Lock size={12} />
+                        Contract riêng
+                      </div>
+                      <div>Mã: {linkedContract.code}</div>
+                      <div>Mẫu: {linkedContract.templateName || DEFAULT_CONTRACT_TEMPLATE_NAME}</div>
+                      <div>Imported by: {linkedContract.importedBy || 'system'}</div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

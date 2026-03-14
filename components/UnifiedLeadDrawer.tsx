@@ -1,6 +1,7 @@
 ﻿import React, { useState, useEffect, useMemo } from 'react';
+import { useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ILead, LeadStatus, UserRole, Activity, DealStage, IContract, ContractStatus, IMeeting, MeetingStatus, MeetingType, IQuotation, IQuotationLogNote, QuotationStatus } from '../types';
+import { ILead, LeadStatus, UserRole, Activity, DealStage, IContract, ContractStatus, IMeeting, MeetingStatus, MeetingType, IQuotation, IQuotationLineItem, IQuotationLogNote, ITeacher, ITrainingClass, QuotationStatus } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import {
     X, User, Phone, Mail, MapPin, Globe, Calendar,
@@ -11,9 +12,16 @@ import {
     ShieldCheck, FileSignature, Wallet, Lock, Activity as ActivityIcon, Ban, ArrowUpRight, Users, XOctagon, Tag, Handshake, ChevronRight,
     Save, Printer, RotateCcw, Monitor
 } from 'lucide-react';
-import { addContract, addMeeting, addQuotation, getLeadById, getLostReasons, getQuotations, getTags, saveTags, updateQuotation } from '../utils/storage';
+import { addContract, addMeeting, addQuotation, getLeadById, getLostReasons, getQuotations, getTags, getTeachers, getTrainingClasses, saveTags, updateQuotation } from '../utils/storage';
 import CreateMeetingModal from './CreateMeetingModal';
 import { MeetingCustomerOption } from '../utils/meetingHelpers';
+import {
+    DEFAULT_QUOTATION_RECEIPT_TYPE,
+    normalizeQuotationReceiptType,
+    QUOTATION_RECEIPT_TYPE_OPTIONS
+} from '../utils/quotationReceiptType';
+import ClassCodeLookupInput from './ClassCodeLookupInput';
+import { buildTrainingClassLookupOptions } from '../utils/trainingClassLookup';
 
 interface UnifiedLeadDrawerProps {
     lead: ILead;
@@ -23,14 +31,261 @@ interface UnifiedLeadDrawerProps {
     onConvert?: (lead: ILead) => void;
 }
 
-// Product Catalog Mock
-const PRODUCT_CATALOG = [
-    { name: 'Khóa tiếng Đức A1-A2', price: 15000000 },
-    { name: 'Khóa tiếng Đức B1-B2', price: 25000000 },
-    { name: 'Combo Du học nghề Đức (Trọn gói)', price: 210000000 },
-    { name: 'Combo Du học nghề Úc', price: 250000000 },
-    { name: 'Phí xử lý hồ sơ', price: 10000000 },
+type CreatorMarket = 'Đức' | 'Trung Quốc';
+type CreatorServicePackage = 'Du học' | 'Combo' | 'Đào tạo';
+
+type OrderCatalogItem = {
+    id: string;
+    product: string;
+    market: CreatorMarket;
+    servicePackage: CreatorServicePackage;
+    serviceType: IQuotation['serviceType'];
+    courseOptions: string[];
+    programOptions: string[];
+    defaultPrice: number;
+};
+
+type OrderLineDraft = {
+    id: string;
+    productId?: string;
+    productName: string;
+    studentName: string;
+    studentDob: string;
+    testerId: string;
+    courseName: string;
+    targetMarket: CreatorMarket | '';
+    servicePackage: CreatorServicePackage | '';
+    programs: string[];
+    classId: string;
+    unitPrice: number;
+    discountPercent: number;
+    additionalInfo: string;
+};
+
+const ORDER_LINE_CATALOG: OrderCatalogItem[] = [
+    {
+        id: 'order-de-training-a12',
+        product: 'Khóa tiếng Đức A1-A2',
+        market: 'Đức',
+        servicePackage: 'Đào tạo',
+        serviceType: 'Training',
+        courseOptions: ['Tiếng Đức A1', 'Tiếng Đức A2'],
+        programOptions: ['A1', 'A2'],
+        defaultPrice: 15000000
+    },
+    {
+        id: 'order-de-training-b12',
+        product: 'Khóa tiếng Đức B1-B2',
+        market: 'Đức',
+        servicePackage: 'Đào tạo',
+        serviceType: 'Training',
+        courseOptions: ['Tiếng Đức B1', 'Tiếng Đức B2'],
+        programOptions: ['B1', 'B2'],
+        defaultPrice: 25000000
+    },
+    {
+        id: 'order-de-combo',
+        product: 'Combo tiếng Đức A1-B1',
+        market: 'Đức',
+        servicePackage: 'Combo',
+        serviceType: 'Combo',
+        courseOptions: ['Combo tiếng Đức A1-B1'],
+        programOptions: ['A1', 'A2', 'B1'],
+        defaultPrice: 45000000
+    },
+    {
+        id: 'order-de-abroad',
+        product: 'Du học Đức - Trọn gói',
+        market: 'Đức',
+        servicePackage: 'Du học',
+        serviceType: 'StudyAbroad',
+        courseOptions: ['Hồ sơ du học Đức', 'Luyện phỏng vấn', 'Định hướng trước bay'],
+        programOptions: ['A1', 'A2', 'B1', 'APS', 'Visa'],
+        defaultPrice: 210000000
+    },
+    {
+        id: 'order-cn-training-hsk123',
+        product: 'Khóa tiếng Trung HSK1-HSK3',
+        market: 'Trung Quốc',
+        servicePackage: 'Đào tạo',
+        serviceType: 'Training',
+        courseOptions: ['HSK 1', 'HSK 2', 'HSK 3'],
+        programOptions: ['HSK1', 'HSK2', 'HSK3'],
+        defaultPrice: 12000000
+    },
+    {
+        id: 'order-cn-training-hsk45',
+        product: 'Khóa tiếng Trung HSK4-HSK5',
+        market: 'Trung Quốc',
+        servicePackage: 'Đào tạo',
+        serviceType: 'Training',
+        courseOptions: ['HSK 4', 'HSK 5'],
+        programOptions: ['HSK4', 'HSK5'],
+        defaultPrice: 18000000
+    },
+    {
+        id: 'order-cn-combo',
+        product: 'Combo tiếng HSK1-HSK3',
+        market: 'Trung Quốc',
+        servicePackage: 'Combo',
+        serviceType: 'Combo',
+        courseOptions: ['Combo tiếng HSK1-HSK3'],
+        programOptions: ['HSK1', 'HSK2', 'HSK3'],
+        defaultPrice: 20000000
+    },
+    {
+        id: 'order-cn-abroad',
+        product: 'Du học Trung Quốc - Trọn gói',
+        market: 'Trung Quốc',
+        servicePackage: 'Du học',
+        serviceType: 'StudyAbroad',
+        courseOptions: ['Hồ sơ du học Trung Quốc', 'Luyện phỏng vấn', 'Định hướng trước bay'],
+        programOptions: ['HSK4', 'HSK5', 'Visa', 'Hồ sơ'],
+        defaultPrice: 160000000
+    }
 ];
+
+const CREATOR_MARKETS: CreatorMarket[] = ['Đức', 'Trung Quốc'];
+
+const CREATOR_CLASS_FALLBACKS: ITrainingClass[] = [
+    {
+        id: 'CN-HSK1-K01',
+        code: 'CN-HSK1-K01',
+        name: 'Lớp HSK1 K01',
+        campus: 'Hà Nội',
+        schedule: 'T2-4-6 19:00',
+        language: 'Tiếng Trung',
+        level: 'HSK1',
+        classType: 'Offline',
+        status: 'ACTIVE' as ITrainingClass['status'],
+        teacherId: 'T003'
+    },
+    {
+        id: 'CN-HSK3-K02',
+        code: 'CN-HSK3-K02',
+        name: 'Lớp HSK3 K02',
+        campus: 'Hà Nội',
+        schedule: 'T3-5-7 18:30',
+        language: 'Tiếng Trung',
+        level: 'HSK3',
+        classType: 'Offline',
+        status: 'ACTIVE' as ITrainingClass['status'],
+        teacherId: 'T003'
+    },
+    {
+        id: 'CN-HSK5-K03',
+        code: 'CN-HSK5-K03',
+        name: 'Lớp HSK5 K03',
+        campus: 'TP.HCM',
+        schedule: 'T2-4 20:00',
+        language: 'Tiếng Trung',
+        level: 'HSK5',
+        classType: 'Online',
+        status: 'ACTIVE' as ITrainingClass['status'],
+        teacherId: 'T003'
+    }
+];
+
+const toInputDate = (value?: string) => {
+    if (!value) return '';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    const year = date.getFullYear();
+    const month = `${date.getMonth() + 1}`.padStart(2, '0');
+    const day = `${date.getDate()}`.padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
+
+const fromInputDate = (value?: string, fallback?: string) => {
+    if (!value) return undefined;
+    const [year, month, day] = value.split('-').map(Number);
+    if (!year || !month || !day) return fallback;
+    const base = fallback ? new Date(fallback) : new Date();
+    const safeBase = Number.isNaN(base.getTime()) ? new Date() : base;
+    const next = new Date(safeBase);
+    next.setFullYear(year, month - 1, day);
+    next.setHours(0, 0, 0, 0);
+    return next.toISOString();
+};
+
+const formatDisplayDate = (value?: string) => {
+    if (!value) return '--/--/----';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '--/--/----';
+    return date.toLocaleDateString('vi-VN');
+};
+
+const calculateOrderLineTotal = (unitPrice: number, quantity: number, discountPercent: number) =>
+    Math.max(0, unitPrice * quantity * (1 - discountPercent / 100));
+
+const getLineItemSubtotal = (item: Partial<IQuotationLineItem>) =>
+    (Number(item.unitPrice) || 0) * Math.max(1, Number(item.quantity) || 1);
+
+const getResolvedLineItemTotal = (item: Partial<IQuotationLineItem>) => {
+    if (typeof item.total === 'number' && !Number.isNaN(item.total)) {
+        return Math.max(0, item.total);
+    }
+    return calculateOrderLineTotal(
+        Number(item.unitPrice) || 0,
+        Math.max(1, Number(item.quantity) || 1),
+        Math.min(100, Math.max(0, Number(item.discount) || 0))
+    );
+};
+
+const getCatalogByProduct = (productName: string) =>
+    ORDER_LINE_CATALOG.find((item) => item.product === productName);
+
+const mapStoredItemsToQuotationLineItems = (items: any[] = [], leadData?: Partial<ILead>): IQuotationLineItem[] =>
+    items.map((item, index) => {
+        const quantity = Math.max(1, Number(item?.quantity) || 1);
+        const unitPrice = Math.max(0, Number(item?.unitPrice ?? item?.price) || 0);
+        const discountPercent = Math.min(100, Math.max(0, Number(item?.discountPercent ?? item?.discount) || 0));
+        const total = typeof item?.total === 'number'
+            ? Math.max(0, Number(item.total) || 0)
+            : calculateOrderLineTotal(unitPrice, quantity, discountPercent);
+
+        return {
+            id: item?.id || `line-${Date.now()}-${index}`,
+            productId: item?.productId || item?.id,
+            name: item?.name || item?.productName || 'Sản phẩm',
+            quantity,
+            unitPrice,
+            discount: discountPercent,
+            total,
+            studentName: item?.studentName || leadData?.name || '',
+            studentDob: item?.studentDob || leadData?.dob || '',
+            testerId: item?.testerId,
+            testerName: item?.testerName,
+            courseName: item?.courseName,
+            targetMarket: item?.targetMarket || leadData?.targetCountry,
+            servicePackage: item?.servicePackage,
+            programs: Array.isArray(item?.programs) ? item.programs : [],
+            classId: item?.classId,
+            className: item?.className,
+            additionalInfo: item?.additionalInfo
+        };
+    });
+
+const createOrderDraft = (
+    leadData: Partial<ILead>,
+    base?: Partial<OrderLineDraft>,
+    lineItem?: IQuotationLineItem
+): OrderLineDraft => ({
+    id: lineItem?.id || base?.id || `line-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    productId: lineItem?.productId || base?.productId,
+    productName: lineItem?.name || base?.productName || '',
+    studentName: lineItem?.studentName || base?.studentName || leadData.name || '',
+    studentDob: toInputDate(lineItem?.studentDob || base?.studentDob || leadData.dob),
+    testerId: lineItem?.testerId || base?.testerId || '',
+    courseName: lineItem?.courseName || base?.courseName || '',
+    targetMarket: (lineItem?.targetMarket as CreatorMarket) || base?.targetMarket || (leadData.targetCountry as CreatorMarket) || '',
+    servicePackage: (lineItem?.servicePackage as CreatorServicePackage) || base?.servicePackage || '',
+    programs: Array.isArray(lineItem?.programs) ? lineItem.programs : base?.programs || [],
+    classId: lineItem?.classId || base?.classId || '',
+    unitPrice: lineItem?.unitPrice || base?.unitPrice || 0,
+    discountPercent: lineItem?.discount || base?.discountPercent || 0,
+    additionalInfo: lineItem?.additionalInfo || base?.additionalInfo || ''
+});
 
 const ACTIVITY_TYPES = [
     { id: 'call', label: 'Gọi điện', icon: Phone, defaultDelayHours: 2 },
@@ -121,7 +376,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
     const [quotationWorkflowStatus, setQuotationWorkflowStatus] = useState<'draft' | 'sent' | 'sale_order' | 'cancelled'>('draft');
     const [activeQuotationId, setActiveQuotationId] = useState<string | null>(null);
     const [isSaving, setIsSaving] = useState(false); // Global saving indicator state
-    const lastLoggedValues = React.useRef<Record<string, any>>({}); // To prevent duplicate logs in rapid succession
+    const lastLoggedValues = useRef<Record<string, any>>({}); // To prevent duplicate logs in rapid succession
 
     // Mapping for logging internal notes
     const INTERNAL_NOTE_LABELS: any = {
@@ -166,8 +421,10 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
         id: `lead-log-${activity?.id || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`}`,
         timestamp: toValidTimestamp(activity?.timestamp || activity?.datetime),
         user: activity?.user || 'System',
+        type: activity?.type || 'system',
         action: `Lead: ${activity?.title || activity?.type || 'Cập nhật'}`,
-        detail: activity?.description || activity?.content || ''
+        detail: activity?.description || activity?.content || '',
+        attachments: Array.isArray(activity?.attachments) ? activity.attachments : undefined
     });
 
     const mergeQuotationLogNotes = (
@@ -204,8 +461,10 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                 left.id !== right.id ||
                 left.timestamp !== right.timestamp ||
                 left.user !== right.user ||
+                (left.type || 'system') !== (right.type || 'system') ||
                 left.action !== right.action ||
-                (left.detail || '') !== (right.detail || '')
+                (left.detail || '') !== (right.detail || '') ||
+                JSON.stringify(left.attachments || []) !== JSON.stringify(right.attachments || [])
             ) {
                 return false;
             }
@@ -239,7 +498,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
         paymentMethod: '',
         expirationDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
         pricelist: '[Center 11] Base Price (VND)',
-        orderMode: 'Normal',
+        orderMode: DEFAULT_QUOTATION_RECEIPT_TYPE,
         serviceType: 'Training' as 'StudyAbroad' | 'Training' | 'Combo',
         classCode: '',
         schedule: '',
@@ -249,8 +508,15 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
     });
 
     // Local State for Quotation Editing
-    const [productItems, setProductItems] = useState<any[]>(Array.isArray(initialLead?.productItems) ? initialLead.productItems : []);
-    const [discount, setDiscount] = useState((initialLead && initialLead.discount) || 0);
+    const [quotationLineItems, setQuotationLineItems] = useState<IQuotationLineItem[]>(
+        mapStoredItemsToQuotationLineItems(Array.isArray(initialLead?.productItems) ? initialLead.productItems : [], initialLead)
+    );
+    const [discountAdjustment, setDiscountAdjustment] = useState((initialLead && initialLead.discount) || 0);
+    const [showOrderLineModal, setShowOrderLineModal] = useState(false);
+    const [editingOrderLineId, setEditingOrderLineId] = useState<string | null>(null);
+    const [programDropdownOpen, setProgramDropdownOpen] = useState(false);
+    const [orderLineDraft, setOrderLineDraft] = useState<OrderLineDraft>(() => createOrderDraft(initialLead || {}));
+    const programDropdownRef = useRef<HTMLDivElement | null>(null);
 
     // Toast Notification State
     const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info'; visible: boolean } | null>(null);
@@ -259,6 +525,9 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
         setToast({ message, type, visible: true });
         setTimeout(() => setToast(null), 3000);
     };
+
+    const loadClassCodeOptions = () =>
+        buildTrainingClassLookupOptions([...getTrainingClasses(), ...CREATOR_CLASS_FALLBACKS]);
 
     // --- TAG MANAGEMENT ---
     const [allAvailableTags, setAllAvailableTags] = useState<string[]>([]);
@@ -328,15 +597,30 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
         if (!initialLead) return;
         // Only sync if ID changed or we're not in the middle of a local update sync
         if (initialLead.id !== lead.id) {
+            const mappedLineItems = mapStoredItemsToQuotationLineItems(Array.isArray(initialLead.productItems) ? initialLead.productItems : [], initialLead);
             setLead(initialLead);
-            setProductItems(Array.isArray(initialLead.productItems) ? initialLead.productItems : []);
-            setDiscount(initialLead.discount || 0);
+            setQuotationLineItems(mappedLineItems);
+            setDiscountAdjustment(deriveDiscountAdjustment(initialLead.discount, mappedLineItems));
+            setOrderLineDraft(createOrderDraft(initialLead));
             setFollowers(Array.isArray(initialLead.followers) ? initialLead.followers : []);
         } else if ((initialLead.activities?.length || 0) > (lead.activities?.length || 0)) {
             // Keep activities in sync if updated from outside (e.g. system)
             setLead(prev => ({ ...prev, activities: initialLead.activities }));
         }
     }, [initialLead]);
+
+    useEffect(() => {
+        if (!programDropdownOpen) return;
+
+        const handleClickOutside = (event: MouseEvent) => {
+            if (programDropdownRef.current && !programDropdownRef.current.contains(event.target as Node)) {
+                setProgramDropdownOpen(false);
+            }
+        };
+
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, [programDropdownOpen]);
 
     const getDefaultActivityDate = (typeId: string) => {
         const typeConfig = ACTIVITY_TYPES.find(t => t.id === typeId);
@@ -372,11 +656,44 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
         setNextActivityDate(getDefaultActivityDate(nextActivityType));
     }, [nextActivityType, showNextActivityModal]);
 
+    const lineItemsSubtotal = useMemo(
+        () => quotationLineItems.reduce((sum, item) => sum + getLineItemSubtotal(item), 0),
+        [quotationLineItems]
+    );
+
+    const lineItemsNetTotal = useMemo(
+        () => quotationLineItems.reduce((sum, item) => sum + getResolvedLineItemTotal(item), 0),
+        [quotationLineItems]
+    );
+
+    const lineItemsDiscountAmount = useMemo(
+        () => Math.max(0, lineItemsSubtotal - lineItemsNetTotal),
+        [lineItemsNetTotal, lineItemsSubtotal]
+    );
+
+    const totalDiscountAmount = useMemo(
+        () => lineItemsDiscountAmount + Math.max(0, discountAdjustment || 0),
+        [discountAdjustment, lineItemsDiscountAmount]
+    );
+
     // --- LOGIC: AUTO CALCULATE TOTAL VALUE ---
-    const calculatedTotal = useMemo(() => {
-        const subtotal = productItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-        return Math.max(0, subtotal - discount);
-    }, [productItems, discount]);
+    const calculatedTotal = useMemo(
+        () => Math.max(0, lineItemsNetTotal - Math.max(0, discountAdjustment || 0)),
+        [discountAdjustment, lineItemsNetTotal]
+    );
+
+    const leadProductItems = useMemo(
+        () => quotationLineItems.map((item) => ({
+            id: item.productId || item.id,
+            name: item.name,
+            price: item.unitPrice || 0,
+            quantity: item.quantity || 1
+        })),
+        [quotationLineItems]
+    );
+
+    const deriveDiscountAdjustment = (storedDiscount: number | undefined, lineItems: IQuotationLineItem[]) =>
+        Math.max(0, (Number(storedDiscount) || 0) - Math.max(0, lineItems.reduce((sum, item) => sum + getLineItemSubtotal(item), 0) - lineItems.reduce((sum, item) => sum + getResolvedLineItemTotal(item), 0)));
 
     // Sync calculated total to Lead Value
     useEffect(() => {
@@ -668,13 +985,13 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
         const advancedStages: string[] = [DealStage.NEGOTIATION, DealStage.CONTRACT, DealStage.DOCUMENT_COLLECTION, DealStage.WON];
         if (advancedStages.includes(newStatus)) {
             // Check Quotation Section (3)
-            if (productItems.length === 0 || calculatedTotal < 0) { // Allow 0 if free, but usually > 0
+            if (quotationLineItems.length === 0 || calculatedTotal < 0) { // Allow 0 if free, but usually > 0
                 showToast("Vui lòng tạo Bảng báo giá (Sản phẩm) ở Mục 3 trước khi sang giai đoạn này.", 'error');
                 setShowStatusDropdown(false);
                 return;
             }
             // Check Target Country (Only required for Study Abroad or Combos)
-            const isStudyAbroad = productItems.some(p => p.name.toLowerCase().includes('du học'));
+            const isStudyAbroad = quotationLineItems.some(p => p.name.toLowerCase().includes('du học'));
 
             if (isStudyAbroad && !lead.targetCountry) {
                 showToast("Vui lòng chọn 'Thị trường mục tiêu' (Bắt buộc với Du học/Combo) ở Mục 2 trước.", 'error');
@@ -685,7 +1002,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
 
         // 3. GATE: Contract / Won checks
         // Must satisfy Negotiation section (Sec 4)
-        if ((newStatus === DealStage.CONTRACT || newStatus === DealStage.WON) && discount > 0 && !lead.discountReason) {
+        if ((newStatus === DealStage.CONTRACT || newStatus === DealStage.WON) && totalDiscountAmount > 0 && !lead.discountReason) {
             showToast("Vui lòng nhập 'Lý do giảm giá' ở Mục 4.", 'error');
             setShowStatusDropdown(false);
             return;
@@ -711,8 +1028,8 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
             ...lead,
             status: newStatus as any,
             activities: [statusLog, ...(lead.activities || [])],
-            productItems: productItems, // Sync current products
-            discount: discount, // Sync current discount
+            productItems: leadProductItems, // Sync current products
+            discount: totalDiscountAmount, // Sync current discount
             paymentRoadmap: lead.paymentRoadmap
         };
 
@@ -753,7 +1070,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
 
     const handleWonAction = () => {
         // 1. Basic Check for Won
-        if (productItems.length === 0 || calculatedTotal <= 0) {
+        if (quotationLineItems.length === 0 || calculatedTotal <= 0) {
             showToast("Giá trị Hợp đồng phải > 0. Vui lòng kiểm tra Bảng báo giá (Mục 3).", 'error');
             return;
         }
@@ -979,7 +1296,12 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
     const handleCreateQuote = () => {
         const existingQuotation = getQuotations().find(q => q.leadId === lead.id);
         if (existingQuotation) {
+            const nextLineItems = existingQuotation.lineItems?.length
+                ? existingQuotation.lineItems.map((item) => ({ ...item, total: getResolvedLineItemTotal(item) }))
+                : mapStoredItemsToQuotationLineItems(Array.isArray(lead.productItems) ? lead.productItems : [], lead);
             setActiveQuotationId(existingQuotation.id);
+            setQuotationLineItems(nextLineItems);
+            setDiscountAdjustment(deriveDiscountAdjustment(existingQuotation.discount, nextLineItems));
             setQuotationWorkflowStatus(
                 existingQuotation.status === QuotationStatus.SALE_ORDER
                     ? 'sale_order'
@@ -990,7 +1312,9 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
             setQuotationData(prev => ({
                 ...prev,
                 paymentMethod: existingQuotation.paymentMethod === 'CASH' ? 'Tiền mặt' : existingQuotation.paymentMethod === 'CK' ? 'Chuyển khoản' : prev.paymentMethod,
-                expirationDate: existingQuotation.updatedAt?.slice(0, 10) || prev.expirationDate,
+                expirationDate: existingQuotation.expirationDate || existingQuotation.updatedAt?.slice(0, 10) || prev.expirationDate,
+                pricelist: existingQuotation.pricelist || prev.pricelist,
+                orderMode: normalizeQuotationReceiptType(existingQuotation.orderMode || prev.orderMode),
                 classCode: existingQuotation.classCode || prev.classCode,
                 schedule: existingQuotation.schedule || prev.schedule,
                 pricingNote: existingQuotation.pricingNote || prev.pricingNote,
@@ -998,12 +1322,16 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                 needInvoice: !!existingQuotation.needInvoice
             }));
         } else {
+            const nextLineItems = mapStoredItemsToQuotationLineItems(Array.isArray(lead.productItems) ? lead.productItems : [], lead);
             setActiveQuotationId(null);
+            setQuotationLineItems(nextLineItems);
+            setDiscountAdjustment(deriveDiscountAdjustment(lead.discount, nextLineItems));
             setQuotationWorkflowStatus('draft');
-            if ((productItems || []).length === 0) {
-                setProductItems([{ id: `item-${Date.now()}`, name: '', price: 0, quantity: 1 }]);
-            }
         }
+        setEditingOrderLineId(null);
+        setProgramDropdownOpen(false);
+        setOrderLineDraft(createOrderDraft(lead));
+        setShowOrderLineModal(false);
         setQuotationCreatorTab('order_lines');
         setShowQuotationCreator(true);
     };
@@ -1012,6 +1340,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
         id: `q-log-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         timestamp: new Date().toISOString(),
         user: user?.name || 'System',
+        type: 'system',
         action,
         detail
     });
@@ -1030,10 +1359,32 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
         const now = new Date().toISOString();
         const existing = activeQuotationId ? getQuotations().find(q => q.id === activeQuotationId) : undefined;
         const mappedPayment = mapPaymentMethod();
-        const subtotal = productItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-        const finalAmount = Math.max(subtotal - (discount || 0), 0);
+        const normalizedLineItems = quotationLineItems.map((item) => {
+            const quantity = Math.max(1, Number(item.quantity) || 1);
+            const unitPrice = Math.max(0, Number(item.unitPrice) || 0);
+            const discountPercent = Math.min(100, Math.max(0, Number(item.discount) || 0));
+            return {
+                ...item,
+                quantity,
+                unitPrice,
+                discount: discountPercent,
+                total: calculateOrderLineTotal(unitPrice, quantity, discountPercent)
+            };
+        });
+        const subtotal = normalizedLineItems.reduce((sum, item) => sum + getLineItemSubtotal(item), 0);
+        const normalizedNetTotal = normalizedLineItems.reduce((sum, item) => sum + getResolvedLineItemTotal(item), 0);
+        const lineDiscountAmount = Math.max(0, subtotal - normalizedNetTotal);
+        const finalAmount = Math.max(normalizedNetTotal - Math.max(0, discountAdjustment || 0), 0);
         const baseLogNotes = [buildQuotationLogNote(action, detail), ...(existing?.logNotes || [])];
         const logNotes = mergeQuotationLogNotes(baseLogNotes, lead.activities || []);
+        const derivedServiceType =
+            normalizedLineItems[0]?.servicePackage === 'Du học'
+                ? 'StudyAbroad'
+                : normalizedLineItems[0]?.servicePackage === 'Combo'
+                    ? 'Combo'
+                    : normalizedLineItems[0]?.servicePackage === 'Đào tạo'
+                        ? 'Training'
+                        : quotationData.serviceType;
 
         const payload: IQuotation = {
             id: existing?.id || `Q-${Date.now()}`,
@@ -1042,21 +1393,16 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
             customerId: lead.id,
             leadId: lead.id,
             dealId: lead.id,
-            serviceType: quotationData.serviceType,
-            product: productItems.map(item => item.name).filter(Boolean).join(' + ') || lead.product || 'Dịch vụ tư vấn',
-            lineItems: productItems.map(item => ({
-                id: `line-${item.id}`,
-                productId: item.id,
-                name: item.name || 'Sản phẩm',
-                quantity: item.quantity || 1,
-                unitPrice: item.price || 0,
-                discount: 0,
-                total: (item.price || 0) * (item.quantity || 1)
-            })),
+            serviceType: derivedServiceType,
+            product: normalizedLineItems.map(item => item.name).filter(Boolean).join(' + ') || lead.product || 'Dịch vụ tư vấn',
+            lineItems: normalizedLineItems,
             amount: subtotal,
-            discount: discount || 0,
+            discount: lineDiscountAmount + Math.max(0, discountAdjustment || 0),
             finalAmount,
             pricingNote: quotationData.pricingNote,
+            expirationDate: quotationData.expirationDate || undefined,
+            pricelist: quotationData.pricelist || undefined,
+            orderMode: normalizeQuotationReceiptType(quotationData.orderMode),
             createdAt: existing?.createdAt || now,
             updatedAt: now,
             status,
@@ -1067,7 +1413,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
             classCode: quotationData.classCode || undefined,
             studentPhone: lead.phone || '',
             studentEmail: lead.email || '',
-            studentDob: lead.dob || '',
+            studentDob: normalizedLineItems[0]?.studentDob || lead.dob || '',
             studentAddress: lead.address || '',
             identityCard: lead.identityCard || '',
             guardianName: lead.guardianName || '',
@@ -1114,14 +1460,15 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
         const updatedLead = {
             ...lead,
             activities: [statusLog, ...(lead.activities || [])],
-            productItems: productItems,
-            discount: discount,
+            productItems: leadProductItems,
+            discount: totalDiscountAmount,
             paymentRoadmap: quotationData.internalNote || lead.paymentRoadmap
         };
 
         setLead(updatedLead);
         onUpdate(updatedLead);
         setQuotationWorkflowStatus('draft');
+        setShowOrderLineModal(false);
         setShowQuotationCreator(false);
         showToast(`Đã tạo báo giá thành công (${savedQuotation.soCode})!`, 'success');
     };
@@ -1160,23 +1507,207 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
         window.print();
     };
 
-    // --- QUOTATION HELPERS ---
-    const addProductItem = () => {
-        setProductItems([...productItems, { id: `item-${Date.now()}`, name: '', price: 0, quantity: 1 }]);
+    const creatorTeachers = useMemo(
+        () => getTeachers().filter((teacher) => teacher.status === 'ACTIVE'),
+        [showQuotationCreator]
+    );
+
+    const creatorClasses = useMemo(() => {
+        const merged = [...getTrainingClasses(), ...CREATOR_CLASS_FALLBACKS];
+        const deduped = new Map<string, ITrainingClass>();
+        merged.forEach((item) => deduped.set(item.id, item));
+        return Array.from(deduped.values());
+    }, [showQuotationCreator]);
+
+    const availableServicePackages = useMemo(() => {
+        if (!orderLineDraft.targetMarket) return [];
+        return Array.from(
+            new Set(
+                ORDER_LINE_CATALOG.filter((item) => item.market === orderLineDraft.targetMarket).map((item) => item.servicePackage)
+            )
+        );
+    }, [orderLineDraft.targetMarket]);
+
+    const availableProducts = useMemo(() => {
+        if (!orderLineDraft.targetMarket || !orderLineDraft.servicePackage) return [];
+        return ORDER_LINE_CATALOG.filter(
+            (item) => item.market === orderLineDraft.targetMarket && item.servicePackage === orderLineDraft.servicePackage
+        );
+    }, [orderLineDraft.servicePackage, orderLineDraft.targetMarket]);
+
+    const availableCourseOptions = useMemo(() => {
+        const productCatalog = availableProducts.find((item) => item.product === orderLineDraft.productName);
+        return productCatalog?.courseOptions || [];
+    }, [availableProducts, orderLineDraft.productName]);
+
+    const availableProgramOptions = useMemo(() => {
+        const productCatalog = availableProducts.find((item) => item.product === orderLineDraft.productName);
+        return productCatalog?.programOptions || [];
+    }, [availableProducts, orderLineDraft.productName]);
+
+    const availableTesterOptions = useMemo(() => {
+        if (!orderLineDraft.targetMarket) return creatorTeachers;
+        return creatorTeachers.filter((teacher) => {
+            const subjects = teacher.teachSubjects.map((item) => item.toLowerCase());
+            if (orderLineDraft.targetMarket === 'Đức') {
+                return subjects.some((subject) => subject.includes('đức') || subject.includes('german'));
+            }
+            return subjects.some((subject) => subject.includes('trung') || subject.includes('chinese'));
+        });
+    }, [creatorTeachers, orderLineDraft.targetMarket]);
+
+    const availableClassOptions = useMemo(() => {
+        if (!orderLineDraft.targetMarket) return creatorClasses;
+        return creatorClasses.filter((item) => {
+            if (String(item.status).toUpperCase() !== 'ACTIVE') return false;
+            const language = (item.language || '').toLowerCase();
+            const classTokens = [item.name, item.code, item.level].join(' ').toLowerCase();
+            const matchLanguage =
+                orderLineDraft.targetMarket === 'Đức'
+                    ? language.includes('đức') || language.includes('german')
+                    : language.includes('trung') || language.includes('chinese');
+
+            if (!matchLanguage) return false;
+            if (orderLineDraft.programs.length === 0) return true;
+            return orderLineDraft.programs.some((program) => classTokens.includes(program.toLowerCase()));
+        });
+    }, [creatorClasses, orderLineDraft.programs, orderLineDraft.targetMarket]);
+
+    const openNewOrderLineModal = () => {
+        setEditingOrderLineId(null);
+        setProgramDropdownOpen(false);
+        setOrderLineDraft(createOrderDraft(lead));
+        setShowOrderLineModal(true);
     };
-    const updateProductItem = (id: string, field: string, val: any) => {
-        setProductItems(items => items.map(item => item.id === id ? { ...item, [field]: val } : item));
+
+    const openEditOrderLineModal = (lineId: string) => {
+        const foundLine = quotationLineItems.find((item) => item.id === lineId);
+        if (!foundLine) return;
+        setEditingOrderLineId(lineId);
+        setProgramDropdownOpen(false);
+        setOrderLineDraft(createOrderDraft(lead, undefined, foundLine));
+        setShowOrderLineModal(true);
     };
-    const removeProductItem = (id: string) => {
-        setProductItems(items => items.filter(item => item.id !== id));
+
+    const closeOrderLineModal = () => {
+        setProgramDropdownOpen(false);
+        setShowOrderLineModal(false);
+        setEditingOrderLineId(null);
+        setOrderLineDraft(createOrderDraft(lead));
     };
-    const handleProductSelect = (id: string, productName: string) => {
-        const product = PRODUCT_CATALOG.find(p => p.name === productName);
-        if (product) {
-            setProductItems(items => items.map(item => item.id === id ? { ...item, name: productName, price: product.price } : item));
-        } else {
-            setProductItems(items => items.map(item => item.id === id ? { ...item, name: productName } : item));
+
+    const handleOrderDraftMarketChange = (market: CreatorMarket | '') => {
+        setProgramDropdownOpen(false);
+        setOrderLineDraft((prev) => ({
+            ...prev,
+            targetMarket: market,
+            servicePackage: '',
+            productId: undefined,
+            productName: '',
+            courseName: '',
+            programs: [],
+            classId: '',
+            unitPrice: 0
+        }));
+    };
+
+    const handleOrderDraftServiceChange = (servicePackage: CreatorServicePackage | '') => {
+        setProgramDropdownOpen(false);
+        setOrderLineDraft((prev) => ({
+            ...prev,
+            servicePackage,
+            productId: undefined,
+            productName: '',
+            courseName: '',
+            programs: [],
+            classId: '',
+            unitPrice: 0
+        }));
+    };
+
+    const handleOrderDraftProductChange = (productName: string) => {
+        const catalog = getCatalogByProduct(productName);
+        setProgramDropdownOpen(false);
+        setOrderLineDraft((prev) => ({
+            ...prev,
+            productId: catalog?.id,
+            productName,
+            courseName: catalog?.courseOptions[0] || '',
+            programs: [],
+            classId: '',
+            unitPrice: catalog?.defaultPrice || 0
+        }));
+        if (catalog?.serviceType) {
+            setQuotationData((prev) => ({ ...prev, serviceType: catalog.serviceType }));
         }
+    };
+
+    const handleOrderDraftProgramToggle = (program: string) => {
+        setOrderLineDraft((prev) => ({
+            ...prev,
+            programs: prev.programs.includes(program)
+                ? prev.programs.filter((item) => item !== program)
+                : [...prev.programs, program],
+            classId: ''
+        }));
+    };
+
+    const handleRemoveOrderLine = () => {
+        if (editingOrderLineId) {
+            setQuotationLineItems((prev) => prev.filter((item) => item.id !== editingOrderLineId));
+        }
+        closeOrderLineModal();
+    };
+
+    const handleSaveOrderLine = (mode: 'close' | 'new') => {
+        if (!orderLineDraft.productName || !orderLineDraft.studentName || !orderLineDraft.targetMarket || !orderLineDraft.servicePackage) {
+            showToast('Vui lòng chọn sản phẩm và điền đủ thông tin bắt buộc của dòng báo giá.', 'error');
+            return;
+        }
+
+        const selectedTester = getTeachers().find((teacher) => teacher.id === orderLineDraft.testerId);
+        const selectedClass = [...getTrainingClasses(), ...CREATOR_CLASS_FALLBACKS].find((item) => item.id === orderLineDraft.classId);
+        const total = calculateOrderLineTotal(orderLineDraft.unitPrice, 1, orderLineDraft.discountPercent);
+
+        const nextLine: IQuotationLineItem = {
+            id: editingOrderLineId || orderLineDraft.id,
+            productId: orderLineDraft.productId,
+            name: orderLineDraft.productName,
+            quantity: 1,
+            unitPrice: orderLineDraft.unitPrice,
+            discount: orderLineDraft.discountPercent,
+            total,
+            studentName: orderLineDraft.studentName,
+            studentDob: fromInputDate(orderLineDraft.studentDob, lead.dob),
+            testerId: orderLineDraft.testerId || undefined,
+            testerName: selectedTester?.fullName,
+            courseName: orderLineDraft.courseName || undefined,
+            targetMarket: orderLineDraft.targetMarket || undefined,
+            servicePackage: orderLineDraft.servicePackage || undefined,
+            programs: orderLineDraft.programs,
+            classId: orderLineDraft.classId || undefined,
+            className: selectedClass?.name,
+            additionalInfo: orderLineDraft.additionalInfo || undefined
+        };
+
+        setQuotationLineItems((prev) =>
+            editingOrderLineId
+                ? prev.map((item) => (item.id === editingOrderLineId ? nextLine : item))
+                : [...prev, nextLine]
+        );
+
+        if (mode === 'new') {
+            setEditingOrderLineId(null);
+            setProgramDropdownOpen(false);
+            setOrderLineDraft(createOrderDraft(lead, {
+                studentName: orderLineDraft.studentName,
+                studentDob: orderLineDraft.studentDob,
+                targetMarket: orderLineDraft.targetMarket
+            }));
+            return;
+        }
+
+        closeOrderLineModal();
     };
 
     // Log Grouping Logic
@@ -1913,8 +2444,8 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
 
                                         <div className="space-y-4">
                                             <div className="flex min-h-[32px] items-center">
-                                                <label className="w-40 text-[13px] font-bold text-slate-700">Ngày hết hạn</label>
-                                                <div className="flex-1 relative">
+                                                <label className="w-[148px] text-[13px] font-bold text-slate-700">Ngày hết hạn</label>
+                                                <div className="flex-1">
                                                     <input
                                                         type="date"
                                                         className="w-full px-3 py-1.5 border border-slate-300 rounded text-[13px] outline-none focus:border-blue-500 transition-colors bg-white"
@@ -1924,30 +2455,29 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                                                 </div>
                                             </div>
                                             <div className="flex min-h-[32px] items-center">
-                                                <label className="w-40 text-[13px] font-bold text-slate-700">Chính sách giá</label>
-                                                <div className="flex-1 flex gap-2">
+                                                <label className="w-[148px] text-[13px] font-bold text-slate-700">Chính sách giá</label>
+                                                <div className="flex-1">
                                                     <select
-                                                        className="flex-1 px-3 py-1.5 bg-blue-50 border border-slate-300 rounded text-[13px] outline-none focus:border-blue-500 transition-colors"
+                                                        className="w-full px-3 py-1.5 bg-blue-50 border border-slate-300 rounded text-[13px] outline-none focus:border-blue-500 transition-colors"
                                                         value={quotationData.pricelist}
                                                         onChange={e => setQuotationData({ ...quotationData, pricelist: e.target.value })}
                                                     >
                                                         <option value="[Center 11] Base Price (VND)">[Center 11] Base Price (VND)</option>
                                                         <option value="VIP Pricelist">VIP Pricelist</option>
                                                     </select>
-                                                    <button className="p-1 px-2 text-blue-700 hover:bg-slate-100 border border-slate-300 rounded transition-colors shadow-sm"><Monitor size={16} /></button>
                                                 </div>
                                             </div>
                                             <div className="flex min-h-[32px] items-center">
-                                                <label className="w-40 text-[13px] font-bold text-slate-700">Chế độ đơn hàng</label>
+                                                <label className="w-[148px] text-[13px] font-bold text-slate-700">Loại phiếu thu</label>
                                                 <div className="flex-1">
                                                     <select
                                                         className="w-full px-3 py-1.5 bg-blue-50 border border-slate-300 rounded text-[13px] outline-none focus:border-blue-500 appearance-none"
-                                                        value={quotationData.orderMode}
+                                                        value={normalizeQuotationReceiptType(quotationData.orderMode)}
                                                         onChange={e => setQuotationData({ ...quotationData, orderMode: e.target.value })}
                                                     >
-                                                        <option value="Normal">Bình thường</option>
-                                                        <option value="Urgent">Khẩn cấp</option>
-                                                        <option value="Promotion">Khuyến mãi</option>
+                                                        {QUOTATION_RECEIPT_TYPE_OPTIONS.map((option) => (
+                                                            <option key={option.value} value={option.value}>{option.label}</option>
+                                                        ))}
                                                     </select>
                                                 </div>
                                             </div>
@@ -1963,39 +2493,72 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                                     {/* Order Lines Table */}
                                     {quotationCreatorTab === 'order_lines' && (
                                         <div className="overflow-x-auto">
-                                        <table className="w-full text-[12px] text-left border-collapse">
-                                            <thead className="bg-[#f8f9fa] text-slate-700 font-bold uppercase">
-                                                <tr className="border-b border-slate-200">
-                                                    <th className="p-3 w-40">Sản phẩm</th>
-                                                    <th className="p-3 min-w-[140px]">Tên học viên</th>
-                                                    <th className="p-3 min-w-[100px]">Ngày sinh</th>
-                                                    <th className="p-3">Mô tả</th>
-                                                    <th className="p-3 text-center w-24">SL Đặt</th>
-                                                    <th className="p-3 text-right w-32">Đơn giá</th>
-                                                    <th className="p-3 text-center w-20">CK (%)</th>
-                                                    <th className="p-3 text-right w-40">Thành tiền</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody className="divide-y divide-slate-100">
-                                                {productItems.map((item, idx) => (
-                                                    <tr key={idx} className="hover:bg-slate-50 transition-colors border-b border-slate-100">
-                                                        <td className="p-3 text-blue-700 font-bold">{item.name}</td>
-                                                        <td className="p-3 text-slate-900">{lead.name}</td>
-                                                        <td className="p-3 text-slate-600">{lead.dob ? new Date(lead.dob).toLocaleDateString('vi-VN') : '--/--/----'}</td>
-                                                        <td className="p-3 text-slate-500 italic font-light">{item.name} - {quotationData.orderMode}</td>
-                                                        <td className="p-3 text-center text-slate-700">{item.quantity}</td>
-                                                        <td className="p-3 text-right text-slate-700">{item.price.toLocaleString()}</td>
-                                                        <td className="p-3 text-center text-slate-700">0</td>
-                                                        <td className="p-3 text-right font-bold text-slate-900">{(item.price * item.quantity).toLocaleString()}</td>
+                                            <table className="w-full border-collapse text-left text-[12px]">
+                                                <thead className="bg-[#f8f9fa] font-bold uppercase text-slate-700">
+                                                    <tr className="border-b border-slate-200">
+                                                        <th className="p-3">Sản phẩm</th>
+                                                        <th className="p-3">Tên học viên</th>
+                                                        <th className="p-3">Ngày sinh</th>
+                                                        <th className="p-3">Mô tả</th>
+                                                        <th className="p-3 text-right">Đơn giá</th>
+                                                        <th className="p-3 text-center">Giảm giá (%)</th>
+                                                        <th className="p-3 text-right">Thành tiền</th>
                                                     </tr>
-                                                ))}
-                                                <tr className="bg-slate-50/30">
-                                                    <td colSpan={8} className="p-3">
-                                                        <button onClick={addProductItem} className="text-blue-600 font-bold hover:underline transition-all flex items-center gap-1"><Plus size={14} /> Thêm một dòng</button>
-                                                    </td>
-                                                </tr>
-                                            </tbody>
-                                        </table>
+                                                </thead>
+                                                <tbody className="divide-y divide-slate-100">
+                                                    {quotationLineItems.map((item) => (
+                                                        <tr
+                                                            key={item.id}
+                                                            className="cursor-pointer border-b border-slate-100 transition-colors hover:bg-slate-50"
+                                                            onClick={() => openEditOrderLineModal(item.id)}
+                                                        >
+                                                            <td className="align-top p-3 font-bold text-blue-700">{item.name || '-'}</td>
+                                                            <td className="align-top p-3 text-slate-900">{item.studentName || lead.name || '-'}</td>
+                                                            <td className="align-top p-3 text-slate-600">{formatDisplayDate(item.studentDob)}</td>
+                                                            <td className="align-top p-3 text-slate-500">
+                                                                <div className="text-[11px] leading-5">
+                                                                    <div className="font-semibold text-slate-700">
+                                                                        {[item.targetMarket, item.servicePackage, item.courseName].filter(Boolean).join(' • ') || '-'}
+                                                                    </div>
+                                                                    {item.testerName && (
+                                                                        <div>
+                                                                            <span className="font-semibold text-slate-500">Tester:</span> {item.testerName}
+                                                                        </div>
+                                                                    )}
+                                                                    {item.programs?.length ? (
+                                                                        <div>
+                                                                            <span className="font-semibold text-slate-500">Chương trình:</span> {item.programs.join(', ')}
+                                                                        </div>
+                                                                    ) : null}
+                                                                    {item.className && (
+                                                                        <div>
+                                                                            <span className="font-semibold text-slate-500">Lớp:</span> {item.className}
+                                                                        </div>
+                                                                    )}
+                                                                    {item.additionalInfo && (
+                                                                        <div>
+                                                                            <span className="font-semibold text-slate-500">Thông tin thêm:</span> {item.additionalInfo}
+                                                                        </div>
+                                                                    )}
+                                                                    {!item.testerName && !item.programs?.length && !item.className && !item.additionalInfo && (
+                                                                        <div className="italic text-slate-400">Không có thông tin thêm</div>
+                                                                    )}
+                                                                </div>
+                                                            </td>
+                                                            <td className="align-top p-3 text-right text-slate-700">{(item.unitPrice || 0).toLocaleString('vi-VN')}</td>
+                                                            <td className="align-top p-3 text-center text-slate-700">{item.discount || 0}</td>
+                                                            <td className="align-top p-3 text-right font-bold text-slate-900">{getResolvedLineItemTotal(item).toLocaleString('vi-VN')}</td>
+                                                        </tr>
+                                                    ))}
+                                                    <tr className="bg-slate-50/30">
+                                                        <td colSpan={7} className="p-3">
+                                                            <button onClick={openNewOrderLineModal} className="flex items-center gap-1 font-bold text-blue-600 transition-all hover:underline">
+                                                                <Plus size={14} /> Thêm một dòng
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
                                         </div>
                                     )}
 
@@ -2015,11 +2578,13 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                                             </div>
                                             <div>
                                                 <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Mã lớp dự kiến</label>
-                                                <input
+                                                <ClassCodeLookupInput
                                                     value={quotationData.classCode}
-                                                    onChange={e => setQuotationData({ ...quotationData, classCode: e.target.value })}
-                                                    className="w-full h-9 px-3 py-1.5 border border-slate-300 rounded text-[13px] bg-white"
+                                                    onChange={(value) => setQuotationData({ ...quotationData, classCode: value })}
+                                                    loadOptions={loadClassCodeOptions}
                                                     placeholder="VD: DE-A1-02/2026"
+                                                    inputClassName="w-full h-9 rounded border border-slate-300 bg-white px-3 py-1.5 text-[13px] outline-none focus:border-blue-500"
+                                                    buttonClassName="h-9 rounded border border-slate-300 bg-white px-3 text-[12px] font-semibold text-slate-700 transition-colors hover:bg-slate-50"
                                                 />
                                             </div>
                                             <div>
@@ -2068,18 +2633,257 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                                         <div className="w-80 space-y-2 border-t border-slate-800 pt-4">
                                             <div className="flex justify-between text-[13px] py-1">
                                                 <span className="text-slate-500 font-bold">Số tiền trước thuế:</span>
-                                                <span className="font-bold text-slate-900 border-b border-slate-200 px-6">{calculatedTotal.toLocaleString()} ₫</span>
+                                                <span className="font-bold text-slate-900 border-b border-slate-200 px-6">{lineItemsSubtotal.toLocaleString('vi-VN')} ₫</span>
                                             </div>
+                                            {totalDiscountAmount > 0 && (
+                                                <div className="flex justify-between text-[13px] py-1">
+                                                    <span className="text-slate-500 font-bold">Chiết khấu:</span>
+                                                    <span className="font-bold text-slate-900 border-b border-slate-200 px-6">{totalDiscountAmount.toLocaleString('vi-VN')} ₫</span>
+                                                </div>
+                                            )}
                                             <div className="flex justify-between text-[13px] py-1">
                                                 <span className="text-slate-500 font-bold">Thuế:</span>
                                                 <span className="font-bold text-slate-900 border-b border-slate-200 px-6">0 ₫</span>
                                             </div>
                                             <div className="flex justify-between items-center py-5 border-t border-slate-200 mt-2">
                                                 <span className="text-lg font-black text-slate-800 uppercase tracking-tighter">Tổng cộng:</span>
-                                                <span className="text-2xl font-black text-blue-700 tracking-tight border-b-2 border-slate-800 px-6">{calculatedTotal.toLocaleString()} ₫</span>
+                                                <span className="text-2xl font-black text-blue-700 tracking-tight border-b-2 border-slate-800 px-6">{calculatedTotal.toLocaleString('vi-VN')} ₫</span>
                                             </div>
                                         </div>
                                     </div>
+
+                                    {showOrderLineModal && (
+                                        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
+                                            <div className="w-full max-w-5xl rounded-lg bg-white shadow-2xl">
+                                                <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+                                                    <h3 className="text-lg font-bold text-slate-900">
+                                                        {editingOrderLineId ? 'Cập nhật đơn hàng' : 'Thêm đơn hàng'}
+                                                    </h3>
+                                                    <button type="button" onClick={closeOrderLineModal} className="text-slate-400 transition-colors hover:text-slate-700">
+                                                        <X size={18} />
+                                                    </button>
+                                                </div>
+
+                                                <div className="grid gap-5 px-6 py-5 md:grid-cols-2">
+                                                    <div className="space-y-4">
+                                                        <div>
+                                                            <label className="mb-1 block text-xs font-bold uppercase text-slate-600">Tên học sinh</label>
+                                                            <input
+                                                                value={orderLineDraft.studentName}
+                                                                onChange={(e) => setOrderLineDraft((prev) => ({ ...prev, studentName: e.target.value }))}
+                                                                className="h-10 w-full rounded border border-slate-300 bg-white px-3 text-sm outline-none focus:border-blue-500"
+                                                                placeholder="Nhập tên học sinh"
+                                                            />
+                                                        </div>
+
+                                                        <div>
+                                                            <label className="mb-1 block text-xs font-bold uppercase text-slate-600">Ngày sinh</label>
+                                                            <input
+                                                                type="date"
+                                                                value={orderLineDraft.studentDob}
+                                                                onChange={(e) => setOrderLineDraft((prev) => ({ ...prev, studentDob: e.target.value }))}
+                                                                className="h-10 w-full rounded border border-slate-300 bg-white px-3 text-sm outline-none focus:border-blue-500"
+                                                            />
+                                                        </div>
+
+                                                        <div>
+                                                            <label className="mb-1 block text-xs font-bold uppercase text-slate-600">Thị trường mục tiêu</label>
+                                                            <select
+                                                                value={orderLineDraft.targetMarket}
+                                                                onChange={(e) => handleOrderDraftMarketChange(e.target.value as CreatorMarket | '')}
+                                                                className="h-10 w-full rounded border border-slate-300 bg-white px-3 text-sm outline-none focus:border-blue-500"
+                                                            >
+                                                                <option value="">-- Chọn thị trường --</option>
+                                                                {CREATOR_MARKETS.map((market) => (
+                                                                    <option key={market} value={market}>{market}</option>
+                                                                ))}
+                                                            </select>
+                                                        </div>
+
+                                                        <div>
+                                                            <label className="mb-1 block text-xs font-bold uppercase text-slate-600">Gói dịch vụ</label>
+                                                            <select
+                                                                value={orderLineDraft.servicePackage}
+                                                                onChange={(e) => handleOrderDraftServiceChange(e.target.value as CreatorServicePackage | '')}
+                                                                className="h-10 w-full rounded border border-slate-300 bg-white px-3 text-sm outline-none focus:border-blue-500"
+                                                            >
+                                                                <option value="">-- Chọn gói dịch vụ --</option>
+                                                                {availableServicePackages.map((servicePackage) => (
+                                                                    <option key={servicePackage} value={servicePackage}>{servicePackage}</option>
+                                                                ))}
+                                                            </select>
+                                                        </div>
+
+                                                        <div>
+                                                            <label className="mb-1 block text-xs font-bold uppercase text-slate-600">Sản phẩm</label>
+                                                            <select
+                                                                value={orderLineDraft.productName}
+                                                                onChange={(e) => handleOrderDraftProductChange(e.target.value)}
+                                                                className="h-10 w-full rounded border border-slate-300 bg-white px-3 text-sm outline-none focus:border-blue-500"
+                                                            >
+                                                                <option value="">-- Chọn sản phẩm --</option>
+                                                                {availableProducts.map((product) => (
+                                                                    <option key={product.id} value={product.product}>{product.product}</option>
+                                                                ))}
+                                                            </select>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="space-y-4">
+                                                        <div>
+                                                            <label className="mb-1 block text-xs font-bold uppercase text-slate-600">Khóa học</label>
+                                                            <select
+                                                                value={orderLineDraft.courseName}
+                                                                onChange={(e) => setOrderLineDraft((prev) => ({ ...prev, courseName: e.target.value }))}
+                                                                className="h-10 w-full rounded border border-slate-300 bg-white px-3 text-sm outline-none focus:border-blue-500"
+                                                            >
+                                                                <option value="">-- Chọn khóa học --</option>
+                                                                {availableCourseOptions.map((course) => (
+                                                                    <option key={course} value={course}>{course}</option>
+                                                                ))}
+                                                            </select>
+                                                        </div>
+
+                                                        <div ref={programDropdownRef} className="relative">
+                                                            <label className="mb-1 block text-xs font-bold uppercase text-slate-600">Chương trình</label>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setProgramDropdownOpen((prev) => !prev)}
+                                                                className="flex min-h-[44px] w-full items-start justify-between gap-3 rounded border border-slate-300 bg-white px-3 py-2 text-left text-sm outline-none transition-colors hover:border-blue-400 focus:border-blue-500"
+                                                            >
+                                                                <div className="flex flex-1 flex-wrap gap-2">
+                                                                    {orderLineDraft.programs.length > 0 ? (
+                                                                        orderLineDraft.programs.map((program) => (
+                                                                            <span key={program} className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
+                                                                                {program}
+                                                                            </span>
+                                                                        ))
+                                                                    ) : (
+                                                                        <span className="pt-1 text-sm text-slate-400">
+                                                                            -- Chọn chương trình --
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                                <ChevronDown size={16} className={`mt-1 shrink-0 text-slate-400 transition-transform ${programDropdownOpen ? 'rotate-180' : ''}`} />
+                                                            </button>
+
+                                                            {programDropdownOpen && (
+                                                                <div className="absolute z-30 mt-1 w-full rounded border border-slate-200 bg-white shadow-lg">
+                                                                    <div className="max-h-56 overflow-auto py-1">
+                                                                        {availableProgramOptions.length > 0 ? (
+                                                                            availableProgramOptions.map((program) => (
+                                                                                <label key={program} className="flex cursor-pointer items-center gap-3 px-3 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-50">
+                                                                                    <input
+                                                                                        type="checkbox"
+                                                                                        checked={orderLineDraft.programs.includes(program)}
+                                                                                        onChange={() => handleOrderDraftProgramToggle(program)}
+                                                                                        className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                                                                    />
+                                                                                    <span>{program}</span>
+                                                                                </label>
+                                                                            ))
+                                                                        ) : (
+                                                                            <div className="px-3 py-2 text-sm text-slate-400">Chưa có chương trình phù hợp</div>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                        </div>
+
+                                                        <div>
+                                                            <label className="mb-1 block text-xs font-bold uppercase text-slate-600">Lớp</label>
+                                                            <select
+                                                                value={orderLineDraft.classId}
+                                                                onChange={(e) => setOrderLineDraft((prev) => ({ ...prev, classId: e.target.value }))}
+                                                                className="h-10 w-full rounded border border-slate-300 bg-white px-3 text-sm outline-none focus:border-blue-500"
+                                                            >
+                                                                <option value="">-- Chọn lớp --</option>
+                                                                {availableClassOptions.map((trainingClass) => (
+                                                                    <option key={trainingClass.id} value={trainingClass.id}>
+                                                                        {trainingClass.name} {trainingClass.schedule ? `• ${trainingClass.schedule}` : ''}
+                                                                    </option>
+                                                                ))}
+                                                            </select>
+                                                        </div>
+
+                                                        <div>
+                                                            <label className="mb-1 block text-xs font-bold uppercase text-slate-600">Tester</label>
+                                                            <select
+                                                                value={orderLineDraft.testerId}
+                                                                onChange={(e) => setOrderLineDraft((prev) => ({ ...prev, testerId: e.target.value }))}
+                                                                className="h-10 w-full rounded border border-slate-300 bg-white px-3 text-sm outline-none focus:border-blue-500"
+                                                            >
+                                                                <option value="">-- Chọn người cho test --</option>
+                                                                {availableTesterOptions.map((teacher) => (
+                                                                    <option key={teacher.id} value={teacher.id}>{teacher.fullName}</option>
+                                                                ))}
+                                                            </select>
+                                                        </div>
+
+                                                        <div className="grid grid-cols-2 gap-4">
+                                                            <div>
+                                                                <label className="mb-1 block text-xs font-bold uppercase text-slate-600">Đơn giá</label>
+                                                                <input
+                                                                    type="number"
+                                                                    min={0}
+                                                                    value={orderLineDraft.unitPrice}
+                                                                    onChange={(e) => setOrderLineDraft((prev) => ({ ...prev, unitPrice: Math.max(0, Number(e.target.value) || 0) }))}
+                                                                    className="h-10 w-full rounded border border-slate-300 bg-white px-3 text-sm outline-none focus:border-blue-500"
+                                                                />
+                                                            </div>
+                                                            <div>
+                                                                <label className="mb-1 block text-xs font-bold uppercase text-slate-600">Giảm giá (%)</label>
+                                                                <input
+                                                                    type="number"
+                                                                    min={0}
+                                                                    max={100}
+                                                                    value={orderLineDraft.discountPercent}
+                                                                    onChange={(e) => setOrderLineDraft((prev) => ({ ...prev, discountPercent: Math.min(100, Math.max(0, Number(e.target.value) || 0)) }))}
+                                                                    className="h-10 w-full rounded border border-slate-300 bg-white px-3 text-sm outline-none focus:border-blue-500"
+                                                                />
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="md:col-span-2">
+                                                        <label className="mb-1 block text-xs font-bold uppercase text-slate-600">Thông tin thêm</label>
+                                                        <textarea
+                                                            value={orderLineDraft.additionalInfo}
+                                                            onChange={(e) => setOrderLineDraft((prev) => ({ ...prev, additionalInfo: e.target.value }))}
+                                                            className="h-24 w-full resize-none rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500"
+                                                            placeholder="Nhập ghi chú hoặc yêu cầu đặc biệt..."
+                                                        />
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex items-center justify-between border-t border-slate-200 px-6 py-4">
+                                                    <div className="text-sm font-semibold text-slate-700">
+                                                        Thành tiền: <span className="text-base text-blue-700">{calculateOrderLineTotal(orderLineDraft.unitPrice, 1, orderLineDraft.discountPercent).toLocaleString('vi-VN')} đ</span>
+                                                    </div>
+
+                                                    <div className="flex gap-3">
+                                                        <button
+                                                            type="button"
+                                                            onClick={handleRemoveOrderLine}
+                                                            className={`rounded px-4 py-2 text-sm font-semibold transition-colors ${
+                                                                editingOrderLineId
+                                                                    ? 'border border-red-200 bg-white text-red-600 hover:bg-red-50'
+                                                                    : 'border border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+                                                            }`}
+                                                        >
+                                                            Loại bỏ
+                                                        </button>
+                                                        <button type="button" onClick={() => handleSaveOrderLine('close')} className="rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700">
+                                                            Lưu và đóng
+                                                        </button>
+                                                        <button type="button" onClick={() => handleSaveOrderLine('new')} className="rounded border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 transition-colors hover:bg-blue-100">
+                                                            Lưu và thêm
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </div>

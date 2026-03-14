@@ -10,6 +10,8 @@ import {
   StudyAbroadServiceStatus
 } from '../services/studyAbroadCases.local';
 import PinnedSearchInput, { PinnedSearchChip } from '../components/PinnedSearchInput';
+import { useAuth } from '../contexts/AuthContext';
+import { UserRole } from '../types';
 
 type ColumnId =
   | 'student'
@@ -101,20 +103,25 @@ const getCaseCompletenessMeta = (status: StudyAbroadCaseCompleteness) => {
 };
 
 const getServiceStatusMeta = (status: StudyAbroadServiceStatus) => {
+  if (status === 'NEW') return { label: 'Mới', className: 'bg-slate-100 text-slate-700 border-slate-200' };
   if (status === 'UNPROCESSED') return { label: 'Chưa xử lý', className: 'bg-slate-100 text-slate-700 border-slate-200' };
-  return { label: 'Đang xử lý', className: 'bg-blue-50 text-blue-700 border-blue-100' };
+  if (status === 'PROCESSED') return { label: 'Đã xử lý', className: 'bg-blue-50 text-blue-700 border-blue-100' };
+  if (status === 'DEPARTED') return { label: 'Đã bay', className: 'bg-emerald-50 text-emerald-700 border-emerald-100' };
+  if (status === 'WITHDRAWN') return { label: 'Đã rút hồ sơ', className: 'bg-rose-50 text-rose-700 border-rose-100' };
+  if (status === 'VISA_FAILED') return { label: 'Trượt visa', className: 'bg-rose-50 text-rose-700 border-rose-100' };
+  return { label: 'Đang xử lý lại', className: 'bg-amber-50 text-amber-700 border-amber-100' };
 };
 
 const getInvoiceStatusMeta = (status: StudyAbroadInvoiceStatus) => {
   if (status === 'PAID') return { label: 'Đã nộp', className: 'bg-emerald-50 text-emerald-700 border-emerald-100' };
   if (status === 'HAS_INVOICE') return { label: 'Có invoice', className: 'bg-blue-50 text-blue-700 border-blue-100' };
-  return { label: 'Chưa có', className: 'bg-slate-100 text-slate-700 border-slate-200' };
+  return { label: 'Chưa nộp', className: 'bg-slate-100 text-slate-700 border-slate-200' };
 };
 
 const getCmtcMeta = (status: StudyAbroadCmtcStatus) => {
-  if (status === 'APPROVED') return { label: 'Đạt', className: 'bg-emerald-50 text-emerald-700 border-emerald-100' };
-  if (status === 'REJECTED') return { label: 'Cần bổ sung', className: 'bg-rose-50 text-rose-700 border-rose-100' };
-  return { label: 'Chưa nộp', className: 'bg-slate-100 text-slate-700 border-slate-200' };
+  if (status === 'SUBMITTED') return { label: 'Đã nộp', className: 'bg-emerald-50 text-emerald-700 border-emerald-100' };
+  if (status === 'OPENED') return { label: 'Đã mở tài khoản', className: 'bg-blue-50 text-blue-700 border-blue-100' };
+  return { label: 'Chưa mở tài khoản', className: 'bg-slate-100 text-slate-700 border-slate-200' };
 };
 
 const TableBadge: React.FC<{ label: string; className: string }> = ({ label, className }) => (
@@ -125,6 +132,7 @@ const TableBadge: React.FC<{ label: string; className: string }> = ({ label, cla
 
 const StudyAbroadStudentList: React.FC = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const columnMenuRef = useRef<HTMLDivElement | null>(null);
   const refreshTimerRef = useRef<number | null>(null);
 
@@ -196,14 +204,22 @@ const StudyAbroadStudentList: React.FC = () => {
     };
   }, [reloadCases]);
 
+  const canViewAllCases = user?.role === UserRole.ADMIN || user?.role === UserRole.FOUNDER;
+
+  const scopedRows = useMemo(() => {
+    if (!user || canViewAllCases) return rows;
+    const currentUserName = normalizeForSearch(user.name);
+    return rows.filter((row) => normalizeForSearch(row.salesperson) === currentUserName);
+  }, [canViewAllCases, rows, user]);
+
   const countries = useMemo(() => {
-    const values = Array.from(new Set(rows.map((row) => row.country))).filter(Boolean);
+    const values = Array.from(new Set(scopedRows.map((row) => row.country))).filter(Boolean);
     return values.sort((a, b) => a.localeCompare(b, 'vi'));
-  }, [rows]);
+  }, [scopedRows]);
 
   const filteredRows = useMemo(() => {
     const keyword = normalizeForSearch(searchTerm);
-    return rows.filter((row) => {
+    return scopedRows.filter((row) => {
       if (countryFilter !== 'ALL' && row.country !== countryFilter) return false;
       if (statusFilter !== 'ALL' && row.serviceStatus !== statusFilter) return false;
 
@@ -227,12 +243,17 @@ const StudyAbroadStudentList: React.FC = () => {
       );
       return searchable.includes(keyword);
     });
-  }, [countryFilter, rows, searchTerm, statusFilter]);
+  }, [countryFilter, scopedRows, searchTerm, statusFilter]);
 
   const statusLabelMap: Record<'ALL' | StudyAbroadServiceStatus, string> = {
     ALL: 'Tat ca',
+    NEW: 'Moi',
     UNPROCESSED: 'Chua xu ly',
-    PROCESSING: 'Dang xu ly'
+    PROCESSED: 'Da xu ly',
+    DEPARTED: 'Da bay',
+    WITHDRAWN: 'Da rut ho so',
+    VISA_FAILED: 'Truot visa',
+    REPROCESSING: 'Dang xu ly lai'
   };
 
   const activeSearchChips = useMemo<PinnedSearchChip[]>(() => {
@@ -389,8 +410,13 @@ const StudyAbroadStudentList: React.FC = () => {
             className="h-10 rounded-lg bg-[#e7edf3] px-3 text-sm font-medium text-[#111418] outline-none"
           >
             <option value="ALL">Trạng thái: Tất cả</option>
+            <option value="NEW">Mới</option>
             <option value="UNPROCESSED">Chưa xử lý</option>
-            <option value="PROCESSING">Đang xử lý</option>
+            <option value="PROCESSED">Đã xử lý</option>
+            <option value="REPROCESSING">Đang xử lý lại</option>
+            <option value="DEPARTED">Đã bay</option>
+            <option value="WITHDRAWN">Đã rút hồ sơ</option>
+            <option value="VISA_FAILED">Trượt visa</option>
           </select>
 
           <div className="relative" ref={columnMenuRef}>

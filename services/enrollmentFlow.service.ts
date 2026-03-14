@@ -9,10 +9,12 @@ import {
   addStudentToClass,
   addClassLog,
   addAdmission,
+  createStudentsFromQuotation,
   createStudentFromQuotation,
   getAdmissions,
   getQuotations,
   getStudents,
+  quotationLinksToStudent,
   updateAdmission,
   updateQuotation,
   updateStudent
@@ -49,18 +51,35 @@ const appendLog = (quotation: IQuotation, action: string, detail: string, user =
 
 export const ensureStudentProfileFromQuotation = (quotationId: string): IStudent | null => {
   // TODO: replace mock store with BE API
+  return ensureStudentProfilesFromQuotation(quotationId)[0] || null;
+};
+
+export const ensureStudentProfilesFromQuotation = (quotationId: string): IStudent[] => {
+  // TODO: replace mock store with BE API
   const quotation = getQuotations().find((q) => q.id === quotationId);
-  if (!quotation) return null;
+  if (!quotation) return [];
 
-  const students = getStudents();
-  const existing = students.find((s: any) =>
-    (quotation.studentId && s.id === quotation.studentId) ||
-    (quotation.customerId && s.customerId === quotation.customerId) ||
-    (quotation.leadId && s.customerId === quotation.leadId)
-  );
+  const linkedStudents = createStudentsFromQuotation(quotation);
+  if (!linkedStudents.length) {
+    const fallbackStudent = createStudentFromQuotation(quotation) as IStudent | null;
+    return fallbackStudent ? [fallbackStudent] : [];
+  }
 
-  if (existing) return existing as IStudent;
-  return createStudentFromQuotation(quotation) as IStudent;
+  const studentIds = linkedStudents.map((student) => student.id);
+  const hasChanged =
+    quotation.studentId !== studentIds[0] ||
+    JSON.stringify(quotation.studentIds || []) !== JSON.stringify(studentIds);
+
+  if (hasChanged) {
+    updateQuotation({
+      ...quotation,
+      studentId: studentIds[0],
+      studentIds,
+      updatedAt: new Date().toISOString()
+    });
+  }
+
+  return linkedStudents;
 };
 
 export const lockQuotation = (id: string): { quotation?: IQuotation; student?: IStudent; ok: boolean } => {
@@ -74,7 +93,8 @@ export const lockQuotation = (id: string): { quotation?: IQuotation; student?: I
     return { ok: false };
   }
 
-  const student = ensureStudentProfileFromQuotation(id);
+  const students = ensureStudentProfilesFromQuotation(id);
+  const student = students[0];
   const updated = appendLog(
     {
       ...quotation,
@@ -82,10 +102,11 @@ export const lockQuotation = (id: string): { quotation?: IQuotation; student?: I
       contractStatus: 'signed_contract',
       lockedAt: new Date().toISOString(),
       studentId: student?.id || quotation.studentId,
+      studentIds: students.length ? students.map((item) => item.id) : quotation.studentIds,
       updatedAt: new Date().toISOString()
     },
     'Lock Quotation',
-    `Locked and linked student ${student?.code || 'N/A'}`
+    `Locked and linked ${students.length || 0} học viên`
   );
 
   updateQuotation(updated);
@@ -99,7 +120,7 @@ export const createAdmission = (payload: CreateAdmissionPayload): IAdmission => 
   }
 
   const students = getStudents();
-  const student = students.find((s: any) => s.id === payload.studentId);
+  const student = students.find((s) => s.id === payload.studentId);
   if (!student) {
     throw new Error('Không tìm thấy học viên');
   }
@@ -122,11 +143,7 @@ export const createAdmission = (payload: CreateAdmissionPayload): IAdmission => 
 
   if (!linkedQuotation) {
     linkedQuotation = quotations.find(
-      (q) =>
-        q.status === QuotationStatus.LOCKED &&
-        (q.studentId === student.id ||
-          (!!student.customerId && q.customerId === student.customerId) ||
-          (!!student.soId && q.id === student.soId))
+      (q) => q.status === QuotationStatus.LOCKED && quotationLinksToStudent(q, student)
     );
   }
 
@@ -188,7 +205,7 @@ export const approveAdmission = (
     return { ok: false, error: 'Admission thiếu dữ liệu bắt buộc (student/campus/class)' };
   }
 
-  const student = getStudents().find((s: any) => s.id === admission.studentId);
+  const student = getStudents().find((s) => s.id === admission.studentId);
   if (!student) {
     return { ok: false, error: 'Không tìm thấy học viên của hồ sơ ghi danh' };
   }
@@ -199,9 +216,7 @@ export const approveAdmission = (
     quotations.find(
       (q) =>
         (q.status === QuotationStatus.LOCKED || q.status === QuotationStatus.SALE_CONFIRMED) &&
-        (q.studentId === student.id ||
-          (!!student.customerId && q.customerId === student.customerId) ||
-          (!!student.soId && q.id === student.soId))
+        quotationLinksToStudent(q, student)
     );
 
   if (!linkedQuotation) {
@@ -234,6 +249,7 @@ export const approveAdmission = (
     {
       ...linkedQuotation,
       studentId: linkedQuotation.studentId || student.id,
+      studentIds: Array.from(new Set([student.id, ...(linkedQuotation.studentIds || [])])),
       contractStatus: 'enrolled',
       updatedAt: approvedAt
     },

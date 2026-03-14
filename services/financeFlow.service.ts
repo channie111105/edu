@@ -7,7 +7,7 @@ import {
   updateQuotation,
   updateTransaction
 } from '../utils/storage';
-import { ensureStudentProfileFromQuotation } from './enrollmentFlow.service';
+import { ensureStudentProfilesFromQuotation } from './enrollmentFlow.service';
 
 const appendQuotationLog = (quotation: IQuotation, action: string, detail: string): IQuotation => ({
   ...quotation,
@@ -156,7 +156,8 @@ export const lockQuotationAfterAccounting = (
     return { ok: false, error: 'Chưa duyệt giao dịch, không thể khóa SO' };
   }
 
-  const student = ensureStudentProfileFromQuotation(quotationId);
+  const students = ensureStudentProfilesFromQuotation(quotationId);
+  const student = students[0];
   const updatedQuotation = appendQuotationLog(
     {
       ...quotation,
@@ -165,6 +166,7 @@ export const lockQuotationAfterAccounting = (
       lockedAt: new Date().toISOString(),
       lockedBy: userId,
       studentId: student?.id || quotation.studentId,
+      studentIds: students.length ? students.map((item) => item.id) : quotation.studentIds,
       contractStatus: quotation.contractStatus || 'signed_contract',
       updatedAt: new Date().toISOString()
     },

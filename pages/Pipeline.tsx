@@ -499,11 +499,19 @@ const Pipeline: React.FC = () => {
 
         // Sync Extended Info
         studentInfo: {
+          studentName: contact.studentName,
+          studentPhone: contact.studentPhone,
+          school: contact.school,
+          educationLevel: contact.educationLevel,
+          parentName: contact.guardianName,
+          parentPhone: contact.guardianPhone,
           languageLevel: contact.languageLevel,
           financialStatus: contact.financialStatus,
           socialLink: contact.socialLink,
           targetCountry: contact.targetCountry,
         },
+        targetCountry: contact.targetCountry,
+        educationLevel: contact.educationLevel || contact.school,
         address: contact.address,
         city: contact.city,
         dob: contact.dob,
@@ -511,6 +519,11 @@ const Pipeline: React.FC = () => {
         identityDate: contact.identityDate,
         identityPlace: contact.identityPlace,
         gender: contact.gender,
+        guardianName: contact.guardianName,
+        guardianPhone: contact.guardianPhone,
+        guardianRelation: contact.guardianRelation,
+        company: contact.company,
+        title: contact.title,
 
         // Deal specific
         expectedClosingDate: deal.expectedCloseDate,
@@ -535,6 +548,7 @@ const Pipeline: React.FC = () => {
     // 1. Update Contact
     if (drawerLead && selectedDeal) {
       const existingContact = getContacts().find(contact => contact.id === drawerLead.id);
+      const studentInfo = updatedLead.studentInfo || {};
       const contactUpdate = {
         id: drawerLead.id,
         name: updatedLead.name,
@@ -542,14 +556,26 @@ const Pipeline: React.FC = () => {
         email: updatedLead.email,
         address: updatedLead.address,
         city: updatedLead.city,
-        dob: updatedLead.dob,
-        identityCard: updatedLead.identityCard,
+        company: updatedLead.company,
+        title: updatedLead.title,
+        targetCountry: updatedLead.targetCountry || studentInfo.targetCountry || existingContact?.targetCountry || '',
+        dob: studentInfo.dob || updatedLead.dob,
+        identityCard: studentInfo.identityCard || updatedLead.identityCard,
         identityDate: updatedLead.identityDate,
         identityPlace: updatedLead.identityPlace,
-        gender: updatedLead.gender,
-        studentInfo: updatedLead.studentInfo,
+        gender: studentInfo.gender || updatedLead.gender,
+        studentName: studentInfo.studentName || existingContact?.studentName,
+        studentPhone: studentInfo.studentPhone || existingContact?.studentPhone,
+        school: studentInfo.school || existingContact?.school,
+        educationLevel: updatedLead.educationLevel || studentInfo.educationLevel || existingContact?.educationLevel,
+        guardianName: updatedLead.guardianName || studentInfo.parentName || existingContact?.guardianName,
+        guardianPhone: updatedLead.guardianPhone || studentInfo.parentPhone || existingContact?.guardianPhone,
+        guardianRelation: updatedLead.guardianRelation || existingContact?.guardianRelation,
         notes: updatedLead.notes,
-        activities: updatedLead.activities // Pass activities back
+        activities: updatedLead.activities,
+        languageLevel: studentInfo.languageLevel || existingContact?.languageLevel,
+        financialStatus: studentInfo.financialStatus || existingContact?.financialStatus,
+        socialLink: studentInfo.socialLink || existingContact?.socialLink,
       };
       // Update contact in storage
       if (existingContact) {

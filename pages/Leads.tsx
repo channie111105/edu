@@ -5,10 +5,23 @@ import { ILead, LeadStatus, UserRole, IDeal, DealStage } from '../types';
 import SLABadge from '../components/SLABadge';
 import UnifiedLeadDrawer from '../components/UnifiedLeadDrawer';
 import LeadPivotTable from '../components/LeadPivotTable'; // Import Pivot Component
+import LeadStudentInfoTab from '../components/LeadStudentInfoTab';
 import SmartSearchBar, { SearchFilter } from '../components/SmartSearchBar';
 import { useAuth } from '../contexts/AuthContext';
 import { getLeads, saveLead, saveLeads, addDeal, addContact, deleteLead, convertLeadToContact, getTags, saveTags, getLostReasons, getLeadDistributionConfig, allocateLeadOwnersRoundRobin, allocateLeadOwnersWeighted } from '../utils/storage';
 import { LEAD_CHANNEL_OPTIONS } from '../constants';
+import {
+  buildLeadStudentInfo,
+  createLeadInitialState,
+  getLeadGuardianRelation,
+  LEAD_CAMPUS_OPTIONS,
+  LEAD_RELATION_OPTIONS,
+  LEAD_TARGET_COUNTRY_OPTIONS,
+  LeadCreateFormData,
+  LeadCreateModalTab,
+  resolveLeadCampus,
+} from '../utils/leadCreateForm';
+import { decodeMojibakeReactNode } from '../utils/mojibake';
 import {
   Plus,
   Phone,
@@ -70,7 +83,7 @@ const Leads: React.FC = () => {
   const [selectedRep, setSelectedRep] = useState('');
 
   // Tab state for Create Modal (Odoo Style)
-  const [createModalActiveTab, setCreateModalActiveTab] = useState<'notes' | 'extra'>('notes');
+  const [createModalActiveTab, setCreateModalActiveTab] = useState<LeadCreateModalTab>('notes');
 
   const [systemDistributionMode, setSystemDistributionMode] = useState<'auto' | 'manual'>(() => getLeadDistributionConfig().mode);
 
@@ -163,14 +176,17 @@ const Leads: React.FC = () => {
 
   // Create Modal State
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [newLeadData, setNewLeadData] = useState({
+  const [newLeadData, setNewLeadData] = useState<LeadCreateFormData>(() => createLeadInitialState()); /*
     name: '', phone: '', email: '', source: 'hotline', program: 'Tiếng Đức', notes: '',
     title: '', company: '', province: '', city: '', ward: '', street: '', salesperson: '', campaign: '', tags: [] as string[], referredBy: '',
     product: '', market: '', channel: '', status: LeadStatus.NEW
-  });
+  }); */
   const [availableTags, setAvailableTags] = useState<string[]>([]);
   const [isAddingTag, setIsAddingTag] = useState(false);
   const [isAddingEditTag, setIsAddingEditTag] = useState(false);
+  const patchNewLeadData = (patch: Partial<LeadCreateFormData>) => {
+    setNewLeadData((prev) => ({ ...prev, ...patch }));
+  };
 
   // --- DUPLICATE CHECK STATE ---
   const [showDuplicateModal, setShowDuplicateModal] = useState(false);
@@ -1029,7 +1045,7 @@ const Leads: React.FC = () => {
   };
 
 
-  const handleCreateSubmit = () => {
+  const handleCreateSubmitLegacy = () => {
     if (!newLeadData.name || !newLeadData.phone) {
       alert("Vui lòng nhập Tên và SĐT");
       return;
@@ -1071,6 +1087,72 @@ const Leads: React.FC = () => {
       alert("Tạo Lead thành công!");
     } else {
       alert("Có lỗi xảy ra khi lưu Lead");
+    }
+  };
+
+  const handleCreateSubmit = () => {
+    if (!newLeadData.name.trim() || !newLeadData.phone.trim()) {
+      alert('Vui lòng nhập Tên và SĐT');
+      return;
+    }
+    if (!newLeadData.targetCountry) {
+      alert('Vui lòng chọn Quốc gia mục tiêu');
+      return;
+    }
+
+    const nowIso = new Date().toISOString();
+    const campus = resolveLeadCampus(newLeadData);
+    const guardianRelation = getLeadGuardianRelation(newLeadData.title);
+    const studentInfo = buildLeadStudentInfo(newLeadData);
+    const program = (
+      newLeadData.product &&
+      ['Tiếng Đức', 'Tiếng Trung', 'Du học Đức', 'Du học Trung', 'Du học nghề Úc'].includes(newLeadData.product)
+    )
+      ? newLeadData.product as ILead['program']
+      : newLeadData.program as ILead['program'];
+
+    const newLead: ILead = {
+      id: `l-${Date.now()}`,
+      ...newLeadData,
+      program,
+      ownerId: newLeadData.salesperson,
+      company: campus || undefined,
+      targetCountry: newLeadData.targetCountry,
+      educationLevel: newLeadData.studentEducationLevel || undefined,
+      dob: newLeadData.studentDob || undefined,
+      identityCard: newLeadData.studentIdentityCard || undefined,
+      address: newLeadData.street.trim() || undefined,
+      city: newLeadData.province.trim() || undefined,
+      district: newLeadData.city.trim() || undefined,
+      ward: newLeadData.ward.trim() || undefined,
+      guardianName: guardianRelation ? newLeadData.name.trim() || undefined : undefined,
+      guardianPhone: guardianRelation ? newLeadData.phone.trim() || undefined : undefined,
+      guardianRelation,
+      studentInfo,
+      marketingData: {
+        tags: newLeadData.tags,
+        campaign: newLeadData.campaign,
+        channel: newLeadData.channel,
+        market: campus || undefined,
+        region: newLeadData.company.trim() || undefined,
+      },
+      status: normalizeLeadStatus(newLeadData.status as string) as any,
+      createdAt: nowIso,
+      score: 10,
+      lastActivityDate: nowIso,
+      lastInteraction: nowIso,
+      slaStatus: 'normal'
+    };
+    const finalLead = assignOwnersBySystemMode([newLead])[0];
+
+    if (saveLead(finalLead)) {
+      setLeads([finalLead, ...leads]);
+      setShowCreateModal(false);
+      setCreateModalActiveTab('notes');
+      setNewLeadData(createLeadInitialState());
+      alert('Tạo Lead thành công!');
+    } else {
+      alert('Có lỗi xảy ra khi lưu Lead');
     }
   };
 
@@ -1183,7 +1265,7 @@ const Leads: React.FC = () => {
     setShowLossModal(true);
   };
 
-  return (
+  return decodeMojibakeReactNode(
     <>
       <div className="p-6 max-w-[1600px] mx-auto min-h-screen font-inter bg-slate-50 text-slate-900">
         {/* Header */}
@@ -1195,7 +1277,12 @@ const Leads: React.FC = () => {
           <div className="flex items-center gap-3">
             <button onClick={() => setShowImportModal(true)} className="px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-lg text-sm font-semibold hover:bg-slate-50 flex items-center gap-2 shadow-sm transition-all hover:border-blue-300 hover:text-blue-600"><FileSpreadsheet size={16} /> Import Excel</button>
             <button
-              onClick={() => setShowCreateModal(true)}
+              onClick={() => {
+                setCreateModalActiveTab('notes');
+                setIsAddingTag(false);
+                setNewLeadData(createLeadInitialState());
+                setShowCreateModal(true);
+              }}
               className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold flex items-center gap-2 shadow-lg shadow-blue-200 transition-all"
             >
               <Plus size={18} strokeWidth={3} /> Thêm Lead
@@ -1294,7 +1381,7 @@ const Leads: React.FC = () => {
             </div>
 
 
-            <div className="relative">
+            <div className="relative hidden">
               <button
                 onClick={() => setShowColumnDropdown(!showColumnDropdown)}
                 className="flex items-center gap-2 px-3 py-2 border border-slate-200 rounded-lg text-sm font-semibold hover:bg-slate-50 text-slate-600 bg-white shadow-sm"
@@ -1737,6 +1824,33 @@ const Leads: React.FC = () => {
                   </span>
                 )}
               </button>
+            </div>
+
+            <div className="relative">
+              <button
+                onClick={() => setShowColumnDropdown(!showColumnDropdown)}
+                className="flex items-center gap-2 px-3 py-2 border border-slate-200 rounded-lg text-sm font-semibold hover:bg-slate-50 text-slate-600 bg-white shadow-sm"
+              >
+                <Settings size={16} /> Cá»™t
+              </button>
+              {showColumnDropdown && (
+                <>
+                  <div className="fixed inset-0 z-30" onClick={() => setShowColumnDropdown(false)}></div>
+                  <div className="absolute right-0 top-full mt-2 w-[500px] bg-white border border-slate-200 rounded-lg shadow-xl z-40 p-3 animate-in fade-in zoom-in-95">
+                    <div className="text-xs font-bold text-slate-500 uppercase px-2 py-1 mb-2 border-b border-slate-100 pb-2">Hiá»ƒn thá»‹ cá»™t</div>
+                    <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+                      {ALL_COLUMNS.map(col => (
+                        <div key={col.id} onClick={() => toggleColumn(col.id)} className="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-50 rounded cursor-pointer text-sm">
+                          <div className={`w-4 h-4 rounded border flex items-center justify-center ${visibleColumns.includes(col.id) ? 'bg-blue-600 border-blue-600 text-white' : 'border-slate-300'}`}>
+                            {visibleColumns.includes(col.id) && <Check size={10} strokeWidth={4} />}
+                          </div>
+                          <span className={visibleColumns.includes(col.id) ? 'text-slate-900 font-medium' : 'text-slate-500'}>{col.label}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
 
 
@@ -2260,10 +2374,20 @@ const Leads: React.FC = () => {
                       onChange={e => setNewLeadData({ ...newLeadData, title: e.target.value })}
                     >
                       <option value="">Danh xưng</option>
+                      {LEAD_RELATION_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                      {false && (
+                        <>
+                      <option value="">Danh xưng</option>
                       <option value="Mr.">Anh</option>
                       <option value="Ms.">Chị</option>
                       <option value="Phụ huynh">Phụ huynh</option>
                       <option value="Học sinh">Học sinh</option>
+                        </>
+                      )}
                     </select>
                     <input
                       className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm font-semibold focus:border-purple-500 outline-none text-slate-800 placeholder:text-slate-400"
@@ -2280,6 +2404,24 @@ const Leads: React.FC = () => {
                   {/* LEFT COL */}
                   <div className="space-y-4">
 
+                    <div className="flex items-center gap-4">
+                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Quốc gia mục tiêu <span className="text-red-500">*</span></label>
+                      <select
+                        className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
+                        value={newLeadData.targetCountry}
+                        onChange={e => setNewLeadData({ ...newLeadData, targetCountry: e.target.value })}
+                      >
+                        <option value="">-- Chọn quốc gia mục tiêu --</option>
+                        {LEAD_TARGET_COUNTRY_OPTIONS.map((option) => (
+                          <option key={option} value={option}>
+                            {option}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {false && (
+                      <>
                     {/* Company */}
                     <div className="flex items-center gap-4">
                       <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Cơ sở</label>
@@ -2295,6 +2437,9 @@ const Leads: React.FC = () => {
                         <option value="HaiPhong">Hải Phòng</option>
                       </select>
                     </div>
+
+                      </>
+                    )}
 
                     {/* Address Group */}
                     <div className="flex items-start gap-4">
@@ -2345,6 +2490,24 @@ const Leads: React.FC = () => {
                       </select>
                     </div>
 
+                    <div className="flex items-center gap-4">
+                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Cơ sở</label>
+                      <select
+                        className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
+                        value={newLeadData.market}
+                        onChange={e => setNewLeadData({ ...newLeadData, market: e.target.value })}
+                      >
+                        <option value="">-- Chọn cơ sở --</option>
+                        {LEAD_CAMPUS_OPTIONS.map((option) => (
+                          <option key={option} value={option}>
+                            {option}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {false && (
+                      <>
                     {/* Market */}
                     <div className="flex items-center gap-4">
                       <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Thị trường</label>
@@ -2361,6 +2524,8 @@ const Leads: React.FC = () => {
                       </select>
                     </div>
 
+                      </>
+                    )}
                   </div>
 
                   {/* RIGHT COL */}
@@ -2495,6 +2660,12 @@ const Leads: React.FC = () => {
                       Ghi chú nội bộ
                     </button>
                     <button
+                      onClick={() => setCreateModalActiveTab('student')}
+                      className={`px-4 py-2 text-sm font-medium border-b-2 transition-all ${createModalActiveTab === 'student' ? 'border-purple-600 text-purple-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                    >
+                      Thông tin học sinh
+                    </button>
+                    <button
                       onClick={() => setCreateModalActiveTab('extra')}
                       className={`px-4 py-2 text-sm font-medium border-b-2 transition-all ${createModalActiveTab === 'extra' ? 'border-purple-600 text-purple-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
                     >
@@ -2514,6 +2685,10 @@ const Leads: React.FC = () => {
                           onChange={e => setNewLeadData({ ...newLeadData, notes: e.target.value })}
                         />
                       </div>
+                    )}
+
+                    {createModalActiveTab === 'student' && (
+                      <LeadStudentInfoTab data={newLeadData} onPatch={patchNewLeadData} />
                     )}
 
                     {/* TAB: EXTRA */}

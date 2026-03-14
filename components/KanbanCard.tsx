@@ -1,14 +1,24 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AlertCircle, Check, ChevronRight, DollarSign, GraduationCap, MoreHorizontal, StickyNote } from 'lucide-react';
-import InternalNoteModal from './InternalNoteModal';
+import {
+  AlertCircle,
+  Calendar,
+  Check,
+  ChevronRight,
+  GraduationCap,
+  MoreHorizontal,
+  Tags,
+  UserCog
+} from 'lucide-react';
 
 export interface KanbanCardItem {
   id: string;
   studentName: string;
+  dateOfBirth?: string;
   program: string;
   country: string;
-  value: string;
-  assignedTo: string;
+  processorName: string;
+  caseCompletenessLabel: string;
+  tags: string[];
   noOfferWarning?: boolean;
   internalNote?: string;
   internalNoteUpdatedAt?: string;
@@ -30,6 +40,13 @@ type KanbanCardProps = {
   onUpdateStage: (caseId: string, stageId: string) => boolean | Promise<boolean>;
 };
 
+const formatDisplayDate = (value?: string) => {
+  if (!value) return 'Chua cap nhat';
+  const parsed = Date.parse(value);
+  if (Number.isNaN(parsed)) return value;
+  return new Date(parsed).toLocaleDateString('vi-VN');
+};
+
 const KanbanCard: React.FC<KanbanCardProps> = ({
   item,
   isDragging = false,
@@ -38,16 +55,14 @@ const KanbanCard: React.FC<KanbanCardProps> = ({
   onSaveInternalNote,
   onUpdateStage
 }) => {
-  const [isNoteModalOpen, setIsNoteModalOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [showStagePicker, setShowStagePicker] = useState(false);
   const [saveNotice, setSaveNotice] = useState('');
   const [stageSaving, setStageSaving] = useState(false);
   const noticeTimerRef = useRef<number | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
-
-  const notePreview = (item.internalNote || '').trim();
-  const hasNote = notePreview.length > 0;
+  const compactTags = item.tags.slice(0, 3);
+  const remainingTagCount = Math.max(0, item.tags.length - compactTags.length);
 
   useEffect(() => {
     return () => {
@@ -77,22 +92,6 @@ const KanbanCard: React.FC<KanbanCardProps> = ({
     noticeTimerRef.current = window.setTimeout(() => setSaveNotice(''), 1800);
   };
 
-  const openNoteModal = (event: React.MouseEvent | React.KeyboardEvent) => {
-    event.stopPropagation();
-    setIsNoteModalOpen(true);
-  };
-
-  const closeNoteModal = () => {
-    setIsNoteModalOpen(false);
-  };
-
-  const handleSaveNote = async (note: string): Promise<boolean> => {
-    const ok = await onSaveInternalNote(item.id, note);
-    if (!ok) return false;
-    notifySaved('Đã lưu');
-    return true;
-  };
-
   const handleStageSelect = async (event: React.MouseEvent, targetStageId: string) => {
     event.stopPropagation();
     if (stageSaving || targetStageId === item.stageId) {
@@ -106,11 +105,11 @@ const KanbanCard: React.FC<KanbanCardProps> = ({
     setStageSaving(false);
 
     if (ok) {
-      notifySaved('Đã cập nhật giai đoạn');
+      notifySaved('Da cap nhat giai doan');
       setMenuOpen(false);
       setShowStagePicker(false);
     } else {
-      window.alert('Không thể cập nhật giai đoạn. Vui lòng thử lại.');
+      window.alert('Khong the cap nhat giai doan. Vui long thu lai.');
     }
   };
 
@@ -118,45 +117,37 @@ const KanbanCard: React.FC<KanbanCardProps> = ({
     <>
       <div
         onClick={() => onOpenCase(item.id)}
-        className={`rounded-lg border border-gray-200 bg-white p-3 shadow-sm transition-all hover:border-blue-300 hover:shadow-md ${
+        className={`cursor-grab rounded-lg border border-slate-200 bg-white p-2.5 transition-all hover:border-slate-300 hover:shadow-[0_4px_14px_rgba(15,23,42,0.08)] active:cursor-grabbing ${
           isDragging ? 'scale-[0.985] opacity-85' : ''
-        } cursor-grab active:cursor-grabbing`}
+        }`}
       >
-        <div className="mb-2 flex items-start justify-between">
-          <span className="rounded bg-blue-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-tighter text-blue-700">
-            {item.country}
-          </span>
-          <div className="flex items-center gap-1">
+        <div className="mb-2 flex items-start justify-between gap-2">
+          <div className="flex items-center gap-1.5">
+            <span className="rounded-md bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-tight text-blue-700">
+              {item.country}
+            </span>
             {item.noOfferWarning ? (
               <span
-                className="flex animate-pulse items-center gap-1 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-600"
-                title="Hồ sơ đang bị chậm thư mời"
+                className="flex items-center gap-1 rounded-full bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700"
+                title="Ho so dang bi cham thu moi"
               >
-                <AlertCircle size={10} /> Chưa có thư mời
+                <AlertCircle size={10} />
+                Cham thu moi
               </span>
             ) : null}
+          </div>
 
-            <button
-              type="button"
-              onClick={openNoteModal}
-              className="rounded p-1 text-gray-400 transition-colors hover:bg-slate-100 hover:text-blue-600"
-              title="Ghi chú nội bộ"
-            >
-              <StickyNote size={13} />
-            </button>
-
+          <div className="flex items-center gap-1">
             <div className="relative" ref={menuRef}>
               <button
                 type="button"
                 onClick={(event) => {
                   event.stopPropagation();
                   setMenuOpen((prev) => !prev);
-                  if (menuOpen) {
-                    setShowStagePicker(false);
-                  }
+                  if (menuOpen) setShowStagePicker(false);
                 }}
-                className="rounded p-1 text-gray-400 transition-colors hover:bg-slate-100 hover:text-gray-600"
-                title="Tùy chọn"
+                className="rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+                title="Tuy chon"
               >
                 <MoreHorizontal size={14} />
               </button>
@@ -175,7 +166,7 @@ const KanbanCard: React.FC<KanbanCardProps> = ({
                       }}
                       className="flex w-full items-center justify-between rounded-md px-3 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-100"
                     >
-                      <span>Chuyển giai đoạn</span>
+                      <span>Chuyen giai doan</span>
                       <ChevronRight size={14} />
                     </button>
                   ) : (
@@ -188,7 +179,7 @@ const KanbanCard: React.FC<KanbanCardProps> = ({
                         }}
                         className="mb-1 w-full rounded-md px-3 py-1.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 hover:bg-slate-100"
                       >
-                        ← Chọn giai đoạn
+                        ← Chon giai doan
                       </button>
                       <div className="max-h-64 overflow-y-auto">
                         {stageOptions.map((stage) => (
@@ -212,52 +203,63 @@ const KanbanCard: React.FC<KanbanCardProps> = ({
           </div>
         </div>
 
-        <h4 className="mb-1 font-bold text-gray-900">{item.studentName}</h4>
-        <p className="mb-3 flex items-center gap-1 text-xs text-gray-500">
-          <GraduationCap size={12} /> {item.program}
-        </p>
+        <h4 className="truncate text-[15px] font-bold leading-5 text-slate-900">{item.studentName}</h4>
 
-        <div className="mb-3">
-          <button
-            type="button"
-            onClick={openNoteModal}
-            className="flex w-full items-center gap-2 rounded-md border border-dashed border-slate-200 px-2 py-1.5 text-left transition-colors hover:border-blue-200 hover:bg-blue-50/50"
-          >
-            <StickyNote size={12} className="shrink-0 text-slate-400" />
-            <span
-              className={`block min-w-0 truncate text-xs ${hasNote ? 'text-slate-600' : 'italic text-slate-400'}`}
-              title={hasNote ? notePreview : ''}
-            >
-              {hasNote ? notePreview : 'Ghi chú nội bộ...'}
+        <div className="mt-2 grid grid-cols-2 gap-x-2.5 gap-y-1.5 text-[11px] text-slate-600">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <Calendar size={14} className="shrink-0 text-slate-400" />
+            <span className="truncate">{formatDisplayDate(item.dateOfBirth)}</span>
+          </div>
+          <div className="flex min-w-0 items-center gap-1.5">
+            <GraduationCap size={14} className="shrink-0 text-slate-400" />
+            <span className="truncate">{item.program}</span>
+          </div>
+          <div className="col-span-2 flex min-w-0 items-center gap-1.5">
+            <UserCog size={14} className="shrink-0 text-slate-400" />
+            <span className="truncate">{item.processorName || 'Chua phan cong'}</span>
+          </div>
+        </div>
+
+        <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+          {item.tags.length ? (
+            compactTags.map((tag) => {
+              const isWarningTag = tag === 'Tạm dừng' || tag === 'Bổ sung giấy tờ' || tag === 'Delay kỳ bay';
+
+              return (
+                <span
+                  key={`${item.id}-${tag}`}
+                  className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                    isWarningTag ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-600'
+                  }`}
+                >
+                  {tag}
+                </span>
+              );
+            })
+          ) : (
+            <span className="text-[11px] italic text-slate-400">Chua co tag</span>
+          )}
+          {remainingTagCount > 0 ? (
+            <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">
+              +{remainingTagCount}
             </span>
-          </button>
-          {saveNotice ? <p className="mt-1 text-[10px] font-semibold text-emerald-600">{saveNotice}</p> : null}
+          ) : null}
         </div>
 
-        <div className="flex items-center justify-between border-t border-gray-100 pt-3">
-          <div className="flex items-center gap-1 text-xs text-gray-500" title="Expected Value">
-            <DollarSign size={12} className="text-green-600" />
-            <span className="font-medium text-green-700">{item.value}</span>
+        <div className="mt-2.5 flex items-center justify-between border-t border-slate-100 pt-2">
+          <div className="inline-flex items-center gap-1.5 text-[11px] font-medium text-slate-500">
+            <span className="h-1.5 w-1.5 rounded-full bg-slate-300" />
+            {item.caseCompletenessLabel}
           </div>
-          <div className="flex items-center gap-1.5">
-            <div
-              className="flex h-5 w-5 items-center justify-center rounded-full bg-purple-100 text-[10px] font-bold text-purple-600"
-              title={`Assigned to ${item.assignedTo}`}
-            >
-              {item.assignedTo.charAt(0)}
-            </div>
+          <div
+            className="flex h-5 min-w-5 items-center justify-center rounded-full bg-purple-100 px-1.5 text-[10px] font-semibold text-purple-600"
+            title={`Nguoi phu trach: ${item.processorName || 'Chua phan cong'}`}
+          >
+            {(item.processorName || 'C').charAt(0).toUpperCase()}
           </div>
         </div>
+        {saveNotice ? <p className="mt-1 text-[10px] font-semibold text-emerald-600">{saveNotice}</p> : null}
       </div>
-
-      <InternalNoteModal
-        open={isNoteModalOpen}
-        caseId={item.id}
-        defaultValue={item.internalNote || ''}
-        updatedAt={item.internalNoteUpdatedAt}
-        onClose={closeNoteModal}
-        onSave={handleSaveNote}
-      />
     </>
   );
 };

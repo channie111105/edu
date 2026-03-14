@@ -6,7 +6,16 @@ import {
   updateStudyAbroadCaseStage
 } from '../services/studyAbroadCases.local';
 
-export type StageId = 'stage-1' | 'stage-2' | 'stage-3' | 'stage-4' | 'stage-5' | 'stage-6' | 'stage-7';
+export type StageId =
+  | 'stage-1'
+  | 'stage-2'
+  | 'stage-3'
+  | 'stage-4'
+  | 'stage-5'
+  | 'stage-6'
+  | 'stage-7'
+  | 'stage-8'
+  | 'stage-9';
 
 export type KanbanStage = {
   id: StageId;
@@ -17,10 +26,12 @@ export type KanbanStage = {
 export type KanbanCaseItem = {
   id: string;
   studentName: string;
+  dateOfBirth?: string;
   program: string;
   country: string;
-  value: string;
-  assignedTo: string;
+  processorName: string;
+  caseCompletenessLabel: string;
+  tags: string[];
   noOfferWarning?: boolean;
   internalNote?: string;
   internalNoteUpdatedAt?: string;
@@ -32,12 +43,14 @@ export type KanbanStageData = Record<StageId, KanbanCaseItem[]>;
 
 export const KANBAN_STAGES: KanbanStage[] = [
   { id: 'stage-1', title: 'HỒ SƠ MỚI', color: 'bg-slate-500' },
-  { id: 'stage-2', title: 'ĐÃ CHỌN CHƯƠNG TRÌNH', color: 'bg-blue-500' },
-  { id: 'stage-3', title: 'ĐÃ PHỎNG VẤN TRƯỜNG/DN', color: 'bg-indigo-500' },
-  { id: 'stage-4', title: 'ĐÃ CÓ THƯ MỜI', color: 'bg-purple-500' },
-  { id: 'stage-5', title: 'ĐÃ CÓ LỊCH HẸN DSQ', color: 'bg-orange-500' },
-  { id: 'stage-6', title: 'CÓ VISA', color: 'bg-green-500' },
-  { id: 'stage-7', title: 'ĐÃ BAY', color: 'bg-emerald-600' }
+  { id: 'stage-2', title: 'ĐANG XỬ LÝ', color: 'bg-blue-500' },
+  { id: 'stage-3', title: 'ĐÃ NỘP TRƯỜNG', color: 'bg-cyan-500' },
+  { id: 'stage-4', title: 'ĐÃ PHỎNG VẤN VS TRƯỜNG', color: 'bg-indigo-500' },
+  { id: 'stage-5', title: 'CÓ THƯ MỜI', color: 'bg-purple-500' },
+  { id: 'stage-6', title: 'ĐÃ PHỎNG VẤN ĐSQ (XIN VISA)', color: 'bg-orange-500' },
+  { id: 'stage-7', title: 'CÓ VISA', color: 'bg-green-500' },
+  { id: 'stage-8', title: 'BAY', color: 'bg-emerald-600' },
+  { id: 'stage-9', title: 'HỒ SƠ HUỶ', color: 'bg-rose-500' }
 ];
 
 const WATCHED_STORAGE_KEYS = new Set([
@@ -68,29 +81,92 @@ const createEmptyStageData = (): KanbanStageData =>
     return acc;
   }, {} as KanbanStageData);
 
-const formatCurrencyVnd = (value: number) =>
-  new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(Math.max(0, value || 0)) + ' đ';
+const formatProgramLabel = (value: string) => {
+  const token = normalizeToken(value || '');
+  if ((token.includes('duc') || token.includes('germany')) && (token.includes('dai_hoc') || token.includes('dh'))) {
+    return 'DH ĐH Đức';
+  }
+  if (token.includes('nghe')) return 'DH nghề';
+  if (token.includes('trung') || token.includes('tq') || token.includes('china')) return 'DH TQ';
+  return value || 'Chưa cập nhật';
+};
+
+const getCaseCompletenessLabel = (value: StudyAbroadCaseRecord['caseCompleteness']) =>
+  value === 'FULL' ? 'Đã đủ' : 'Chưa đủ';
+
+const buildCaseTags = (row: StudyAbroadCaseRecord): string[] => {
+  const tags: string[] = [];
+
+  if (row.serviceStatus === 'WITHDRAWN') {
+    tags.push('Tạm dừng');
+  }
+
+  if (row.caseCompleteness === 'MISSING' || row.translationStatus === 'NOT_YET' || row.visaStatus === 'SUPPLEMENT') {
+    tags.push('Bổ sung giấy tờ');
+  }
+
+  if (row.flightStatus === 'CANCELLED' || row.serviceStatus === 'REPROCESSING') {
+    tags.push('Delay kỳ bay');
+  }
+
+  tags.push(`Trạng thái hồ sơ: ${getCaseCompletenessLabel(row.caseCompleteness)}`);
+
+  return Array.from(new Set(tags));
+};
 
 const mapCaseToStageId = (row: StudyAbroadCaseRecord): StageId => {
+  if (row.serviceStatus === 'WITHDRAWN') return 'stage-9';
+  if (row.flightStatus === 'DEPARTED' || row.serviceStatus === 'DEPARTED') return 'stage-8';
+  if (row.visaStatus === 'GRANTED') return 'stage-7';
+  if (
+    row.serviceStatus === 'VISA_FAILED' ||
+    row.embassyAppointmentStatus === 'BOOKED' ||
+    row.embassyAppointmentStatus === 'SCHEDULED' ||
+    row.visaStatus === 'SUBMITTED' ||
+    row.visaStatus === 'SUPPLEMENT' ||
+    row.visaStatus === 'FAILED'
+  ) {
+    return 'stage-6';
+  }
+  if (row.offerLetterStatus === 'RECEIVED') return 'stage-5';
+  if (
+    row.schoolInterviewStatus === 'SCHEDULED' ||
+    row.schoolInterviewStatus === 'INTERVIEWED' ||
+    row.schoolInterviewStatus === 'PASSED'
+  ) {
+    return 'stage-4';
+  }
+  if (row.offerLetterStatus === 'SENT') return 'stage-3';
+  if (row.programSelectionStatus === 'SELECTED') return 'stage-2';
+
   const token = normalizeToken(row.stage || '');
-  if (token.includes('da_bay') || token.includes('dang_hoc')) return 'stage-7';
-  if (token.includes('visa')) return 'stage-6';
-  if (token.includes('lich_hen') || token.includes('dsq') || token.includes('dai_su_quan')) return 'stage-5';
-  if (token.includes('thu_moi') || token.includes('offer') || token.includes('admit')) return 'stage-4';
-  if (token.includes('phong_van') || token.includes('interview') || token.includes('ghi_danh')) return 'stage-3';
+  if (token.includes('rut') || token.includes('withdraw') || token.includes('huy') || token.includes('cancel')) {
+    return 'stage-9';
+  }
+  if (token.includes('da_bay') || token.includes('dang_hoc')) return 'stage-8';
+  if (token.includes('co_visa') || token.includes('do_visa') || token.includes('visa_granted')) return 'stage-7';
+  if (token.includes('lich_hen') || token.includes('dsq') || token.includes('dai_su_quan') || token.includes('nop_dsq')) {
+    return 'stage-6';
+  }
+  if (token.includes('thu_moi') || token.includes('offer') || token.includes('admit')) return 'stage-5';
+  if (token.includes('phong_van') || token.includes('interview') || token.includes('ghi_danh')) return 'stage-4';
+  if (token.includes('nop_truong') || token.includes('submitted_school') || token.includes('apply_school')) return 'stage-3';
   if (token.includes('chon_chuong_trinh') || token.includes('chuong_trinh')) return 'stage-2';
   if (token.includes('ho_so_moi') || token.includes('dang_xu_ly')) return 'stage-1';
-  return row.serviceStatus === 'UNPROCESSED' ? 'stage-1' : 'stage-3';
+
+  return row.serviceStatus === 'NEW' || row.serviceStatus === 'UNPROCESSED' ? 'stage-1' : 'stage-2';
 };
 
 const toKanbanItem = (row: StudyAbroadCaseRecord): KanbanCaseItem => ({
   id: row.id,
   studentName: row.student,
-  program: row.program,
+  dateOfBirth: row.dateOfBirth,
+  program: formatProgramLabel(row.program),
   country: row.country,
-  value: formatCurrencyVnd(row.tuition),
-  assignedTo: row.salesperson,
-  noOfferWarning: row.serviceStatus === 'PROCESSING' && row.invoiceStatus === 'NONE',
+  processorName: row.processorName || row.salesperson,
+  caseCompletenessLabel: getCaseCompletenessLabel(row.caseCompleteness),
+  tags: buildCaseTags(row),
+  noOfferWarning: row.serviceStatus === 'REPROCESSING' && row.offerLetterStatus !== 'RECEIVED',
   internalNote: row.internalNote,
   internalNoteUpdatedAt: row.internalNoteUpdatedAt,
   stageId: mapCaseToStageId(row),
@@ -118,18 +194,17 @@ const moveItemAcrossStages = (
     next[stageId] = [...data[stageId]];
   });
 
-  let sourceStageId: StageId | null = null;
   let movingItem: KanbanCaseItem | null = null;
   (Object.keys(next) as StageId[]).some((stageId) => {
     const index = next[stageId].findIndex((item) => item.id === caseId);
     if (index < 0) return false;
-    sourceStageId = stageId;
     const [removed] = next[stageId].splice(index, 1);
     movingItem = removed;
     return true;
   });
 
   if (!movingItem) return data;
+
   const insertIndex = Math.max(0, Math.min(destinationIndex, next[targetStageId].length));
   next[targetStageId].splice(insertIndex, 0, {
     ...movingItem,

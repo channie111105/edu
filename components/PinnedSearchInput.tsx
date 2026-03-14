@@ -1,5 +1,6 @@
 import React from 'react';
 import { Search, X } from 'lucide-react';
+import { decodeMojibakeText } from '../utils/mojibake';
 
 export interface PinnedSearchChip {
   key: string;
@@ -31,6 +32,8 @@ const PinnedSearchInput: React.FC<PinnedSearchInputProps> = ({
   inputClassName
 }) => {
   const showClearAll = Boolean(onClearAll) && (chips.length > 0 || value.trim().length > 0);
+  const normalizedPlaceholder = decodeMojibakeText(placeholder);
+  const normalizedClearAllAriaLabel = decodeMojibakeText(clearAllAriaLabel);
 
   return (
     <div
@@ -45,13 +48,13 @@ const PinnedSearchInput: React.FC<PinnedSearchInputProps> = ({
               key={chip.key}
               className="inline-flex shrink-0 items-center gap-1 rounded-md border border-slate-300 bg-slate-50 px-2 py-0.5 text-[11px] font-semibold text-slate-700"
             >
-              <span>{chip.label}</span>
+              <span>{decodeMojibakeText(chip.label)}</span>
               {onRemoveChip && chip.removable !== false ? (
                 <button
                   type="button"
                   onClick={() => onRemoveChip(chip.key)}
                   className="text-slate-400 transition-colors hover:text-slate-700"
-                  aria-label={`Remove ${chip.label}`}
+                  aria-label={`Remove ${decodeMojibakeText(chip.label)}`}
                 >
                   <X size={12} />
                 </button>
@@ -63,7 +66,7 @@ const PinnedSearchInput: React.FC<PinnedSearchInputProps> = ({
             type="text"
             value={value}
             onChange={(event) => onChange(event.target.value)}
-            placeholder={placeholder}
+            placeholder={normalizedPlaceholder}
             className={`h-6 min-w-[140px] flex-1 bg-transparent text-sm outline-none placeholder:text-slate-400 ${inputClassName || ''}`}
           />
         </div>
@@ -73,7 +76,7 @@ const PinnedSearchInput: React.FC<PinnedSearchInputProps> = ({
             type="button"
             onClick={onClearAll}
             className="shrink-0 rounded p-0.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
-            aria-label={clearAllAriaLabel}
+            aria-label={normalizedClearAllAriaLabel}
           >
             <X size={14} />
           </button>

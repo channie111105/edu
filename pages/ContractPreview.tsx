@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Printer } from 'lucide-react';
 import { IAdmission, IContract, IQuotation, IStudent, QuotationStatus } from '../types';
-import { getAdmissions, getContractByQuotationId, getQuotations, getStudents } from '../utils/storage';
+import { getAdmissions, getContractByQuotationId, getPrimaryQuotationStudentName, getQuotations, getStudents, quotationLinksToStudent } from '../utils/storage';
 
 const formatDate = (value?: string) => {
   if (!value) return 'N/A';
@@ -26,12 +26,7 @@ const ContractPreview: React.FC = () => {
   const student: IStudent | undefined = useMemo(() => {
     if (!quotation) return undefined;
     const students = getStudents() as IStudent[];
-    return students.find(
-      (s) =>
-        (quotation.studentId && s.id === quotation.studentId) ||
-        (quotation.customerId && (s as any).customerId === quotation.customerId) ||
-        (s as any).soId === quotation.id
-    );
+    return students.find((s) => quotationLinksToStudent(quotation, s));
   }, [quotation]);
 
   const approvedAdmission: IAdmission | undefined = useMemo(() => {
@@ -86,7 +81,10 @@ const ContractPreview: React.FC = () => {
         }
       ];
 
-  const customerName = resolveField('studentName', student?.name || quotation.customerName);
+  const customerName = resolveField(
+    'customerName',
+    resolveField('studentName', student?.name || getPrimaryQuotationStudentName(quotation))
+  );
   const customerPhone = resolveField('studentPhone', student?.phone || quotation.studentPhone);
   const customerEmail = resolveField('studentEmail', student?.email || quotation.studentEmail);
   const address = resolveField('address', quotation.studentAddress);
@@ -125,7 +123,6 @@ const ContractPreview: React.FC = () => {
           <p className="mt-1 text-sm text-slate-500">
             {contractCode} • SO: {quotation.soCode}
           </p>
-          {linkedContract?.fileUrl && <p className="mt-1 text-xs text-slate-400">Nguồn mẫu: {linkedContract.fileUrl}</p>}
         </div>
 
         <div className="mb-6 grid grid-cols-1 gap-4 text-sm md:grid-cols-2">

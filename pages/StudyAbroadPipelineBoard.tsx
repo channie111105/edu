@@ -30,7 +30,16 @@ const StudyAbroadPipelineBoard: React.FC = () => {
     const filtered = stages.reduce((acc, stage) => {
       acc[stage.id] = stageData[stage.id].filter((item) => {
         const searchable = normalizeSearch(
-          [item.studentName, item.program, item.country, item.assignedTo, item.internalNote || ''].join(' ')
+          [
+            item.studentName,
+            item.dateOfBirth || '',
+            item.program,
+            item.country,
+            item.processorName,
+            item.caseCompletenessLabel,
+            item.tags.join(' '),
+            item.internalNote || ''
+          ].join(' ')
         );
         return searchable.includes(keyword);
       });
@@ -53,8 +62,8 @@ const StudyAbroadPipelineBoard: React.FC = () => {
   };
 
   return (
-    <div className="flex h-[calc(100vh-64px)] flex-col overflow-hidden bg-gray-50 font-sans">
-      <div className="z-10 flex items-center justify-between border-b border-gray-200 bg-white px-6 py-4">
+    <div className="flex h-[calc(100vh-64px)] flex-col overflow-hidden bg-slate-50 font-sans">
+      <div className="z-10 flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4">
         <div>
           <h1 className="text-xl font-bold text-gray-800">Quy trình Hồ sơ Du học</h1>
           <p className="text-sm text-gray-500">Quản lý trạng thái hồ sơ học viên theo quy trình kanban</p>
@@ -76,17 +85,17 @@ const StudyAbroadPipelineBoard: React.FC = () => {
         </div>
       </div>
 
-      <div className="flex-1 overflow-x-auto overflow-y-hidden p-6">
+      <div className="flex-1 overflow-x-auto overflow-y-hidden p-5">
         <DragDropContext onDragEnd={onDragEnd}>
-          <div className="flex h-full min-w-max gap-4">
+          <div className="flex h-full min-w-max gap-3">
             {stages.map((stage) => (
-              <div key={stage.id} className="flex h-full w-80 flex-col rounded-xl border border-gray-200/70 bg-gray-100/50">
-                <div className="flex items-center justify-between rounded-t-xl border-b border-gray-200 bg-white px-4 py-3">
+              <div key={stage.id} className="flex h-full w-72 flex-col rounded-lg border border-slate-200 bg-[#f8fafc]">
+                <div className="flex items-center justify-between rounded-t-lg border-b border-slate-200 bg-[#f8fafc] px-3 py-2.5">
                   <div className="flex items-center gap-2">
-                    <div className={`h-3 w-3 rounded-full ${stage.color}`} />
-                    <h3 className="text-xs font-bold uppercase text-gray-700">{stage.title}</h3>
+                    <div className={`h-2 w-2 rounded-full ${stage.color}`} />
+                    <h3 className="text-[11px] font-bold uppercase tracking-[0.04em] text-slate-700">{stage.title}</h3>
                   </div>
-                  <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-600">
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-slate-200 text-[10px] font-semibold text-slate-600">
                     {visibleData[stage.id]?.length || 0}
                   </span>
                 </div>
@@ -96,15 +105,15 @@ const StudyAbroadPipelineBoard: React.FC = () => {
                     <div
                       {...provided.droppableProps}
                       ref={provided.innerRef}
-                      className={`flex-1 space-y-3 overflow-y-auto p-3 transition-all ${
+                      className={`flex-1 space-y-2 overflow-y-auto p-2.5 transition-all ${
                         snapshot.isDraggingOver
-                          ? 'rounded-b-xl border-2 border-dashed border-blue-300 bg-blue-50/60'
+                          ? 'rounded-b-lg border-2 border-dashed border-blue-300 bg-blue-50/60'
                           : 'border-2 border-transparent'
                       }`}
                     >
                       {loading ? (
                         Array.from({ length: 3 }).map((_, index) => (
-                          <div key={`${stage.id}-skeleton-${index}`} className="h-24 animate-pulse rounded-lg bg-white/80" />
+                          <div key={`${stage.id}-skeleton-${index}`} className="h-20 animate-pulse rounded-lg bg-white" />
                         ))
                       ) : (
                         <>
@@ -133,7 +142,7 @@ const StudyAbroadPipelineBoard: React.FC = () => {
                           ))}
 
                           {!visibleData[stage.id].length ? (
-                            <div className="rounded-lg border border-dashed border-gray-200 bg-white/80 px-3 py-6 text-center text-xs text-gray-400">
+                            <div className="rounded-lg border border-dashed border-slate-200 bg-white px-3 py-5 text-center text-[11px] text-slate-400">
                               Chưa có hồ sơ
                             </div>
                           ) : null}

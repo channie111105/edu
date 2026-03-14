@@ -5,12 +5,25 @@ import { getLeads, saveLead, addContact, addDeal, convertLeadToContact, getTags,
 import { LeadStatus, ILead, IDeal, DealStage } from '../types';
 import UnifiedLeadDrawer from '../components/UnifiedLeadDrawer';
 import LeadPivotTable from '../components/LeadPivotTable';
+import LeadStudentInfoTab from '../components/LeadStudentInfoTab';
 import SLABadge from '../components/SLABadge';
 import OdooSearchBar, { SearchFilter, SearchFieldConfig } from '../components/OdooSearchBar';
 import SLAWarningBanner from '../components/SLAWarningBanner';
 import { buildDomainFromFilters, applyDomainFilter, getGroupByFields } from '../utils/filterDomain';
 import { calculateSLAWarnings, getUrgentWarningCount } from '../utils/slaUtils';
 import { LEAD_CHANNEL_OPTIONS } from '../constants';
+import {
+   buildLeadStudentInfo,
+   createLeadInitialState,
+   getLeadGuardianRelation,
+   LEAD_CAMPUS_OPTIONS,
+   LEAD_RELATION_OPTIONS,
+   LEAD_TARGET_COUNTRY_OPTIONS,
+   LeadCreateFormData,
+   LeadCreateModalTab,
+   resolveLeadCampus,
+} from '../utils/leadCreateForm';
+import { decodeMojibakeReactNode } from '../utils/mojibake';
 import {
    Inbox, Search, Phone, Filter, CheckCircle2, Clock,
    ListFilter, Star, Grid, List as ListIcon, ChevronLeft, ChevronRight,
@@ -30,7 +43,7 @@ const MyLeads: React.FC = () => {
       { id: 'u4', name: 'Alex Rivera' },
    ];
 
-   const NEW_LEAD_INITIAL_STATE = {
+   const NEW_LEAD_INITIAL_STATE = createLeadInitialState(user?.id || ''); /*
       name: '',
       phone: '',
       email: '',
@@ -51,7 +64,7 @@ const MyLeads: React.FC = () => {
       market: '',
       channel: '',
       status: 'NEW'
-   };
+   }; */
 
    // Data State
    const [leads, setLeads] = useState<ILead[]>([]);
@@ -62,10 +75,13 @@ const MyLeads: React.FC = () => {
    // UI State
    const [showConfetti, setShowConfetti] = useState(false);
    const [showCreateLeadModal, setShowCreateLeadModal] = useState(false);
-   const [newLeadData, setNewLeadData] = useState(NEW_LEAD_INITIAL_STATE);
-   const [createModalActiveTab, setCreateModalActiveTab] = useState<'notes' | 'extra'>('notes');
+   const [newLeadData, setNewLeadData] = useState<LeadCreateFormData>(NEW_LEAD_INITIAL_STATE);
+   const [createModalActiveTab, setCreateModalActiveTab] = useState<LeadCreateModalTab>('notes');
    const [availableTags, setAvailableTags] = useState<string[]>([]);
    const [isAddingTag, setIsAddingTag] = useState(false);
+   const patchNewLeadData = (patch: Partial<LeadCreateFormData>) => {
+      setNewLeadData((prev) => ({ ...prev, ...patch }));
+   };
 
    // Pivot/Group State
    const [groupBy, setGroupBy] = useState<'none' | 'source' | 'status' | 'program' | 'city'>('none');
@@ -186,7 +202,7 @@ const MyLeads: React.FC = () => {
       setLeads(myLeads);
    }, [user?.id]);
 
-   const handleCreateMyLead = () => {
+   const handleCreateMyLeadLegacy = () => {
       if (!user?.id) {
          alert('Không xác định được tài khoản sale.');
          return;
@@ -224,6 +240,91 @@ const MyLeads: React.FC = () => {
             campaign: newLeadData.campaign,
             channel: newLeadData.channel,
             market: newLeadData.market
+         },
+         status: mappedStatus,
+         createdAt: nowIso,
+         score: 10,
+         lastActivityDate: nowIso,
+         lastInteraction: nowIso,
+         slaStatus: 'normal',
+         activities: [{
+            id: `act-${Date.now()}`,
+            type: 'system',
+            timestamp: nowIso,
+            title: 'Tạo lead thủ công',
+            description: `Sale ${user.name || 'Tôi'} tạo lead từ My Leads.`,
+            user: user.name || 'System'
+         }]
+      };
+
+      saveLead(lead);
+      reloadMyLeads();
+      setShowCreateLeadModal(false);
+      setCreateModalActiveTab('notes');
+      setNewLeadData({
+         ...NEW_LEAD_INITIAL_STATE,
+         salesperson: user.id
+      });
+      alert('Tạo Lead thành công!');
+   };
+
+   const handleCreateMyLead = () => {
+      if (!user?.id) {
+         alert('Không xác định được tài khoản sale.');
+         return;
+      }
+
+      if (!newLeadData.name.trim() || !newLeadData.phone.trim()) {
+         alert('Vui lòng nhập Tên và SĐT');
+         return;
+      }
+      if (!newLeadData.targetCountry) {
+         alert('Vui lòng chọn Quốc gia mục tiêu');
+         return;
+      }
+
+      const statusMap: Record<string, string> = {
+         NEW: LeadStatus.NEW,
+         CONTACTED: LeadStatus.CONTACTED,
+         QUALIFIED: LeadStatus.QUALIFIED,
+         LOST: DealStage.LOST
+      };
+      const mappedStatus = statusMap[newLeadData.status] || LeadStatus.NEW;
+      const program = (
+         newLeadData.product &&
+         ['Tiếng Đức', 'Tiếng Trung', 'Du học Đức', 'Du học Trung', 'Du học nghề Úc'].includes(newLeadData.product)
+      )
+         ? newLeadData.product as ILead['program']
+         : newLeadData.program as ILead['program'];
+
+      const nowIso = new Date().toISOString();
+      const campus = resolveLeadCampus(newLeadData);
+      const guardianRelation = getLeadGuardianRelation(newLeadData.title);
+      const studentInfo = buildLeadStudentInfo(newLeadData);
+      const lead: ILead = {
+         id: `l-${Date.now()}`,
+         ...newLeadData,
+         program,
+         ownerId: newLeadData.salesperson || user.id,
+         company: campus || undefined,
+         targetCountry: newLeadData.targetCountry,
+         educationLevel: newLeadData.studentEducationLevel || undefined,
+         dob: newLeadData.studentDob || undefined,
+         identityCard: newLeadData.studentIdentityCard || undefined,
+         address: newLeadData.street.trim() || undefined,
+         city: newLeadData.province.trim() || undefined,
+         district: newLeadData.city.trim() || undefined,
+         ward: newLeadData.ward.trim() || undefined,
+         guardianName: guardianRelation ? newLeadData.name.trim() || undefined : undefined,
+         guardianPhone: guardianRelation ? newLeadData.phone.trim() || undefined : undefined,
+         guardianRelation,
+         studentInfo,
+         marketingData: {
+            tags: newLeadData.tags,
+            campaign: newLeadData.campaign,
+            channel: newLeadData.channel,
+            market: campus || undefined,
+            region: newLeadData.company.trim() || undefined
          },
          status: mappedStatus,
          createdAt: nowIso,
@@ -1164,7 +1265,7 @@ const MyLeads: React.FC = () => {
       }
    ];
 
-   return (
+   return decodeMojibakeReactNode(
       <div className="flex flex-col h-full bg-[#f8fafc] font-sans text-slate-900 relative max-w-[1400px] mx-auto">
          {/* TOOLBAR */}
          <div className="bg-white border-b border-slate-200 px-4 py-3 sticky top-0 z-20 shadow-sm">
@@ -1609,10 +1710,20 @@ const MyLeads: React.FC = () => {
                               onChange={e => setNewLeadData({ ...newLeadData, title: e.target.value })}
                            >
                               <option value="">Danh xưng</option>
+                              {LEAD_RELATION_OPTIONS.map((option) => (
+                                 <option key={option.value} value={option.value}>
+                                    {option.label}
+                                 </option>
+                              ))}
+                              {false && (
+                                 <>
+                              <option value="">Danh xưng</option>
                               <option value="Mr.">Anh</option>
                               <option value="Ms.">Chị</option>
                               <option value="Phụ huynh">Phụ huynh</option>
                               <option value="Học sinh">Học sinh</option>
+                                 </>
+                              )}
                            </select>
                            <input
                               className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm font-semibold focus:border-purple-500 outline-none text-slate-800 placeholder:text-slate-400"
@@ -1625,6 +1736,40 @@ const MyLeads: React.FC = () => {
 
                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-12 gap-y-5">
                         <div className="space-y-4">
+                           <div className="flex items-center gap-4">
+                              <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Quốc gia mục tiêu <span className="text-red-500">*</span></label>
+                              <select
+                                 className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
+                                 value={newLeadData.targetCountry}
+                                 onChange={e => setNewLeadData({ ...newLeadData, targetCountry: e.target.value })}
+                              >
+                                 <option value="">-- Chọn quốc gia mục tiêu --</option>
+                                 {LEAD_TARGET_COUNTRY_OPTIONS.map((option) => (
+                                    <option key={option} value={option}>
+                                       {option}
+                                    </option>
+                                 ))}
+                              </select>
+                           </div>
+
+                           {false && (
+                              <>
+                           <div className="flex items-center gap-4">
+                              <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Quốc gia mục tiêu <span className="text-red-500">*</span></label>
+                              <select
+                                 className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
+                                 value={newLeadData.targetCountry}
+                                 onChange={e => setNewLeadData({ ...newLeadData, targetCountry: e.target.value })}
+                              >
+                                 <option value="">-- Chọn quốc gia mục tiêu --</option>
+                                 {LEAD_TARGET_COUNTRY_OPTIONS.map((option) => (
+                                    <option key={option} value={option}>
+                                       {option}
+                                    </option>
+                                 ))}
+                              </select>
+                           </div>
+
                            <div className="flex items-center gap-4">
                               <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Cơ sở</label>
                               <select
@@ -1639,6 +1784,9 @@ const MyLeads: React.FC = () => {
                                  <option value="HaiPhong">Hải Phòng</option>
                               </select>
                            </div>
+
+                              </>
+                           )}
 
                            <div className="flex items-start gap-4">
                               <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold pt-2">Địa chỉ</label>
@@ -1828,6 +1976,12 @@ const MyLeads: React.FC = () => {
                               Ghi chú nội bộ
                            </button>
                            <button
+                              onClick={() => setCreateModalActiveTab('student')}
+                              className={`px-4 py-2 text-sm font-medium border-b-2 transition-all ${createModalActiveTab === 'student' ? 'border-purple-600 text-purple-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                           >
+                              Thông tin học sinh
+                           </button>
+                           <button
                               onClick={() => setCreateModalActiveTab('extra')}
                               className={`px-4 py-2 text-sm font-medium border-b-2 transition-all ${createModalActiveTab === 'extra' ? 'border-purple-600 text-purple-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
                            >
@@ -1845,6 +1999,10 @@ const MyLeads: React.FC = () => {
                                     onChange={e => setNewLeadData({ ...newLeadData, notes: e.target.value })}
                                  />
                               </div>
+                           )}
+
+                           {createModalActiveTab === 'student' && (
+                              <LeadStudentInfoTab data={newLeadData} onPatch={patchNewLeadData} />
                            )}
 
                            {createModalActiveTab === 'extra' && (

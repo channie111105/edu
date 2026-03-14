@@ -305,12 +305,6 @@ const TrainingSchedule: React.FC = () => {
                                        </div>
                                     ))}
 
-                                    {/* Add Button Placeholder (Hidden by default, shown on hover) */}
-                                    <button className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto">
-                                       <div className="bg-blue-600 text-white p-1.5 rounded-full shadow-lg hover:scale-110 transition-transform">
-                                          <div className="w-4 h-4 flex items-center justify-center font-bold text-sm">+</div>
-                                       </div>
-                                    </button>
                                  </div>
                               );
                            })}

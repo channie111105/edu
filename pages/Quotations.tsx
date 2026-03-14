@@ -151,13 +151,13 @@ const GroupedDateFilterSelect: React.FC<GroupedDateFilterSelectProps> = ({
   className
 }) => (
   <div className={`relative inline-flex max-w-full ${className || ''}`}>
-    <div className="inline-flex min-h-[34px] max-w-full items-center overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+    <div className="inline-flex min-h-[32px] max-w-full items-center overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
       <div className="relative border-r border-slate-200">
         <select
           aria-label="Time filter field"
           value={primaryValue}
           onChange={(event) => onPrimaryChange(event.target.value)}
-          className="h-full appearance-none bg-transparent px-3.5 py-1.5 text-[12px] font-medium text-slate-700 outline-none"
+          className="h-full min-w-[138px] appearance-none bg-transparent py-1 pl-3 pr-8 text-[12px] font-medium text-slate-700 outline-none"
         >
           {primaryOptions.map((option) => (
             <option key={option.value} value={option.value}>
@@ -165,6 +165,10 @@ const GroupedDateFilterSelect: React.FC<GroupedDateFilterSelectProps> = ({
             </option>
           ))}
         </select>
+        <ChevronDown
+          size={14}
+          className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500"
+        />
       </div>
 
       <div className="relative min-w-0">
@@ -172,7 +176,7 @@ const GroupedDateFilterSelect: React.FC<GroupedDateFilterSelectProps> = ({
           aria-label="Time filter range"
           value={secondaryValue}
           onChange={(event) => onSecondaryChange(event.target.value)}
-          className="h-full min-w-[196px] appearance-none bg-transparent px-3.5 py-1.5 pr-9 text-[12px] font-semibold text-slate-800 outline-none"
+          className="h-full min-w-[158px] appearance-none bg-transparent px-3 py-1 pr-8 text-[12px] font-semibold text-slate-800 outline-none"
         >
           {secondaryOptions.map((option) => (
             <option key={option.value} value={option.value}>
@@ -181,8 +185,8 @@ const GroupedDateFilterSelect: React.FC<GroupedDateFilterSelectProps> = ({
           ))}
         </select>
         <ChevronDown
-          size={15}
-          className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-600"
+          size={14}
+          className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500"
         />
       </div>
     </div>
@@ -269,9 +273,9 @@ const getConfirmDateValue = (quotation: IQuotation) =>
   quotation.saleConfirmedAt ||
   (quotation.status === QuotationStatus.LOCKED ? quotation.lockedAt || quotation.updatedAt : undefined);
 
-const getTimePresetLabel = (timeFilterField: TimeFilterField, timeRangeType: TimeRangeType) => {
+const getTimePresetLabel = (_timeFilterField: TimeFilterField, timeRangeType: TimeRangeType) => {
   if (timeRangeType === 'all') {
-    return timeFilterField === 'confirmDate' ? 'Mọi ngày xác nhận' : 'Mọi ngày báo giá';
+    return 'Mọi ngày';
   }
 
   if (timeRangeType === 'custom') {
@@ -422,8 +426,10 @@ const Quotations: React.FC = () => {
   const studentMap = useMemo(() => new Map(students.map((student) => [student.id, student])), [students]);
 
   const getStudentName = (quotation: IQuotation) => {
-    const linkedStudent = quotation.studentId ? studentMap.get(quotation.studentId) : undefined;
-    return normalizeText(linkedStudent?.name || quotation.customerName);
+    const linkedStudentId = quotation.studentIds?.[0] || quotation.studentId;
+    const linkedStudent = linkedStudentId ? studentMap.get(linkedStudentId) : undefined;
+    const lineItemStudent = quotation.lineItems?.find((item) => item.studentName)?.studentName;
+    return normalizeText(linkedStudent?.name || lineItemStudent || quotation.customerName);
   };
 
   const getSalespersonName = (quotation: IQuotation) =>

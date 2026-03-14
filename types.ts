@@ -105,6 +105,9 @@ export interface ISalesKpiTarget {
 export interface IStudentInfo {
   // 1. Định danh bổ sung
   socialLink?: string; // Facebook/Zalo Link
+  studentName?: string;
+  studentPhone?: string;
+  identityCard?: string;
 
   // 3. Thông tin Chuyên môn (Qualified Criteria)
   targetCountry?: string; // Đức, Úc, Nhật...
@@ -113,7 +116,8 @@ export interface IStudentInfo {
   // 4. Thông tin bổ sung
   dob?: string;
   gender?: 'Nam' | 'Nữ' | 'Khác'; // Added Gender
-  school?: string; // Trình độ học vấn / Trường
+  school?: string; // Tên trường học
+  educationLevel?: string; // Trình độ học vấn
   languageLevel?: string;
   financialStatus?: string; // Khả năng tài chính
   parentName?: string;
@@ -165,7 +169,10 @@ export interface IContact {
   parentPhone?: string; // Legacy
 
   // Additional Info
+  studentName?: string;
+  studentPhone?: string;
   school?: string;
+  educationLevel?: string;
   languageLevel?: string;
   financialStatus?: string;
   socialLink?: string;
@@ -396,6 +403,10 @@ export interface IContract {
   identityDate?: string;
   identityPlace?: string;
   address?: string;
+  customerId?: string;
+  leadId?: string;
+  quotationLineItemId?: string;
+  payerName?: string;
 }
 
 // Entity: Đợt thanh toán (Installment)
@@ -494,11 +505,17 @@ export interface IStudent {
   phone: string;
   email?: string;
   address?: string;
+  guardianName?: string;
+  guardianPhone?: string;
 
   // Link back to Sales
   dealId?: string;
   soId?: string; // Quotation (SO) ID
   salesPersonId?: string;
+  customerId?: string;
+  leadId?: string;
+  quotationLineItemId?: string;
+  payerName?: string;
 
   // Academic Info
   campus: string;
@@ -512,6 +529,7 @@ export interface IStudent {
 
   // Metadata
   profileImage?: string;
+  note?: string;
   createdAt: string;
 }
 
@@ -555,6 +573,7 @@ export interface IClassSession {
   date: string; // 'YYYY-MM-DD' hoặc ISO string
   title?: string;
   order: number;
+  isHeld?: boolean;
 }
 
 export interface IAttendanceRecord {
@@ -614,7 +633,10 @@ export interface ITrainingClass {
   code: string;
   name: string;
   campus?: string;
+  room?: string;
   schedule?: string;
+  studyDays?: number[];
+  timeSlot?: string;
   language?: string;
   level?: string;
   classType?: 'Online' | 'Offline' | 'App';
@@ -689,6 +711,8 @@ export interface IQuotationLogNote {
   user: string;
   action: string;
   detail?: string;
+  type?: 'note' | 'message' | 'system' | 'activity';
+  attachments?: string[];
 }
 
 export type ContractFlowStatus = 'quotation' | 'sale_confirmed' | 'signed_contract' | 'enrolled' | 'active';
@@ -712,6 +736,17 @@ export interface IQuotationLineItem {
   unitPrice: number;
   discount: number;
   total: number;
+  studentName?: string;
+  studentDob?: string;
+  testerId?: string;
+  testerName?: string;
+  courseName?: string;
+  targetMarket?: string;
+  servicePackage?: string;
+  programs?: string[];
+  classId?: string;
+  className?: string;
+  additionalInfo?: string;
 }
 
 export interface IQuotation {
@@ -722,6 +757,7 @@ export interface IQuotation {
   leadId?: string;
   dealId?: string;
   studentId?: string; // Linked Student ID when Locked
+  studentIds?: string[];
 
 
   serviceType: 'StudyAbroad' | 'Training' | 'Combo';
@@ -731,6 +767,9 @@ export interface IQuotation {
   discount?: number;
   finalAmount: number;
   pricingNote?: string;
+  expirationDate?: string;
+  pricelist?: string;
+  orderMode?: string;
 
   createdAt: string;
   updatedAt: string;
@@ -752,6 +791,7 @@ export interface IQuotation {
   studentDob?: string;
   studentAddress?: string;
   identityCard?: string;
+  passport?: string;
   guardianName?: string;
   guardianPhone?: string;
 
@@ -766,13 +806,49 @@ export interface IQuotation {
   caseStage?: string;
   caseProfileStatus?: 'FULL' | 'MISSING';
   certificateInfo?: string;
-  serviceProcessStatus?: 'UNPROCESSED' | 'PROCESSING';
-  invoiceState?: 'NONE' | 'HAS_INVOICE' | 'PAID';
-  cmtcStatus?: 'PENDING' | 'APPROVED' | 'REJECTED';
+  serviceProcessStatus?:
+    | 'NEW'
+    | 'UNPROCESSED'
+    | 'PROCESSING'
+    | 'PROCESSED'
+    | 'DEPARTED'
+    | 'WITHDRAWN'
+    | 'VISA_FAILED'
+    | 'REPROCESSING';
+  invoiceState?: 'NONE' | 'UNPAID' | 'HAS_INVOICE' | 'PAID';
+  cmtcStatus?: 'PENDING' | 'APPROVED' | 'REJECTED' | 'NOT_OPENED' | 'OPENED' | 'SUBMITTED';
   expectedFlightTerm?: string;
   stageUpdatedAt?: string;
   internalNote?: string;
   internalNoteUpdatedAt?: string;
+  demographicInfo?: string;
+  studyAbroadProductPackage?: string;
+  caseProcessorName?: string;
+  serviceStatusNote?: string;
+  intakeDate?: string;
+  intakeNote?: string;
+  invoiceNote?: string;
+  schoolInterviewDate?: string;
+  schoolInterviewStatus?: 'NO_SCHEDULE' | 'SCHEDULED' | 'INTERVIEWED' | 'PASSED' | 'FAILED' | 'NOT_REQUIRED';
+  schoolInterviewNote?: string;
+  cmtcAmount?: number;
+  cmtcNote?: string;
+  programSelectionStatus?: 'NOT_SELECTED' | 'SELECTED';
+  schoolProgramName?: string;
+  schoolProgramNote?: string;
+  caseProfileStatusNote?: string;
+  translationStatus?: 'NOT_YET' | 'DONE';
+  translationNote?: string;
+  offerLetterStatus?: 'NOT_SENT' | 'SENT' | 'RECEIVED';
+  offerLetterNote?: string;
+  embassyAppointmentStatus?: 'NOT_BOOKED' | 'BOOKED' | 'SCHEDULED' | 'CANCELLED';
+  embassyAppointmentDate?: string;
+  embassyAppointmentNote?: string;
+  visaStatus?: 'NOT_SUBMITTED' | 'SUBMITTED' | 'SUPPLEMENT' | 'GRANTED' | 'FAILED';
+  visaNote?: string;
+  flightStatus?: 'NOT_DEPARTED' | 'DEPARTED' | 'CANCELLED';
+  expectedEntryDate?: string;
+  flightNote?: string;
 
   // Payment Info (Log SO)
   paymentMethod?: 'CK' | 'CASH';

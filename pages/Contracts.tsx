@@ -1,13 +1,20 @@
 ﻿import React, { useEffect, useMemo, useState } from 'react';
 import { Search } from 'lucide-react';
 import { IAdmission, IQuotation, IStudent, QuotationStatus, UserRole } from '../types';
-import { getAdmissions, getQuotations, getStudents } from '../utils/storage';
+import { getAdmissions, getQuotations, getStudents, quotationLinksToStudent } from '../utils/storage';
 import { createAdmission } from '../services/enrollmentFlow.service';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 
 const MOCK_CLASSES = ['GER-A1-K35', 'GER-A1-K36', 'GER-B1-K12', 'AUS-COOK-K01'];
 const MOCK_CAMPUSES = ['Hà Nội', 'HCM', 'Đà Nẵng'];
+
+const formatDisplayDate = (value?: string) => {
+  if (!value) return '--/--/----';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString('vi-VN');
+};
 
 type StudentRow = {
   student: IStudent;
@@ -54,14 +61,13 @@ const Contracts: React.FC = () => {
     };
   }, []);
 
+  const getLockedQuotationForStudent = (student: IStudent) =>
+    quotations.find((q) => q.status === QuotationStatus.LOCKED && quotationLinksToStudent(q, student));
+
   const rows = useMemo<StudentRow[]>(() => {
     return students
       .map((student) => {
-        const lockedQuotation = quotations.find(
-          (q) =>
-            q.status === QuotationStatus.LOCKED &&
-            (q.studentId === student.id || (!!student.soId && q.id === student.soId))
-        );
+        const lockedQuotation = getLockedQuotationForStudent(student);
         if (!lockedQuotation) return null;
 
         const latestAdmission = admissions
@@ -79,7 +85,10 @@ const Contracts: React.FC = () => {
           r.student.code,
           r.student.name,
           r.student.phone,
+          r.student.dob,
+          r.student.payerName,
           r.lockedQuotation.soCode,
+          r.lockedQuotation.customerName,
           r.latestAdmission?.classId,
           r.latestAdmission?.campusId,
           (r.student as any).enrollmentStatus,
@@ -94,7 +103,7 @@ const Contracts: React.FC = () => {
 
   const admissionEligibleStudents = useMemo(() => {
     return students.filter((s) => {
-      const linkedQuotation = quotations.find((q) => q.studentId === s.id && q.status === QuotationStatus.LOCKED);
+      const linkedQuotation = getLockedQuotationForStudent(s);
       if (!linkedQuotation) return false;
       if ((s as any).enrollmentStatus === 'DA_GHI_DANH') return false;
       return true;
@@ -103,8 +112,10 @@ const Contracts: React.FC = () => {
 
   const linkedQuotationsForStudent = useMemo(() => {
     if (!form.studentId) return [];
-    return quotations.filter((q) => q.studentId === form.studentId && q.status === QuotationStatus.LOCKED);
-  }, [form.studentId, quotations]);
+    const selectedStudent = students.find((item) => item.id === form.studentId);
+    if (!selectedStudent) return [];
+    return quotations.filter((q) => q.status === QuotationStatus.LOCKED && quotationLinksToStudent(q, selectedStudent));
+  }, [form.studentId, quotations, students]);
 
   const admissionStatusBadge = (status?: IAdmission['status']) => {
     if (!status) return <span className="px-2 py-1 rounded-full bg-slate-100 text-slate-600 text-xs font-bold">CHƯA TẠO</span>;
@@ -136,7 +147,9 @@ const Contracts: React.FC = () => {
 
   const onStudentChange = (studentId: string) => {
     const selectedStudent = students.find((s) => s.id === studentId);
-    const studentQuotations = quotations.filter((q) => q.studentId === studentId && q.status === QuotationStatus.LOCKED);
+    const studentQuotations = selectedStudent
+      ? quotations.filter((q) => q.status === QuotationStatus.LOCKED && quotationLinksToStudent(q, selectedStudent))
+      : [];
     setForm((prev) => ({
       ...prev,
       studentId,
@@ -228,10 +241,13 @@ const Contracts: React.FC = () => {
                   <td className="px-4 py-3">
                     <div className="font-semibold">{student.name || 'N/A'}</div>
                     <div className="text-xs text-slate-500">{student.phone || '-'}</div>
+                    <div className="text-[11px] text-slate-400">NS: {formatDisplayDate(student.dob)}</div>
                   </td>
                   <td className="px-4 py-3">
                     <div className="font-medium">{lockedQuotation.soCode}</div>
-                    <div className="text-xs text-slate-500">{lockedQuotation.customerName || ''}</div>
+                    <div className="text-xs text-slate-500">
+                      Lead / người thanh toán: {student.payerName || lockedQuotation.customerName || '-'}
+                    </div>
                   </td>
                   <td className="px-4 py-3">
                     <div>{latestAdmission?.campusId || student.campus || '-'}</div>

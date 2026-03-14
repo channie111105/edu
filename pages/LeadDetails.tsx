@@ -1,7 +1,7 @@
-
+﻿
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { getLeadById, saveLead, addDeal, addContact, addMeeting } from '../utils/storage';
+import { getLeadById, saveLead, addDeal, addContact, addMeeting, convertLeadToContact } from '../utils/storage';
 import { useAuth } from '../contexts/AuthContext';
 import {
    ArrowLeft, Phone, Mail, MessageCircle, Clock,
@@ -54,7 +54,7 @@ const LeadDetails: React.FC = () => {
             // CLEANUP: Removed mock interaction history as requested. Only show system init log.
             setActivities([
                {
-                  id: 'sys-1', type: 'system', content: 'Lead được phân bổ', subContent: `Nguồn: ${foundLead.source}`, timestamp: new Date(foundLead.createdAt).toLocaleString(), isSystem: true
+                  id: 'sys-1', type: 'system', content: 'Lead Ä‘Æ°á»£c phÃ¢n bá»•', subContent: `Nguá»“n: ${foundLead.source}`, timestamp: new Date(foundLead.createdAt).toLocaleString(), isSystem: true
                }
             ]);
          }
@@ -74,7 +74,7 @@ const LeadDetails: React.FC = () => {
          const updatedLead = { ...lead, ...formData, studentInfo };
          saveLead(updatedLead);
          setLead(updatedLead);
-         alert('Đã lưu thông tin Lead thành công!');
+         alert('ÄÃ£ lÆ°u thÃ´ng tin Lead thÃ nh cÃ´ng!');
       }
    };
 
@@ -88,9 +88,9 @@ const LeadDetails: React.FC = () => {
          setActivities([{
             id: `st-${Date.now()}`,
             type: 'system',
-            content: `Thay đổi trạng thái`,
-            subContent: `Chuyển sang ${newStatus}`,
-            timestamp: 'Vừa xong',
+            content: `Thay Ä‘á»•i tráº¡ng thÃ¡i`,
+            subContent: `Chuyá»ƒn sang ${newStatus}`,
+            timestamp: 'Vá»«a xong',
             isSystem: true
          }, ...activities]);
       }
@@ -99,11 +99,11 @@ const LeadDetails: React.FC = () => {
    const handleSendActivity = () => {
       if (!noteContent.trim() && activityType === 'note') return;
       if (activityType === 'meeting' && !meetingDate) {
-         alert('Vui lòng chọn thời gian lịch hẹn');
+         alert('Vui lÃ²ng chá»n thá»i gian lá»‹ch háº¹n');
          return;
       }
       if (activityType === 'meeting' && !meetingType) {
-         alert('Vui lòng chọn hình thức hẹn (Online/Offline)');
+         alert('Vui lÃ²ng chá»n hÃ¬nh thá»©c háº¹n (Online/Offline)');
          return;
       }
 
@@ -111,7 +111,7 @@ const LeadDetails: React.FC = () => {
       if (activityType === 'meeting' && lead) {
          const newMeeting: IMeeting = {
             id: `M-${Date.now()}`,
-            title: `Lịch hẹn: ${lead.name}`,
+            title: `Lá»‹ch háº¹n: ${lead.name}`,
             leadId: lead.id,
             leadName: lead.name,
             leadPhone: lead.phone,
@@ -130,24 +130,24 @@ const LeadDetails: React.FC = () => {
          const meetingActivity: IActivity = {
             id: `mt-${Date.now()}`,
             type: 'meeting',
-            content: `Đã tạo lịch hẹn: ${meetingType}`,
-            subContent: `Thời gian: ${new Date(meetingDate).toLocaleString('vi-VN')} - Note: ${noteContent}`,
-            timestamp: 'Vừa xong',
+            content: `ÄÃ£ táº¡o lá»‹ch háº¹n: ${meetingType}`,
+            subContent: `Thá»i gian: ${new Date(meetingDate).toLocaleString('vi-VN')} - Note: ${noteContent}`,
+            timestamp: 'Vá»«a xong',
             isSystem: false
          };
          setActivities([meetingActivity, ...activities]);
          setNoteContent('');
          setMeetingDate('');
          setActivityType('note'); // Reset
-         alert('Đã tạo lịch hẹn thành công!');
+         alert('ÄÃ£ táº¡o lá»‹ch háº¹n thÃ nh cÃ´ng!');
       } else {
          // 2. Logic Normal Note
          const newNote: IActivity = {
             id: `note-${Date.now()}`,
             type: 'note',
-            content: 'Ghi chú cuộc gọi / Chăm sóc',
+            content: 'Ghi chÃº cuá»™c gá»i / ChÄƒm sÃ³c',
             subContent: noteContent,
-            timestamp: 'Vừa xong',
+            timestamp: 'Vá»«a xong',
             isSystem: false
          };
          setActivities([newNote, ...activities]);
@@ -155,31 +155,34 @@ const LeadDetails: React.FC = () => {
       }
    };
 
-   // --- LOGIC CHUYỂN ĐỔI (CORE REQUIREMENT) ---
+   // --- LOGIC CHUYá»‚N Äá»”I (CORE REQUIREMENT) ---
    const handleConvert = () => {
       if (!lead) return;
 
       // 1. Validate Core Info
       if (!studentInfo.targetCountry) {
-         alert("Vui lòng chọn Quốc gia mục tiêu trước khi chuyển đổi.");
+         alert("Vui lÃ²ng chá»n Quá»‘c gia má»¥c tiÃªu trÆ°á»›c khi chuyá»ƒn Ä‘á»•i.");
          return;
       }
       if (!formData.name || !formData.phone) {
-         alert("Thiếu thông tin Họ tên hoặc SĐT.");
+         alert("Thiáº¿u thÃ´ng tin Há» tÃªn hoáº·c SÄT.");
          return;
       }
 
-      if (window.confirm(`Xác nhận chuyển đổi "${lead.name}" thành Contact chính thức và tạo Deal mới?`)) {
+      if (window.confirm(`XÃ¡c nháº­n chuyá»ƒn Ä‘á»•i "${lead.name}" thÃ nh Contact chÃ­nh thá»©c vÃ  táº¡o Deal má»›i?`)) {
 
          // 2. Create/Update Contact (Unique by Phone)
-         const contactData = {
+         const contactData = convertLeadToContact({
             ...lead,
             ...formData,
-            studentInfo: studentInfo,
+            studentInfo: {
+               ...(lead.studentInfo || {}),
+               ...studentInfo
+            },
             status: LeadStatus.CONVERTED,
-            targetCountry: studentInfo.targetCountry || 'Đức', // Ensure required field
+            targetCountry: studentInfo.targetCountry || lead.targetCountry || 'Đức',
             // ID will be handled by addContact to ensure it matches existing if phone exists
-         } as IContact;
+         } as ILead);
          const savedContact = addContact(contactData); // Returns the updated contacts list, but we need the specific ID.
          // Note: In a real app, addContact should return the saved contact. 
          // For now, we assume the ID is consistent or handled by storage.
@@ -208,7 +211,7 @@ const LeadDetails: React.FC = () => {
                {
                   id: `act-${Date.now()}`,
                   type: 'call' as any,
-                  content: 'Gọi điện tư vấn lần đầu',
+                  content: 'Gá»i Ä‘iá»‡n tÆ° váº¥n láº§n Ä‘áº§u',
                   timestamp: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
                   status: 'scheduled',
                   userId: 'admin' // Or current user if available
@@ -253,13 +256,13 @@ const LeadDetails: React.FC = () => {
             </div>
             <div className="flex items-center gap-3">
                <button className="flex items-center gap-2 px-4 py-2 rounded-lg border border-green-200 text-green-700 bg-green-50 text-sm font-bold hover:bg-green-100 transition-colors">
-                  <PhoneOutgoing size={16} /> Gọi điện
+                  <PhoneOutgoing size={16} /> Gá»i Ä‘iá»‡n
                </button>
                <button
                   onClick={handleConvert}
                   className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#1380ec] text-white text-sm font-bold hover:bg-blue-700 transition-colors shadow-sm"
                >
-                  <UserPlus size={16} /> Chuyển đổi (Convert)
+                  <UserPlus size={16} /> Chuyá»ƒn Ä‘á»•i (Convert)
                </button>
                <button
                   onClick={() => navigate(`/leads/${id}/sla`)}
@@ -275,9 +278,9 @@ const LeadDetails: React.FC = () => {
             {/* COL 1: LEAD INFO FORM (Scrollable) */}
             <aside className="w-[380px] bg-white border-r border-slate-200 flex flex-col shrink-0 h-full overflow-hidden">
                <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-                  <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">THÔNG TIN LEAD</h3>
+                  <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">THÃ”NG TIN LEAD</h3>
                   <button onClick={handleSaveInfo} className="text-blue-600 hover:text-blue-800 flex items-center gap-1 text-xs font-bold">
-                     <Save size={14} /> Lưu
+                     <Save size={14} /> LÆ°u
                   </button>
                </div>
 
@@ -291,7 +294,7 @@ const LeadDetails: React.FC = () => {
                            <Phone size={16} className="text-blue-600" />
                         </div>
                         <div className="flex-1">
-                           <p className="text-[10px] text-slate-500 font-medium mb-0.5">Số điện thoại</p>
+                           <p className="text-[10px] text-slate-500 font-medium mb-0.5">Sá»‘ Ä‘iá»‡n thoáº¡i</p>
                            <input
                               className="w-full bg-transparent text-sm font-bold text-slate-900 focus:outline-none"
                               placeholder="0901 234 567"
@@ -307,7 +310,7 @@ const LeadDetails: React.FC = () => {
                            <Mail size={16} className="text-purple-600" />
                         </div>
                         <div className="flex-1">
-                           <p className="text-[10px] text-slate-500 font-medium mb-0.5">Email (Liên hệ)</p>
+                           <p className="text-[10px] text-slate-500 font-medium mb-0.5">Email (LiÃªn há»‡)</p>
                            <input
                               className="w-full bg-transparent text-sm text-slate-700 focus:outline-none"
                               placeholder="nam.nguyen@example.com"
@@ -323,7 +326,7 @@ const LeadDetails: React.FC = () => {
                            <MessageCircle size={16} className="text-green-600" />
                         </div>
                         <div className="flex-1">
-                           <p className="text-[10px] text-slate-500 font-medium mb-0.5">Số Zalo</p>
+                           <p className="text-[10px] text-slate-500 font-medium mb-0.5">Sá»‘ Zalo</p>
                            <div className="flex items-center gap-2">
                               <input
                                  className="flex-1 bg-transparent text-sm text-blue-600 focus:outline-none"
@@ -336,12 +339,12 @@ const LeadDetails: React.FC = () => {
                      </div>
                   </div>
 
-                  {/* Nguồn & Phân loại */}
+                  {/* Nguá»“n & PhÃ¢n loáº¡i */}
                   <div>
-                     <h4 className="text-xs font-bold text-slate-700 mb-3 uppercase tracking-wide">Nguồn & Phân loại</h4>
+                     <h4 className="text-xs font-bold text-slate-700 mb-3 uppercase tracking-wide">Nguá»“n & PhÃ¢n loáº¡i</h4>
                      <div className="space-y-3">
                         <div>
-                           <label className="text-[10px] text-slate-500 font-bold block mb-1.5">Nguồn</label>
+                           <label className="text-[10px] text-slate-500 font-bold block mb-1.5">Nguá»“n</label>
                            <select
                               className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-900 outline-none focus:border-blue-500"
                               value={formData.source}
@@ -349,78 +352,78 @@ const LeadDetails: React.FC = () => {
                            >
                               <option value="fb_lead_form">fb_lead_form</option>
                               <option value="hotline">Hotline</option>
-                              <option value="sale_tu_kiem_ca_nhan">Sale tự kiếm</option>
+                              <option value="sale_tu_kiem_ca_nhan">Sale tá»± kiáº¿m</option>
                            </select>
                         </div>
                         <div>
-                           <label className="text-[10px] text-slate-500 font-bold block mb-1.5">Chương trình</label>
+                           <label className="text-[10px] text-slate-500 font-bold block mb-1.5">ChÆ°Æ¡ng trÃ¬nh</label>
                            <select
                               className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm font-bold text-blue-600 outline-none focus:border-blue-500"
                               value={formData.program}
                               onChange={(e) => handleInputChange('program', e.target.value)}
                            >
-                              <option value="Tiếng Đức">Tiếng Đức</option>
-                              <option value="Tiếng Trung">Tiếng Trung</option>
-                              <option value="Du học Đức">Du học Đức</option>
-                              <option value="Du học Trung">Du học Trung</option>
+                              <option value="Tiáº¿ng Äá»©c">Tiáº¿ng Äá»©c</option>
+                              <option value="Tiáº¿ng Trung">Tiáº¿ng Trung</option>
+                              <option value="Du há»c Äá»©c">Du há»c Äá»©c</option>
+                              <option value="Du há»c Trung">Du há»c Trung</option>
                            </select>
                         </div>
                      </div>
                   </div>
 
-                  {/* 2. CHUYÊN MÔN (QUAN TRỌNG) */}
+                  {/* 2. CHUYÃŠN MÃ”N (QUAN TRá»ŒNG) */}
                   <div className="bg-blue-50/50 p-3 rounded-lg border border-blue-100">
                      <h4 className="text-xs font-bold text-blue-700 mb-3 flex items-center gap-1">
-                        <CheckCircle2 size={14} /> 2. MỤC TIÊU & NHU CẦU
+                        <CheckCircle2 size={14} /> 2. Má»¤C TIÃŠU & NHU Cáº¦U
                      </h4>
                      <div className="space-y-3">
                         <div>
-                           <label className="text-[10px] text-slate-500 font-bold block mb-1">Quốc gia mục tiêu <span className="text-red-500">*</span></label>
+                           <label className="text-[10px] text-slate-500 font-bold block mb-1">Quá»‘c gia má»¥c tiÃªu <span className="text-red-500">*</span></label>
                            <select
                               className="w-full px-2 py-2 bg-white border border-slate-200 rounded text-sm text-slate-900 outline-none focus:border-blue-500"
                               value={studentInfo.targetCountry || ''}
                               onChange={(e) => handleStudentInfoChange('targetCountry', e.target.value)}
                            >
-                              <option value="">-- Chọn quốc gia --</option>
-                              <option value="Đức">🇩🇪 Đức</option>
-                              <option value="Trung Quốc">🇨🇳 Trung Quốc</option>
-                              <option value="Khác">🏳️ Khác</option>
+                              <option value="">-- Chá»n quá»‘c gia --</option>
+                              <option value="Äá»©c">ðŸ‡©ðŸ‡ª Äá»©c</option>
+                              <option value="Trung Quá»‘c">ðŸ‡¨ðŸ‡³ Trung Quá»‘c</option>
+                              <option value="KhÃ¡c">ðŸ³ï¸ KhÃ¡c</option>
                            </select>
                         </div>
                         <div>
-                           <label className="text-[10px] text-slate-500 font-bold block mb-1">Sản phẩm quan tâm</label>
+                           <label className="text-[10px] text-slate-500 font-bold block mb-1">Sáº£n pháº©m quan tÃ¢m</label>
                            <select
                               className="w-full px-2 py-2 bg-white border border-slate-200 rounded text-sm font-bold text-slate-900 outline-none focus:border-blue-500"
                               value={formData.program}
                               onChange={(e) => handleInputChange('program', e.target.value)}
                            >
-                              <option value="Tiếng Đức">Tiếng Đức</option>
-                              <option value="Tiếng Trung">Tiếng Trung</option>
-                              <option value="Du học Đức">Du học Đức</option>
-                              <option value="Du học Trung">Du học Trung</option>
+                              <option value="Tiáº¿ng Äá»©c">Tiáº¿ng Äá»©c</option>
+                              <option value="Tiáº¿ng Trung">Tiáº¿ng Trung</option>
+                              <option value="Du há»c Äá»©c">Du há»c Äá»©c</option>
+                              <option value="Du há»c Trung">Du há»c Trung</option>
                            </select>
                         </div>
                      </div>
                   </div>
 
-                  {/* 3. THÔNG TIN BỔ SUNG (CHO HỒ SƠ) */}
+                  {/* 3. THÃ”NG TIN Bá»” SUNG (CHO Há»’ SÆ ) */}
                   <div>
                      <h4 className="text-xs font-bold text-blue-600 mb-3 flex items-center gap-1">
-                        <FileText size={14} /> 3. HỒ SƠ CÁ NHÂN
+                        <FileText size={14} /> 3. Há»’ SÆ  CÃ NHÃ‚N
                      </h4>
                      <div className="space-y-3">
-                        {/* Phụ huynh - Quan trọng */}
+                        {/* Phá»¥ huynh - Quan trá»ng */}
                         <div className="bg-slate-50 p-2 rounded border border-slate-200">
-                           <label className="text-[10px] text-slate-500 font-bold block mb-1">Thông tin Phụ huynh</label>
+                           <label className="text-[10px] text-slate-500 font-bold block mb-1">ThÃ´ng tin Phá»¥ huynh</label>
                            <input
                               className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded text-sm mb-2 outline-none"
-                              placeholder="Họ tên Bố/Mẹ"
+                              placeholder="Há» tÃªn Bá»‘/Máº¹"
                               value={studentInfo.parentName || ''}
                               onChange={(e) => handleStudentInfoChange('parentName', e.target.value)}
                            />
                            <input
                               className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded text-sm outline-none"
-                              placeholder="SĐT Phụ huynh"
+                              placeholder="SÄT Phá»¥ huynh"
                               value={studentInfo.parentPhone || ''}
                               onChange={(e) => handleStudentInfoChange('parentPhone', e.target.value)}
                            />
@@ -428,7 +431,7 @@ const LeadDetails: React.FC = () => {
 
                         <div className="grid grid-cols-2 gap-3">
                            <div>
-                              <label className="text-[10px] text-slate-500 font-bold block mb-1">Ngày sinh</label>
+                              <label className="text-[10px] text-slate-500 font-bold block mb-1">NgÃ y sinh</label>
                               <input
                                  type="date"
                                  className="w-full px-2 py-2 bg-white border border-slate-200 rounded text-sm text-slate-900 outline-none"
@@ -437,36 +440,36 @@ const LeadDetails: React.FC = () => {
                               />
                            </div>
                            <div>
-                              <label className="text-[10px] text-slate-500 font-bold block mb-1">Giới tính</label>
+                              <label className="text-[10px] text-slate-500 font-bold block mb-1">Giá»›i tÃ­nh</label>
                               <select
                                  className="w-full px-2 py-2 bg-white border border-slate-200 rounded text-sm text-slate-900 outline-none"
                                  value={studentInfo.gender || ''}
                                  onChange={(e) => handleStudentInfoChange('gender', e.target.value)}
                               >
-                                 <option value="">-- Chọn --</option>
+                                 <option value="">-- Chá»n --</option>
                                  <option value="Nam">Nam</option>
-                                 <option value="Nữ">Nữ</option>
+                                 <option value="Ná»¯">Ná»¯</option>
                               </select>
                            </div>
                         </div>
 
                         <input
                            className="w-full px-2 py-2 bg-white border border-slate-200 rounded text-sm text-slate-900 outline-none"
-                           placeholder="Trình độ ngoại ngữ hiện tại"
+                           placeholder="TrÃ¬nh Ä‘á»™ ngoáº¡i ngá»¯ hiá»‡n táº¡i"
                            value={studentInfo.languageLevel || ''}
                            onChange={(e) => handleStudentInfoChange('languageLevel', e.target.value)}
                         />
                      </div>
                   </div>
 
-                  {/* 4. PHÂN LOẠI (MKT) */}
+                  {/* 4. PHÃ‚N LOáº I (MKT) */}
                   <div>
                      <h4 className="text-xs font-bold text-blue-600 mb-3 flex items-center gap-1">
-                        <Layout size={14} /> 4. PHÂN LOẠI NGUỒN
+                        <Layout size={14} /> 4. PHÃ‚N LOáº I NGUá»’N
                      </h4>
                      <div className="grid grid-cols-2 gap-3">
                         <div>
-                           <label className="text-[10px] text-slate-500 font-bold block mb-1">Nguồn (Source)</label>
+                           <label className="text-[10px] text-slate-500 font-bold block mb-1">Nguá»“n (Source)</label>
                            <select
                               className="w-full px-2 py-2 bg-white border border-slate-200 rounded text-sm text-slate-900 outline-none focus:border-blue-500"
                               value={formData.source}
@@ -474,11 +477,11 @@ const LeadDetails: React.FC = () => {
                            >
                               <option value="fb_lead_form">FB Lead Form</option>
                               <option value="hotline">Hotline</option>
-                              <option value="sale_tu_kiem_ca_nhan">Sale tự kiếm</option>
+                              <option value="sale_tu_kiem_ca_nhan">Sale tá»± kiáº¿m</option>
                            </select>
                         </div>
                         <div>
-                           <label className="text-[10px] text-slate-500 font-bold block mb-1">Chiến dịch</label>
+                           <label className="text-[10px] text-slate-500 font-bold block mb-1">Chiáº¿n dá»‹ch</label>
                            <select
                               className="w-full px-2 py-2 bg-white border border-slate-200 rounded text-sm text-slate-900 outline-none focus:border-blue-500"
                               value={formData.campaign || ''}
@@ -504,13 +507,13 @@ const LeadDetails: React.FC = () => {
                      onClick={() => setActiveTab('timeline')}
                      className={`py-3 px-4 text-sm font-medium border-b-2 transition-colors ${activeTab === 'timeline' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
                   >
-                     Dòng thời gian
+                     DÃ²ng thá»i gian
                   </button>
                   <button
                      onClick={() => setActiveTab('notes')}
                      className={`py-3 px-4 text-sm font-medium border-b-2 transition-colors ${activeTab === 'notes' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
                   >
-                     Ghi chú
+                     Ghi chÃº
                   </button>
                   <button
                      onClick={() => setActiveTab('email')}
@@ -525,7 +528,7 @@ const LeadDetails: React.FC = () => {
                   <div className="max-w-3xl space-y-6">
                      {activities.length === 0 ? (
                         <div className="text-center text-slate-400 py-10">
-                           Chưa có hoạt động nào. Hãy thêm ghi chú hoặc cuộc gọi đầu tiên.
+                           ChÆ°a cÃ³ hoáº¡t Ä‘á»™ng nÃ o. HÃ£y thÃªm ghi chÃº hoáº·c cuá»™c gá»i Ä‘áº§u tiÃªn.
                         </div>
                      ) : activities.map((act) => (
                         <div key={act.id} className="flex gap-4 group">
@@ -557,7 +560,7 @@ const LeadDetails: React.FC = () => {
                <div className="p-4 border-t border-slate-200 bg-white shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-10">
                   <div className="flex items-center justify-between mb-3">
                      <label className="text-xs font-bold text-slate-500 uppercase flex items-center gap-2">
-                        <FileText size={14} /> Ghi nhận hoạt động
+                        <FileText size={14} /> Ghi nháº­n hoáº¡t Ä‘á»™ng
                      </label>
 
                      {/* Activity Type Selector */}
@@ -566,13 +569,13 @@ const LeadDetails: React.FC = () => {
                            onClick={() => setActivityType('note')}
                            className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${activityType === 'note' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                         >
-                           Ghi chú
+                           Ghi chÃº
                         </button>
                         <button
                            onClick={() => setActivityType('meeting')}
                            className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${activityType === 'meeting' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                         >
-                           Lịch hẹn / Test
+                           Lá»‹ch háº¹n / Test
                         </button>
                      </div>
                   </div>
@@ -594,9 +597,9 @@ const LeadDetails: React.FC = () => {
                               value={meetingType}
                               onChange={(e) => setMeetingType(e.target.value as MeetingType)}
                            >
-                              <option value="">-- Chọn hình thức --</option>
-                              <option value={MeetingType.OFFLINE}>Offline (Tại trung tâm)</option>
-                              <option value={MeetingType.ONLINE}>Online (Phóng vấn)</option>
+                              <option value="">-- Chá»n hÃ¬nh thá»©c --</option>
+                              <option value={MeetingType.OFFLINE}>Offline (Táº¡i trung tÃ¢m)</option>
+                              <option value={MeetingType.ONLINE}>Online (PhÃ³ng váº¥n)</option>
                            </select>
                         </div>
                      </div>
@@ -606,7 +609,7 @@ const LeadDetails: React.FC = () => {
                      <textarea
                         rows={2}
                         className="flex-1 border border-slate-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none"
-                        placeholder={activityType === 'meeting' ? "Ghi chú cho lịch hẹn (VD: Học sinh cần test kỹ ngữ pháp...)" : "Nhập nội dung trao đổi với khách hàng..."}
+                        placeholder={activityType === 'meeting' ? "Ghi chÃº cho lá»‹ch háº¹n (VD: Há»c sinh cáº§n test ká»¹ ngá»¯ phÃ¡p...)" : "Nháº­p ná»™i dung trao Ä‘á»•i vá»›i khÃ¡ch hÃ ng..."}
                         value={noteContent}
                         onChange={(e) => setNoteContent(e.target.value)}
                         onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendActivity(); } }}
@@ -616,7 +619,7 @@ const LeadDetails: React.FC = () => {
                         className={`px-4 rounded-lg font-bold shadow-sm flex flex-col items-center justify-center min-w-[80px] transition-colors ${activityType === 'meeting' ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-slate-800 hover:bg-slate-900 text-white'}`}
                      >
                         <Send size={18} className="mb-1" />
-                        <span className="text-xs">{activityType === 'meeting' ? 'Đặt lịch' : 'Lưu'}</span>
+                        <span className="text-xs">{activityType === 'meeting' ? 'Äáº·t lá»‹ch' : 'LÆ°u'}</span>
                      </button>
                   </div>
                </div>
@@ -628,7 +631,7 @@ const LeadDetails: React.FC = () => {
 
                   {/* Status Section */}
                   <div>
-                     <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 block">TRẠNG THÁI HIỆN TẠI</label>
+                     <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 block">TRáº NG THÃI HIá»†N Táº I</label>
                      <div className="relative">
                         <select
                            value={lead.status}
@@ -639,10 +642,10 @@ const LeadDetails: React.FC = () => {
                                     'bg-white text-slate-700 border-slate-200'}
                             `}
                         >
-                           <option value={LeadStatus.NEW}>Mới (New)</option>
-                           <option value={LeadStatus.CONTACTED}>Đang liên hệ</option>
-                           <option value={LeadStatus.QUALIFIED}>Đạt chuẩn (Qualified)</option>
-                           <option value={LeadStatus.DISQUALIFIED}>Không đạt (Lost)</option>
+                           <option value={LeadStatus.NEW}>Má»›i (New)</option>
+                           <option value={LeadStatus.CONTACTED}>Äang liÃªn há»‡</option>
+                           <option value={LeadStatus.QUALIFIED}>Äáº¡t chuáº©n (Qualified)</option>
+                           <option value={LeadStatus.DISQUALIFIED}>KhÃ´ng Ä‘áº¡t (Lost)</option>
                         </select>
                         <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none opacity-50" size={16} />
                      </div>
@@ -650,8 +653,8 @@ const LeadDetails: React.FC = () => {
                      {/* Helper Text */}
                      <div className="mt-3 p-3 bg-slate-50 text-slate-500 text-xs italic rounded-lg border border-slate-100">
                         {lead.status === LeadStatus.QUALIFIED
-                           ? "Khách tiềm năng. Hãy điền đủ thông tin chuyên môn và nhấn 'Chuyển đổi'."
-                           : "Vui lòng cập nhật trạng thái sau mỗi cuộc gọi để hệ thống ghi nhận KPI."}
+                           ? "KhÃ¡ch tiá»m nÄƒng. HÃ£y Ä‘iá»n Ä‘á»§ thÃ´ng tin chuyÃªn mÃ´n vÃ  nháº¥n 'Chuyá»ƒn Ä‘á»•i'."
+                           : "Vui lÃ²ng cáº­p nháº­t tráº¡ng thÃ¡i sau má»—i cuá»™c gá»i Ä‘á»ƒ há»‡ thá»‘ng ghi nháº­n KPI."}
                      </div>
                   </div>
 
@@ -659,7 +662,7 @@ const LeadDetails: React.FC = () => {
 
                   {/* Owner Section (Bottom Right) */}
                   <div className="mt-auto border-t border-slate-100 pt-6">
-                     <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 block">NGƯỜI PHỤ TRÁCH</label>
+                     <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 block">NGÆ¯á»œI PHá»¤ TRÃCH</label>
                      <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-700 font-bold flex items-center justify-center text-sm">
                            {lead.ownerId === 'u2' ? 'SM' : 'AD'}
@@ -680,3 +683,4 @@ const LeadDetails: React.FC = () => {
 };
 
 export default LeadDetails;
+

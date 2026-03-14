@@ -65,6 +65,17 @@ const TrainingTeachers: React.FC = () => {
     INACTIVE: 'Da nghi'
   };
 
+  const teacherStatusConfig: Record<ITeacher['status'], { label: string; className: string }> = {
+    ACTIVE: {
+      label: 'Đang hoạt động',
+      className: 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100'
+    },
+    INACTIVE: {
+      label: 'Đã nghỉ',
+      className: 'bg-rose-50 text-rose-700 ring-1 ring-rose-100'
+    }
+  };
+
   const activeSearchChips = useMemo<PinnedSearchChip[]>(() => {
     if (filterStatus === 'ALL') return [];
     return [
@@ -175,8 +186,9 @@ const TrainingTeachers: React.FC = () => {
             <thead className="bg-[#F8FAFC] border-b border-slate-200">
               <tr>
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Họ tên / Định danh</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Hợp đồng & Nhân sự</th>
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Chuyên môn</th>
+                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Hợp đồng & Nhân sự</th>
+                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Trạng thái</th>
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Lớp đang nhận</th>
               </tr>
             </thead>
@@ -205,12 +217,6 @@ const TrainingTeachers: React.FC = () => {
                     </div>
                   </td>
                   <td className="px-6 py-4">
-                    <div className="text-sm font-medium text-slate-700">{teacher.contractType}</div>
-                    <div className="text-xs text-slate-500 mt-1 flex items-center gap-1">
-                      <Briefcase size={12} /> Vào làm: {new Date(teacher.startDate).toLocaleDateString('vi-VN')}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
                     <div className="flex flex-wrap gap-1 mb-1">
                       {teacher.teachSubjects.map((lang) => (
                         <span key={lang} className="px-2 py-0.5 rounded border border-slate-200 bg-slate-50 text-[10px] font-bold text-slate-600 uppercase">{lang}</span>
@@ -222,6 +228,19 @@ const TrainingTeachers: React.FC = () => {
                     <div className="text-xs text-slate-500 flex items-center gap-1">
                       <Award size={12} className="text-amber-500" /> {teacher.certificates.join(', ') || '-'}
                     </div>
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="text-sm font-medium text-slate-700">{teacher.contractType}</div>
+                    <div className="text-xs text-slate-500 mt-1 flex items-center gap-1">
+                      <Briefcase size={12} /> Vào làm: {new Date(teacher.startDate).toLocaleDateString('vi-VN')}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4">
+                    <span
+                      className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-bold ${teacherStatusConfig[teacher.status].className}`}
+                    >
+                      {teacherStatusConfig[teacher.status].label}
+                    </span>
                   </td>
                   <td className="px-6 py-4 text-center">
                     <span className={`inline-flex items-center justify-center px-3 py-1 rounded-full text-xs font-bold ${classCountMap[teacher.id] > 0 ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500'}`}>
