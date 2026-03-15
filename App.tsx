@@ -33,6 +33,7 @@ import ContractDetails from './pages/ContractDetails';
 import ContractTemplates from './pages/ContractTemplates';
 import ContractApprovalQueue from './pages/ContractApprovalQueue';
 import FinanceRefunds from './pages/FinanceRefunds';
+import FinanceRefundDetail from './pages/FinanceRefundDetail';
 import FinancePaymentPlan from './pages/FinancePaymentPlan';
 import FinanceNewTransaction from './pages/FinanceNewTransaction';
 import FinanceTransactionQueue from './pages/FinanceTransactionQueue';
@@ -192,6 +193,7 @@ const AppRoutes = () => {
 
           {/* Finance Routes */}
           <Route path="refunds" element={<FinanceRefunds />} />
+          <Route path="refunds/:id" element={<FinanceRefundDetail />} />
           <Route path="finance/transactions" element={<FinanceTransactions />} />
           <Route path="finance/invoices" element={<FinanceInvoices />} />
           <Route path="finance/rules" element={<FinanceServiceRules />} />

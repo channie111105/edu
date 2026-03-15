@@ -1,729 +1,1311 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import {
-    Search,
-    ChevronLeft,
-    ChevronRight,
-    Plus,
-    AlertCircle,
-    CheckCircle2,
-    Undo2,
-    Clock,
-    MessageSquare,
-    X
+   AlertCircle,
+   Check,
+   CheckCircle2,
+   ChevronLeft,
+   ChevronRight,
+   Clock3,
+   Columns3,
+   MessageSquare,
+   Plus,
+   Search,
+   ShieldCheck,
+   X
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { IRefundLog, IRefundRequest, RefundStatus } from '../types';
 import { addRefund, addRefundLog, getRefundLogs, getRefunds, saveRefunds } from '../utils/storage';
 
+const REFUND_REASONS = [
+   'Rút hồ sơ',
+   'Đóng thừa',
+   'Thay đổi chính sách',
+   'Theo chính sách hỗ trợ',
+   'Lý do khác'
+];
+
 const INITIAL_REFUNDS: IRefundRequest[] = [
-    {
-        id: 'REF-92817',
-        createdAt: '2023-10-24T09:00:00.000Z',
-        studentName: 'Phạm Văn Hùng',
-        contractCode: 'HD-2024-001',
-        program: 'Du học Đức',
-        paidAmount: 45000000,
-        requestedAmount: 12000000,
-        approvedAmount: null,
-        reason: 'Rút hồ sơ (Withdrawal)',
-        status: 'CHO_KE_TOAN_DUYET'
-    },
-    {
-        id: 'REF-92815',
-        createdAt: '2023-10-22T14:00:00.000Z',
-        studentName: 'Nguyễn Thị Lan',
-        contractCode: 'HD-2024-042',
-        program: 'Tiếng Đức A1',
-        paidAmount: 8000000,
-        requestedAmount: 2000000,
-        approvedAmount: 2000000,
-        reason: 'Điều chỉnh Học bổng',
-        status: 'DA_HOAN_TIEN'
-    },
-    {
-        id: 'REF-92818',
-        createdAt: '2023-10-20T11:00:00.000Z',
-        studentName: 'Trần Minh Tuấn',
-        contractCode: 'HD-2023-891',
-        program: 'Du học nghề Úc',
-        paidAmount: 4000000,
-        requestedAmount: 4000000,
-        approvedAmount: 0,
-        reason: 'Trùng giao dịch',
-        status: 'DA_TU_CHOI'
-    },
-    {
-        id: 'REF-92821',
-        createdAt: '2023-10-24T15:00:00.000Z',
-        studentName: 'Lê Hoàng',
-        contractCode: 'HD-2024-112',
-        program: 'Workshop Kỹ năng',
-        paidAmount: 25000000,
-        requestedAmount: 5000000,
-        approvedAmount: null,
-        reason: 'Chuyển đổi khóa học',
-        status: 'CHO_SALE_DUYET'
-    }
+   {
+      id: 'REF-92821',
+      createdAt: '2026-03-10T08:30:00.000Z',
+      studentName: 'Lê Hoàng',
+      soCode: 'SO-240321',
+      contractCode: 'HD-2024-112',
+      program: 'Workshop Kỹ năng',
+      paidAmount: 25000000,
+      relatedPaymentCode: 'PT-240310-018',
+      requestedAmount: 5000000,
+      retainedAmount: 1000000,
+      approvedAmount: null,
+      reason: 'Thay đổi chính sách',
+      refundBasis: 'Biên bản điều chỉnh chương trình ngày 09/03/2026',
+      createdBy: 'Trần Văn Quản Trị',
+      ownerName: 'Lê Ngọc An',
+      status: 'SALE_XAC_NHAN',
+      paymentVoucherCode: '',
+      payoutDate: '',
+      note: 'Sale đã xác nhận hồ sơ, chờ kế toán kiểm tra.',
+      evidenceFiles: ['email-xac-nhan-chuyen-chuong-trinh.pdf', 'phieu-de-nghi-hoan-tien.docx'],
+      relatedDocuments: ['phu-luc-dieu-chinh-chuong-trinh.pdf']
+   },
+   {
+      id: 'REF-92817',
+      createdAt: '2026-03-08T10:15:00.000Z',
+      studentName: 'Phạm Văn Hùng',
+      soCode: 'SO-240108',
+      contractCode: 'HD-2024-001',
+      program: 'Du học Đức',
+      paidAmount: 45000000,
+      relatedPaymentCode: 'PT-240308-004',
+      requestedAmount: 12000000,
+      retainedAmount: 2000000,
+      approvedAmount: 10000000,
+      reason: 'Rút hồ sơ',
+      refundBasis: 'Email xác nhận dừng hồ sơ và phụ lục thanh lý hợp đồng',
+      createdBy: 'Nguyễn Thảo Sale',
+      ownerName: 'Trần Văn Quản Trị',
+      status: 'KE_TOAN_KIEM_TRA',
+      paymentVoucherCode: '',
+      payoutDate: '',
+      note: 'Đã đối chiếu công nợ, chờ CEO duyệt hạn mức hoàn.',
+      evidenceFiles: ['don-rut-ho-so.pdf', 'email-xac-nhan-dung-ho-so.eml'],
+      relatedDocuments: ['phu-luc-thanh-ly-hop-dong.pdf', 'bang-doi-chieu-cong-no.xlsx']
+   },
+   {
+      id: 'REF-92815',
+      createdAt: '2026-03-06T14:00:00.000Z',
+      studentName: 'Nguyễn Thị Lan',
+      soCode: 'SO-240042',
+      contractCode: 'HD-2024-042',
+      program: 'Tiếng Đức A1',
+      paidAmount: 8000000,
+      relatedPaymentCode: 'PT-240306-011',
+      requestedAmount: 2000000,
+      retainedAmount: 0,
+      approvedAmount: 2000000,
+      reason: 'Theo chính sách hỗ trợ',
+      refundBasis: 'Quyết định hỗ trợ học viên số HT-03/2026',
+      createdBy: 'Lê Hạnh Sale',
+      ownerName: 'Trần Văn Quản Trị',
+      status: 'DA_HOAN',
+      paymentVoucherCode: 'PC-00015',
+      payoutDate: '2026-03-07',
+      note: 'Đã chi tiền mặt tại quầy và đối chiếu ký nhận.',
+      evidenceFiles: ['quyet-dinh-ho-tro.pdf'],
+      relatedDocuments: ['phieu-chi-pc-00015.pdf', 'bien-ban-ky-nhan.pdf']
+   },
+   {
+      id: 'REF-92818',
+      createdAt: '2026-03-05T09:45:00.000Z',
+      studentName: 'Trần Minh Tuấn',
+      soCode: 'SO-230891',
+      contractCode: 'HD-2023-891',
+      program: 'Du học nghề Úc',
+      paidAmount: 4000000,
+      relatedPaymentCode: 'PT-240305-009',
+      requestedAmount: 4000000,
+      retainedAmount: 0,
+      approvedAmount: 0,
+      reason: 'Đóng thừa',
+      refundBasis: 'Đối chiếu giao dịch trùng trên sao kê ngân hàng',
+      createdBy: 'Phạm Nam Kế Toán',
+      ownerName: 'Phạm Nam Kế Toán',
+      status: 'TU_CHOI',
+      paymentVoucherCode: '',
+      payoutDate: '',
+      note: 'Khoản thu đã được bù trừ vào kỳ công nợ kế tiếp.',
+      evidenceFiles: ['sao-ke-ngan-hang-thang-03.pdf'],
+      relatedDocuments: ['bien-ban-doi-soat.pdf']
+   }
 ];
 
 const INITIAL_REFUND_LOGS: IRefundLog[] = [
-    {
-        id: 'RLOG-REF-92817-1',
-        refundId: 'REF-92817',
-        action: 'Tạo yêu cầu',
-        createdAt: '2023-10-24T09:00:00.000Z',
-        createdBy: 'Sale Admin'
-    },
-    {
-        id: 'RLOG-REF-92817-2',
-        refundId: 'REF-92817',
-        action: 'Đã duyệt sơ bộ',
-        createdAt: '2023-10-24T10:30:00.000Z',
-        createdBy: 'Sale Leader'
-    },
-    {
-        id: 'RLOG-REF-92815-1',
-        refundId: 'REF-92815',
-        action: 'Tạo yêu cầu',
-        createdAt: '2023-10-22T14:00:00.000Z',
-        createdBy: 'Sale Admin'
-    },
-    {
-        id: 'RLOG-REF-92815-2',
-        refundId: 'REF-92815',
-        action: 'Đã duyệt chi',
-        createdAt: '2023-10-23T09:15:00.000Z',
-        createdBy: 'Kế toán trưởng'
-    },
-    {
-        id: 'RLOG-REF-92818-1',
-        refundId: 'REF-92818',
-        action: 'Auto-detect Duplicate',
-        createdAt: '2023-10-20T11:00:00.000Z',
-        createdBy: 'System'
-    },
-    {
-        id: 'RLOG-REF-92818-2',
-        refundId: 'REF-92818',
-        action: 'Từ chối: Đã xử lý ở giao dịch khác',
-        createdAt: '2023-10-20T11:05:00.000Z',
-        createdBy: 'Kế toán'
-    },
-    {
-        id: 'RLOG-REF-92821-1',
-        refundId: 'REF-92821',
-        action: 'Tạo yêu cầu',
-        createdAt: '2023-10-24T15:00:00.000Z',
-        createdBy: 'Sale Rep'
-    }
+   {
+      id: 'RLOG-REF-92821-1',
+      refundId: 'REF-92821',
+      action: 'Tạo yêu cầu hoàn tiền',
+      createdAt: '2026-03-10T08:30:00.000Z',
+      createdBy: 'Trần Văn Quản Trị'
+   },
+   {
+      id: 'RLOG-REF-92821-2',
+      refundId: 'REF-92821',
+      action: 'Sale xác nhận hồ sơ hợp lệ',
+      createdAt: '2026-03-10T14:10:00.000Z',
+      createdBy: 'Lê Ngọc An'
+   },
+   {
+      id: 'RLOG-REF-92817-1',
+      refundId: 'REF-92817',
+      action: 'Tạo yêu cầu hoàn tiền',
+      createdAt: '2026-03-08T10:15:00.000Z',
+      createdBy: 'Nguyễn Thảo Sale'
+   },
+   {
+      id: 'RLOG-REF-92817-2',
+      refundId: 'REF-92817',
+      action: 'Kế toán kiểm tra số tiền hoàn 10.000.000 đ',
+      createdAt: '2026-03-09T16:45:00.000Z',
+      createdBy: 'Trần Văn Quản Trị'
+   },
+   {
+      id: 'RLOG-REF-92815-1',
+      refundId: 'REF-92815',
+      action: 'CEO duyệt hoàn tiền',
+      createdAt: '2026-03-06T16:00:00.000Z',
+      createdBy: 'CEO'
+   },
+   {
+      id: 'RLOG-REF-92815-2',
+      refundId: 'REF-92815',
+      action: 'Phát hành chứng từ chi PC-00015',
+      createdAt: '2026-03-07T10:20:00.000Z',
+      createdBy: 'Phạm Nam Kế Toán'
+   }
 ];
 
-const formatCurrency = (val: number) =>
-    new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(val);
+const formatCurrency = (value: number) =>
+   new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(value || 0);
 
-const formatDate = (iso: string) => new Date(iso).toLocaleDateString('vi-VN');
-const formatDateTime = (iso: string) =>
-    new Date(iso).toLocaleString('vi-VN', { hour12: false });
+const formatDate = (value?: string) => {
+   if (!value) return '--';
+   const date = new Date(value);
+   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('vi-VN');
+};
+
+const formatDateTime = (value: string) =>
+   new Date(value).toLocaleString('vi-VN', { hour12: false });
 
 type RefundFilter = 'ALL' | RefundStatus;
 
-type FormErrors = {
-    studentName?: string;
-    contractCode?: string;
-    paidAmount?: string;
-    requestedAmount?: string;
-    reason?: string;
+type RefundColumnKey =
+   | 'refundId'
+   | 'studentName'
+   | 'soCode'
+   | 'contractCode'
+   | 'program'
+   | 'paidAmount'
+   | 'requestedAmount'
+   | 'approvedAmount'
+   | 'reason'
+   | 'refundBasis'
+   | 'createdBy'
+   | 'ownerName'
+   | 'status'
+   | 'paymentVoucherCode'
+   | 'payoutDate'
+   | 'note'
+   | 'log';
+
+type RefundColumnOption = {
+   id: RefundColumnKey;
+   label: string;
+   align?: 'left' | 'right' | 'center';
+   defaultVisible?: boolean;
+   required?: boolean;
+   thClassName?: string;
+   tdClassName?: string;
 };
+
+type RefundFormState = {
+   studentName: string;
+   soCode: string;
+   contractCode: string;
+   program: string;
+   paidAmount: string;
+   requestedAmount: string;
+   approvedAmount: string;
+   reason: string;
+   refundBasis: string;
+   ownerName: string;
+   status: RefundStatus;
+   paymentVoucherCode: string;
+   payoutDate: string;
+   note: string;
+};
+
+type FormErrors = Partial<Record<keyof RefundFormState, string>>;
+
+const EMPTY_FORM: RefundFormState = {
+   studentName: '',
+   soCode: '',
+   contractCode: '',
+   program: '',
+   paidAmount: '',
+   requestedAmount: '',
+   approvedAmount: '',
+   reason: REFUND_REASONS[0],
+   refundBasis: '',
+   ownerName: '',
+   status: 'NHAP',
+   paymentVoucherCode: '',
+   payoutDate: '',
+   note: ''
+};
+
+const FILTERS: Array<{ key: RefundFilter; label: string; icon?: React.ComponentType<{ size?: number }> }> = [
+   { key: 'ALL', label: 'Tất cả' },
+   { key: 'NHAP', label: 'Nháp', icon: Clock3 },
+   { key: 'SALE_XAC_NHAN', label: 'Sale xác nhận', icon: CheckCircle2 },
+   { key: 'KE_TOAN_KIEM_TRA', label: 'Kế toán kiểm tra', icon: AlertCircle },
+   { key: 'CEO_DUYET', label: 'CEO duyệt', icon: ShieldCheck },
+   { key: 'DA_HOAN', label: 'Đã hoàn', icon: CheckCircle2 }
+];
 
 const STATUS_META: Record<RefundStatus, { label: string; badge: string }> = {
-    CHO_SALE_DUYET: { label: 'Chờ Sale duyệt', badge: 'bg-yellow-100 text-yellow-700 border-yellow-200' },
-    CHO_KE_TOAN_DUYET: {
-        label: 'Chờ Kế toán duyệt',
-        badge: 'bg-orange-100 text-orange-700 border-orange-200'
-    },
-    DA_HOAN_TIEN: { label: 'Đã hoàn tiền', badge: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
-    DA_TU_CHOI: { label: 'Đã từ chối', badge: 'bg-red-100 text-red-700 border-red-200' }
+   NHAP: { label: 'Nháp', badge: 'bg-slate-100 text-slate-700 border-slate-200' },
+   SALE_XAC_NHAN: { label: 'Sale xác nhận', badge: 'bg-blue-50 text-blue-700 border-blue-200' },
+   KE_TOAN_KIEM_TRA: { label: 'Kế toán kiểm tra', badge: 'bg-amber-50 text-amber-700 border-amber-200' },
+   CEO_DUYET: { label: 'CEO duyệt', badge: 'bg-violet-50 text-violet-700 border-violet-200' },
+   DA_HOAN: { label: 'Đã hoàn', badge: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
+   TU_CHOI: { label: 'Từ chối', badge: 'bg-red-50 text-red-700 border-red-200' },
+   HUY_YEU_CAU: { label: 'Huỷ yêu cầu', badge: 'bg-slate-200 text-slate-600 border-slate-300' }
 };
 
+const REFUND_VISIBLE_COLUMNS_STORAGE_KEY = 'educrm_refund_visible_columns_v2';
+
+const REFUND_COLUMN_OPTIONS: RefundColumnOption[] = [
+   {
+      id: 'refundId',
+      label: 'Mã HT',
+      defaultVisible: true,
+      required: true,
+      thClassName: 'whitespace-nowrap',
+      tdClassName: 'whitespace-nowrap align-top'
+   },
+   {
+      id: 'studentName',
+      label: 'Học viên',
+      defaultVisible: true,
+      thClassName: 'whitespace-nowrap',
+      tdClassName: 'whitespace-nowrap align-top text-sm font-semibold text-slate-900'
+   },
+   {
+      id: 'soCode',
+      label: 'SO',
+      thClassName: 'whitespace-nowrap',
+      tdClassName: 'whitespace-nowrap align-top text-sm text-slate-700'
+   },
+   {
+      id: 'contractCode',
+      label: 'HĐ',
+      defaultVisible: true,
+      thClassName: 'whitespace-nowrap',
+      tdClassName: 'whitespace-nowrap align-top text-sm text-slate-700'
+   },
+   {
+      id: 'program',
+      label: 'Chương trình/Gói SP',
+      tdClassName: 'align-top text-sm text-slate-700'
+   },
+   {
+      id: 'paidAmount',
+      label: 'Số tiền đã thu',
+      align: 'right',
+      thClassName: 'whitespace-nowrap',
+      tdClassName: 'whitespace-nowrap align-top text-sm text-slate-600'
+   },
+   {
+      id: 'requestedAmount',
+      label: 'Đề nghị hoàn',
+      align: 'right',
+      defaultVisible: true,
+      thClassName: 'whitespace-nowrap',
+      tdClassName: 'whitespace-nowrap align-top text-sm font-bold text-orange-600'
+   },
+   {
+      id: 'approvedAmount',
+      label: 'Duyệt hoàn',
+      align: 'right',
+      defaultVisible: true,
+      thClassName: 'whitespace-nowrap',
+      tdClassName: 'whitespace-nowrap align-top'
+   },
+   {
+      id: 'reason',
+      label: 'Lý do hoàn',
+      thClassName: 'whitespace-nowrap',
+      tdClassName: 'align-top text-sm text-slate-700'
+   },
+   {
+      id: 'refundBasis',
+      label: 'Căn cứ hoàn',
+      tdClassName: 'min-w-[240px] align-top text-sm text-slate-600'
+   },
+   {
+      id: 'createdBy',
+      label: 'Người tạo',
+      thClassName: 'whitespace-nowrap',
+      tdClassName: 'whitespace-nowrap align-top text-sm text-slate-700'
+   },
+   {
+      id: 'ownerName',
+      label: 'Người phụ trách',
+      thClassName: 'whitespace-nowrap',
+      tdClassName: 'whitespace-nowrap align-top text-sm text-slate-700'
+   },
+   {
+      id: 'status',
+      label: 'Trạng thái',
+      align: 'center',
+      defaultVisible: true,
+      required: true,
+      thClassName: 'whitespace-nowrap',
+      tdClassName: 'whitespace-nowrap text-center align-top'
+   },
+   {
+      id: 'paymentVoucherCode',
+      label: 'Chứng từ chi',
+      thClassName: 'whitespace-nowrap',
+      tdClassName: 'whitespace-nowrap align-top text-sm text-slate-700'
+   },
+   {
+      id: 'payoutDate',
+      label: 'Ngày thực chi',
+      thClassName: 'whitespace-nowrap',
+      tdClassName: 'whitespace-nowrap align-top text-sm text-slate-600'
+   },
+   {
+      id: 'note',
+      label: 'Ghi chú',
+      tdClassName: 'min-w-[220px] align-top text-sm text-slate-600'
+   },
+   {
+      id: 'log',
+      label: 'Log',
+      align: 'center',
+      defaultVisible: true,
+      required: true,
+      thClassName: 'whitespace-nowrap',
+      tdClassName: 'text-center align-top'
+   }
+];
+
+const DEFAULT_VISIBLE_REFUND_COLUMNS = REFUND_COLUMN_OPTIONS.filter(
+   (column) => column.defaultVisible || column.required
+).map((column) => column.id);
+
+const getStoredVisibleRefundColumns = (): RefundColumnKey[] => {
+   if (typeof window === 'undefined') return DEFAULT_VISIBLE_REFUND_COLUMNS;
+
+   const validIds = new Set(REFUND_COLUMN_OPTIONS.map((column) => column.id));
+   const requiredIds = new Set(
+      REFUND_COLUMN_OPTIONS.filter((column) => column.required).map((column) => column.id)
+   );
+
+   try {
+      const raw = window.localStorage.getItem(REFUND_VISIBLE_COLUMNS_STORAGE_KEY);
+      if (!raw) return DEFAULT_VISIBLE_REFUND_COLUMNS;
+
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return DEFAULT_VISIBLE_REFUND_COLUMNS;
+
+      const selected = parsed.filter((value): value is RefundColumnKey => validIds.has(value));
+      const merged = REFUND_COLUMN_OPTIONS.filter(
+         (column) => requiredIds.has(column.id) || selected.includes(column.id)
+      ).map((column) => column.id);
+
+      return merged.length ? merged : DEFAULT_VISIBLE_REFUND_COLUMNS;
+   } catch {
+      return DEFAULT_VISIBLE_REFUND_COLUMNS;
+   }
+};
+
+const normalizeRefundStatus = (status: unknown): RefundStatus => {
+   const token = String(status || '').trim().toUpperCase();
+
+   if (token === 'NHAP') return 'NHAP';
+   if (token === 'SALE_XAC_NHAN' || token === 'CHO_SALE_DUYET') return 'SALE_XAC_NHAN';
+   if (token === 'KE_TOAN_KIEM_TRA' || token === 'CHO_KE_TOAN_DUYET') return 'KE_TOAN_KIEM_TRA';
+   if (token === 'CEO_DUYET') return 'CEO_DUYET';
+   if (token === 'DA_HOAN' || token === 'DA_HOAN_TIEN') return 'DA_HOAN';
+   if (token === 'TU_CHOI' || token === 'DA_TU_CHOI') return 'TU_CHOI';
+   if (token === 'HUY_YEU_CAU') return 'HUY_YEU_CAU';
+
+   return 'NHAP';
+};
+
+const normalizeRefund = (item: Partial<IRefundRequest>): IRefundRequest => ({
+   id: item.id || `REF-${Date.now()}`,
+   createdAt: item.createdAt || new Date().toISOString(),
+   studentName: item.studentName || 'Chưa cập nhật',
+   soCode: item.soCode || '',
+   contractCode: item.contractCode || '',
+   program: item.program || '',
+   paidAmount: Number(item.paidAmount || 0),
+   requestedAmount: Number(item.requestedAmount || 0),
+   relatedPaymentCode: item.relatedPaymentCode || '',
+   retainedAmount:
+      item.retainedAmount === null || item.retainedAmount === undefined ? null : Number(item.retainedAmount || 0),
+   approvedAmount:
+      item.approvedAmount === null || item.approvedAmount === undefined ? null : Number(item.approvedAmount || 0),
+   reason: item.reason || 'Lý do khác',
+   refundBasis: item.refundBasis || '',
+   createdBy: item.createdBy || 'Hệ thống',
+   ownerName: item.ownerName || '',
+   status: normalizeRefundStatus(item.status),
+   paymentVoucherCode: item.paymentVoucherCode || '',
+   payoutDate: item.payoutDate || '',
+   note: item.note || '',
+   evidenceFiles: Array.isArray(item.evidenceFiles) ? item.evidenceFiles : [],
+   relatedDocuments: Array.isArray(item.relatedDocuments) ? item.relatedDocuments : []
+});
+
 const FinanceRefunds: React.FC = () => {
-    const { user } = useAuth();
-    const [refunds, setRefunds] = useState<IRefundRequest[]>([]);
-    const [logs, setLogs] = useState<IRefundLog[]>([]);
-    const [statusFilter, setStatusFilter] = useState<RefundFilter>('ALL');
-    const [searchTerm, setSearchTerm] = useState('');
-    const [showLogModal, setShowLogModal] = useState<IRefundRequest | null>(null);
-    const [showCreateModal, setShowCreateModal] = useState(false);
-    const [toastMessage, setToastMessage] = useState<string | null>(null);
+   const { user } = useAuth();
+   const navigate = useNavigate();
+   const columnMenuRef = useRef<HTMLDivElement | null>(null);
+   const [refunds, setRefunds] = useState<IRefundRequest[]>([]);
+   const [logs, setLogs] = useState<IRefundLog[]>([]);
+   const [statusFilter, setStatusFilter] = useState<RefundFilter>('ALL');
+   const [searchTerm, setSearchTerm] = useState('');
+   const [visibleColumns, setVisibleColumns] = useState<RefundColumnKey[]>(() => getStoredVisibleRefundColumns());
+   const [showColumnMenu, setShowColumnMenu] = useState(false);
+   const [showCreateModal, setShowCreateModal] = useState(false);
+   const [showLogModal, setShowLogModal] = useState<IRefundRequest | null>(null);
+   const [toastMessage, setToastMessage] = useState<string | null>(null);
+   const [formData, setFormData] = useState<RefundFormState>(EMPTY_FORM);
+   const [errors, setErrors] = useState<FormErrors>({});
 
-    const [formData, setFormData] = useState({
-        studentName: '',
-        contractCode: '',
-        paidAmount: '',
-        requestedAmount: '',
-        reason: ''
-    });
-    const [isPaidAmountAuto, setIsPaidAmountAuto] = useState(true);
-    const [errors, setErrors] = useState<FormErrors>({});
+   const loadData = () => {
+      setRefunds((getRefunds() || []).map((item) => normalizeRefund(item)));
+      setLogs(getRefundLogs());
+   };
 
-    const loadData = () => {
-        setRefunds(getRefunds());
-        setLogs(getRefundLogs());
-    };
+   useEffect(() => {
+      const currentRefunds = getRefunds();
+      if (!currentRefunds.length) {
+         saveRefunds(INITIAL_REFUNDS);
+      } else {
+         const normalizedRefunds = currentRefunds.map((item) => normalizeRefund(item));
+         if (JSON.stringify(currentRefunds) !== JSON.stringify(normalizedRefunds)) {
+            saveRefunds(normalizedRefunds);
+         }
+      }
 
-    useEffect(() => {
-        const currentRefunds = getRefunds();
-        if (!currentRefunds.length) {
-            saveRefunds(INITIAL_REFUNDS);
-        }
+      const currentLogs = getRefundLogs();
+      if (!currentLogs.length) {
+         INITIAL_REFUND_LOGS.forEach((item) => addRefundLog(item));
+      }
 
-        const currentLogs = getRefundLogs();
-        if (!currentLogs.length) {
-            INITIAL_REFUND_LOGS.forEach((item) => addRefundLog(item));
-        }
+      loadData();
 
-        loadData();
+      window.addEventListener('educrm:refunds-changed', loadData as EventListener);
+      window.addEventListener('educrm:refund-logs-changed', loadData as EventListener);
 
-        window.addEventListener('educrm:refunds-changed', loadData as EventListener);
-        window.addEventListener('educrm:refund-logs-changed', loadData as EventListener);
-        return () => {
-            window.removeEventListener('educrm:refunds-changed', loadData as EventListener);
-            window.removeEventListener('educrm:refund-logs-changed', loadData as EventListener);
-        };
-    }, []);
+      return () => {
+         window.removeEventListener('educrm:refunds-changed', loadData as EventListener);
+         window.removeEventListener('educrm:refund-logs-changed', loadData as EventListener);
+      };
+   }, []);
 
-    useEffect(() => {
-        if (!toastMessage) return;
-        const timer = window.setTimeout(() => setToastMessage(null), 2500);
-        return () => window.clearTimeout(timer);
-    }, [toastMessage]);
+   useEffect(() => {
+      if (!toastMessage) return;
+      const timer = window.setTimeout(() => setToastMessage(null), 2500);
+      return () => window.clearTimeout(timer);
+   }, [toastMessage]);
 
-    const contractDirectory = useMemo(() => {
-        const map = new Map<
-            string,
-            { contractCode: string; studentName: string; paidAmount: number; program?: string }
-        >();
-        refunds.forEach((item) => {
-            if (!map.has(item.contractCode)) {
-                map.set(item.contractCode, {
-                    contractCode: item.contractCode,
-                    studentName: item.studentName,
-                    paidAmount: item.paidAmount,
-                    program: item.program
-                });
-            }
-        });
-        return Array.from(map.values());
-    }, [refunds]);
+   useEffect(() => {
+      window.localStorage.setItem(REFUND_VISIBLE_COLUMNS_STORAGE_KEY, JSON.stringify(visibleColumns));
+   }, [visibleColumns]);
 
-    const studentOptions = useMemo(
-        () => Array.from(new Set(refunds.map((item) => item.studentName))).sort((a, b) => a.localeCompare(b)),
-        [refunds]
-    );
+   useEffect(() => {
+      if (!showColumnMenu) return;
 
-    const logMap = useMemo(() => {
-        return logs.reduce<Record<string, IRefundLog[]>>((acc, item) => {
-            if (!acc[item.refundId]) acc[item.refundId] = [];
-            acc[item.refundId].push(item);
-            return acc;
-        }, {});
-    }, [logs]);
+      const handleClickOutside = (event: MouseEvent) => {
+         if (!columnMenuRef.current?.contains(event.target as Node)) {
+            setShowColumnMenu(false);
+         }
+      };
 
-    const filteredData = useMemo(() => {
-        return refunds
-            .filter((item) => {
-                if (statusFilter !== 'ALL' && item.status !== statusFilter) return false;
-                const query = searchTerm.trim().toLowerCase();
-                if (!query) return true;
-                return [item.id, item.studentName, item.contractCode, item.reason]
-                    .join(' ')
-                    .toLowerCase()
-                    .includes(query);
-            })
-            .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    }, [refunds, statusFilter, searchTerm]);
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+   }, [showColumnMenu]);
 
-    const selectedLogs = useMemo(() => {
-        if (!showLogModal) return [];
-        return (logMap[showLogModal.id] || []).sort(
-            (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-        );
-    }, [showLogModal, logMap]);
+   const selectedLogs = useMemo(() => {
+      if (!showLogModal) return [];
+      return getRefundLogs(showLogModal.id).sort(
+         (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      );
+   }, [showLogModal, logs]);
 
-    const getApprovedAmountCell = (item: IRefundRequest) => {
-        if (item.status === 'DA_HOAN_TIEN') {
-            const approved = typeof item.approvedAmount === 'number' ? item.approvedAmount : item.requestedAmount;
-            return <span className="inline-block whitespace-nowrap text-sm font-bold text-emerald-600">{formatCurrency(approved)}</span>;
-        }
-        if (item.status === 'DA_TU_CHOI') {
-            if (item.approvedAmount === 0) {
-                return <span className="inline-block whitespace-nowrap text-sm font-bold text-slate-600">{formatCurrency(0)}</span>;
-            }
-            return <span className="inline-block whitespace-nowrap text-sm text-slate-400">—</span>;
-        }
-        return <span className="inline-block whitespace-nowrap text-sm text-slate-400 italic">Chưa duyệt</span>;
-    };
+   const activeRefundColumns = useMemo(
+      () => REFUND_COLUMN_OPTIONS.filter((column) => visibleColumns.includes(column.id)),
+      [visibleColumns]
+   );
 
-    const openCreateModal = () => {
-        setFormData({
-            studentName: '',
-            contractCode: '',
-            paidAmount: '',
-            requestedAmount: '',
-            reason: ''
-        });
-        setIsPaidAmountAuto(true);
-        setErrors({});
-        setShowCreateModal(true);
-    };
+   const filteredData = useMemo(() => {
+      const query = searchTerm.trim().toLowerCase();
 
-    const handleStudentChange = (value: string) => {
-        setFormData((prev) => ({ ...prev, studentName: value }));
-        setErrors((prev) => ({ ...prev, studentName: undefined }));
+      return refunds
+         .filter((item) => {
+            if (statusFilter !== 'ALL' && item.status !== statusFilter) return false;
+            if (!query) return true;
 
-        if (!formData.contractCode.trim()) return;
-        const matched = contractDirectory.find(
-            (item) =>
-                item.contractCode.toLowerCase() === formData.contractCode.trim().toLowerCase() &&
-                item.studentName.toLowerCase() === value.trim().toLowerCase()
-        );
-        if (matched) {
-            setFormData((prev) => ({ ...prev, paidAmount: String(matched.paidAmount) }));
-            setIsPaidAmountAuto(true);
-        }
-    };
+            return [
+               item.id,
+               item.studentName,
+               item.soCode,
+               item.contractCode,
+               item.program,
+               item.reason,
+               item.createdBy,
+               item.ownerName,
+               item.paymentVoucherCode
+            ]
+               .join(' ')
+               .toLowerCase()
+               .includes(query);
+         })
+         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+   }, [refunds, searchTerm, statusFilter]);
 
-    const handleContractChange = (value: string) => {
-        setFormData((prev) => ({ ...prev, contractCode: value }));
-        setErrors((prev) => ({ ...prev, contractCode: undefined }));
+   const studentOptions = useMemo(
+      () => Array.from(new Set(refunds.map((item) => item.studentName))).sort((a, b) => a.localeCompare(b)),
+      [refunds]
+   );
 
-        const matched = contractDirectory.find((item) => item.contractCode.toLowerCase() === value.trim().toLowerCase());
-        if (matched) {
-            setFormData((prev) => ({
-                ...prev,
-                contractCode: value,
-                paidAmount: String(matched.paidAmount),
-                studentName: prev.studentName || matched.studentName
-            }));
-            setIsPaidAmountAuto(true);
-        } else {
-            setIsPaidAmountAuto(false);
-        }
-    };
+   const contractOptions = useMemo(
+      () => Array.from(new Set(refunds.map((item) => item.contractCode))).sort((a, b) => a.localeCompare(b)),
+      [refunds]
+   );
 
-    const validateForm = (): boolean => {
-        const nextErrors: FormErrors = {};
-        const paidAmount = Number(formData.paidAmount);
-        const requestedAmount = Number(formData.requestedAmount);
+   const soOptions = useMemo(
+      () => Array.from(new Set(refunds.map((item) => item.soCode).filter(Boolean) as string[])).sort((a, b) => a.localeCompare(b)),
+      [refunds]
+   );
 
-        if (!formData.studentName.trim()) nextErrors.studentName = 'Học viên là bắt buộc.';
-        if (!formData.contractCode.trim()) nextErrors.contractCode = 'Mã hợp đồng là bắt buộc.';
-        if (!formData.reason.trim()) nextErrors.reason = 'Lý do là bắt buộc.';
+   const resetForm = () => {
+      setFormData(EMPTY_FORM);
+      setErrors({});
+      setShowCreateModal(false);
+   };
 
-        if (!paidAmount || paidAmount <= 0) {
-            nextErrors.paidAmount = 'Số tiền đã đóng phải lớn hơn 0.';
-        }
+   const validateForm = () => {
+      const nextErrors: FormErrors = {};
+      const paidAmount = Number(formData.paidAmount || 0);
+      const requestedAmount = Number(formData.requestedAmount || 0);
+      const approvedAmount = formData.approvedAmount === '' ? null : Number(formData.approvedAmount);
 
-        if (!requestedAmount || requestedAmount <= 0) {
-            nextErrors.requestedAmount = 'Yêu cầu hoàn phải lớn hơn 0.';
-        } else if (paidAmount > 0 && requestedAmount > paidAmount) {
-            nextErrors.requestedAmount = 'Yêu cầu hoàn không được lớn hơn số tiền đã đóng.';
-        }
+      if (!formData.studentName.trim()) nextErrors.studentName = 'Học viên là bắt buộc.';
+      if (!formData.soCode.trim()) nextErrors.soCode = 'SO là bắt buộc.';
+      if (!formData.contractCode.trim()) nextErrors.contractCode = 'Hợp đồng là bắt buộc.';
+      if (!formData.program.trim()) nextErrors.program = 'Chương trình/Gói SP là bắt buộc.';
+      if (!paidAmount || paidAmount <= 0) nextErrors.paidAmount = 'Số tiền đã thu phải lớn hơn 0.';
+      if (!requestedAmount || requestedAmount <= 0) {
+         nextErrors.requestedAmount = 'Số tiền đề nghị hoàn phải lớn hơn 0.';
+      } else if (requestedAmount > paidAmount) {
+         nextErrors.requestedAmount = 'Số tiền đề nghị hoàn không được vượt số tiền đã thu.';
+      }
+      if (approvedAmount !== null && !Number.isNaN(approvedAmount) && approvedAmount > requestedAmount) {
+         nextErrors.approvedAmount = 'Số tiền duyệt không được vượt số tiền đề nghị.';
+      }
+      if (!formData.reason.trim()) nextErrors.reason = 'Lý do hoàn là bắt buộc.';
+      if (!formData.refundBasis.trim()) nextErrors.refundBasis = 'Căn cứ hoàn là bắt buộc.';
+      if (!formData.ownerName.trim()) nextErrors.ownerName = 'Người phụ trách là bắt buộc.';
+      if (formData.paymentVoucherCode.trim() && !formData.payoutDate.trim()) {
+         nextErrors.payoutDate = 'Cần nhập ngày thực chi khi đã có chứng từ chi.';
+      }
 
-        setErrors(nextErrors);
-        return Object.keys(nextErrors).length === 0;
-    };
+      setErrors(nextErrors);
+      return Object.keys(nextErrors).length === 0;
+   };
 
-    const handleCreateRefund = () => {
-        if (!validateForm()) return;
+   const handleCreateRefund = () => {
+      if (!validateForm()) return;
 
-        const now = new Date().toISOString();
-        const newId = `REF-${Math.floor(10000 + Math.random() * 90000)}`;
+      const now = new Date().toISOString();
+      const newRecord: IRefundRequest = {
+         id: `REF-${Math.floor(10000 + Math.random() * 90000)}`,
+         createdAt: now,
+         studentName: formData.studentName.trim(),
+         soCode: formData.soCode.trim(),
+         contractCode: formData.contractCode.trim(),
+         program: formData.program.trim(),
+         paidAmount: Number(formData.paidAmount || 0),
+         requestedAmount: Number(formData.requestedAmount || 0),
+         approvedAmount: formData.approvedAmount === '' ? null : Number(formData.approvedAmount),
+         reason: formData.reason.trim(),
+         refundBasis: formData.refundBasis.trim(),
+         createdBy: user?.name || 'Hệ thống',
+         ownerName: formData.ownerName.trim(),
+         status: formData.status,
+         paymentVoucherCode: formData.paymentVoucherCode.trim(),
+         payoutDate: formData.payoutDate || undefined,
+         note: formData.note.trim()
+      };
 
-        const matchedContract = contractDirectory.find(
-            (item) => item.contractCode.toLowerCase() === formData.contractCode.trim().toLowerCase()
-        );
+      addRefund(newRecord);
+      addRefundLog({
+         id: `RLOG-${Date.now()}`,
+         refundId: newRecord.id,
+         action: `Tạo yêu cầu hoàn tiền ở trạng thái ${STATUS_META[newRecord.status].label}`,
+         createdAt: now,
+         createdBy: user?.name || user?.role || 'Hệ thống'
+      });
 
-        const newRecord: IRefundRequest = {
-            id: newId,
-            createdAt: now,
-            studentName: formData.studentName.trim(),
-            contractCode: formData.contractCode.trim(),
-            program: matchedContract?.program || 'Chưa phân loại',
-            paidAmount: Number(formData.paidAmount),
-            requestedAmount: Number(formData.requestedAmount),
-            approvedAmount: null,
-            reason: formData.reason.trim(),
-            status: 'CHO_SALE_DUYET'
-        };
+      setToastMessage('Đã tạo yêu cầu hoàn tiền');
+      resetForm();
+   };
 
-        addRefund(newRecord);
+   const getApprovedAmountCell = (item: IRefundRequest) => {
+      if (typeof item.approvedAmount !== 'number') {
+         return <span className="text-sm italic text-slate-400">Chưa duyệt</span>;
+      }
 
-        addRefundLog({
-            id: `RLOG-${Date.now()}`,
-            refundId: newRecord.id,
-            action: 'Tạo yêu cầu',
-            createdAt: now,
-            createdBy: user?.name || user?.role || 'Kế toán'
-        });
+      return (
+         <span
+            className={`text-sm font-bold ${
+               item.approvedAmount > 0 ? 'text-emerald-600' : 'text-slate-500'
+            }`}
+         >
+            {formatCurrency(item.approvedAmount)}
+         </span>
+      );
+   };
 
-        setShowCreateModal(false);
-        setToastMessage('Đã tạo yêu cầu hoàn tiền');
-    };
+   const toggleColumn = (columnId: RefundColumnKey) => {
+      const target = REFUND_COLUMN_OPTIONS.find((column) => column.id === columnId);
+      if (target?.required) return;
 
-    return (
-        <div className="p-8 max-w-[1600px] mx-auto bg-[#F8FAFC] min-h-screen font-sans text-slate-900">
-            <div className="flex justify-between items-end mb-8">
-                <div>
-                    <h1 className="text-3xl font-black text-slate-900 tracking-tight mb-2">Quản lý Yêu cầu Hoàn tiền</h1>
-                    <p className="text-slate-500">Xử lý và phê duyệt các yêu cầu hoàn tiền, rút phí từ học viên.</p>
-                </div>
-                <div>
-                    <button
-                        onClick={openCreateModal}
-                        className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg font-bold shadow-sm transition-all"
-                    >
-                        <Plus size={18} /> Tạo Yêu cầu mới
-                    </button>
-                </div>
+      setVisibleColumns((current) => {
+         if (current.includes(columnId)) {
+            const next = current.filter((item) => item !== columnId);
+            return next.length ? next : current;
+         }
+
+         return REFUND_COLUMN_OPTIONS.filter(
+            (column) => column.id === columnId || current.includes(column.id)
+         ).map((column) => column.id);
+      });
+   };
+
+   const renderRefundCell = (item: IRefundRequest, columnId: RefundColumnKey) => {
+      switch (columnId) {
+         case 'refundId':
+            return (
+               <td className="w-[150px] px-4 py-4 align-top">
+                  <Link
+                     to={`/refunds/${item.id}`}
+                     className="font-mono text-sm font-bold text-blue-600 transition-colors hover:text-blue-700 hover:underline"
+                  >
+                     {item.id}
+                  </Link>
+                  <div className="mt-1 text-xs text-slate-400">{formatDate(item.createdAt)}</div>
+               </td>
+            );
+         case 'studentName':
+            return (
+               <td className="w-[170px] break-words px-4 py-4 align-top text-sm font-semibold text-slate-900">
+                  <Link
+                     to={`/refunds/${item.id}`}
+                     className="transition-colors hover:text-blue-700 hover:underline"
+                  >
+                     {item.studentName}
+                  </Link>
+               </td>
+            );
+         case 'soCode':
+            return <td className="w-[120px] break-words px-4 py-4 align-top text-sm text-slate-700">{item.soCode || '--'}</td>;
+         case 'contractCode':
+            return <td className="w-[130px] break-words px-4 py-4 align-top text-sm text-slate-700">{item.contractCode || '--'}</td>;
+         case 'program':
+            return <td className="break-words px-4 py-4 align-top text-sm text-slate-700">{item.program || '--'}</td>;
+         case 'paidAmount':
+            return (
+               <td className="w-[150px] whitespace-nowrap px-4 py-4 text-right align-top text-sm text-slate-600">
+                  {formatCurrency(item.paidAmount)}
+               </td>
+            );
+         case 'requestedAmount':
+            return (
+               <td className="w-[150px] whitespace-nowrap px-4 py-4 text-right align-top text-sm font-bold text-orange-600">
+                  {formatCurrency(item.requestedAmount)}
+               </td>
+            );
+         case 'approvedAmount':
+            return <td className="w-[150px] whitespace-nowrap px-4 py-4 text-right align-top">{getApprovedAmountCell(item)}</td>;
+         case 'reason':
+            return <td className="break-words px-4 py-4 align-top text-sm text-slate-700">{item.reason || '--'}</td>;
+         case 'refundBasis':
+            return <td className="break-words px-4 py-4 align-top text-sm text-slate-600">{item.refundBasis || '--'}</td>;
+         case 'createdBy':
+            return <td className="break-words px-4 py-4 align-top text-sm text-slate-700">{item.createdBy || '--'}</td>;
+         case 'ownerName':
+            return <td className="break-words px-4 py-4 align-top text-sm text-slate-700">{item.ownerName || '--'}</td>;
+         case 'status':
+            return (
+               <td className="w-[170px] px-4 py-4 text-center align-top">
+                  <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-bold ${STATUS_META[item.status].badge}`}>
+                     {STATUS_META[item.status].label}
+                  </span>
+               </td>
+            );
+         case 'paymentVoucherCode':
+            return (
+               <td className="break-words px-4 py-4 align-top text-sm text-slate-700">
+                  {item.paymentVoucherCode || '--'}
+               </td>
+            );
+         case 'payoutDate':
+            return <td className="w-[120px] px-4 py-4 align-top text-sm text-slate-600">{formatDate(item.payoutDate)}</td>;
+         case 'note':
+            return <td className="break-words px-4 py-4 align-top text-sm text-slate-600">{item.note || '--'}</td>;
+         case 'log':
+            return (
+               <td className="w-[72px] px-4 py-4 text-center align-top">
+                  <button
+                     onClick={(event) => {
+                        event.stopPropagation();
+                        setShowLogModal(item);
+                     }}
+                     className="rounded p-1.5 text-slate-400 transition-colors hover:bg-blue-50 hover:text-blue-600"
+                     title="Xem log xử lý"
+                  >
+                     <MessageSquare size={18} />
+                  </button>
+               </td>
+            );
+         default:
+            return null;
+      }
+   };
+
+   return (
+      <div className="min-h-screen bg-[#F8FAFC] p-8 font-sans text-slate-900">
+         <div className="mx-auto max-w-[1880px]">
+            <div className="mb-8 flex items-end justify-between gap-6">
+               <div>
+                  <h1 className="mb-2 text-3xl font-black tracking-tight text-slate-900">Quản lý Yêu cầu Hoàn tiền</h1>
+                  <p className="text-slate-500">
+                     Theo dõi đầy đủ thông tin hoàn tiền, căn cứ xử lý, chứng từ chi và trạng thái phê duyệt.
+                  </p>
+               </div>
+               <button
+                  onClick={() => {
+                     setFormData(EMPTY_FORM);
+                     setErrors({});
+                     setShowCreateModal(true);
+                  }}
+                  className="flex items-center gap-2 rounded-lg bg-blue-600 px-5 py-2.5 font-bold text-white shadow-sm transition-colors hover:bg-blue-700"
+               >
+                  <Plus size={18} />
+                  Tạo Yêu cầu mới
+               </button>
             </div>
 
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                <div className="p-4 border-b border-slate-200 flex flex-wrap gap-4 justify-between items-center bg-slate-50/50">
-                    <div className="flex gap-2">
-                        <button
-                            onClick={() => setStatusFilter('ALL')}
-                            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
-                                statusFilter === 'ALL'
+            <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+               <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 bg-slate-50/70 p-4">
+                  <div className="flex flex-wrap gap-2">
+                     {FILTERS.map((filter) => {
+                        const Icon = filter.icon;
+                        const active = statusFilter === filter.key;
+                        return (
+                           <button
+                              key={filter.key}
+                              onClick={() => setStatusFilter(filter.key)}
+                              className={`flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-bold transition-all ${
+                                 active
                                     ? 'bg-slate-800 text-white shadow'
-                                    : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
-                            }`}
-                        >
-                            Tất cả
-                        </button>
-                        <button
-                            onClick={() => setStatusFilter('CHO_SALE_DUYET')}
-                            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
-                                statusFilter === 'CHO_SALE_DUYET'
-                                    ? 'bg-yellow-500 text-white shadow'
-                                    : 'bg-white text-slate-600 border border-slate-200 hover:bg-yellow-50 hover:text-yellow-700'
-                            }`}
-                        >
-                            <Clock size={14} /> Chờ Sale duyệt
-                        </button>
-                        <button
-                            onClick={() => setStatusFilter('CHO_KE_TOAN_DUYET')}
-                            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
-                                statusFilter === 'CHO_KE_TOAN_DUYET'
-                                    ? 'bg-orange-500 text-white shadow'
-                                    : 'bg-white text-slate-600 border border-slate-200 hover:bg-orange-50 hover:text-orange-700'
-                            }`}
-                        >
-                            <AlertCircle size={14} /> Chờ Kế toán duyệt
-                        </button>
-                        <button
-                            onClick={() => setStatusFilter('DA_HOAN_TIEN')}
-                            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
-                                statusFilter === 'DA_HOAN_TIEN'
-                                    ? 'bg-emerald-600 text-white shadow'
-                                    : 'bg-white text-slate-600 border border-slate-200 hover:bg-emerald-50 hover:text-emerald-700'
-                            }`}
-                        >
-                            <CheckCircle2 size={14} /> Đã hoàn tiền
-                        </button>
-                    </div>
+                                    : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                              }`}
+                           >
+                              {Icon && <Icon size={14} />}
+                              {filter.label}
+                           </button>
+                        );
+                     })}
 
-                    <div className="relative">
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                     <div className="relative">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                         <input
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            placeholder="Tìm theo tên hoặc mã yêu cầu..."
-                            className="pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm w-72 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                           value={searchTerm}
+                           onChange={(event) => setSearchTerm(event.target.value)}
+                           placeholder="Tìm theo mã, học viên, SO, hợp đồng..."
+                           className="w-80 rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                         />
-                    </div>
-                </div>
+                     </div>
 
-                <div className="overflow-x-auto">
-                    <table className="w-full min-w-[1460px] text-left border-collapse">
-                        <thead className="bg-[#F8FAFC] border-b border-slate-200">
-                            <tr>
-                                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">Mã Yêu cầu</th>
-                                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">Học viên</th>
-                                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">Mã hợp đồng</th>
-                                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right whitespace-nowrap">Số tiền đã đóng</th>
-                                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right whitespace-nowrap">Yêu cầu hoàn</th>
-                                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right whitespace-nowrap">Số tiền duyệt</th>
-                                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">Lý do</th>
-                                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center whitespace-nowrap">Trạng thái</th>
-                                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">Log/Ghi chú</th>
-                                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right whitespace-nowrap">Thao tác</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                            {filteredData.map((item) => (
-                                <tr key={item.id} className="hover:bg-slate-50 transition-colors group">
-                                    <td className="px-6 py-4 align-middle whitespace-nowrap">
-                                        <div className="flex items-center gap-2">
-                                            <span className="font-mono text-sm font-bold text-blue-600">{item.id}</span>
-                                            <span className="text-xs text-slate-400">{formatDate(item.createdAt)}</span>
-                                        </div>
-                                    </td>
-                                    <td className="px-6 py-4 align-middle whitespace-nowrap">
-                                        <div className="flex items-center gap-2 max-w-[260px]">
-                                            <span className="text-sm font-bold text-slate-900 truncate" title={item.studentName}>
-                                                {item.studentName}
-                                            </span>
-                                            <span className="text-xs text-slate-500 truncate" title={item.program || ''}>
-                                                {item.program ? `• ${item.program}` : ''}
-                                            </span>
-                                        </div>
-                                    </td>
-                                    <td className="px-6 py-4 align-middle text-sm font-medium text-slate-600 whitespace-nowrap">{item.contractCode}</td>
-                                    <td className="px-6 py-4 align-middle text-right text-sm text-slate-500 whitespace-nowrap">{formatCurrency(item.paidAmount)}</td>
-                                    <td className="px-6 py-4 align-middle text-right whitespace-nowrap">
-                                        <div className="text-sm font-bold text-orange-600 whitespace-nowrap">{formatCurrency(item.requestedAmount)}</div>
-                                    </td>
-                                    <td className="px-6 py-4 align-middle text-right whitespace-nowrap">{getApprovedAmountCell(item)}</td>
-                                    <td className="px-6 py-4 align-middle whitespace-nowrap">
-                                        <span
-                                            className="inline-block max-w-[240px] truncate px-2 py-1 rounded bg-slate-100 text-slate-600 text-xs font-medium border border-slate-200"
-                                            title={item.reason}
-                                        >
-                                            {item.reason}
-                                        </span>
-                                    </td>
-                                    <td className="px-6 py-4 align-middle text-center whitespace-nowrap">
-                                        <span className={`inline-block whitespace-nowrap px-2.5 py-1 rounded text-xs font-bold border ${STATUS_META[item.status].badge}`}>
-                                            {STATUS_META[item.status].label}
-                                        </span>
-                                    </td>
-                                    <td className="px-6 py-4 align-middle text-center whitespace-nowrap">
-                                        <button
-                                            onClick={() => setShowLogModal(item)}
-                                            className="p-1.5 rounded hover:bg-blue-50 text-slate-400 hover:text-blue-600 transition-colors"
-                                            title="Xem lịch sử xử lý"
-                                        >
-                                            <MessageSquare size={18} />
-                                        </button>
-                                    </td>
-                                    <td className="px-6 py-4 align-middle text-right whitespace-nowrap">
-                                        <div className="flex justify-end items-center gap-2 opacity-100">
-                                            {item.status === 'CHO_KE_TOAN_DUYET' && (
-                                                <button className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-3 py-1.5 rounded shadow-sm flex items-center gap-1 whitespace-nowrap">
-                                                    <Undo2 size={14} /> Duyệt hoàn tiền
-                                                </button>
-                                            )}
-                                        </div>
-                                    </td>
-                                </tr>
-                            ))}
-                            {filteredData.length === 0 && (
-                                <tr>
-                                    <td colSpan={10} className="py-12 text-center text-slate-400 italic">
-                                        Không tìm thấy yêu cầu hoàn tiền nào trong bộ lọc này.
-                                    </td>
-                                </tr>
-                            )}
-                        </tbody>
-                    </table>
-                </div>
+                     <div className="relative" ref={columnMenuRef}>
+                        <button
+                           type="button"
+                           onClick={() => setShowColumnMenu((current) => !current)}
+                           className={`flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-bold transition-all ${
+                              showColumnMenu
+                                 ? 'bg-slate-800 text-white shadow'
+                                 : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                           }`}
+                        >
+                           <Columns3 size={14} />
+                           Cột
+                        </button>
 
-                <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex justify-between items-center">
-                    <span className="text-xs text-slate-500 font-bold">Tổng số: {filteredData.length} bản ghi</span>
-                    <div className="flex gap-1">
-                        <button className="p-1 rounded hover:bg-slate-200 text-slate-400"><ChevronLeft size={18} /></button>
-                        <button className="p-1 rounded hover:bg-slate-200 text-slate-400"><ChevronRight size={18} /></button>
-                    </div>
-                </div>
+                        {showColumnMenu && (
+                           <div className="absolute right-0 top-full z-20 mt-2 w-64 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
+                              <div className="border-b border-slate-100 px-2 py-2 text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                                 Hiển thị cột
+                              </div>
+                              <div className="max-h-80 overflow-y-auto py-1">
+                                 {REFUND_COLUMN_OPTIONS.map((column) => {
+                                    const active = visibleColumns.includes(column.id);
+
+                                    return (
+                                       <button
+                                          key={column.id}
+                                          type="button"
+                                          onClick={() => toggleColumn(column.id)}
+                                          className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-sm hover:bg-slate-50"
+                                       >
+                                          <div>
+                                             <div className={active ? 'font-medium text-slate-900' : 'text-slate-500'}>
+                                                {column.label}
+                                             </div>
+                                             {column.required && <div className="text-xs text-slate-400">Cột cố định</div>}
+                                          </div>
+                                          <span
+                                             className={`flex h-4 w-4 items-center justify-center rounded border ${
+                                                active
+                                                   ? 'border-blue-600 bg-blue-600 text-white'
+                                                   : 'border-slate-300 bg-white text-transparent'
+                                             }`}
+                                          >
+                                             <Check size={11} strokeWidth={3} />
+                                          </span>
+                                       </button>
+                                    );
+                                 })}
+                              </div>
+                           </div>
+                        )}
+                     </div>
+                  </div>
+               </div>
+
+               <div className="overflow-hidden">
+                  <table className="w-full table-fixed border-collapse text-left">
+                     <thead className="border-b border-slate-200 bg-[#F8FAFC]">
+                        <tr>
+                           {activeRefundColumns.map((column) => (
+                              <th
+                                 key={column.id}
+                                 className={`px-4 py-4 text-xs font-bold uppercase tracking-wider text-slate-500 ${
+                                    column.align === 'right'
+                                       ? 'text-right'
+                                       : column.align === 'center'
+                                         ? 'text-center'
+                                         : 'text-left'
+                                 } ${column.thClassName || ''}`}
+                              >
+                                 {column.label}
+                              </th>
+                           ))}
+                           {false && (
+                              <>
+                           <th className="whitespace-nowrap px-4 py-4 text-xs font-bold uppercase tracking-wider text-slate-500">Mã hoàn tiền</th>
+                           <th className="whitespace-nowrap px-4 py-4 text-xs font-bold uppercase tracking-wider text-slate-500">Học viên</th>
+                           <th className="whitespace-nowrap px-4 py-4 text-xs font-bold uppercase tracking-wider text-slate-500">SO</th>
+                           <th className="whitespace-nowrap px-4 py-4 text-xs font-bold uppercase tracking-wider text-slate-500">Hợp đồng</th>
+                           <th className="whitespace-nowrap px-4 py-4 text-xs font-bold uppercase tracking-wider text-slate-500">Chương trình/Gói SP</th>
+                           <th className="whitespace-nowrap px-4 py-4 text-right text-xs font-bold uppercase tracking-wider text-slate-500">Số tiền đã thu</th>
+                           <th className="whitespace-nowrap px-4 py-4 text-right text-xs font-bold uppercase tracking-wider text-slate-500">Số tiền đề nghị hoàn</th>
+                           <th className="whitespace-nowrap px-4 py-4 text-right text-xs font-bold uppercase tracking-wider text-slate-500">Số tiền được duyệt hoàn</th>
+                           <th className="whitespace-nowrap px-4 py-4 text-xs font-bold uppercase tracking-wider text-slate-500">Lý do hoàn</th>
+                           <th className="whitespace-nowrap px-4 py-4 text-xs font-bold uppercase tracking-wider text-slate-500">Căn cứ hoàn</th>
+                           <th className="whitespace-nowrap px-4 py-4 text-xs font-bold uppercase tracking-wider text-slate-500">Người tạo</th>
+                           <th className="whitespace-nowrap px-4 py-4 text-xs font-bold uppercase tracking-wider text-slate-500">Người phụ trách</th>
+                           <th className="whitespace-nowrap px-4 py-4 text-center text-xs font-bold uppercase tracking-wider text-slate-500">Trạng thái hoàn tiền</th>
+                           <th className="whitespace-nowrap px-4 py-4 text-xs font-bold uppercase tracking-wider text-slate-500">Chứng từ chi</th>
+                           <th className="whitespace-nowrap px-4 py-4 text-xs font-bold uppercase tracking-wider text-slate-500">Ngày thực chi</th>
+                           <th className="whitespace-nowrap px-4 py-4 text-xs font-bold uppercase tracking-wider text-slate-500">Ghi chú</th>
+                           <th className="whitespace-nowrap px-4 py-4 text-center text-xs font-bold uppercase tracking-wider text-slate-500">Log</th>
+                           </>
+                        )}
+                        </tr>
+                     </thead>
+
+                     <tbody className="divide-y divide-slate-100">
+                        {filteredData.map((item) => (
+                           <tr
+                              key={item.id}
+                              onClick={() => navigate(`/refunds/${item.id}`)}
+                              className="cursor-pointer transition-colors hover:bg-slate-50"
+                           >
+                              {activeRefundColumns.map((column) => (
+                                 <React.Fragment key={column.id}>{renderRefundCell(item, column.id)}</React.Fragment>
+                              ))}
+                              {false && (
+                                 <>
+                              <td className="whitespace-nowrap px-4 py-4 align-top">
+                                 <div className="font-mono text-sm font-bold text-blue-600">{item.id}</div>
+                                 <div className="mt-1 text-xs text-slate-400">{formatDate(item.createdAt)}</div>
+                              </td>
+                              <td className="whitespace-nowrap px-4 py-4 align-top text-sm font-semibold text-slate-900">{item.studentName}</td>
+                              <td className="whitespace-nowrap px-4 py-4 align-top text-sm text-slate-700">{item.soCode || '--'}</td>
+                              <td className="whitespace-nowrap px-4 py-4 align-top text-sm text-slate-700">{item.contractCode}</td>
+                              <td className="px-4 py-4 align-top text-sm text-slate-700">{item.program || '--'}</td>
+                              <td className="whitespace-nowrap px-4 py-4 text-right align-top text-sm text-slate-600">{formatCurrency(item.paidAmount)}</td>
+                              <td className="whitespace-nowrap px-4 py-4 text-right align-top text-sm font-bold text-orange-600">{formatCurrency(item.requestedAmount)}</td>
+                              <td className="whitespace-nowrap px-4 py-4 text-right align-top">{getApprovedAmountCell(item)}</td>
+                              <td className="px-4 py-4 align-top text-sm text-slate-700">{item.reason}</td>
+                              <td className="min-w-[240px] px-4 py-4 align-top text-sm text-slate-600">{item.refundBasis || '--'}</td>
+                              <td className="whitespace-nowrap px-4 py-4 align-top text-sm text-slate-700">{item.createdBy || '--'}</td>
+                              <td className="whitespace-nowrap px-4 py-4 align-top text-sm text-slate-700">{item.ownerName || '--'}</td>
+                              <td className="whitespace-nowrap px-4 py-4 text-center align-top">
+                                 <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-bold ${STATUS_META[item.status].badge}`}>
+                                    {STATUS_META[item.status].label}
+                                 </span>
+                              </td>
+                              <td className="whitespace-nowrap px-4 py-4 align-top text-sm text-slate-700">{item.paymentVoucherCode || '--'}</td>
+                              <td className="whitespace-nowrap px-4 py-4 align-top text-sm text-slate-600">{formatDate(item.payoutDate)}</td>
+                              <td className="min-w-[220px] px-4 py-4 align-top text-sm text-slate-600">{item.note || '--'}</td>
+                              <td className="px-4 py-4 text-center align-top">
+                                 <button
+                                    onClick={() => setShowLogModal(item)}
+                                    className="rounded p-1.5 text-slate-400 transition-colors hover:bg-blue-50 hover:text-blue-600"
+                                    title="Xem log xử lý"
+                                 >
+                                    <MessageSquare size={18} />
+                                 </button>
+                              </td>
+                              </>
+                           )}
+                           </tr>
+                        ))}
+
+                        {filteredData.length === 0 && (
+                           <tr>
+                              <td colSpan={activeRefundColumns.length} className="py-12 text-center italic text-slate-400">
+                                 Không tìm thấy yêu cầu hoàn tiền nào trong bộ lọc này.
+                              </td>
+                           </tr>
+                        )}
+                     </tbody>
+                  </table>
+               </div>
+
+               <div className="flex items-center justify-between border-t border-slate-200 bg-slate-50 px-6 py-4">
+                  <span className="text-xs font-bold text-slate-500">Tổng số: {filteredData.length} bản ghi</span>
+                  <div className="flex gap-1">
+                     <button className="rounded p-1 text-slate-400 hover:bg-slate-200">
+                        <ChevronLeft size={18} />
+                     </button>
+                     <button className="rounded p-1 text-slate-400 hover:bg-slate-200">
+                        <ChevronRight size={18} />
+                     </button>
+                  </div>
+               </div>
             </div>
+         </div>
 
-            {showCreateModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
-                    <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full overflow-hidden">
-                        <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-                            <h3 className="font-bold text-slate-800">Tạo yêu cầu hoàn tiền</h3>
-                            <button onClick={() => setShowCreateModal(false)} className="text-slate-400 hover:text-slate-600">
-                                <X size={18} />
-                            </button>
+         {showCreateModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm">
+               <div className="max-h-[92vh] w-full max-w-5xl overflow-hidden rounded-xl bg-white shadow-2xl">
+                  <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-6 py-4">
+                     <h3 className="text-lg font-bold text-slate-800">Tạo yêu cầu hoàn tiền</h3>
+                     <button onClick={resetForm} className="text-slate-400 transition-colors hover:text-slate-600">
+                        <X size={18} />
+                     </button>
+                  </div>
+
+                  <div className="max-h-[calc(92vh-134px)] overflow-y-auto p-6">
+                     <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                        <div>
+                           <label className="text-sm font-semibold text-slate-700">Mã hoàn tiền</label>
+                           <input
+                              value="Tự động sinh sau khi lưu"
+                              readOnly
+                              className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500"
+                           />
                         </div>
 
-                        <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <label className="text-sm font-semibold text-slate-700">Học viên</label>
-                                <input
-                                    list="refund-students"
-                                    value={formData.studentName}
-                                    onChange={(e) => handleStudentChange(e.target.value)}
-                                    placeholder="Tìm/chọn học viên"
-                                    className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
-                                />
-                                <datalist id="refund-students">
-                                    {studentOptions.map((name) => (
-                                        <option key={name} value={name} />
-                                    ))}
-                                </datalist>
-                                {errors.studentName && <p className="mt-1 text-xs text-red-600">{errors.studentName}</p>}
-                            </div>
-
-                            <div>
-                                <label className="text-sm font-semibold text-slate-700">Mã hợp đồng</label>
-                                <input
-                                    list="refund-contracts"
-                                    value={formData.contractCode}
-                                    onChange={(e) => handleContractChange(e.target.value)}
-                                    placeholder="Nhập/chọn mã hợp đồng"
-                                    className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
-                                />
-                                <datalist id="refund-contracts">
-                                    {contractDirectory.map((item) => (
-                                        <option key={item.contractCode} value={item.contractCode} />
-                                    ))}
-                                </datalist>
-                                {errors.contractCode && <p className="mt-1 text-xs text-red-600">{errors.contractCode}</p>}
-                            </div>
-
-                            <div>
-                                <label className="text-sm font-semibold text-slate-700">Số tiền đã đóng</label>
-                                <input
-                                    type="number"
-                                    value={formData.paidAmount}
-                                    onChange={(e) => {
-                                        setFormData((prev) => ({ ...prev, paidAmount: e.target.value }));
-                                        setErrors((prev) => ({ ...prev, paidAmount: undefined }));
-                                    }}
-                                    readOnly={isPaidAmountAuto}
-                                    placeholder={isPaidAmountAuto ? 'Tự động theo hợp đồng' : 'Nhập số tiền đã đóng'}
-                                    className={`mt-1 w-full border rounded-lg px-3 py-2 text-sm ${
-                                        isPaidAmountAuto
-                                            ? 'bg-slate-50 border-slate-200 text-slate-500'
-                                            : 'border-slate-200'
-                                    }`}
-                                />
-                                {errors.paidAmount && <p className="mt-1 text-xs text-red-600">{errors.paidAmount}</p>}
-                            </div>
-
-                            <div>
-                                <label className="text-sm font-semibold text-slate-700">Yêu cầu hoàn</label>
-                                <input
-                                    type="number"
-                                    value={formData.requestedAmount}
-                                    onChange={(e) => {
-                                        setFormData((prev) => ({ ...prev, requestedAmount: e.target.value }));
-                                        setErrors((prev) => ({ ...prev, requestedAmount: undefined }));
-                                    }}
-                                    placeholder="Nhập số tiền yêu cầu hoàn"
-                                    className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
-                                />
-                                {errors.requestedAmount && (
-                                    <p className="mt-1 text-xs text-red-600">{errors.requestedAmount}</p>
-                                )}
-                            </div>
-
-                            <div className="md:col-span-2">
-                                <label className="text-sm font-semibold text-slate-700">Lý do</label>
-                                <textarea
-                                    value={formData.reason}
-                                    onChange={(e) => {
-                                        setFormData((prev) => ({ ...prev, reason: e.target.value }));
-                                        setErrors((prev) => ({ ...prev, reason: undefined }));
-                                    }}
-                                    placeholder="Nhập lý do hoàn tiền"
-                                    className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm min-h-[92px]"
-                                />
-                                {errors.reason && <p className="mt-1 text-xs text-red-600">{errors.reason}</p>}
-                            </div>
-
-                            <div>
-                                <label className="text-sm font-semibold text-slate-700">Trạng thái</label>
-                                <input
-                                    value="Chờ Sale duyệt"
-                                    readOnly
-                                    className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-slate-50 text-slate-500"
-                                />
-                            </div>
-
-                            <div>
-                                <label className="text-sm font-semibold text-slate-700">Số tiền duyệt</label>
-                                <input
-                                    value="—"
-                                    readOnly
-                                    className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-slate-50 text-slate-500"
-                                />
-                            </div>
+                        <div>
+                           <label className="text-sm font-semibold text-slate-700">Học viên</label>
+                           <input
+                              list="refund-students"
+                              value={formData.studentName}
+                              onChange={(event) => {
+                                 setFormData((prev) => ({ ...prev, studentName: event.target.value }));
+                                 setErrors((prev) => ({ ...prev, studentName: undefined }));
+                              }}
+                              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                              placeholder="Nhập học viên"
+                           />
+                           <datalist id="refund-students">
+                              {studentOptions.map((name) => (
+                                 <option key={name} value={name} />
+                              ))}
+                           </datalist>
+                           {errors.studentName && <p className="mt-1 text-xs text-red-600">{errors.studentName}</p>}
                         </div>
 
-                        <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
-                            <button
-                                onClick={() => setShowCreateModal(false)}
-                                className="px-4 py-2 bg-white border border-slate-200 text-slate-600 font-bold rounded-lg hover:bg-slate-100 text-sm"
-                            >
-                                Hủy
-                            </button>
-                            <button
-                                onClick={handleCreateRefund}
-                                className="px-4 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 text-sm"
-                            >
-                                Tạo yêu cầu
-                            </button>
+                        <div>
+                           <label className="text-sm font-semibold text-slate-700">SO</label>
+                           <input
+                              list="refund-sos"
+                              value={formData.soCode}
+                              onChange={(event) => {
+                                 setFormData((prev) => ({ ...prev, soCode: event.target.value }));
+                                 setErrors((prev) => ({ ...prev, soCode: undefined }));
+                              }}
+                              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                              placeholder="Nhập mã SO"
+                           />
+                           <datalist id="refund-sos">
+                              {soOptions.map((code) => (
+                                 <option key={code} value={code} />
+                              ))}
+                           </datalist>
+                           {errors.soCode && <p className="mt-1 text-xs text-red-600">{errors.soCode}</p>}
                         </div>
-                    </div>
-                </div>
-            )}
 
-            {showLogModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
-                    <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full overflow-hidden animate-in zoom-in-95">
-                        <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-                            <h3 className="font-bold text-slate-800 flex items-center gap-2">
-                                <Clock size={16} className="text-blue-500" /> Lịch sử xử lý: {showLogModal.id}
-                            </h3>
-                            <button onClick={() => setShowLogModal(null)} className="text-slate-400 hover:text-slate-600">
-                                <X size={18} />
-                            </button>
+                        <div>
+                           <label className="text-sm font-semibold text-slate-700">Hợp đồng</label>
+                           <input
+                              list="refund-contracts"
+                              value={formData.contractCode}
+                              onChange={(event) => {
+                                 setFormData((prev) => ({ ...prev, contractCode: event.target.value }));
+                                 setErrors((prev) => ({ ...prev, contractCode: undefined }));
+                              }}
+                              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                              placeholder="Nhập mã hợp đồng"
+                           />
+                           <datalist id="refund-contracts">
+                              {contractOptions.map((code) => (
+                                 <option key={code} value={code} />
+                              ))}
+                           </datalist>
+                           {errors.contractCode && <p className="mt-1 text-xs text-red-600">{errors.contractCode}</p>}
                         </div>
-                        <div className="p-0">
-                            <div className="relative">
-                                <div className="absolute left-8 top-4 bottom-4 w-0.5 bg-slate-100"></div>
 
-                                <ul className="py-4 space-y-0">
-                                    {selectedLogs.map((log, idx) => (
-                                        <li key={`${log.id}-${idx}`} className="relative pl-16 pr-6 py-3 hover:bg-slate-50 transition-colors">
-                                            <div className="absolute left-6 top-4 w-4 h-4 rounded-full border-2 border-white bg-blue-500 shadow-sm z-10"></div>
-                                            <div className="flex justify-between items-start gap-4">
-                                                <div>
-                                                    <p className="font-bold text-sm text-slate-800">{log.action}</p>
-                                                    <p className="text-xs text-slate-500">
-                                                        Bởi: <span className="font-semibold text-slate-700">{log.createdBy}</span>
-                                                    </p>
-                                                </div>
-                                                <span className="text-xs font-mono text-slate-400 bg-slate-100 px-2 py-1 rounded whitespace-nowrap">
-                                                    {formatDateTime(log.createdAt)}
-                                                </span>
-                                            </div>
-                                        </li>
-                                    ))}
-                                    {selectedLogs.length === 0 && (
-                                        <li className="px-6 py-6 text-sm text-slate-400 italic">Chưa có log note cho yêu cầu này.</li>
-                                    )}
-                                </ul>
-                            </div>
+                        <div>
+                           <label className="text-sm font-semibold text-slate-700">Chương trình/Gói SP</label>
+                           <input
+                              value={formData.program}
+                              onChange={(event) => {
+                                 setFormData((prev) => ({ ...prev, program: event.target.value }));
+                                 setErrors((prev) => ({ ...prev, program: undefined }));
+                              }}
+                              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                              placeholder="Nhập chương trình hoặc gói sản phẩm"
+                           />
+                           {errors.program && <p className="mt-1 text-xs text-red-600">{errors.program}</p>}
                         </div>
-                        <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 text-right">
-                            <button onClick={() => setShowLogModal(null)} className="px-4 py-2 bg-white border border-slate-200 text-slate-600 font-bold rounded-lg hover:bg-slate-100 text-sm">
-                                Đóng
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
 
-            {toastMessage && (
-                <div className="fixed top-6 right-6 z-[70] bg-emerald-600 text-white px-4 py-2 rounded-lg shadow-lg text-sm font-semibold">
-                    {toastMessage}
-                </div>
-            )}
-        </div>
-    );
+                        <div>
+                           <label className="text-sm font-semibold text-slate-700">Người phụ trách</label>
+                           <input
+                              value={formData.ownerName}
+                              onChange={(event) => {
+                                 setFormData((prev) => ({ ...prev, ownerName: event.target.value }));
+                                 setErrors((prev) => ({ ...prev, ownerName: undefined }));
+                              }}
+                              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                              placeholder="Nhập người phụ trách"
+                           />
+                           {errors.ownerName && <p className="mt-1 text-xs text-red-600">{errors.ownerName}</p>}
+                        </div>
+
+                        <div>
+                           <label className="text-sm font-semibold text-slate-700">Số tiền đã thu</label>
+                           <input
+                              type="number"
+                              value={formData.paidAmount}
+                              onChange={(event) => {
+                                 setFormData((prev) => ({ ...prev, paidAmount: event.target.value }));
+                                 setErrors((prev) => ({ ...prev, paidAmount: undefined }));
+                              }}
+                              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                              placeholder="0"
+                           />
+                           {errors.paidAmount && <p className="mt-1 text-xs text-red-600">{errors.paidAmount}</p>}
+                        </div>
+
+                        <div>
+                           <label className="text-sm font-semibold text-slate-700">Số tiền đề nghị hoàn</label>
+                           <input
+                              type="number"
+                              value={formData.requestedAmount}
+                              onChange={(event) => {
+                                 setFormData((prev) => ({ ...prev, requestedAmount: event.target.value }));
+                                 setErrors((prev) => ({ ...prev, requestedAmount: undefined }));
+                              }}
+                              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                              placeholder="0"
+                           />
+                           {errors.requestedAmount && <p className="mt-1 text-xs text-red-600">{errors.requestedAmount}</p>}
+                        </div>
+
+                        <div>
+                           <label className="text-sm font-semibold text-slate-700">Số tiền được duyệt hoàn</label>
+                           <input
+                              type="number"
+                              value={formData.approvedAmount}
+                              onChange={(event) => {
+                                 setFormData((prev) => ({ ...prev, approvedAmount: event.target.value }));
+                                 setErrors((prev) => ({ ...prev, approvedAmount: undefined }));
+                              }}
+                              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                              placeholder="Để trống nếu chưa duyệt"
+                           />
+                           {errors.approvedAmount && <p className="mt-1 text-xs text-red-600">{errors.approvedAmount}</p>}
+                        </div>
+
+                        <div>
+                           <label className="text-sm font-semibold text-slate-700">Lý do hoàn</label>
+                           <select
+                              value={formData.reason}
+                              onChange={(event) => {
+                                 setFormData((prev) => ({ ...prev, reason: event.target.value }));
+                                 setErrors((prev) => ({ ...prev, reason: undefined }));
+                              }}
+                              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                           >
+                              {REFUND_REASONS.map((reason) => (
+                                 <option key={reason} value={reason}>
+                                    {reason}
+                                 </option>
+                              ))}
+                           </select>
+                           {errors.reason && <p className="mt-1 text-xs text-red-600">{errors.reason}</p>}
+                        </div>
+
+                        <div className="xl:col-span-2">
+                           <label className="text-sm font-semibold text-slate-700">Căn cứ hoàn</label>
+                           <textarea
+                              value={formData.refundBasis}
+                              onChange={(event) => {
+                                 setFormData((prev) => ({ ...prev, refundBasis: event.target.value }));
+                                 setErrors((prev) => ({ ...prev, refundBasis: undefined }));
+                              }}
+                              className="mt-1 min-h-[90px] w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                              placeholder="Biên bản, email xác nhận, phụ lục hợp đồng, chính sách hỗ trợ..."
+                           />
+                           {errors.refundBasis && <p className="mt-1 text-xs text-red-600">{errors.refundBasis}</p>}
+                        </div>
+
+                        <div>
+                           <label className="text-sm font-semibold text-slate-700">Trạng thái hoàn tiền</label>
+                           <select
+                              value={formData.status}
+                              onChange={(event) =>
+                                 setFormData((prev) => ({ ...prev, status: event.target.value as RefundStatus }))
+                              }
+                              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                           >
+                              {Object.entries(STATUS_META).map(([value, meta]) => (
+                                 <option key={value} value={value}>
+                                    {meta.label}
+                                 </option>
+                              ))}
+                           </select>
+                        </div>
+
+                        <div>
+                           <label className="text-sm font-semibold text-slate-700">Chứng từ chi</label>
+                           <input
+                              value={formData.paymentVoucherCode}
+                              onChange={(event) =>
+                                 setFormData((prev) => ({ ...prev, paymentVoucherCode: event.target.value }))
+                              }
+                              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                              placeholder="PC-00001"
+                           />
+                        </div>
+
+                        <div>
+                           <label className="text-sm font-semibold text-slate-700">Ngày thực chi</label>
+                           <input
+                              type="date"
+                              value={formData.payoutDate}
+                              onChange={(event) => {
+                                 setFormData((prev) => ({ ...prev, payoutDate: event.target.value }));
+                                 setErrors((prev) => ({ ...prev, payoutDate: undefined }));
+                              }}
+                              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                           />
+                           {errors.payoutDate && <p className="mt-1 text-xs text-red-600">{errors.payoutDate}</p>}
+                        </div>
+
+                        <div className="md:col-span-2 xl:col-span-3">
+                           <label className="text-sm font-semibold text-slate-700">Ghi chú</label>
+                           <textarea
+                              value={formData.note}
+                              onChange={(event) => setFormData((prev) => ({ ...prev, note: event.target.value }))}
+                              className="mt-1 min-h-[88px] w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                              placeholder="Ghi chú xử lý nội bộ, tình trạng chứng từ, thông tin bổ sung..."
+                           />
+                        </div>
+                     </div>
+                  </div>
+
+                  <div className="flex justify-end gap-3 border-t border-slate-200 bg-slate-50 px-6 py-4">
+                     <button
+                        onClick={resetForm}
+                        className="rounded-lg px-4 py-2 font-bold text-slate-600 transition-colors hover:bg-slate-100"
+                     >
+                        Huỷ
+                     </button>
+                     <button
+                        onClick={handleCreateRefund}
+                        className="rounded-lg bg-blue-600 px-4 py-2 font-bold text-white transition-colors hover:bg-blue-700"
+                     >
+                        Lưu yêu cầu
+                     </button>
+                  </div>
+               </div>
+            </div>
+         )}
+
+         {showLogModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm">
+               <div className="w-full max-w-2xl overflow-hidden rounded-xl bg-white shadow-2xl">
+                  <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-6 py-4">
+                     <div>
+                        <h3 className="text-lg font-bold text-slate-800">Nhật ký xử lý {showLogModal.id}</h3>
+                        <p className="mt-1 text-sm text-slate-500">
+                           {showLogModal.studentName} • {showLogModal.contractCode}
+                        </p>
+                     </div>
+                     <button
+                        onClick={() => setShowLogModal(null)}
+                        className="text-slate-400 transition-colors hover:text-slate-600"
+                     >
+                        <X size={18} />
+                     </button>
+                  </div>
+
+                  <div className="max-h-[70vh] space-y-4 overflow-y-auto p-6">
+                     {selectedLogs.length > 0 ? (
+                        selectedLogs.map((log) => (
+                           <div key={log.id} className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                              <div className="flex items-center justify-between gap-4">
+                                 <div className="font-semibold text-slate-800">{log.action}</div>
+                                 <div className="text-xs text-slate-400">{formatDateTime(log.createdAt)}</div>
+                              </div>
+                              <div className="mt-2 text-sm text-slate-500">Thực hiện bởi: {log.createdBy}</div>
+                           </div>
+                        ))
+                     ) : (
+                        <div className="py-12 text-center italic text-slate-400">Chưa có log xử lý.</div>
+                     )}
+                  </div>
+               </div>
+            </div>
+         )}
+
+         {toastMessage && (
+            <div className="fixed bottom-6 right-6 z-50 rounded-lg bg-slate-900 px-4 py-3 text-sm font-semibold text-white shadow-xl">
+               {toastMessage}
+            </div>
+         )}
+      </div>
+   );
 };
 
 export default FinanceRefunds;

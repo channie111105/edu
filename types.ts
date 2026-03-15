@@ -425,18 +425,23 @@ export interface IInstallment {
 // Entity: Giao dịch thực tế
 export interface ITransaction {
   id: string;
+  code?: string;
   quotationId: string;
   soCode: string;
   customerId: string;
   studentName?: string;
+  relatedEntityLabel?: string;
   amount: number;
   method: 'CHUYEN_KHOAN' | 'TIEN_MAT' | 'THE' | 'OTHER';
   proofType?: 'UNC' | 'PHIEU_THU' | 'NONE';
   proofFiles?: { id: string; name: string; url: string }[];
   bankRefCode?: string;
   status: 'CHO_DUYET' | 'DA_DUYET' | 'TU_CHOI';
+  paidAt?: number;
   createdAt: number;
   createdBy: string;
+  businessGroupHint?: 'THU' | 'CHI' | 'DIEU_CHINH';
+  businessTypeHint?: string;
   note?: string;
 }
 
@@ -872,14 +877,19 @@ export type TransactionStatus =
 
 export interface IActualTransaction {
   id: string;
+  transactionCode?: string;
   type: TransactionType; // Thu / Chi
   category: string; // Salary, Tuition, Electricity...
   title: string; // Description
   amount: number;
   department: string; // Sale, OPS, Marketing
+  cashAccount?: string;
+  voucherNumber?: string;
   date: string;
   status: TransactionStatus;
   proof?: string; // Image URL/Code
+  attachmentName?: string;
+  attachmentUrl?: string;
 
   // Links
   relatedId?: string; // SO ID, Student ID...
@@ -896,19 +906,37 @@ export interface IActualTransactionLog {
   createdBy: string;
 }
 
-export type RefundStatus = 'CHO_SALE_DUYET' | 'CHO_KE_TOAN_DUYET' | 'DA_HOAN_TIEN' | 'DA_TU_CHOI';
+export type RefundStatus =
+  | 'NHAP'
+  | 'SALE_XAC_NHAN'
+  | 'KE_TOAN_KIEM_TRA'
+  | 'CEO_DUYET'
+  | 'DA_HOAN'
+  | 'TU_CHOI'
+  | 'HUY_YEU_CAU';
 
 export interface IRefundRequest {
   id: string;
   createdAt: string;
   studentName: string;
+  soCode?: string;
   contractCode: string;
   program?: string;
   paidAmount: number;
+  relatedPaymentCode?: string;
   requestedAmount: number;
+  retainedAmount?: number | null;
   approvedAmount?: number | null;
   reason: string;
+  refundBasis?: string;
+  createdBy?: string;
+  ownerName?: string;
   status: RefundStatus;
+  paymentVoucherCode?: string;
+  payoutDate?: string;
+  note?: string;
+  evidenceFiles?: string[];
+  relatedDocuments?: string[];
 }
 
 export interface IRefundLog {
@@ -921,15 +949,38 @@ export interface IRefundLog {
 
 // 5. INVOICE MANAGEMENT
 export enum InvoiceStatus {
-  DRAFT = 'Nháp',
-  SENT = 'Đã gửi Email',
-  PRINTED = 'Đã in',
-  CANCELLED = 'Đã hủy'
+  DRAFT = 'DRAFT',
+  ISSUED = 'ISSUED',
+  SENT_TO_CUSTOMER = 'SENT_TO_CUSTOMER',
+  CANCELLED = 'CANCELLED'
+}
+
+export enum ReceiptDocumentType {
+  PAYMENT_RECEIPT = 'PAYMENT_RECEIPT',
+  PAYMENT_VOUCHER = 'PAYMENT_VOUCHER'
 }
 
 export interface IInvoice {
   id: string;
-  code: string; // INV-2026-001
+  code: string; // PT-00001 / PC-00001
+  documentType?: ReceiptDocumentType;
+  description?: string;
+  contractCode?: string;
+  ownerName?: string;
+  branchName?: string;
+  programName?: string;
+  currency?: string;
+  paymentMethod?: string;
+  paymentDate?: string;
+  accountName?: string;
+  approvedTransactionCode?: string;
+  cashFlowCode?: string;
+  bankReference?: string;
+  attachments?: { id: string; name: string; url?: string }[];
+  requiresTaxInvoice?: boolean;
+  receiptPrintedAt?: string;
+  receiptEmailedAt?: string;
+  note?: string;
 
   // Customer Info
   customerId?: string;

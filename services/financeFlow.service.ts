@@ -7,6 +7,8 @@ import {
   updateQuotation,
   updateTransaction
 } from '../utils/storage';
+import { IActualTransaction, TransactionStatus, TransactionType } from '../types';
+import { addActualTransaction, addActualTransactionLog, getActualTransactions, updateActualTransaction } from '../utils/storage';
 import { ensureStudentProfilesFromQuotation } from './enrollmentFlow.service';
 
 const appendQuotationLog = (quotation: IQuotation, action: string, detail: string): IQuotation => ({
@@ -22,6 +24,72 @@ const appendQuotationLog = (quotation: IQuotation, action: string, detail: strin
     ...(quotation.logNotes || [])
   ]
 });
+
+const normalize = (value?: string) =>
+  String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+
+const inferBusinessGroup = (transaction: ITransaction): 'THU' | 'CHI' | 'DIEU_CHINH' => {
+  if (transaction.businessGroupHint) return transaction.businessGroupHint;
+
+  const haystack = normalize(`${transaction.note || ''} ${transaction.studentName || ''} ${transaction.customerId || ''}`);
+
+  if (
+    haystack.includes('dieu chinh') ||
+    haystack.includes('cong no') ||
+    haystack.includes('bu tru') ||
+    haystack.includes('huy khoan thu')
+  ) {
+    return 'DIEU_CHINH';
+  }
+
+  if (
+    haystack.includes('chi ') ||
+    haystack.includes('marketing') ||
+    haystack.includes('mkt') ||
+    haystack.includes('hoa hong') ||
+    haystack.includes('commission') ||
+    haystack.includes('van hanh') ||
+    haystack.includes('cong tac')
+  ) {
+    return 'CHI';
+  }
+
+  return 'THU';
+};
+
+const getActualTransactionPayload = (transaction: ITransaction, userId: string): IActualTransaction => {
+  const businessGroup = inferBusinessGroup(transaction);
+  const type: TransactionType = businessGroup === 'THU' ? 'IN' : 'OUT';
+  const status: TransactionStatus = type === 'IN' ? 'RECEIVED' : 'PAID';
+  const proofFile = transaction.proofFiles?.[0];
+  const proof = transaction.bankRefCode || proofFile?.name;
+  const rawCodeMatches = (transaction.code || transaction.id).match(/\d+/g);
+  const sequence = rawCodeMatches?.length ? Number(rawCodeMatches[rawCodeMatches.length - 1]) : Date.now() % 10000;
+
+  return {
+    id: `ATX-${transaction.id}`,
+    transactionCode: `TC${String(sequence).padStart(4, '0')}`,
+    type,
+    category: transaction.businessTypeHint || (businessGroup === 'THU' ? 'Thu học phí' : businessGroup === 'CHI' ? 'Chi phí' : 'Điều chỉnh'),
+    title: transaction.note || transaction.relatedEntityLabel || transaction.studentName || transaction.soCode || transaction.customerId,
+    amount: transaction.amount,
+    department: 'Kế toán',
+    cashAccount: transaction.method === 'TIEN_MAT' ? 'Tiền mặt' : 'STK ngân hàng',
+    voucherNumber: transaction.bankRefCode || '',
+    date: new Date(transaction.paidAt || transaction.createdAt).toISOString().slice(0, 10),
+    status,
+    proof: proof || undefined,
+    attachmentName: proofFile?.name,
+    attachmentUrl: proofFile?.url,
+    relatedId: transaction.id,
+    createdBy: userId,
+    createdAt: new Date().toISOString()
+  };
+};
 
 export const confirmSale = (
   quotationId: string,
@@ -78,6 +146,29 @@ export const approveTransaction = (
     note: transaction.note || `Đã duyệt bởi ${userId}`
   };
   updateTransaction(updatedTransaction);
+
+  const actualPayload = getActualTransactionPayload(updatedTransaction, userId);
+  const existingActual = getActualTransactions().find((item) => item.relatedId === updatedTransaction.id);
+
+  if (existingActual) {
+    updateActualTransaction({
+      ...existingActual,
+      ...actualPayload,
+      id: existingActual.id,
+      createdAt: existingActual.createdAt,
+      createdBy: existingActual.createdBy
+    });
+  } else {
+    addActualTransaction(actualPayload);
+    addActualTransactionLog({
+      id: `TXN-LOG-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`,
+      transactionId: actualPayload.id,
+      action: 'CREATE',
+      message: `Tạo tự động từ duyệt giao dịch ${updatedTransaction.code || updatedTransaction.id}`,
+      createdAt: new Date().toISOString(),
+      createdBy: userId
+    });
+  }
 
   const quotation = getQuotations().find((q) => q.id === transaction.quotationId);
   if (!quotation) return { ok: true, transaction: updatedTransaction };

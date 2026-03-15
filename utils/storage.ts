@@ -103,6 +103,22 @@ export const addActualTransactionLog = (log: IActualTransactionLog) => {
   return log;
 };
 
+export const removeActualTransactionByRelatedId = (relatedId: string) => {
+  const transactions = getActualTransactions();
+  const removedIds = transactions.filter((item) => item.relatedId === relatedId).map((item) => item.id);
+  if (removedIds.length === 0) return 0;
+
+  saveActualTransactions(transactions.filter((item) => item.relatedId !== relatedId));
+
+  const logs = getActualTransactionLogs();
+  localStorage.setItem(
+    KEYS.ACTUAL_TRANSACTION_LOGS,
+    JSON.stringify(logs.filter((item) => !removedIds.includes(item.transactionId)))
+  );
+  emitClientEvent('educrm:actual-transaction-logs-changed');
+  return removedIds.length;
+};
+
 // REFUNDS
 export const getRefunds = (): IRefundRequest[] => {
   try {

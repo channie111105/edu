@@ -172,7 +172,7 @@ export const NAV_ITEMS = [
   { label: 'Duyệt Giao dịch', path: '/finance/transactions', icon: Receipt, roles: [UserRole.ACCOUNTANT, UserRole.FOUNDER] },
   { label: 'Thu Chi (Transactions)', path: '/finance/money-out', icon: ArrowRightLeft, roles: [UserRole.ACCOUNTANT, UserRole.FOUNDER] },
   { label: 'Công nợ', path: '/finance/debts', icon: Landmark, roles: [UserRole.ACCOUNTANT, UserRole.FOUNDER] },
-  { label: 'Hóa đơn VAT (e-Invoice)', path: '/finance/invoices', icon: Receipt, roles: [UserRole.ACCOUNTANT] },
+  { label: 'Phiếu thu / Phiếu chi', path: '/finance/invoices', icon: Receipt, roles: [UserRole.ACCOUNTANT] },
   { label: 'Hoàn tiền', path: '/refunds', icon: Undo2, roles: [UserRole.ACCOUNTANT, UserRole.FOUNDER] },
 
   // Reports & Settings (Removed Admin from business settings)
