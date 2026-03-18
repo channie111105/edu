@@ -6,9 +6,10 @@ import SLABadge from '../components/SLABadge';
 import UnifiedLeadDrawer from '../components/UnifiedLeadDrawer';
 import LeadPivotTable from '../components/LeadPivotTable'; // Import Pivot Component
 import LeadStudentInfoTab from '../components/LeadStudentInfoTab';
+import LeadTagManager from '../components/LeadTagManager';
 import SmartSearchBar, { SearchFilter } from '../components/SmartSearchBar';
 import { useAuth } from '../contexts/AuthContext';
-import { getLeads, saveLead, saveLeads, addDeal, addContact, deleteLead, convertLeadToContact, getTags, saveTags, getLostReasons, getLeadDistributionConfig, allocateLeadOwnersRoundRobin, allocateLeadOwnersWeighted } from '../utils/storage';
+import { FIXED_LEAD_TAGS, getLeads, saveLead, saveLeads, addDeal, addContact, deleteLead, convertLeadToContact, getTags, saveTags, getLostReasons } from '../utils/storage';
 import { LEAD_CHANNEL_OPTIONS } from '../constants';
 import {
   buildLeadStudentInfo,
@@ -37,11 +38,9 @@ import {
   ExternalLink,
   Loader2,
   Database,
-  CheckCircle2,
   Search,
   Users,
   UserPlus,
-  Calculator,
   LayoutGrid, // Pivot Icon
   List as ListIcon, // List Icon
   Settings, // Settings Icon for Column Selector
@@ -63,6 +62,66 @@ import {
 } from 'lucide-react';
 import { read, utils, write } from 'xlsx';
 
+const SALES_REPS = [
+  { id: 'u2', name: 'Sarah Miller', team: 'Team Đức', avatar: 'SM', color: 'bg-purple-100 text-purple-700' },
+  { id: 'u3', name: 'David Clark', team: 'Team Trung', avatar: 'DC', color: 'bg-blue-100 text-blue-700' },
+  { id: 'u4', name: 'Alex Rivera', team: 'Team Du học', avatar: 'AR', color: 'bg-green-100 text-green-700' },
+];
+
+const buildEmptyAssignmentRatios = () =>
+  SALES_REPS.reduce<Record<string, string>>((acc, rep) => {
+    acc[rep.id] = '';
+    return acc;
+  }, {});
+
+const parseAssignmentRatio = (value: string) => {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? Math.max(0, Math.min(100, parsed)) : 0;
+};
+
+const buildLeadCountByRatio = (leadCount: number, ratios: Record<string, number>) => {
+  const counts = SALES_REPS.reduce<Record<string, number>>((acc, rep) => {
+    acc[rep.id] = 0;
+    return acc;
+  }, {});
+
+  const activeAllocations = SALES_REPS
+    .map((rep, index) => ({
+      repId: rep.id,
+      ratio: ratios[rep.id] || 0,
+      index,
+    }))
+    .filter((item) => item.ratio > 0);
+
+  const totalRatio = activeAllocations.reduce((sum, item) => sum + item.ratio, 0);
+  if (leadCount <= 0 || totalRatio !== 100 || activeAllocations.length === 0) {
+    return counts;
+  }
+
+  const allocations = activeAllocations.map((item) => {
+    const exactCount = (leadCount * item.ratio) / 100;
+    const baseCount = Math.floor(exactCount);
+    return {
+      ...item,
+      baseCount,
+      remainder: exactCount - baseCount,
+    };
+  });
+
+  let remaining = leadCount - allocations.reduce((sum, item) => sum + item.baseCount, 0);
+  allocations
+    .sort((left, right) => {
+      if (right.remainder !== left.remainder) return right.remainder - left.remainder;
+      return left.index - right.index;
+    })
+    .forEach((item) => {
+      counts[item.repId] = item.baseCount + (remaining > 0 ? 1 : 0);
+      if (remaining > 0) remaining -= 1;
+    });
+
+  return counts;
+};
+
 const Leads: React.FC = () => {
   const { user, hasPermission } = useAuth();
   const navigate = useNavigate();
@@ -80,19 +139,35 @@ const Leads: React.FC = () => {
   // Selection & Assignment State
   const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
   const [showAssignModal, setShowAssignModal] = useState(false);
-  const [selectedRep, setSelectedRep] = useState('');
+  const [assignmentRatios, setAssignmentRatios] = useState<Record<string, string>>(() => buildEmptyAssignmentRatios());
 
   // Tab state for Create Modal (Odoo Style)
   const [createModalActiveTab, setCreateModalActiveTab] = useState<LeadCreateModalTab>('notes');
 
-  const [systemDistributionMode, setSystemDistributionMode] = useState<'auto' | 'manual'>(() => getLeadDistributionConfig().mode);
+  const STANDARD_LEAD_STATUS = {
+    NEW: 'new',
+    ASSIGNED: 'assigned',
+    CONTACTED: 'contacted',
+    CONVERTED: 'converted',
+    UNQUALIFIED: 'unqualified',
+  } as const;
 
-  // Mock Sales Reps
-  const SALES_REPS = [
-    { id: 'u2', name: 'Sarah Miller', team: 'Team Đức', avatar: 'SM', color: 'bg-purple-100 text-purple-700' },
-    { id: 'u3', name: 'David Clark', team: 'Team Trung', avatar: 'DC', color: 'bg-blue-100 text-blue-700' },
-    { id: 'u4', name: 'Alex Rivera', team: 'Team Du học', avatar: 'AR', color: 'bg-green-100 text-green-700' },
-  ];
+  const LEAD_STATUS_LABELS: Record<string, string> = {
+    [STANDARD_LEAD_STATUS.NEW]: 'Mới',
+    [STANDARD_LEAD_STATUS.ASSIGNED]: 'Đã phân bổ',
+    [STANDARD_LEAD_STATUS.CONTACTED]: 'Đã liên hệ',
+    [STANDARD_LEAD_STATUS.CONVERTED]: 'Đã chuyển đổi',
+    [STANDARD_LEAD_STATUS.UNQUALIFIED]: 'Không đạt',
+  };
+
+  const STANDARD_LEAD_STATUS_OPTIONS = [
+    { value: STANDARD_LEAD_STATUS.NEW, label: LEAD_STATUS_LABELS[STANDARD_LEAD_STATUS.NEW] },
+    { value: STANDARD_LEAD_STATUS.ASSIGNED, label: LEAD_STATUS_LABELS[STANDARD_LEAD_STATUS.ASSIGNED] },
+    { value: STANDARD_LEAD_STATUS.CONTACTED, label: LEAD_STATUS_LABELS[STANDARD_LEAD_STATUS.CONTACTED] },
+    { value: STANDARD_LEAD_STATUS.CONVERTED, label: LEAD_STATUS_LABELS[STANDARD_LEAD_STATUS.CONVERTED] },
+    { value: STANDARD_LEAD_STATUS.UNQUALIFIED, label: LEAD_STATUS_LABELS[STANDARD_LEAD_STATUS.UNQUALIFIED] },
+  ] as const;
+
 
   const normalizeStatusToken = (value?: string) =>
     (value || '')
@@ -103,42 +178,109 @@ const Leads: React.FC = () => {
       .replace(/[^a-z0-9]+/g, '');
 
   const STATUS_NORMALIZATION_MAP: Record<string, string> = {
-    new: LeadStatus.NEW,
-    moi: LeadStatus.NEW,
-    assigned: LeadStatus.ASSIGNED,
-    daphanbo: LeadStatus.ASSIGNED,
-    contacted: LeadStatus.CONTACTED,
-    danglienhe: LeadStatus.CONTACTED,
-    qualified: LeadStatus.QUALIFIED,
-    datchuan: LeadStatus.QUALIFIED,
-    converted: LeadStatus.CONVERTED,
-    dachuyendoi: LeadStatus.CONVERTED,
-    disqualified: LeadStatus.DISQUALIFIED,
-    khongdat: LeadStatus.DISQUALIFIED,
-    won: DealStage.WON,
-    chotthanhcongwon: DealStage.WON,
-    lost: DealStage.LOST,
-    thatbailost: DealStage.LOST
+    new: STANDARD_LEAD_STATUS.NEW,
+    moi: STANDARD_LEAD_STATUS.NEW,
+    assigned: STANDARD_LEAD_STATUS.ASSIGNED,
+    daphanbo: STANDARD_LEAD_STATUS.ASSIGNED,
+    contacted: STANDARD_LEAD_STATUS.CONTACTED,
+    danglienhe: STANDARD_LEAD_STATUS.CONTACTED,
+    nurturing: STANDARD_LEAD_STATUS.CONTACTED,
+    nuoiduong: STANDARD_LEAD_STATUS.CONTACTED,
+    qualified: STANDARD_LEAD_STATUS.CONVERTED,
+    datchuan: STANDARD_LEAD_STATUS.CONVERTED,
+    converted: STANDARD_LEAD_STATUS.CONVERTED,
+    dachuyendoi: STANDARD_LEAD_STATUS.CONVERTED,
+    won: STANDARD_LEAD_STATUS.CONVERTED,
+    contract: STANDARD_LEAD_STATUS.CONVERTED,
+    chotthanhcongwon: STANDARD_LEAD_STATUS.CONVERTED,
+    disqualified: STANDARD_LEAD_STATUS.UNQUALIFIED,
+    unqualified: STANDARD_LEAD_STATUS.UNQUALIFIED,
+    khongdat: STANDARD_LEAD_STATUS.UNQUALIFIED,
+    unreachable: STANDARD_LEAD_STATUS.UNQUALIFIED,
+    khongnghemay: STANDARD_LEAD_STATUS.UNQUALIFIED,
+    lost: STANDARD_LEAD_STATUS.UNQUALIFIED,
+    thatbailost: STANDARD_LEAD_STATUS.UNQUALIFIED
   };
 
   const normalizeLeadStatus = (status?: string) => {
-    if (!status) return LeadStatus.NEW;
+    if (!status) return STANDARD_LEAD_STATUS.NEW;
     const token = normalizeStatusToken(status);
     return STATUS_NORMALIZATION_MAP[token] || status;
   };
 
-  const assignOwnersBySystemMode = (incomingLeads: ILead[]) => {
-    const distributionConfig = getLeadDistributionConfig();
-    if (distributionConfig.mode !== 'auto') return incomingLeads;
-    const repIds = SALES_REPS.map(rep => rep.id);
-    const ownerIds = distributionConfig.method === 'weighted'
-      ? allocateLeadOwnersWeighted(incomingLeads.length, repIds, distributionConfig.weightedRatios)
-      : allocateLeadOwnersRoundRobin(incomingLeads.length, repIds);
-    return incomingLeads.map((lead, index) => ({
-      ...lead,
-      ownerId: ownerIds[index] || lead.ownerId || '',
-      status: LeadStatus.NEW
-    }));
+  const getLeadStatusLabel = (status?: string) => {
+    const normalizedStatus = normalizeLeadStatus(status);
+    return LEAD_STATUS_LABELS[normalizedStatus] || normalizedStatus;
+  };
+
+  const assignmentRatioValues = useMemo(
+    () =>
+      SALES_REPS.reduce<Record<string, number>>((acc, rep) => {
+        acc[rep.id] = parseAssignmentRatio(assignmentRatios[rep.id] || '');
+        return acc;
+      }, {}),
+    [assignmentRatios]
+  );
+
+  const assignmentRatioTotal = useMemo(
+    () => SALES_REPS.reduce((sum, rep) => sum + (assignmentRatioValues[rep.id] || 0), 0),
+    [assignmentRatioValues]
+  );
+
+  const assignmentLeadCounts = useMemo(
+    () => buildLeadCountByRatio(selectedLeadIds.length, assignmentRatioValues),
+    [assignmentRatioValues, selectedLeadIds.length]
+  );
+
+  const resetAssignModal = () => {
+    setAssignmentRatios(buildEmptyAssignmentRatios());
+  };
+
+  const closeAssignModal = () => {
+    setShowAssignModal(false);
+    resetAssignModal();
+  };
+
+  const updateAssignmentRatio = (repId: string, value: string) => {
+    if (value === '') {
+      setAssignmentRatios((prev) => ({ ...prev, [repId]: '' }));
+      return;
+    }
+
+    const normalizedValue = String(parseAssignmentRatio(value));
+    setAssignmentRatios((prev) => ({ ...prev, [repId]: normalizedValue }));
+  };
+
+  const fillAssignmentRatiosEvenly = () => {
+    const activeRepIds = SALES_REPS
+      .filter((rep) => assignmentRatioValues[rep.id] > 0)
+      .map((rep) => rep.id);
+    const targetRepIds = activeRepIds.length > 0 ? activeRepIds : SALES_REPS.map((rep) => rep.id);
+    const baseRatio = Math.floor(100 / targetRepIds.length);
+    let remaining = 100 - (baseRatio * targetRepIds.length);
+
+    setAssignmentRatios(
+      SALES_REPS.reduce<Record<string, string>>((acc, rep) => {
+        if (!targetRepIds.includes(rep.id)) {
+          acc[rep.id] = '';
+          return acc;
+        }
+
+        const nextRatio = baseRatio + (remaining > 0 ? 1 : 0);
+        acc[rep.id] = String(nextRatio);
+        if (remaining > 0) remaining -= 1;
+        return acc;
+      }, {})
+    );
+  };
+
+  const setSingleRepAssignment = (repId: string) => {
+    setAssignmentRatios(
+      SALES_REPS.reduce<Record<string, string>>((acc, rep) => {
+        acc[rep.id] = rep.id === repId ? '100' : '';
+        return acc;
+      }, {})
+    );
   };
 
   // Loss Modal State
@@ -166,12 +308,9 @@ const Leads: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const syncDistributionMode = () => {
-      setSystemDistributionMode(getLeadDistributionConfig().mode);
-    };
-    syncDistributionMode();
-    window.addEventListener('educrm:lead-distribution-config-changed', syncDistributionMode as EventListener);
-    return () => window.removeEventListener('educrm:lead-distribution-config-changed', syncDistributionMode as EventListener);
+    const syncTags = () => setAvailableTags(getTags());
+    window.addEventListener('educrm:tags-changed', syncTags as EventListener);
+    return () => window.removeEventListener('educrm:tags-changed', syncTags as EventListener);
   }, []);
 
   // Create Modal State
@@ -186,6 +325,33 @@ const Leads: React.FC = () => {
   const [isAddingEditTag, setIsAddingEditTag] = useState(false);
   const patchNewLeadData = (patch: Partial<LeadCreateFormData>) => {
     setNewLeadData((prev) => ({ ...prev, ...patch }));
+  };
+  const addTagCatalogEntry = (tag: string) => {
+    const value = tag.trim();
+    if (!value) return;
+    const nextTags = saveTags([...availableTags, value]);
+    setAvailableTags(nextTags);
+  };
+  const deleteTagCatalogEntry = (tag: string) => {
+    if (FIXED_LEAD_TAGS.includes(tag as typeof FIXED_LEAD_TAGS[number])) return;
+    const nextTags = saveTags(availableTags.filter((item) => item !== tag));
+    setAvailableTags(nextTags);
+    setNewLeadData((prev) => ({ ...prev, tags: prev.tags.filter((item) => item !== tag) }));
+    setEditLeadData((prev) => ({ ...prev, tags: prev.tags.filter((item) => item !== tag) }));
+  };
+  const addTagToNewLead = (tag: string) => {
+    setNewLeadData((prev) => (
+      prev.tags.includes(tag)
+        ? prev
+        : { ...prev, tags: [...prev.tags, tag] }
+    ));
+  };
+  const addTagToEditLead = (tag: string) => {
+    setEditLeadData((prev) => (
+      prev.tags.includes(tag)
+        ? prev
+        : { ...prev, tags: [...prev.tags, tag] }
+    ));
   };
 
   // --- DUPLICATE CHECK STATE ---
@@ -209,37 +375,45 @@ const Leads: React.FC = () => {
 
 
   // Edit Lead Modal State
-  const [editLeadData, setEditLeadData] = useState({
-    name: '', phone: '', email: '', source: '', program: '', notes: '',
-    title: '', company: '', province: '', city: '', ward: '', street: '', salesperson: '', campaign: '', tags: [] as string[], referredBy: '',
-    product: '', market: '', medium: '', status: ''
-  });
-  const [editModalActiveTab, setEditModalActiveTab] = useState<'notes' | 'extra'>('notes');
+  const [editLeadData, setEditLeadData] = useState<LeadCreateFormData>(() => createLeadInitialState());
+  const [editModalActiveTab, setEditModalActiveTab] = useState<LeadCreateModalTab>('notes');
+  const patchEditLeadData = (patch: Partial<LeadCreateFormData>) => {
+    setEditLeadData((prev) => ({ ...prev, ...patch }));
+  };
 
   // Sync selected lead to edit form
   useEffect(() => {
     if (selectedLead) {
+      const studentInfo = selectedLead.studentInfo || {};
       setEditLeadData({
+        ...createLeadInitialState(selectedLead.ownerId || ''),
         name: selectedLead.name,
         phone: selectedLead.phone,
         email: selectedLead.email || '',
-        source: selectedLead.source,
-        program: selectedLead.program,
+        source: selectedLead.source || 'hotline',
+        program: selectedLead.program || 'Tiếng Đức',
         notes: selectedLead.notes || '',
         title: (selectedLead as any).title || '',
-        company: selectedLead.company,
-        province: (selectedLead as any).province || '',
-        city: (selectedLead as any).city || '',
-        ward: (selectedLead as any).ward || '',
-        street: (selectedLead as any).street || '',
+        company: selectedLead.company || selectedLead.marketingData?.region || '',
+        province: (selectedLead as any).province || selectedLead.city || '',
+        city: (selectedLead as any).city || selectedLead.district || '',
+        ward: (selectedLead as any).ward || selectedLead.ward || '',
+        street: (selectedLead as any).street || selectedLead.address || '',
         salesperson: selectedLead.ownerId || '',
-        campaign: (selectedLead as any).campaign || '',
+        campaign: selectedLead.marketingData?.campaign || (selectedLead as any).campaign || '',
         tags: Array.isArray(selectedLead.marketingData?.tags) ? selectedLead.marketingData.tags : (typeof selectedLead.marketingData?.tags === 'string' ? (selectedLead.marketingData.tags as string).split(',').map(t => t.trim()).filter(Boolean) : []),
         referredBy: (selectedLead as any).referredBy || '',
-        product: '',
-        market: '',
-        medium: '',
-        status: normalizeLeadStatus(selectedLead.status as string)
+        product: selectedLead.product || selectedLead.program || '',
+        market: selectedLead.marketingData?.market || '',
+        channel: selectedLead.marketingData?.channel || selectedLead.marketingData?.medium || '',
+        status: normalizeLeadStatus(selectedLead.status as string),
+        targetCountry: selectedLead.targetCountry || studentInfo.targetCountry || '',
+        studentName: studentInfo.studentName || '',
+        studentDob: studentInfo.dob || selectedLead.dob || '',
+        studentIdentityCard: studentInfo.identityCard || (selectedLead as any).identityCard || '',
+        studentPhone: studentInfo.studentPhone || '',
+        studentSchool: studentInfo.school || '',
+        studentEducationLevel: studentInfo.educationLevel || selectedLead.educationLevel || ''
       });
     }
   }, [selectedLead]);
@@ -261,13 +435,14 @@ const Leads: React.FC = () => {
   };
 
   const [visibleColumns, setVisibleColumns] = useState<string[]>([
-    'opportunity', 'contact', 'email', 'phone', 'market', 'product', 'nextActivity', 'deadline', 'value', 'status', 'salesperson', 'company', 'source', 'campaign', 'tags'
+    'opportunity', 'contact', 'company', 'email', 'phone', 'salesperson', 'campaign', 'source', 'tags', 'market', 'product', 'nextActivity', 'deadline', 'value', 'status'
   ]);
 
   const ALL_COLUMNS = [
     { id: 'opportunity', label: 'Cơ hội' },
     { id: 'company', label: 'Cơ sở / Công ty' },
     { id: 'contact', label: 'Tên liên hệ' },
+    { id: 'createdAt', label: 'Ngày đổ lead' },
     { id: 'title', label: 'Danh xưng' },
     { id: 'email', label: 'Email' },
     { id: 'phone', label: 'SĐT' },
@@ -286,6 +461,22 @@ const Leads: React.FC = () => {
     { id: 'status', label: 'Trạng thái' },
     { id: 'sla', label: 'Cảnh báo SLA' },
   ];
+
+  const [selectedAdvancedFilterFields, setSelectedAdvancedFilterFields] = useState<string[]>([]);
+  const [selectedAdvancedGroupFields, setSelectedAdvancedGroupFields] = useState<string[]>([]);
+
+  const selectedAdvancedFilterOptions = ALL_COLUMNS.filter((col) => selectedAdvancedFilterFields.includes(col.id));
+  const selectedAdvancedGroupOptions = ALL_COLUMNS.filter((col) => selectedAdvancedGroupFields.includes(col.id));
+  const ADVANCED_MULTI_FILTER_PREFIX = '__advanced_multi__:';
+
+  const toggleAdvancedFieldSelection = (type: 'filter' | 'group', fieldId: string) => {
+    const setter = type === 'filter' ? setSelectedAdvancedFilterFields : setSelectedAdvancedGroupFields;
+    setter((prev) => (
+      prev.includes(fieldId)
+        ? prev.filter((item) => item !== fieldId)
+        : [...prev, fieldId]
+    ));
+  };
 
   const toggleColumn = (columnId: string) => {
     if (visibleColumns.includes(columnId)) {
@@ -342,23 +533,44 @@ const Leads: React.FC = () => {
 
   const handleUpdateSelectedLead = () => {
     if (!selectedLead) return;
+    const guardianRelation = getLeadGuardianRelation(editLeadData.title);
+    const studentInfo = buildLeadStudentInfo(editLeadData);
+    const campus = resolveLeadCampus(editLeadData);
+    const normalizedProgram =
+      editLeadData.product &&
+      ['Tiếng Đức', 'Tiếng Trung', 'Du học Đức', 'Du học Trung', 'Du học nghề Úc'].includes(editLeadData.product)
+        ? editLeadData.product as ILead['program']
+        : editLeadData.program as ILead['program'];
     const updatedLead: ILead = {
       ...selectedLead,
       name: editLeadData.name,
       phone: editLeadData.phone,
       email: editLeadData.email,
       source: editLeadData.source,
-      program: editLeadData.program as any,
+      program: normalizedProgram,
       notes: editLeadData.notes,
-      company: editLeadData.company,
+      company: campus,
       ownerId: editLeadData.salesperson,
+      targetCountry: editLeadData.targetCountry || selectedLead.targetCountry,
+      educationLevel: editLeadData.studentEducationLevel || undefined,
+      dob: editLeadData.studentDob || undefined,
+      identityCard: editLeadData.studentIdentityCard || undefined,
+      address: editLeadData.street.trim() || undefined,
+      city: editLeadData.province.trim() || undefined,
+      district: editLeadData.city.trim() || undefined,
+      ward: editLeadData.ward.trim() || undefined,
+      guardianName: guardianRelation ? editLeadData.name.trim() || undefined : undefined,
+      guardianPhone: guardianRelation ? editLeadData.phone.trim() || undefined : undefined,
+      studentInfo,
       status: normalizeLeadStatus(editLeadData.status as string) as any,
       marketingData: {
         ...selectedLead.marketingData,
         campaign: editLeadData.campaign,
         tags: editLeadData.tags,
-        market: selectedLead.marketingData?.market || '',
-        medium: selectedLead.marketingData?.medium || ''
+        market: editLeadData.market,
+        channel: editLeadData.channel,
+        medium: editLeadData.channel,
+        region: campus || undefined
       }
     };
     // Extra fields types casting
@@ -405,7 +617,8 @@ const Leads: React.FC = () => {
     { id: 'name', label: 'Tên Lead', excelHeader: 'Họ và tên', required: true },
     { id: 'phone', label: 'SĐT', excelHeader: 'Số điện thoại', required: true }, // Format: 10 digits, start with 0
     { id: 'email', label: 'Email', excelHeader: 'Email', required: false },      // Format: contains @
-    { id: 'company', label: 'Cơ sở', excelHeader: 'Cơ sở', required: true },
+    { id: 'targetCountry', label: 'Quốc gia mục tiêu', excelHeader: 'Quốc gia mục tiêu', required: true },
+    { id: 'company', label: 'Cơ sở', excelHeader: 'Cơ sở', required: false },
     { id: 'source', label: 'Nguồn', excelHeader: 'Nguồn', required: false },
     { id: 'campaign', label: 'Chiến dịch', excelHeader: 'Chiến dịch', required: false },
     { id: 'notes', label: 'Ghi chú', excelHeader: 'Ghi chú', required: false },
@@ -423,11 +636,17 @@ const Leads: React.FC = () => {
   const [importBatchName, setImportBatchName] = useState('');
   const [importTags, setImportTags] = useState<string[]>([]);
   const [newTagInput, setNewTagInput] = useState('');
+  const importFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const openImportFilePicker = () => {
+    importFileInputRef.current?.click();
+  };
 
   // Handle File Select
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    e.target.value = '';
     setImportFile(file);
 
     // Parse File
@@ -503,7 +722,8 @@ const Leads: React.FC = () => {
           name: row['Họ và tên'],
           phone: String(row['Số điện thoại']).replace(/[\s\.\-]/g, ''),
           email: row['Email'] || '',
-          company: row['Cơ sở'],
+          targetCountry: row['Quốc gia mục tiêu'],
+          company: row['Cơ sở'] || '',
           source: row['Nguồn'] || 'Import',
           campaign: row['Chiến dịch'] || '',
           notes: row['Ghi chú'] || '',
@@ -519,7 +739,7 @@ const Leads: React.FC = () => {
   // Download Template
   const handleDownloadTemplate = () => {
     const ws = utils.json_to_sheet([
-      { 'Họ và tên': 'Nguyễn Văn A', 'Số điện thoại': '0901234567', 'Email': 'a@example.com', 'Cơ sở': 'Hanoi', 'Nguồn': 'Facebook', 'Chiến dịch': 'Summer 2024', 'Ghi chú': 'Quan tâm du học' }
+      { 'Họ và tên': 'Nguyễn Văn A', 'Số điện thoại': '0901234567', 'Email': 'a@example.com', 'Quốc gia mục tiêu': 'Đức', 'Cơ sở': 'Hanoi', 'Nguồn': 'Facebook', 'Chiến dịch': 'Summer 2024', 'Ghi chú': 'Quan tâm du học' }
     ]);
     const wb = utils.book_new();
     utils.book_append_sheet(wb, ws, "Template");
@@ -560,10 +780,14 @@ const Leads: React.FC = () => {
         phone: row.phone,
         email: row.email,
         company: row.company,
+        targetCountry: row.targetCountry,
         source: row.source,
         program: row.program,
-        status: LeadStatus.NEW,
+        status: STANDARD_LEAD_STATUS.NEW,
         ownerId: '', // Set below
+        studentInfo: {
+          targetCountry: row.targetCountry
+        },
         marketingData: {
           campaign: row.campaign || importBatchName,
           tags: [...importTags, ...(row.tags ? [row.tags] : [])],
@@ -578,8 +802,6 @@ const Leads: React.FC = () => {
         slaStatus: 'normal'
       } as ILead;
     });
-
-    assignedLeads = assignOwnersBySystemMode(assignedLeads);
 
     saveLeads([...leads, ...assignedLeads]);
     setLeads([...leads, ...assignedLeads]); // Optimistic update
@@ -608,6 +830,107 @@ const Leads: React.FC = () => {
 
   const setDateFilter = (field: 'createdDate' | 'closedDate', type: 'month' | 'quarter' | 'year', value: number) => {
     setAdvancedFilters(prev => ({ ...prev, [field]: prev[field]?.value === value && prev[field]?.type === type ? null : { type, value } }));
+  };
+
+  const buildAdvancedMultiFilterField = (fieldIds: string[]) =>
+    `${ADVANCED_MULTI_FILTER_PREFIX}${fieldIds.join('|')}`;
+
+  const parseAdvancedMultiFilterFields = (field: string) =>
+    field.startsWith(ADVANCED_MULTI_FILTER_PREFIX)
+      ? field.slice(ADVANCED_MULTI_FILTER_PREFIX.length).split('|').filter(Boolean)
+      : [];
+
+  const getLeadFilterableValue = (lead: ILead, field: string) => {
+    switch (field) {
+      case 'opportunity':
+      case 'contact':
+        return lead.name;
+      case 'company':
+        return lead.company || '';
+      case 'title':
+        return (lead as any).title || '';
+      case 'email':
+        return lead.email || '';
+      case 'phone':
+        return lead.phone || '';
+      case 'address':
+        return [(lead as any).street, (lead as any).ward, (lead as any).city].filter(Boolean).join(', ');
+      case 'salesperson':
+        return SALES_REPS.find((rep) => rep.id === lead.ownerId)?.name || '';
+      case 'campaign':
+        return (lead as any).campaign || lead.marketingData?.campaign || '';
+      case 'source':
+        return lead.source || '';
+      case 'tags': {
+        const tags = Array.isArray(lead.marketingData?.tags)
+          ? lead.marketingData?.tags
+          : (typeof lead.marketingData?.tags === 'string' ? lead.marketingData.tags.split(',').map(tag => tag.trim()) : []);
+        return tags.join(', ');
+      }
+      case 'referredBy':
+        return (lead as any).referredBy || '';
+      case 'market':
+        return lead.marketingData?.market || '';
+      case 'product':
+        return (lead as any).product || lead.program || '';
+      case 'notes':
+        return lead.notes || '';
+      case 'nextActivity': {
+        const nextActivity = ((lead as any).activities || []).find((activity: any) => activity.type === 'activity');
+        return nextActivity?.description || '';
+      }
+      case 'deadline':
+        return (lead as any).expectedClosingDate || '';
+      case 'value':
+        return lead.value != null ? String(lead.value) : '';
+      case 'status':
+        return normalizeLeadStatus(lead.status as string);
+      case 'sla':
+        return lead.slaReason || lead.slaStatus || '';
+      default:
+        return (lead as any)[field] ?? '';
+    }
+  };
+
+  const getLeadSearchableText = (lead: ILead) => [
+    lead.name,
+    lead.phone,
+    lead.email,
+    lead.source,
+    lead.program || '',
+    getLeadStatusLabel(lead.status as string),
+    normalizeLeadStatus(lead.status as string),
+    lead.ownerId || '',
+    (lead as any).city || '',
+    (lead as any).company || ''
+  ].join(' ').toLowerCase();
+
+  const doesLeadMatchFilter = (lead: ILead, field: string, rawValue: string) => {
+    const value = rawValue.trim().toLowerCase();
+    if (!value) return true;
+
+    if (field === 'search') {
+      return getLeadSearchableText(lead).includes(value);
+    }
+
+    if (field === 'status') {
+      const normalizedStatus = normalizeLeadStatus(lead.status as string).toLowerCase();
+      const statusLabel = getLeadStatusLabel(lead.status as string).toLowerCase();
+      return normalizedStatus.includes(value) || statusLabel.includes(value);
+    }
+
+    const leadValue = String(getLeadFilterableValue(lead, field) || '').toLowerCase();
+    if (!leadValue) return false;
+
+    if (field === 'createdAt' || field === 'deadline') {
+      const formattedDate = (() => {
+        const date = new Date(leadValue);
+        return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString('vi-VN').toLowerCase();
+      })();
+      return leadValue.includes(value) || formattedDate.includes(value);
+    }
+
+    return leadValue.includes(value);
   };
 
   // Helper to check date matches
@@ -655,7 +978,7 @@ const Leads: React.FC = () => {
     if (openOps) {
       result = result.filter(l => {
         const normalizedStatus = normalizeLeadStatus(l.status as string);
-        return normalizedStatus !== DealStage.WON && normalizedStatus !== DealStage.LOST;
+        return normalizedStatus !== STANDARD_LEAD_STATUS.CONVERTED && normalizedStatus !== STANDARD_LEAD_STATUS.UNQUALIFIED;
       });
     }
 
@@ -733,23 +1056,11 @@ const Leads: React.FC = () => {
     if (searchFilters.length > 0) {
       result = result.filter(lead => {
         return searchFilters.every(filter => {
-          const value = String(filter.value).toLowerCase();
-          if (filter.field === 'search') {
-            const searchableText = [
-              lead.name,
-              lead.phone,
-              lead.email,
-              lead.source,
-              lead.program || '',
-              normalizeLeadStatus(lead.status as string),
-              lead.ownerId || '',
-              (lead as any).city || '',
-              (lead as any).company || ''
-            ].join(' ').toLowerCase();
-            return searchableText.includes(value);
+          const groupedFields = parseAdvancedMultiFilterFields(filter.field);
+          if (groupedFields.length > 0) {
+            return groupedFields.some((fieldId) => doesLeadMatchFilter(lead, fieldId, filter.value));
           }
-          const leadValue = (lead as any)[filter.field];
-          return String(leadValue || '').toLowerCase() === value;
+          return doesLeadMatchFilter(lead, filter.field, filter.value);
         });
       });
     }
@@ -757,7 +1068,7 @@ const Leads: React.FC = () => {
     // 4. Tab Specific Status Filtering
     switch (activeTab) {
       case 'new':
-        return result.filter(l => normalizeLeadStatus(l.status as string) === LeadStatus.NEW || !l.status);
+        return result.filter(l => normalizeLeadStatus(l.status as string) === STANDARD_LEAD_STATUS.NEW || !l.status);
       case 'sla_risk':
         return result.filter(l => l.slaStatus === 'danger');
       default:
@@ -768,17 +1079,19 @@ const Leads: React.FC = () => {
   // --- STATS CALCULATION ---
   const stats = useMemo(() => {
     const total = leads.length;
-    const newLeads = leads.filter(l => normalizeLeadStatus(l.status as string) === LeadStatus.NEW).length;
-    const slaRisk = leads.filter(l => l.slaStatus === 'danger' || l.slaStatus === 'warning').length;
-
-    // Calculate Qualified Rate
-    const qualifiedCount = leads.filter(l => {
-      const normalizedStatus = normalizeLeadStatus(l.status as string);
-      return normalizedStatus === LeadStatus.QUALIFIED || normalizedStatus === LeadStatus.CONVERTED || normalizedStatus === DealStage.WON;
+    const assigned = leads.filter((lead) => Boolean(lead.ownerId)).length;
+    const unassigned = total - assigned;
+    const slaRisk = leads.filter((lead) => lead.slaStatus === 'danger').length;
+    const verified = leads.filter((lead) => Boolean((lead as any).verified || (lead as any).isVerified)).length;
+    const processing = leads.filter((lead) => {
+      if (!lead.ownerId) return false;
+      const normalizedStatus = normalizeLeadStatus(lead.status as string);
+      return ![STANDARD_LEAD_STATUS.NEW, STANDARD_LEAD_STATUS.ASSIGNED].includes(normalizedStatus);
     }).length;
-    const rate = total > 0 ? ((qualifiedCount / total) * 100).toFixed(1) : '0.0';
+    const newLeads = leads.filter((lead) => !lead.ownerId).length;
+    const verificationRate = total > 0 ? (verified / total) * 100 : 0;
 
-    return { total, newLeads, slaRisk, rate };
+    return { total, assigned, unassigned, processing, newLeads, slaRisk, verificationRate };
   }, [leads]);
 
   // --- FILTER HELPERS ---
@@ -787,7 +1100,7 @@ const Leads: React.FC = () => {
     // Check if filter already exists
     const exists = searchFilters.some(f => f.field === field && f.value.toLowerCase() === value.toLowerCase());
     if (!exists && value) {
-      setSearchFilters([...searchFilters, { field, label, value, color }]);
+      setSearchFilters((prev) => [...prev, { field, label, value, color }]);
     }
   };
 
@@ -888,8 +1201,30 @@ const Leads: React.FC = () => {
       });
     }
 
+    if (selectedAdvancedFilterOptions.length > 0) {
+      chips.push({
+        field: 'selected_filter',
+        label: '',
+        value: selectedAdvancedFilterOptions.map((option) => option.label).join(' OR '),
+        color: 'bg-emerald-50 text-emerald-700',
+        origin: 'synthetic',
+        syntheticKey: 'selectedFilter'
+      });
+    }
+
+    if (selectedAdvancedGroupOptions.length > 0) {
+      chips.push({
+        field: 'group_by',
+        label: '',
+        value: selectedAdvancedGroupOptions.map((option) => option.label).join(' > '),
+        color: 'bg-blue-50 text-blue-700',
+        origin: 'synthetic',
+        syntheticKey: 'groupBy'
+      });
+    }
+
     return chips;
-  }, [searchFilters, advancedFilters, timeFilterField, timeRangeType, customRange, timePresets, fieldLabels]);
+  }, [searchFilters, advancedFilters, timeFilterField, timeRangeType, customRange, timePresets, fieldLabels, selectedAdvancedFilterOptions, selectedAdvancedGroupOptions]);
 
   const handleToolbarFilterRemove = (index: number) => {
     const chip = toolbarFilterChips[index];
@@ -933,6 +1268,16 @@ const Leads: React.FC = () => {
       return;
     }
 
+    if (chip.syntheticKey === 'selectedFilter') {
+      setSelectedAdvancedFilterFields([]);
+      return;
+    }
+
+    if (chip.syntheticKey === 'groupBy') {
+      setSelectedAdvancedGroupFields([]);
+      return;
+    }
+
     if (chip.syntheticKey?.startsWith('status:')) {
       const statusValue = chip.syntheticKey.slice('status:'.length);
       setAdvancedFilters(prev => ({ ...prev, status: prev.status.filter((item) => item !== statusValue) }));
@@ -941,6 +1286,8 @@ const Leads: React.FC = () => {
 
   const handleClearToolbarFilters = () => {
     setSearchFilters([]);
+    setSelectedAdvancedFilterFields([]);
+    setSelectedAdvancedGroupFields([]);
     setAdvancedFilters({
       myPipeline: false,
       unassigned: false,
@@ -1074,7 +1421,7 @@ const Leads: React.FC = () => {
       lastInteraction: new Date().toISOString(),
       slaStatus: 'normal'
     };
-    const finalLead = assignOwnersBySystemMode([newLead])[0];
+    const finalLead = newLead;
 
     if (saveLead(finalLead)) {
       setLeads([finalLead, ...leads]);
@@ -1143,7 +1490,7 @@ const Leads: React.FC = () => {
       lastInteraction: nowIso,
       slaStatus: 'normal'
     };
-    const finalLead = assignOwnersBySystemMode([newLead])[0];
+    const finalLead = newLead;
 
     if (saveLead(finalLead)) {
       setLeads([finalLead, ...leads]);
@@ -1157,25 +1504,43 @@ const Leads: React.FC = () => {
   };
 
   const handleAssignSubmit = () => {
-    if (!selectedRep) {
-      alert("Vui lòng chọn nhân viên Sale");
+    const repsWithLeads = SALES_REPS.filter((rep) => (assignmentLeadCounts[rep.id] || 0) > 0);
+
+    if (repsWithLeads.length === 0) {
+      alert("Vui lòng nhập tỷ lệ phân bổ cho ít nhất 1 nhân viên Sale");
       return;
     }
 
-    const updatedLeads = leads.map(l =>
-      selectedLeadIds.includes(l.id) ? { ...l, ownerId: selectedRep, status: LeadStatus.NEW } : l
+    if (assignmentRatioTotal !== 100) {
+      alert("Tổng tỷ lệ phân bổ phải bằng 100%");
+      return;
+    }
+
+    const selectedLeadIdSet = new Set(selectedLeadIds);
+    const ownerAssignments = repsWithLeads.flatMap((rep) =>
+      Array.from({ length: assignmentLeadCounts[rep.id] || 0 }, () => rep.id)
     );
+    let assignmentIndex = 0;
+
+    const updatedLeads = leads.map((lead) => {
+      if (!selectedLeadIdSet.has(lead.id)) return lead;
+
+      const ownerId = ownerAssignments[assignmentIndex] || repsWithLeads[repsWithLeads.length - 1].id;
+      assignmentIndex += 1;
+
+      return { ...lead, ownerId, status: STANDARD_LEAD_STATUS.ASSIGNED };
+    });
 
     saveLeads(updatedLeads);
     setLeads(updatedLeads);
-    setShowAssignModal(false);
+    closeAssignModal();
     setSelectedLeadIds([]);
-    setSelectedRep('');
     alert(`Đã phân bổ thành công ${selectedLeadIds.length} lead!`);
   };
 
   // --- BULK ACTIONS ---
   const handleBulkDelete = () => {
+    if (selectedLeadIds.length === 0) return;
     if (confirm(`Bạn có chắc muốn xóa ${selectedLeadIds.length} lead đã chọn?`)) {
       const remainingLeads = leads.filter(l => !selectedLeadIds.includes(l.id));
       setLeads(remainingLeads);
@@ -1199,14 +1564,14 @@ const Leads: React.FC = () => {
       lossModalLeadIds.includes(l.id)
         ? {
           ...l,
-          status: DealStage.LOST,
+          status: STANDARD_LEAD_STATUS.UNQUALIFIED,
           lostReason: finalReason,
           activities: [
             {
               id: `act-${Date.now()}`,
               type: 'system' as any,
               timestamp: new Date().toISOString(),
-              description: `Trạng thái → LOST. Lý do: ${finalReason}`,
+              description: `Trạng thái → ${STANDARD_LEAD_STATUS.UNQUALIFIED}. Lý do: ${finalReason}`,
               user: user?.name || 'Admin',
               title: 'Thất bại'
             },
@@ -1233,7 +1598,9 @@ const Leads: React.FC = () => {
   };
 
   const handleBulkExport = () => {
-    const leadsToExport = leads.filter(l => selectedLeadIds.includes(l.id));
+    const leadsToExport = selectedLeadIds.length > 0
+      ? leads.filter((lead) => selectedLeadIds.includes(lead.id))
+      : filteredLeads;
     const ws = utils.json_to_sheet(leadsToExport.map(l => ({
       'ID': l.id,
       'Tên': l.name,
@@ -1241,7 +1608,7 @@ const Leads: React.FC = () => {
       'Email': l.email,
       'Cơ sở': l.company,
       'Nguồn': l.source,
-      'Trạng thái': normalizeLeadStatus(l.status as string)
+      'Trạng thái': getLeadStatusLabel(l.status as string)
     })));
     const wb = utils.book_new();
     utils.book_append_sheet(wb, ws, "Leads");
@@ -1254,7 +1621,7 @@ const Leads: React.FC = () => {
   // --- INLINE ACTIONS ---
   const handlePickUpLead = (e: React.MouseEvent, lead: ILead) => {
     e.stopPropagation();
-    const updatedLead = { ...lead, ownerId: user?.id, status: LeadStatus.ASSIGNED };
+    const updatedLead = { ...lead, ownerId: user?.id, status: STANDARD_LEAD_STATUS.ASSIGNED };
     handleUpdateLead(updatedLead);
     alert(`Đã tiếp nhận lead: ${lead.name}`);
   };
@@ -1265,121 +1632,261 @@ const Leads: React.FC = () => {
     setShowLossModal(true);
   };
 
+  const openCreateLeadModal = () => {
+    setCreateModalActiveTab('notes');
+    setIsAddingTag(false);
+    setNewLeadData(createLeadInitialState());
+    setShowCreateModal(true);
+  };
+
+  const openQuickAssignModal = () => {
+    if (selectedLeadIds.length === 0) {
+      alert('Vui lòng chọn lead trước khi phân bổ nhanh');
+      return;
+    }
+
+    resetAssignModal();
+    setShowAssignModal(true);
+  };
+
+  const getAllocationStatusMeta = (lead: ILead) => {
+    if (!lead.ownerId) {
+      return {
+        label: 'Mới',
+        className: 'border-[#e4e7ec] bg-[#f8fafc] text-slate-600'
+      };
+    }
+
+    if ([STANDARD_LEAD_STATUS.NEW, STANDARD_LEAD_STATUS.ASSIGNED].includes(normalizeLeadStatus(lead.status as string))) {
+      return {
+        label: 'Đã chia',
+        className: 'border-[#d7e3f4] bg-[#eef4fb] text-[#4f6b8a]'
+      };
+    }
+
+    return {
+      label: 'Đang xử lý',
+      className: 'border-[#d9e7df] bg-[#edf6f1] text-[#55756a]'
+    };
+  };
+
+  const compactHeaderCellClass = 'whitespace-nowrap border-b border-[#f1f5f9] px-2 py-1.5 text-left text-[10px] font-bold uppercase tracking-[0.08em] text-[#7b8794]';
+  const compactBodyCellClass = 'whitespace-nowrap px-2 py-1 align-middle text-[12px] text-slate-700';
+  const compactMetaCellClass = 'whitespace-nowrap px-2 py-1 align-middle text-[12px] text-slate-600';
+  const flatRibbonButtonClass = 'inline-flex items-center gap-1 rounded-sm border border-transparent px-2 py-1 text-[11px] font-semibold text-slate-700 transition-colors hover:border-[#d8dee8] hover:bg-white hover:text-slate-900';
+  const compactToolbarButtonClass = 'inline-flex items-center gap-1 rounded-sm border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900';
+
   return decodeMojibakeReactNode(
     <>
-      <div className="p-6 max-w-[1600px] mx-auto min-h-screen font-inter bg-slate-50 text-slate-900">
-        {/* Header */}
-        <div className="flex justify-between items-center mb-6">
+      <div className="mx-auto min-h-screen max-w-[1600px] bg-[#f8fafc] px-4 py-6 font-inter text-slate-900 md:px-6">
+        <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-700 to-blue-500 bg-clip-text text-transparent">Cơ hội (Leads)</h1>
-            <p className="text-slate-500 text-sm mt-1">Quản lý Lead đầu vào và phân bổ cho đội Sales</p>
+            <h1 className="text-[20px] font-bold tracking-tight text-[#2f5bd3] md:text-[22px]">CÆ¡ há»™i (Leads)</h1>
+            <p className="mt-1 text-[13px] text-slate-600">Quáº£n lÃ½ Lead Ä‘áº§u vÃ o vÃ  phÃ¢n bá»• cho Ä‘á»™i Sales</p>
           </div>
-          <div className="flex items-center gap-3">
-            <button onClick={() => setShowImportModal(true)} className="px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-lg text-sm font-semibold hover:bg-slate-50 flex items-center gap-2 shadow-sm transition-all hover:border-blue-300 hover:text-blue-600"><FileSpreadsheet size={16} /> Import Excel</button>
+          <div className="flex flex-wrap items-center gap-3">
             <button
-              onClick={() => {
-                setCreateModalActiveTab('notes');
-                setIsAddingTag(false);
-                setNewLeadData(createLeadInitialState());
-                setShowCreateModal(true);
-              }}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold flex items-center gap-2 shadow-lg shadow-blue-200 transition-all"
+              onClick={() => setShowImportModal(true)}
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-[14px] font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50 hover:text-slate-900"
             >
-              <Plus size={18} strokeWidth={3} /> Thêm Lead
+              <FileSpreadsheet size={18} /> Import Excel
+            </button>
+            <button
+              onClick={openCreateLeadModal}
+              className="inline-flex items-center gap-2 rounded-xl bg-[#2f5bd3] px-4 py-2.5 text-[14px] font-semibold text-white shadow-sm transition-colors hover:bg-[#244fc4]"
+            >
+              <Plus size={18} /> ThÃªm Lead
             </button>
           </div>
         </div>
 
-        {/* Statistics Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-          <div
-            onClick={() => setActiveTab('all')}
-            className={`bg-white p-4 rounded-xl shadow-sm border cursor-pointer transition-all hover:shadow-md ${activeTab === 'all' ? 'border-blue-500 ring-1 ring-blue-100' : 'border-slate-100 hover:border-blue-200'}`}
-          >
-            <div className="flex justify-between items-start">
+        <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <button onClick={() => setActiveTab('all')} className="rounded-[18px] border border-[#2f5bd3] bg-white px-5 py-4 text-left shadow-sm transition-transform hover:-translate-y-0.5">
+            <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Tổng số Lead</p>
-                <div className="text-2xl font-black text-slate-800 mt-1">{stats.total.toLocaleString()}</div>
+                <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">Tá»•ng sá»‘ lead</div>
+                <div className="mt-2 text-[18px] font-bold text-slate-900">{stats.total.toLocaleString()}</div>
               </div>
-              <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
-                <Users size={20} />
+              <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-[#2f5bd3]">
+                <Users size={22} />
+              </span>
+            </div>
+          </button>
+          <button onClick={() => setActiveTab('new')} className="rounded-[18px] border border-slate-200 bg-white px-5 py-4 text-left shadow-sm transition-transform hover:-translate-y-0.5">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">Lead má»›i</div>
+                <div className="mt-2 text-[18px] font-bold text-slate-900">{stats.newLeads.toLocaleString()}</div>
               </div>
+              <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
+                <UserPlus size={22} />
+              </span>
+            </div>
+          </button>
+          <button onClick={() => setActiveTab('sla_risk')} className="rounded-[18px] border border-slate-200 bg-white px-5 py-4 text-left shadow-sm transition-transform hover:-translate-y-0.5">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">Cáº£nh bÃ¡o SLA</div>
+                <div className="mt-2 text-[18px] font-bold text-slate-900">{stats.slaRisk.toLocaleString()}</div>
+              </div>
+              <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-rose-50 text-rose-500">
+                <AlertTriangle size={22} />
+              </span>
+            </div>
+          </button>
+          <div className="rounded-[18px] border border-slate-200 bg-white px-5 py-4 text-left shadow-sm">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">Tá»· lá»‡ xÃ¡c thá»±c</div>
+                <div className="mt-2 text-[18px] font-bold text-slate-900">{stats.verificationRate.toFixed(1)}%</div>
+              </div>
+              <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-violet-50 text-violet-600">
+                <ShieldCheck size={22} />
+              </span>
             </div>
           </div>
+        </div>
+        <div className="hidden mb-3 border-b border-[#f1f5f9] pb-2.5">
+          <div className="flex flex-wrap items-center gap-2 xl:flex-nowrap">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-[15px] font-bold uppercase tracking-[0.12em] text-slate-900">Phân bổ Lead</h1>
+              <div className="flex flex-wrap items-center gap-0.5 rounded-sm border border-[#e4e7ec] bg-[#f5f6f8] px-1 py-1">
+                <button
+                  onClick={openCreateLeadModal}
+                  className={flatRibbonButtonClass}
+                >
+                  <Plus size={13} /> Tạo mới
+                </button>
+                <button
+                  onClick={openQuickAssignModal}
+                  className={flatRibbonButtonClass}
+                >
+                  <UserPlus size={13} /> Phân bổ nhanh
+                </button>
+                <button
+                  onClick={() => setShowImportModal(true)}
+                  className={flatRibbonButtonClass}
+                >
+                  <FileSpreadsheet size={13} /> Nhập Excel
+                </button>
+                <button
+                  onClick={handleBulkExport}
+                  className={flatRibbonButtonClass}
+                >
+                  <Download size={13} /> Xuất Excel
+                </button>
+                <div className="mx-1 h-4 w-px bg-[#d8dee8]"></div>
+                <button
+                  onClick={handleBulkMarkLost}
+                  disabled={selectedLeadIds.length === 0}
+                  className={`${flatRibbonButtonClass} ${selectedLeadIds.length === 0 ? 'cursor-not-allowed hover:border-transparent hover:bg-transparent hover:text-slate-700' : ''}`}
+                  title="Đánh dấu thất bại"
+                >
+                  <XCircle size={13} /> Đánh dấu thất bại
+                </button>
 
-          <div
-            onClick={() => setActiveTab('new')}
-            className={`bg-white p-4 rounded-xl shadow-sm border cursor-pointer transition-all hover:shadow-md ${activeTab === 'new' ? 'border-emerald-500 ring-1 ring-emerald-100' : 'border-slate-100 hover:border-emerald-200'}`}
-          >
-            <div className="flex justify-between items-start">
-              <div>
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Lead Mới</p>
-                <div className="text-2xl font-black text-slate-800 mt-1">{stats.newLeads.toLocaleString()}</div>
-              </div>
-              <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg">
-                <UserPlus size={20} />
+                <button
+                  onClick={handleBulkDelete}
+                  disabled={selectedLeadIds.length === 0}
+                  className={`${flatRibbonButtonClass} ${selectedLeadIds.length === 0 ? 'cursor-not-allowed hover:border-transparent hover:bg-transparent hover:text-slate-700' : ''}`}
+                  title="Xóa"
+                >
+                  <Trash2 size={13} /> Xóa
+                </button>
               </div>
             </div>
-          </div>
 
-          <div
-            onClick={() => setActiveTab('sla_risk')}
-            className={`bg-white p-4 rounded-xl shadow-sm border cursor-pointer transition-all hover:shadow-md ${activeTab === 'sla_risk' ? 'border-red-500 ring-1 ring-red-100' : 'border-slate-100 hover:border-red-200'}`}
-          >
-            <div className="flex justify-between items-start">
-              <div>
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Cảnh báo SLA</p>
-                <div className="text-2xl font-black text-slate-800 mt-1">{stats.slaRisk.toLocaleString()}</div>
+            <div className="ml-auto grid gap-x-6 gap-y-2 md:grid-cols-4 xl:max-w-[520px]">
+              <button onClick={() => setActiveTab('all')} className="text-left">
+                <div className="text-[11px] font-medium text-[#7b8794]">Tổng lead</div>
+                <div className="mt-0.5 text-[15px] font-bold text-slate-900">{stats.total.toLocaleString()}</div>
+              </button>
+              <button onClick={() => setActiveTab('new')} className="text-left">
+                <div className="text-[11px] font-medium text-[#7b8794]">Chưa chia</div>
+                <div className="mt-0.5 text-[15px] font-bold text-amber-600">{stats.unassigned.toLocaleString()}</div>
+              </button>
+              <div className="text-left">
+                <div className="text-[11px] font-medium text-[#7b8794]">Đã chia</div>
+                <div className="mt-0.5 text-[15px] font-bold text-emerald-600">{stats.assigned.toLocaleString()}</div>
               </div>
-              <div className="p-2 bg-red-50 text-red-600 rounded-lg">
-                <AlertTriangle size={20} />
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 hover:border-purple-200 transition-all hover:shadow-md">
-            <div className="flex justify-between items-start">
-              <div>
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Tỷ lệ xác thực</p>
-                <div className="text-2xl font-black text-slate-800 mt-1">{stats.rate}%</div>
-              </div>
-              <div className="p-2 bg-purple-50 text-purple-600 rounded-lg">
-                <ShieldCheck size={20} />
-              </div>
+              <button onClick={() => setActiveTab('sla_risk')} className="text-left">
+                <div className="text-[11px] font-medium text-[#7b8794]">Đang xử lý</div>
+                <div className="mt-0.5 text-[15px] font-bold text-blue-700">{stats.processing.toLocaleString()}</div>
+              </button>
             </div>
           </div>
         </div>
 
         {/* Tabs & Filter */}
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm mb-6">
-          <div className="flex items-center border-b border-slate-100 px-4">
+        <div className="mb-6 overflow-visible rounded-[20px] border border-slate-200 bg-white shadow-sm">
+          <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-4 pt-4">
             {['all', 'new', 'sla_risk'].map(tab => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab as any)}
-                className={`px-4 py-4 text-sm font-bold border-b-2 transition-colors ${activeTab === tab ? 'border-blue-600 text-blue-700' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
+                className={`rounded-t-xl border-b-2 px-4 pb-3 text-[14px] font-semibold transition-colors ${activeTab === tab ? 'border-[#2f5bd3] text-[#2f5bd3]' : 'border-transparent text-slate-500 hover:text-slate-900'}`}
               >
-                {tab === 'all' && 'Tất cả'}
-                {tab === 'new' && 'Lead Mới'}
-                {tab === 'sla_risk' && <span className="flex items-center gap-2">SLA Rủi ro <AlertTriangle size={14} className="text-red-500" /></span>}
+                {tab === 'all' && 'Táº¥t cáº£'}
+                {tab === 'new' && 'Lead Má»›i'}
+                {tab === 'sla_risk' && (
+                  <span className="inline-flex items-center gap-1">
+                    SLA Rá»§i ro
+                    <AlertTriangle size={14} className="text-rose-500" />
+                  </span>
+                )}
               </button>
             ))}
           </div>
-          <div className="p-4 flex gap-4 items-center">
+          <div className="space-y-3 px-4 py-4">
+            {selectedLeadIds.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[12px] font-semibold text-slate-500">{selectedLeadIds.length} lead Ä‘ang Ä‘Æ°á»£c chá»n</span>
+                <button onClick={openQuickAssignModal} className={compactToolbarButtonClass}><UserPlus size={14} /> PhÃ¢n bá»• nhanh</button>
+                <button onClick={handleBulkExport} className={compactToolbarButtonClass}><Download size={14} /> Xuáº¥t Excel</button>
+                <button onClick={handleBulkMarkLost} className={compactToolbarButtonClass}><XCircle size={14} /> ÄÃ¡nh dáº¥u tháº¥t báº¡i</button>
+                <button onClick={handleBulkDelete} className={compactToolbarButtonClass}><Trash2 size={14} /> XÃ³a</button>
+              </div>
+            )}
+            <div className="flex flex-wrap items-center gap-1.5 lg:flex-nowrap">
             <SmartSearchBar
               filters={toolbarFilterChips}
-              onAddFilter={(filter) => addFilter(filter.field, filter.label, filter.value, filter.color)}
+              onAddFilter={(filter) => {
+                if (selectedAdvancedFilterOptions.length > 1) {
+                  addFilter(
+                    buildAdvancedMultiFilterField(selectedAdvancedFilterOptions.map((option) => option.id)),
+                    'Logic lọc',
+                    filter.value,
+                    'bg-emerald-100 text-emerald-700'
+                  );
+                  return;
+                }
+                if (selectedAdvancedFilterOptions.length === 1) {
+                  addFilter(
+                    selectedAdvancedFilterOptions[0].id,
+                    selectedAdvancedFilterOptions[0].label,
+                    filter.value,
+                    'bg-emerald-100 text-emerald-700'
+                  );
+                  return;
+                }
+                addFilter(filter.field, filter.label, filter.value, filter.color);
+              }}
               onRemoveFilter={handleToolbarFilterRemove}
               onClearAll={handleClearToolbarFilters}
-              placeholder="Tim kiem..."
+              activeField={selectedAdvancedFilterOptions.length === 1 ? {
+                field: selectedAdvancedFilterOptions[0].id,
+                label: selectedAdvancedFilterOptions[0].label,
+                color: 'bg-emerald-100 text-emerald-700'
+              } : null}
+              placeholder="Tìm kiếm lead..."
+              compact
+              fullWidth
             />
 
-            {/* View Switcher */}
-            <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200">
-              <button onClick={() => setViewMode('list')} className={`p-1.5 rounded ${viewMode === 'list' ? 'bg-white shadow text-blue-600' : 'text-slate-500 hover:text-slate-700'}`} title="Dạng Danh sách"><ListIcon size={16} /></button>
-              <button onClick={() => setViewMode('pivot')} className={`p-1.5 rounded ${viewMode === 'pivot' ? 'bg-white shadow text-blue-600' : 'text-slate-500 hover:text-slate-700'}`} title="Báo cáo Pivot"><LayoutGrid size={16} /></button>
+            <div className="flex items-center rounded-sm border border-[#e4e7ec] bg-[#f8fafc] p-0.5">
+              <button onClick={() => setViewMode('list')} className={`rounded-sm p-1 ${viewMode === 'list' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`} title="Dạng Danh sách"><ListIcon size={15} /></button>
+              <button onClick={() => setViewMode('pivot')} className={`rounded-sm p-1 ${viewMode === 'pivot' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`} title="Báo cáo Pivot"><LayoutGrid size={15} /></button>
             </div>
-
 
             <div className="relative hidden">
               <button
@@ -1410,11 +1917,11 @@ const Leads: React.FC = () => {
 
             {/* --- NEW TIME RANGE FILTER (IMAGE 2 STYLE) --- */}
             <div className="relative">
-              <div className="flex items-center border border-slate-200 rounded-lg overflow-hidden bg-white shadow-sm hover:border-slate-300 transition-all">
+              <div className="flex items-center overflow-hidden rounded-sm border border-slate-200 bg-white transition-colors hover:border-slate-300">
                 <select
                   value={timeFilterField}
                   onChange={(e) => setTimeFilterField(e.target.value as any)}
-                  className="bg-slate-50 border-r border-slate-200 px-3 py-2 text-xs font-bold text-slate-600 outline-none cursor-pointer hover:bg-slate-100"
+                  className="cursor-pointer border-r border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-600 outline-none hover:bg-slate-100"
                 >
                   <option value="createdAt">Ngày tạo</option>
                   <option value="deadline">Hạn chót</option>
@@ -1422,16 +1929,16 @@ const Leads: React.FC = () => {
                 </select>
                 <button
                   onClick={() => setShowTimePicker(!showTimePicker)}
-                  className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold whitespace-nowrap ${timeRangeType !== 'all' ? 'text-blue-600 bg-blue-50' : 'text-slate-500'}`}
+                  className={`flex items-center gap-1.5 whitespace-nowrap px-2 py-1 text-[11px] font-semibold ${timeRangeType !== 'all' ? 'bg-blue-50 text-blue-600' : 'text-slate-500'}`}
                 >
-                  <Calendar size={16} />
+                  <Calendar size={14} />
                   {timePresets.find(p => p.id === timeRangeType)?.label}
                   {timeRangeType === 'custom' && customRange && (
                     <span className="text-[10px] bg-blue-100 px-1 rounded ml-1">
                       {new Date(customRange.start).toLocaleDateString('vi-VN')} - {new Date(customRange.end).toLocaleDateString('vi-VN')}
                     </span>
                   )}
-                  <ChevronRight size={14} className={`transition-transform ${showTimePicker ? 'rotate-90' : ''}`} />
+                  <ChevronRight size={12} className={`transition-transform ${showTimePicker ? 'rotate-90' : ''}`} />
                 </button>
               </div>
 
@@ -1522,11 +2029,13 @@ const Leads: React.FC = () => {
             <div className="relative">
               <button
                 onClick={() => setShowFilterDropdown(!showFilterDropdown)}
-                className={`flex items-center gap-2 px-3 py-2 border rounded-lg text-sm font-semibold hover:bg-slate-50 ${showFilterDropdown ? 'bg-slate-100 border-slate-300' : 'bg-white border-slate-200 text-slate-600'}`}
+                className={`inline-flex items-center gap-1 rounded-sm border px-2 py-1 text-[11px] font-semibold transition-colors ${showFilterDropdown ? 'border-slate-300 bg-slate-100 text-slate-900' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}
               >
-                <Filter size={16} /> Lọc nâng cao
+                <Filter size={13} /> Lọc nâng cao
                 {(() => {
                   const activeCount = [
+                    ...selectedAdvancedFilterFields,
+                    ...selectedAdvancedGroupFields,
                     advancedFilters.myPipeline,
                     advancedFilters.unassigned,
                     advancedFilters.openOps,
@@ -1541,12 +2050,59 @@ const Leads: React.FC = () => {
                   ) : null;
                 })()}
               </button>
+              {showFilterDropdown && (
+                <div className="absolute right-0 top-full mt-2 max-h-[70vh] w-[720px] overflow-y-auto rounded-lg border border-slate-200 bg-white p-4 shadow-xl z-40 animate-in fade-in zoom-in-95">
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div className="pr-2 border-r border-slate-100">
+                      <div className="font-bold text-slate-800 mb-3 flex items-center gap-2">
+                        <Filter size={14} /> Filter
+                      </div>
+                      <p className="text-xs text-slate-500 mb-3">
+                        Chon truong tu muc Cot. Sau do nhap gia tri vao o tim kiem de tao bo loc.
+                      </p>
+                      <div className="max-h-[360px] overflow-y-auto custom-scrollbar space-y-1">
+                          {ALL_COLUMNS.map((col) => (
+                            <button
+                              key={`filter-${col.id}`}
+                              onClick={() => toggleAdvancedFieldSelection('filter', col.id)}
+                              className={`w-full text-left py-2 px-3 rounded-lg transition-colors ${selectedAdvancedFilterFields.includes(col.id) ? 'bg-emerald-50 text-emerald-700 font-semibold border border-emerald-200' : 'text-slate-700 hover:bg-slate-50 border border-transparent'}`}
+                            >
+                              {col.label}
+                            </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="pl-2">
+                      <div className="font-bold text-slate-800 mb-3 flex items-center gap-2">
+                        <Users size={14} /> Group by
+                      </div>
+                      <p className="text-xs text-slate-500 mb-3">
+                        Danh sach truong lay toan bo tu muc Cot.
+                      </p>
+                      <div className="max-h-[360px] overflow-y-auto custom-scrollbar space-y-1">
+                          {ALL_COLUMNS.map((col) => (
+                            <button
+                              key={`group-${col.id}`}
+                              onClick={() => toggleAdvancedFieldSelection('group', col.id)}
+                              className={`w-full text-left py-2 px-3 rounded-lg transition-colors ${selectedAdvancedGroupFields.includes(col.id) ? 'bg-blue-50 text-blue-700 font-semibold border border-blue-200' : 'text-slate-700 hover:bg-slate-50 border border-transparent'}`}
+                            >
+                              {col.label}
+                            </button>
+                        ))}
+                      </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
               {(() => {
-                const hasActiveFilters = advancedFilters.myPipeline || advancedFilters.unassigned || advancedFilters.openOps || advancedFilters.createdDate || advancedFilters.closedDate || advancedFilters.status.length > 0;
+                const hasActiveFilters = selectedAdvancedFilterFields.length > 0 || selectedAdvancedGroupFields.length > 0 || advancedFilters.myPipeline || advancedFilters.unassigned || advancedFilters.openOps || advancedFilters.createdDate || advancedFilters.closedDate || advancedFilters.status.length > 0;
                 return hasActiveFilters ? (
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
+                      setSelectedAdvancedFilterFields([]);
+                      setSelectedAdvancedGroupFields([]);
                       setAdvancedFilters({
                         myPipeline: false,
                         unassigned: false,
@@ -1563,10 +2119,10 @@ const Leads: React.FC = () => {
                   </button>
                 ) : null;
               })()}
-              {showFilterDropdown && (
+              {false && showFilterDropdown && (
                 <>
                   <div className="fixed inset-0 z-30" onClick={() => setShowFilterDropdown(false)}></div>
-                  <div className="absolute right-0 top-full mt-2 w-[800px] bg-white border border-slate-200 rounded-lg shadow-xl z-40 p-4 animate-in fade-in zoom-in-95 flex text-sm">
+                  <div className="hidden absolute right-0 top-full mt-2 w-[800px] bg-white border border-slate-200 rounded-lg shadow-xl z-40 p-4 animate-in fade-in zoom-in-95 flex text-sm">
                     {/* COLUMN 1: FILTER */}
                     <div className="flex-1 pr-4 border-r border-slate-100 space-y-2">
                       <div className="font-bold text-slate-800 mb-2 flex items-center gap-2"><Filter size={14} /> Bộ lọc</div>
@@ -1813,10 +2369,10 @@ const Leads: React.FC = () => {
             <div className="relative">
               <button
                 onClick={() => setShowDuplicateModal(true)}
-                className={`flex items-center gap-2 px-3 py-2 border rounded-lg text-sm font-semibold transition-all shadow-sm ${duplicateGroups.length > 0 ? 'border-amber-400 bg-amber-50 text-amber-700 hover:bg-amber-100' : 'border-slate-200 text-slate-600 bg-white hover:bg-slate-50'}`}
+                className={`inline-flex items-center gap-1 rounded-sm border px-2 py-1 text-[11px] font-semibold transition-colors ${duplicateGroups.length > 0 ? 'border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}
                 title={`Tìm thấy ${duplicateGroups.length} nhóm trùng SĐT`}
               >
-                <Database size={16} />
+                <Database size={13} />
                 Chống trùng
                 {duplicateGroups.length > 0 && (
                   <span className="bg-amber-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full ml-1">
@@ -1829,9 +2385,9 @@ const Leads: React.FC = () => {
             <div className="relative">
               <button
                 onClick={() => setShowColumnDropdown(!showColumnDropdown)}
-                className="flex items-center gap-2 px-3 py-2 border border-slate-200 rounded-lg text-sm font-semibold hover:bg-slate-50 text-slate-600 bg-white shadow-sm"
+                className={compactToolbarButtonClass}
               >
-                <Settings size={16} /> Cá»™t
+                <Settings size={13} /> Cột
               </button>
               {showColumnDropdown && (
                 <>
@@ -1852,43 +2408,21 @@ const Leads: React.FC = () => {
                 </>
               )}
             </div>
-
-
-            {selectedLeadIds.length > 0 && (
-              <div className="ml-auto flex items-center gap-3 animate-in slide-in-from-right-4 fade-in duration-300">
-                <span className="text-sm font-semibold text-slate-600">Đã chọn <span className="text-blue-600 font-bold">{selectedLeadIds.length}</span> lead</span>
-
-                <button onClick={handleBulkMarkLost} className="p-2 text-slate-600 hover:text-red-600 hover:bg-red-50 rounded-lg" title="Đánh dấu thất bại">
-                  <XCircle size={18} />
-                </button>
-
-                <button onClick={handleBulkDelete} className="p-2 text-slate-600 hover:text-red-600 hover:bg-red-50 rounded-lg" title="Xóa">
-                  <Trash2 size={18} />
-                </button>
-                <button onClick={handleBulkExport} className="p-2 text-slate-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg" title="Xuất Excel">
-                  <Download size={18} />
-                </button>
-
-                <div className="h-6 w-px bg-slate-300 mx-1"></div>
-
-                {systemDistributionMode === 'manual' ? (
-                  <button
-                    onClick={() => {
-                      setSelectedRep('');
-                      setShowAssignModal(true);
-                    }}
-                    className="px-3 py-2 bg-blue-100 text-blue-700 rounded-lg text-sm font-bold hover:bg-blue-200 flex items-center gap-2"
-                  >
-                    <UserPlus size={16} /> Phân bổ
-                  </button>
-                ) : (
-                  <div className="px-3 py-2 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-bold border border-emerald-200">
-                    Auto-Assign đang bật
-                  </div>
-                )}
-              </div>
-            )}
           </div>
+          <div className="hidden mt-2 flex flex-wrap items-center gap-1">
+            {['all', 'new', 'sla_risk'].map(tab => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab as any)}
+                className={`rounded-sm px-2 py-1 text-[10px] font-bold uppercase tracking-[0.08em] transition-colors ${activeTab === tab ? 'bg-slate-900 text-white' : 'text-[#7b8794] hover:bg-slate-100 hover:text-slate-900'}`}
+              >
+                {tab === 'all' && 'Tất cả'}
+                {tab === 'new' && 'Chưa chia'}
+                {tab === 'sla_risk' && 'Đang xử lý'}
+              </button>
+            ))}
+          </div>
+        </div>
         </div>
 
         {/* CONTENT AREA: LIST vs PIVOT */}
@@ -1896,38 +2430,39 @@ const Leads: React.FC = () => {
           {viewMode === 'pivot' ? (
             <LeadPivotTable leads={filteredLeads} />
           ) : (
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-              <table className="w-full text-left border-collapse">
-                <thead className="bg-slate-50 text-slate-500 text-xs uppercase font-bold tracking-wider sticky top-0 z-10">
+            <div className="overflow-x-auto rounded-[20px] border border-slate-200 bg-white shadow-sm">
+              <table className="w-full border-collapse text-left">
+                <thead className="sticky top-0 z-10 bg-[#fafbfc]">
                   <tr>
-                    <th className="p-2 w-8 text-center border-b border-slate-200">
+                    <th className={`${compactHeaderCellClass} w-8 text-center`}>
                       <input type="checkbox" className="rounded border-slate-300" onChange={handleSelectAll} checked={selectedLeadIds.length === filteredLeads.length && filteredLeads.length > 0} />
                     </th>
-                    {visibleColumns.includes('opportunity') && <th className="p-2 border-b border-slate-200 text-[10px]">Cơ hội</th>}
-                    {visibleColumns.includes('contact') && <th className="p-2 border-b border-slate-200 text-[10px]">Tên liên hệ</th>}
-                    {visibleColumns.includes('company') && <th className="p-2 border-b border-slate-200 text-[10px]">Cơ sở / Công ty</th>}
-                    {visibleColumns.includes('title') && <th className="p-2 border-b border-slate-200 text-[10px]">Danh xưng</th>}
-                    {visibleColumns.includes('email') && <th className="p-2 border-b border-slate-200 text-[10px]">Email</th>}
-                    {visibleColumns.includes('phone') && <th className="p-2 border-b border-slate-200 text-[10px]">SĐT</th>}
-                    {visibleColumns.includes('address') && <th className="p-2 border-b border-slate-200 text-[10px]">Địa chỉ</th>}
-                    {visibleColumns.includes('salesperson') && <th className="p-2 border-b border-slate-200 text-[10px]">Sale</th>}
-                    {visibleColumns.includes('campaign') && <th className="p-2 border-b border-slate-200 text-[10px]">Chiến dịch</th>}
-                    {visibleColumns.includes('source') && <th className="p-2 border-b border-slate-200 text-[10px]">Nguồn</th>}
-                    {visibleColumns.includes('tags') && <th className="p-2 border-b border-slate-200 text-[10px]">Tags</th>}
-                    {visibleColumns.includes('referredBy') && <th className="p-2 border-b border-slate-200 text-[10px]">Người GT</th>}
-                    {visibleColumns.includes('market') && <th className="p-2 border-b border-slate-200 text-[10px]">THỊ TRƯỜNG</th>}
-                    {visibleColumns.includes('product') && <th className="p-2 border-b border-slate-200 text-[10px]">SẢN PHẨM QUAN TÂM</th>}
-                    {visibleColumns.includes('notes') && <th className="p-2 border-b border-slate-200 text-[10px]">Ghi chú</th>}
-                    {visibleColumns.includes('nextActivity') && <th className="p-2 border-b border-slate-200 text-[10px]">Hoạt động</th>}
-                    {visibleColumns.includes('deadline') && <th className="p-2 border-b border-slate-200 text-[10px]">Hạn chót</th>}
-                    {visibleColumns.includes('value') && <th className="p-2 border-b border-slate-200 text-right text-[10px]">Doanh thu</th>}
-                    {visibleColumns.includes('status') && <th className="p-2 border-b border-slate-200 text-center text-[10px]">Trạng thái</th>}
-                    {visibleColumns.includes('sla') && <th className="p-2 border-b border-slate-200 text-left text-[10px]">SLA</th>}
+                    {visibleColumns.includes('opportunity') && <th className={compactHeaderCellClass}>Cơ hội</th>}
+                    {visibleColumns.includes('contact') && <th className={compactHeaderCellClass}>Tên liên hệ</th>}
+                    {visibleColumns.includes('company') && <th className={compactHeaderCellClass}>Cơ sở / Công ty</th>}
+                    {visibleColumns.includes('email') && <th className={compactHeaderCellClass}>Email</th>}
+                    {visibleColumns.includes('phone') && <th className={compactHeaderCellClass}>SĐT</th>}
+                    {visibleColumns.includes('salesperson') && <th className={compactHeaderCellClass}>Sale</th>}
+                    {visibleColumns.includes('campaign') && <th className={compactHeaderCellClass}>Chiến dịch</th>}
+                    {visibleColumns.includes('source') && <th className={compactHeaderCellClass}>Nguồn</th>}
+                    {visibleColumns.includes('tags') && <th className={compactHeaderCellClass}>Tags</th>}
+                    {visibleColumns.includes('market') && <th className={compactHeaderCellClass}>THỊ TRƯỜNG</th>}
+                    {visibleColumns.includes('product') && <th className={compactHeaderCellClass}>SẢN PHẨM QUAN TÂM</th>}
+                    {visibleColumns.includes('nextActivity') && <th className={compactHeaderCellClass}>Hoạt động</th>}
+                    {visibleColumns.includes('deadline') && <th className={`${compactHeaderCellClass} text-right`}>Hạn chót</th>}
+                    {visibleColumns.includes('value') && <th className={`${compactHeaderCellClass} text-right`}>Doanh thu</th>}
+                    {visibleColumns.includes('status') && <th className={`${compactHeaderCellClass} text-center`}>Trạng thái</th>}
+                    {visibleColumns.includes('createdAt') && <th className={`${compactHeaderCellClass} text-right`}>Ngày đổ lead</th>}
+                    {visibleColumns.includes('title') && <th className={compactHeaderCellClass}>Danh xưng</th>}
+                    {visibleColumns.includes('address') && <th className={compactHeaderCellClass}>Địa chỉ</th>}
+                    {visibleColumns.includes('referredBy') && <th className={compactHeaderCellClass}>Người giới thiệu</th>}
+                    {visibleColumns.includes('notes') && <th className={compactHeaderCellClass}>Ghi chú</th>}
+                    {visibleColumns.includes('sla') && <th className={compactHeaderCellClass}>Cảnh báo SLA</th>}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-[#f1f5f9]">
                   {filteredLeads.length === 0 ? (
-                    <tr><td colSpan={9} className="p-8 text-center text-slate-500">Không tìm thấy lead nào phù hợp.</td></tr>
+                    <tr><td colSpan={9} className="px-3 py-4 text-center text-[12px] text-slate-400">No data available</td></tr>
                   ) : (
                     filteredLeads.map(lead => {
                       // Helper: Find next activity
@@ -1939,15 +2474,15 @@ const Leads: React.FC = () => {
                       return (
                         <tr
                           key={lead.id}
-                          className={`hover:bg-blue-50 group cursor-pointer transition-colors ${selectedLeadIds.includes(lead.id) ? 'bg-blue-50' : ''}`}
+                          className={`group cursor-pointer transition-colors hover:bg-slate-50 ${selectedLeadIds.includes(lead.id) ? 'bg-slate-50' : ''}`}
                           onClick={() => setSelectedLead(lead)}
                         >
-                          <td className="p-2 text-center" onClick={(e) => e.stopPropagation()}>
+                          <td className="px-2 py-1 text-center align-middle" onClick={(e) => e.stopPropagation()}>
                             <input type="checkbox" className="rounded border-slate-300 w-3.5 h-3.5" checked={selectedLeadIds.includes(lead.id)} onClick={(e) => handleSelectLeadCheckbox(lead.id, e)} onChange={() => { }} />
                           </td>
 
                           {visibleColumns.includes('opportunity') && (
-                            <td className="p-2">
+                            <td className={compactMetaCellClass}>
                               <div className="flex flex-col gap-0.5 overflow-hidden">
                                 <span className="font-bold text-slate-900 text-[10px] truncate max-w-[120px]" title={lead.name}>{lead.name}</span>
                                 {lead.program && (
@@ -1963,43 +2498,47 @@ const Leads: React.FC = () => {
                             </td>
                           )}
 
-                          {visibleColumns.includes('contact') && <td className="p-2 text-[10px] text-slate-700 font-semibold truncate max-w-[60px]" title={lead.name}>{lead.name}</td>}
-                          {visibleColumns.includes('company') && <td className="p-2 text-[10px] text-slate-700 truncate max-w-[60px]" title={(lead as any).company}>{(lead as any).company || '-'}</td>}
-
-                          {visibleColumns.includes('title') && <td className="p-2 text-[10px] text-slate-600 whitespace-nowrap">{(lead as any).title || '-'}</td>}
-
-                          {visibleColumns.includes('email') && <td className="p-2 text-[10px] text-slate-600 truncate max-w-[80px]" title={lead.email}>{lead.email || '-'}</td>}
-
-                          {visibleColumns.includes('phone') && (
-                            <td className="p-2">
-                              <span className="text-[10px] text-slate-600 font-bold whitespace-nowrap">{lead.phone || '-'}</span>
+                          {visibleColumns.includes('contact') && (
+                            <td className={`${compactBodyCellClass} max-w-[180px] overflow-hidden text-[13px] font-bold text-slate-900`} title={lead.name}>
+                              <span className="block truncate">{lead.name}</span>
+                            </td>
+                          )}
+                          {visibleColumns.includes('company') && <td className={`${compactMetaCellClass} max-w-[120px] truncate`} title={(lead as any).company}>{(lead as any).company || '-'}</td>}
+                          {visibleColumns.includes('email') && <td className={`${compactMetaCellClass} max-w-[140px] truncate`} title={lead.email}>{lead.email || '-'}</td>}
+                          {visibleColumns.includes('phone') && <td className={`${compactBodyCellClass} text-right font-semibold text-slate-700`}>{lead.phone || '-'}</td>}
+                          {visibleColumns.includes('salesperson') && (
+                            <td className={compactBodyCellClass}>
+                              {lead.ownerId ? (
+                                <div className="flex items-center gap-2">
+                                  <span className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold ${SALES_REPS.find((rep) => rep.id === lead.ownerId)?.color || 'bg-slate-100 text-slate-600'}`}>
+                                    {SALES_REPS.find((rep) => rep.id === lead.ownerId)?.avatar || 'NA'}
+                                  </span>
+                                  <span className="truncate text-[12px] font-medium text-slate-700">{SALES_REPS.find((rep) => rep.id === lead.ownerId)?.name || '-'}</span>
+                                </div>
+                              ) : (
+                                <span className="text-[12px] text-slate-400">Chưa nhận</span>
+                              )}
                             </td>
                           )}
 
-                          {visibleColumns.includes('address') && (
-                            <td className="p-2 text-[10px] text-slate-600 max-w-[60px] truncate" title={`${(lead as any).street || ''}, ${(lead as any).ward || ''}, ${(lead as any).city || ''}`}>
-                              {[(lead as any).street, (lead as any).ward, (lead as any).city].filter(Boolean).join(', ') || '-'}
+                          {visibleColumns.includes('campaign') && (
+                            <td className={`${compactBodyCellClass} max-w-[180px] overflow-hidden`} title={lead.marketingData?.campaign || (lead as any).campaign || '-'}>
+                              <span className="block truncate">{lead.marketingData?.campaign || (lead as any).campaign || '-'}</span>
                             </td>
                           )}
-
-                          {visibleColumns.includes('salesperson') && <td className="p-2 text-[10px] text-slate-600 truncate max-w-[70px]">
-                            {SALES_REPS.find(r => r.id === lead.ownerId)?.name || '-'}
-                          </td>}
-
-                          {visibleColumns.includes('campaign') && <td className="p-2 text-[10px] text-slate-600 truncate max-w-[70px]" title={(lead as any).campaign}>{(lead as any).campaign || '-'}</td>}
-
                           {visibleColumns.includes('source') && (
-                            <td className="p-2">
+                            <td className={compactBodyCellClass}>
                               <span
-                                className="text-[9px] text-teal-600 font-semibold bg-teal-50 px-1 py-0.5 rounded border border-teal-100 cursor-pointer whitespace-nowrap"
+                                className="inline-flex max-w-[160px] items-center rounded-sm border border-teal-100 bg-teal-50/70 px-1.5 py-0 text-[10px] font-semibold text-teal-700"
                                 onClick={(e) => handleClickableField(e, 'source', 'Nguồn', lead.source, 'bg-teal-100 text-teal-700')}
+                                title={lead.source}
                               >
-                                {lead.source}
+                                <span className="truncate">{lead.source || '-'}</span>
                               </span>
                             </td>
                           )}
 
-                          {visibleColumns.includes('tags') && <td className="p-2 text-[10px] text-slate-600 overflow-hidden whitespace-nowrap">{(() => {
+                          {visibleColumns.includes('tags') && <td className={`${compactMetaCellClass} overflow-hidden`}>{(() => {
                             const tags = Array.isArray((lead as any).marketingData?.tags)
                               ? (lead as any).marketingData.tags
                               : (typeof (lead as any).marketingData?.tags === 'string'
@@ -2010,24 +2549,19 @@ const Leads: React.FC = () => {
 
                             // Show only first tag if many to save space
                             return (
-                              <span className="bg-slate-100 text-slate-700 text-[9px] px-1 py-0.5 rounded border font-semibold">
+                              <span className="rounded-sm border border-slate-200 bg-slate-100 px-1 py-0 text-[9px] font-semibold text-slate-700">
                                 {tags[0]}{tags.length > 1 ? ` +${tags.length - 1}` : ''}
                               </span>
                             );
                           })()}</td>}
-
-                          {visibleColumns.includes('referredBy') && <td className="p-2 text-[10px] text-slate-600 truncate max-w-[70px]">{(lead as any).referredBy || '-'}</td>}
-
-                          {visibleColumns.includes('market') && <td className="p-2 text-[10px] text-slate-600 truncate max-w-[80px]">{(lead as any).marketingData?.market || '-'}</td>}
-                          {visibleColumns.includes('product') && <td className="p-2 text-[10px] text-slate-600 truncate max-w-[100px]" title={lead.program || (lead as any).product}>{(lead as any).product || lead.program || '-'}</td>}
-
-                          {visibleColumns.includes('notes') && <td className="p-2 text-[10px] text-slate-500 max-w-[60px] truncate" title={(lead as any).notes || ''}>{(lead as any).notes || '-'}</td>}
+                          {visibleColumns.includes('market') && <td className={`${compactMetaCellClass} max-w-[110px] truncate`}>{(lead as any).marketingData?.market || '-'}</td>}
+                          {visibleColumns.includes('product') && <td className={`${compactMetaCellClass} max-w-[140px] truncate`} title={lead.program || (lead as any).product}>{(lead as any).product || lead.program || '-'}</td>}
 
                           {/* Next Activity */}
                           {visibleColumns.includes('nextActivity') && (
-                            <td className="p-2">
+                            <td className={compactMetaCellClass}>
                               {nextActivity ? (
-                                <div className="flex items-center gap-1 text-[9px] font-semibold text-purple-700 bg-purple-50 px-1 py-0.5 rounded max-w-[80px] overflow-hidden" title={nextActivity.description}>
+                                <div className="flex max-w-[110px] items-center gap-1 overflow-hidden rounded-sm bg-purple-50 px-1 py-0 text-[9px] font-semibold text-purple-700" title={nextActivity.description}>
                                   <Clock size={8} className="shrink-0" />
                                   <span className="truncate">{nextActivity.description.split(':')[0] || 'Lịch hẹn'}</span>
                                 </div>
@@ -2041,43 +2575,51 @@ const Leads: React.FC = () => {
 
                           {/* Deadline */}
                           {visibleColumns.includes('deadline') && (
-                            <td className="p-2 text-[10px] text-slate-600 whitespace-nowrap">
+                            <td className={`${compactMetaCellClass} text-right`}>
                               {deadline !== '-' ? <span className="text-red-600 font-bold">{deadline}</span> : '-'}
                             </td>
                           )}
 
                           {/* Revenue */}
                           {visibleColumns.includes('value') && (
-                            <td className="p-2 text-[10px] font-bold text-slate-800 text-right whitespace-nowrap">
+                            <td className={`${compactMetaCellClass} text-right font-bold text-slate-800`}>
                               {lead.value ? lead.value.toLocaleString('vi-VN') : '-'}
                             </td>
                           )}
 
                           {visibleColumns.includes('status') && (
-                            <td className="p-2 text-center">
-                              <span
-                                className={`px-1 py-0.5 rounded text-[9px] font-bold border uppercase tracking-tighter cursor-pointer hover:opacity-80 whitespace-nowrap ${normalizedStatus === LeadStatus.NEW ? 'bg-blue-50 text-blue-700 border-blue-200' :
-                                  normalizedStatus === LeadStatus.QUALIFIED ? 'bg-cyan-50 text-cyan-700 border-cyan-200' :
-                                    normalizedStatus === DealStage.WON ? 'bg-green-50 text-green-700 border-green-200' :
-                                      normalizedStatus === DealStage.LOST ? 'bg-red-50 text-red-700 border-red-200' :
-                                        'bg-slate-50 text-slate-600 border-slate-200'
-                                  }`}
-                                onClick={(e) => handleClickableField(e, 'status', 'Trạng thái', normalizedStatus,
-                                  normalizedStatus === LeadStatus.NEW ? 'bg-blue-100 text-blue-700' :
-                                    normalizedStatus === LeadStatus.QUALIFIED ? 'bg-cyan-100 text-cyan-700' :
-                                      normalizedStatus === DealStage.WON ? 'bg-green-100 text-green-700' :
-                                        normalizedStatus === DealStage.LOST ? 'bg-red-100 text-red-700' :
-                                          'bg-slate-100 text-slate-700'
-                                )}
-                                title={normalizedStatus}
-                              >
-                                {normalizedStatus}
-                              </span>
+                            <td className="px-2 py-1 text-center align-middle">
+                              {(() => {
+                                const allocationStatus = getAllocationStatusMeta(lead);
+                                return (
+                                  <span className={`inline-flex rounded-sm border px-1.5 py-0 text-[10px] font-semibold ${allocationStatus.className}`}>
+                                    {allocationStatus.label}
+                                  </span>
+                                );
+                              })()}
                             </td>
                           )}
 
+                          {visibleColumns.includes('createdAt') && (
+                            <td className={`${compactBodyCellClass} text-right`}>
+                              {lead.createdAt ? new Date(lead.createdAt).toLocaleDateString('vi-VN') : '-'}
+                            </td>
+                          )}
+
+                          {visibleColumns.includes('title') && <td className={compactMetaCellClass}>{(lead as any).title || '-'}</td>}
+
+                          {visibleColumns.includes('address') && (
+                            <td className={`${compactMetaCellClass} max-w-[160px] truncate`} title={`${(lead as any).street || ''}, ${(lead as any).ward || ''}, ${(lead as any).city || ''}`}>
+                              {[(lead as any).street, (lead as any).ward, (lead as any).city].filter(Boolean).join(', ') || '-'}
+                            </td>
+                          )}
+
+                          {visibleColumns.includes('referredBy') && <td className={`${compactMetaCellClass} max-w-[110px] truncate`}>{(lead as any).referredBy || '-'}</td>}
+
+                          {visibleColumns.includes('notes') && <td className={`${compactMetaCellClass} max-w-[140px] truncate text-slate-500`} title={(lead as any).notes || ''}>{(lead as any).notes || '-'}</td>}
+
                           {visibleColumns.includes('sla') && (
-                            <td className="p-2">
+                            <td className={compactMetaCellClass}>
                               {lead.slaStatus === 'danger' || lead.slaStatus === 'warning' ? (
                                 <span
                                   className={`font-bold text-[9px] ${lead.slaStatus === 'danger' ? 'text-red-600' : 'text-amber-600'} truncate block max-w-[80px]`}
@@ -2140,6 +2682,22 @@ const Leads: React.FC = () => {
                       value={editLeadData.name}
                       onChange={e => setEditLeadData({ ...editLeadData, name: e.target.value })}
                     />
+                  </div>
+                </div>
+
+                <div className="mb-6 grid grid-cols-1 lg:grid-cols-2 gap-x-12 gap-y-5">
+                  <div className="flex items-center gap-4">
+                    <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Quốc gia MT</label>
+                    <select
+                      className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
+                      value={editLeadData.targetCountry}
+                      onChange={e => setEditLeadData({ ...editLeadData, targetCountry: e.target.value })}
+                    >
+                      <option value="">-- Chọn quốc gia --</option>
+                      {LEAD_TARGET_COUNTRY_OPTIONS.map(option => (
+                        <option key={option} value={option}>{option}</option>
+                      ))}
+                    </select>
                   </div>
                 </div>
 
@@ -2226,88 +2784,46 @@ const Leads: React.FC = () => {
                     <div className="flex items-center gap-4">
                       <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Trạng thái</label>
                       <select className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm outline-none bg-white" value={editLeadData.status} onChange={e => setEditLeadData({ ...editLeadData, status: e.target.value })}>
-                        <option value={LeadStatus.NEW}>Mới</option>
-                        <option value={LeadStatus.CONTACTED}>Đã liên hệ</option>
-                        <option value={LeadStatus.QUALIFIED}>Tiềm năng</option>
-                        <option value={DealStage.LOST}>Thất bại</option>
+                        {STANDARD_LEAD_STATUS_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
                       </select>
                     </div>
                     <div className="flex items-start gap-4">
                       <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold mt-1.5">Tags</label>
-                      <div className="flex-1 flex flex-col gap-1.5">
-                        <div className="flex gap-2">
-                          {!isAddingEditTag ? (
-                            <select
-                              className="flex-1 px-2 py-1.5 border border-slate-300 rounded text-xs bg-white outline-none focus:border-blue-500"
-                              onChange={(e) => {
-                                if (e.target.value === 'khác') {
-                                  setIsAddingEditTag(true);
-                                } else if (e.target.value && !editLeadData.tags.includes(e.target.value)) {
-                                  setEditLeadData({ ...editLeadData, tags: [...editLeadData.tags, e.target.value] });
-                                }
-                                e.target.value = "";
-                              }}
-                            >
-                              <option value="">-- Chọn Tag --</option>
-                              {availableTags.filter(t => !editLeadData.tags.includes(t)).map(t => (
-                                <option key={t} value={t}>{t}</option>
-                              ))}
-                              <option value="khác" className="font-bold text-blue-600">+ Khác</option>
-                            </select>
-                          ) : (
-                            <input
-                              autoFocus
-                              className="flex-1 px-2 py-1.5 border border-blue-400 rounded text-xs outline-none ring-2 ring-blue-100"
-                              placeholder="Nhập tag mới rồi ấn Enter..."
-                              onBlur={() => setIsAddingEditTag(false)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  e.preventDefault();
-                                  const val = (e.target as HTMLInputElement).value.trim();
-                                  if (val) {
-                                    if (!editLeadData.tags.includes(val)) {
-                                      setEditLeadData({ ...editLeadData, tags: [...editLeadData.tags, val] });
-                                    }
-                                    if (!availableTags.includes(val)) {
-                                      const newAvailable = [...availableTags, val];
-                                      setAvailableTags(newAvailable);
-                                      saveTags(newAvailable);
-                                    }
-                                    setIsAddingEditTag(false);
-                                  }
-                                } else if (e.key === 'Escape') {
-                                  setIsAddingEditTag(false);
-                                }
-                              }}
-                            />
-                          )}
-                        </div>
-                        {editLeadData.tags.length > 0 && (
-                          <div className="flex flex-wrap gap-1">
-                            {editLeadData.tags.map(tag => (
-                              <span key={tag} className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-700 text-[10px] font-bold rounded border border-blue-100">
-                                {tag}
-                                <button onClick={() => setEditLeadData({ ...editLeadData, tags: editLeadData.tags.filter(t => t !== tag) })} className="hover:text-blue-900 transition-colors">
-                                  <X size={10} strokeWidth={3} />
-                                </button>
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
+                                            <LeadTagManager
+                        selectedTags={editLeadData.tags}
+                        availableTags={availableTags}
+                        fixedTags={FIXED_LEAD_TAGS}
+                        isAdding={isAddingEditTag}
+                        accent="blue"
+                        onStartAdding={() => setIsAddingEditTag(true)}
+                        onStopAdding={() => setIsAddingEditTag(false)}
+                        onAddTag={addTagToEditLead}
+                        onCreateTag={(tag) => {
+                          addTagCatalogEntry(tag);
+                          addTagToEditLead(tag);
+                        }}
+                        onRemoveSelectedTag={(tag) => setEditLeadData((prev) => ({ ...prev, tags: prev.tags.filter((item) => item !== tag) }))}
+                        onDeleteTag={deleteTagCatalogEntry}
+                      />
                   </div>
+                </div>
                 </div>
 
                 {/* TABS SECTION */}
                 <div className="mt-8 border-t border-slate-200 pt-4">
                   <div className="flex border-b border-slate-200 mb-4">
                     <button onClick={() => setEditModalActiveTab('notes')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-all ${editModalActiveTab === 'notes' ? 'border-purple-600 text-purple-700' : 'border-transparent text-slate-500'}`}>Ghi chú nội bộ</button>
+                    <button onClick={() => setEditModalActiveTab('student')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-all ${editModalActiveTab === 'student' ? 'border-purple-600 text-purple-700' : 'border-transparent text-slate-500'}`}>Thông tin học sinh</button>
                     <button onClick={() => setEditModalActiveTab('extra')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-all ${editModalActiveTab === 'extra' ? 'border-purple-600 text-purple-700' : 'border-transparent text-slate-500'}`}>Thông tin thêm (Marketing)</button>
                   </div>
                   <div className="min-h-[150px]">
                     {editModalActiveTab === 'notes' && (
                       <textarea className="w-full p-3 border border-slate-200 rounded text-sm outline-none h-32" value={editLeadData.notes} onChange={e => setEditLeadData({ ...editLeadData, notes: e.target.value })} />
+                    )}
+                    {editModalActiveTab === 'student' && (
+                      <LeadStudentInfoTab data={editLeadData} onPatch={patchEditLeadData} />
                     )}
                     {editModalActiveTab === 'extra' && (
                       <div className="grid grid-cols-2 gap-x-12 gap-y-4">
@@ -2322,6 +2838,15 @@ const Leads: React.FC = () => {
                             <option value="facebook">Facebook</option>
                             <option value="google">Google Ads</option>
                             <option value="referral">Giới thiệu</option>
+                          </select>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Kênh</label>
+                          <select className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm outline-none bg-white" value={editLeadData.channel} onChange={e => setEditLeadData({ ...editLeadData, channel: e.target.value })}>
+                            <option value="">-- Chọn kênh --</option>
+                            {LEAD_CHANNEL_OPTIONS.map(option => (
+                              <option key={option.value} value={option.value}>{option.label}</option>
+                            ))}
                           </select>
                         </div>
                         <div className="flex items-center gap-4">
@@ -2575,79 +3100,34 @@ const Leads: React.FC = () => {
                         value={newLeadData.status}
                         onChange={e => setNewLeadData({ ...newLeadData, status: e.target.value })}
                       >
-                        <option value={LeadStatus.NEW}>Mới</option>
-                        <option value={LeadStatus.CONTACTED}>Đã liên hệ</option>
-                        <option value={LeadStatus.QUALIFIED}>Tiềm năng</option>
-                        <option value={DealStage.LOST}>Thất bại</option>
+                        {STANDARD_LEAD_STATUS_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
                       </select>
                     </div>
 
                     <div className="flex items-start gap-4">
                       <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold mt-1.5">Tags</label>
-                      <div className="flex-1 flex flex-col gap-1.5">
-                        <div className="flex gap-2">
-                          {!isAddingTag ? (
-                            <select
-                              className="flex-1 px-2 py-1.5 border border-slate-300 rounded text-xs bg-white outline-none focus:border-purple-500"
-                              onChange={(e) => {
-                                if (e.target.value === 'khác') {
-                                  setIsAddingTag(true);
-                                } else if (e.target.value && !newLeadData.tags.includes(e.target.value)) {
-                                  setNewLeadData({ ...newLeadData, tags: [...newLeadData.tags, e.target.value] });
-                                }
-                                e.target.value = "";
-                              }}
-                            >
-                              <option value="">-- Chọn Tag --</option>
-                              {availableTags.filter(t => !newLeadData.tags.includes(t)).map(t => (
-                                <option key={t} value={t}>{t}</option>
-                              ))}
-                              <option value="khác" className="font-bold text-blue-600">+ Khác</option>
-                            </select>
-                          ) : (
-                            <input
-                              autoFocus
-                              className="flex-1 px-2 py-1.5 border border-purple-400 rounded text-xs outline-none ring-2 ring-purple-100"
-                              placeholder="Nhập tag mới rồi ấn Enter..."
-                              onBlur={() => setIsAddingTag(false)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  e.preventDefault();
-                                  const val = (e.target as HTMLInputElement).value.trim();
-                                  if (val) {
-                                    if (!newLeadData.tags.includes(val)) {
-                                      setNewLeadData({ ...newLeadData, tags: [...newLeadData.tags, val] });
-                                    }
-                                    if (!availableTags.includes(val)) {
-                                      const newAvailable = [...availableTags, val];
-                                      setAvailableTags(newAvailable);
-                                      saveTags(newAvailable);
-                                    }
-                                    setIsAddingTag(false);
-                                  }
-                                } else if (e.key === 'Escape') {
-                                  setIsAddingTag(false);
-                                }
-                              }}
-                            />
-                          )}
-                        </div>
-                        {newLeadData.tags.length > 0 && (
-                          <div className="flex flex-wrap gap-1">
-                            {newLeadData.tags.map(tag => (
-                              <span key={tag} className="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-50 text-purple-700 text-[10px] font-bold rounded border border-purple-100">
-                                {tag}
-                                <button onClick={() => setNewLeadData({ ...newLeadData, tags: newLeadData.tags.filter(t => t !== tag) })} className="hover:text-purple-900 transition-colors">
-                                  <X size={10} strokeWidth={3} />
-                                </button>
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
+                                            <LeadTagManager
+                        selectedTags={newLeadData.tags}
+                        availableTags={availableTags}
+                        fixedTags={FIXED_LEAD_TAGS}
+                        isAdding={isAddingTag}
+                        accent="purple"
+                        mode="dropdown"
+                        onStartAdding={() => setIsAddingTag(true)}
+                        onStopAdding={() => setIsAddingTag(false)}
+                        onAddTag={addTagToNewLead}
+                        onCreateTag={(tag) => {
+                          addTagCatalogEntry(tag);
+                          addTagToNewLead(tag);
+                        }}
+                        onRemoveSelectedTag={(tag) => setNewLeadData((prev) => ({ ...prev, tags: prev.tags.filter((item) => item !== tag) }))}
+                        onDeleteTag={deleteTagCatalogEntry}
+                      />
 
                   </div>
+                </div>
                 </div>
 
                 {/* TABS SECTION */}
@@ -2753,50 +3233,123 @@ const Leads: React.FC = () => {
         {/* ASSIGN MODAL */}
         {showAssignModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowAssignModal(false)}></div>
-            <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95">
-              <div className="p-5 border-b border-slate-200 flex justify-between items-center bg-slate-50">
-                <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                  <UserPlus size={20} className="text-blue-600" />
+            <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={closeAssignModal}></div>
+            <div className="relative w-full max-w-2xl overflow-hidden rounded-lg bg-white shadow-2xl animate-in zoom-in-95">
+              <div className="flex items-center justify-between border-b border-[#e8edf3] bg-[#f6f7f8] px-4 py-3">
+                <h3 className="flex items-center gap-2 text-[15px] font-bold text-slate-900">
+                  <UserPlus size={18} className="text-blue-600" />
                   Phân bổ Lead
                 </h3>
-                <button onClick={() => setShowAssignModal(false)} className="text-slate-400 hover:text-slate-600"><X size={24} /></button>
+                <button onClick={closeAssignModal} className="rounded-sm p-1 text-slate-400 hover:bg-white hover:text-slate-600"><X size={18} /></button>
               </div>
 
-              <div className="p-6 space-y-6">
-                <div className="bg-blue-50 p-4 rounded-lg text-sm text-blue-800 flex gap-2 items-start border border-blue-100">
-                  <Users size={18} className="mt-0.5 shrink-0" />
+              <div className="space-y-4 p-4">
+                <div className="flex items-start gap-2 rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-[12px] text-blue-800">
+                  <Users size={16} className="mt-0.5 shrink-0" />
                   <p>Bạn đang phân bổ <span className="font-bold">{selectedLeadIds.length}</span> lead cho nhân viên kinh doanh.</p>
                 </div>
 
-                <div className="animate-in slide-in-from-top-2">
-                  <label className="block text-sm font-bold text-slate-700 mb-2">Chọn nhân viên</label>
-                  <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar border border-slate-200 rounded-lg p-2">
-                    {SALES_REPS.map(rep => (
-                      <div
-                        key={rep.id}
-                        onClick={() => setSelectedRep(rep.id)}
-                        className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors ${selectedRep === rep.id ? 'bg-blue-50 border border-blue-200' : 'hover:bg-slate-50 border border-transparent'}`}
+                <div className="rounded-md border border-[#e8edf3] bg-[#fafbfc] p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[13px] font-bold text-slate-800">Phân bổ theo phần trăm</p>
+                      <p className="mt-0.5 text-[11px] text-slate-500">Nhập tỷ lệ cho từng sale. Tổng phải bằng 100%.</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={fillAssignmentRatiosEvenly}
+                        className={compactToolbarButtonClass}
                       >
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${rep.color}`}>
-                          {rep.avatar}
+                        Chia đều
+                      </button>
+                      <button
+                        type="button"
+                        onClick={resetAssignModal}
+                        className={compactToolbarButtonClass}
+                      >
+                        Reset
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap items-end gap-x-6 gap-y-2">
+                    <div>
+                      <div className="text-[11px] text-slate-500">Tổng tỷ lệ</div>
+                      <div className={`text-[15px] font-bold ${assignmentRatioTotal === 100 ? 'text-emerald-600' : 'text-amber-600'}`}>{assignmentRatioTotal}%</div>
+                    </div>
+                    <div>
+                      <div className="text-[11px] text-slate-500">Tổng lead</div>
+                      <div className="text-[15px] font-bold text-slate-900">{selectedLeadIds.length}</div>
+                    </div>
+                    <div>
+                      <div className="text-[11px] text-slate-500">Số sale tham gia</div>
+                      <div className="text-[15px] font-bold text-slate-900">{Object.values(assignmentRatioValues).filter((value) => value > 0).length}</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="animate-in slide-in-from-top-2">
+                  <label className="mb-2 block text-[11px] font-bold uppercase tracking-[0.08em] text-[#7b8794]">Tỷ lệ theo nhân viên</label>
+                  <div className="max-h-[340px] overflow-y-auto custom-scrollbar">
+                    {SALES_REPS.map((rep) => {
+                      const ratioValue = assignmentRatios[rep.id] || '';
+                      const ratio = assignmentRatioValues[rep.id] || 0;
+                      const leadCount = assignmentLeadCounts[rep.id] || 0;
+                      const isActive = ratio > 0 || ratioValue !== '';
+
+                      return (
+                        <div
+                          key={rep.id}
+                          className={`border-b border-[#f1f5f9] py-2 transition-colors ${isActive ? 'bg-blue-50/40' : 'bg-white'}`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <div className={`flex h-8 w-8 items-center justify-center rounded-full text-[11px] font-bold ${rep.color}`}>
+                              {rep.avatar}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-[13px] font-semibold text-slate-900">{rep.name}</p>
+                              <p className="text-[11px] text-slate-500">{rep.team}</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="number"
+                                min={0}
+                                max={100}
+                                value={ratioValue}
+                                onChange={(e) => updateAssignmentRatio(rep.id, e.target.value)}
+                                placeholder="0"
+                                className="w-16 rounded-sm border border-slate-300 bg-white px-2 py-1 text-[13px] font-semibold text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                              />
+                              <span className="text-[13px] font-bold text-slate-500">%</span>
+                            </div>
+                          </div>
+
+                          <div className="mt-1 flex items-center justify-between gap-3 pl-10">
+                            <p className="text-[11px] text-slate-600">
+                              {ratio > 0 ? `Dự kiến nhận ${leadCount} lead (${ratio}%)` : 'Chưa tham gia phân bổ'}
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => setSingleRepAssignment(rep.id)}
+                              className="rounded-sm border border-slate-200 bg-white px-2 py-1 text-[10px] font-bold text-slate-700 hover:bg-slate-100"
+                            >
+                              100% cho sale này
+                            </button>
+                          </div>
                         </div>
-                        <div className="flex-1">
-                          <p className="text-sm font-medium text-slate-900">{rep.name}</p>
-                          <p className="text-xs text-slate-500">{rep.team}</p>
-                        </div>
-                        {selectedRep === rep.id && <CheckCircle2 size={18} className="text-blue-600" />}
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               </div>
 
-              <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-3">
-                <button onClick={() => setShowAssignModal(false)} className="px-4 py-2 text-slate-600 font-bold hover:bg-slate-200 rounded-lg text-sm">Hủy</button>
+              <div className="flex justify-end gap-2 border-t border-[#e8edf3] bg-[#f6f7f8] px-4 py-3">
+                <button onClick={closeAssignModal} className="rounded-sm px-3 py-1.5 text-[12px] font-bold text-slate-600 hover:bg-slate-200">Hủy</button>
                 <button
                   onClick={handleAssignSubmit}
-                  className="px-6 py-2 text-white font-bold rounded-lg shadow-sm text-sm transition-all bg-blue-600 hover:bg-blue-700"
+                  className={`rounded-sm px-4 py-1.5 text-[12px] font-bold text-white transition-colors ${assignmentRatioTotal === 100 ? 'bg-blue-600 hover:bg-blue-700' : 'cursor-not-allowed bg-slate-400'}`}
+                  disabled={assignmentRatioTotal !== 100}
                 >
                   Xác nhận Phân bổ
                 </button>
@@ -2843,9 +3396,21 @@ const Leads: React.FC = () => {
                 {/* STEP 1: UPLOAD */}
                 {importStep === 1 && (
                   <div className="flex flex-col items-center justify-center h-full max-w-2xl mx-auto space-y-6">
-                    <div className="w-full h-64 border-2 border-dashed border-slate-300 rounded-2xl flex flex-col items-center justify-center bg-white hover:bg-blue-50 hover:border-blue-400 transition-all cursor-pointer relative group">
-                      <input type="file" accept=".csv, .xlsx, .xls" onChange={handleFileSelect} className="absolute inset-0 opacity-0 cursor-pointer" />
-                      <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                    <div
+                      className="w-full h-64 border-2 border-dashed border-slate-300 rounded-2xl flex flex-col items-center justify-center bg-white hover:bg-blue-50 hover:border-blue-400 transition-all cursor-pointer relative group select-none"
+                      onClick={openImportFilePicker}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          openImportFilePicker();
+                        }
+                      }}
+                      role="button"
+                      tabIndex={0}
+                    >
+                      <input id="lead-import-file-input" ref={importFileInputRef} type="file" accept=".csv, .xlsx, .xls" onChange={handleFileSelect} className="sr-only" />
+                      <label htmlFor="lead-import-file-input" className="absolute inset-0 z-10 cursor-pointer" aria-label="Chon tep import lead" />
+                      <div className="pointer-events-none w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
                         <UploadCloud size={32} />
                       </div>
                       <p className="text-lg font-bold text-slate-700">Kéo thả hoặc chọn tệp tin</p>
@@ -2930,29 +3495,19 @@ const Leads: React.FC = () => {
                           <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
                             <p className="text-sm font-bold text-slate-800 mb-1">Chế độ phân bổ từ Admin</p>
                             <div className="flex items-center gap-2">
-                              <span className={`inline-flex px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-widest border ${systemDistributionMode === 'auto'
-                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                : 'bg-slate-100 text-slate-600 border-slate-200'
-                                }`}>
-                                {systemDistributionMode === 'auto' ? 'Tự động' : 'Thủ công'}
+                              <span className="inline-flex px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-widest border bg-slate-100 text-slate-600 border-slate-200">
+                                Thủ công
                               </span>
                               <span className="text-xs text-slate-500">
-                                Cấu hình tại Admin &gt; Quy tắc tự động hóa.
+                                Admin &gt; Quy tắc tự động hóa đã chỉ giữ luồng phân công thủ công.
                               </span>
                             </div>
                           </div>
 
-                          {systemDistributionMode === 'auto' ? (
-                            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
-                              Lead hợp lệ sau import sẽ được tự động chia ngay theo vòng tròn cho đội Sales.
-                              Không cần thao tác chọn/chia thủ công.
-                            </div>
-                          ) : (
-                            <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-                              Chế độ thủ công đang bật: lead hợp lệ sẽ được nhập vào hệ thống nhưng chưa phân bổ.
-                              Admin/Leader sẽ phân công sau.
-                            </div>
-                          )}
+                          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+                            Chế độ thủ công đang bật: lead hợp lệ sẽ được nhập vào hệ thống nhưng chưa phân bổ.
+                            Admin/Leader sẽ phân công sau.
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -3140,7 +3695,7 @@ const Leads: React.FC = () => {
                           <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider">ID: {lead.id}</p>
                           <h4 className="font-bold text-slate-900 text-base">{lead.name}</h4>
                           <span className="text-[10px] bg-blue-100 text-blue-700 font-bold px-2 py-0.5 rounded mt-1 inline-block uppercase">
-                            {normalizeLeadStatus(lead.status as string)}
+                            {getLeadStatusLabel(lead.status as string)}
                           </span>
                         </div>
                         <button
@@ -3287,6 +3842,7 @@ const Leads: React.FC = () => {
 };
 
 export default Leads;
+
 
 
 

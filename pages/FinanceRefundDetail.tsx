@@ -13,8 +13,10 @@ import {
 } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import LogAudienceFilterControl from '../components/LogAudienceFilter';
 import { IRefundLog, IRefundRequest, RefundStatus, UserRole } from '../types';
-import { addRefundLog, getRefundLogs, getRefunds, updateRefund } from '../utils/storage';
+import { addRefundLog, getQuotations, getRefundLogs, getRefunds, updateQuotation, updateRefund } from '../utils/storage';
+import { filterByLogAudience, getRefundLogAudience, LogAudienceFilter } from '../utils/logAudience';
 
 const STATUS_META: Record<RefundStatus, { label: string; tone: string; dot: string }> = {
    NHAP: { label: 'Nháp', tone: 'bg-slate-100 text-slate-700 border-slate-200', dot: 'bg-slate-400' },
@@ -84,6 +86,27 @@ const normalizeRefund = (item: Partial<IRefundRequest>): IRefundRequest => ({
    evidenceFiles: Array.isArray(item.evidenceFiles) ? item.evidenceFiles : [],
    relatedDocuments: Array.isArray(item.relatedDocuments) ? item.relatedDocuments : []
 });
+
+const getRefundAmountToSync = (item: IRefundRequest) =>
+   Math.max(0, Number(item.approvedAmount ?? item.requestedAmount ?? 0) || 0);
+
+const syncQuotationRefundAmount = (soCode?: string) => {
+   if (!soCode) return;
+
+   const quotation = getQuotations().find((item) => item.soCode === soCode);
+   if (!quotation) return;
+
+   const totalApprovedRefund = getRefunds()
+      .map((item) => normalizeRefund(item))
+      .filter((item) => item.soCode === soCode && (item.status === 'CEO_DUYET' || item.status === 'DA_HOAN'))
+      .reduce((sum, item) => sum + getRefundAmountToSync(item), 0);
+
+   updateQuotation({
+      ...quotation,
+      refundAmount: totalApprovedRefund,
+      updatedAt: new Date().toISOString()
+   });
+};
 
 const SectionTitle = ({ title }: { title: string }) => (
    <div className="border-b border-slate-300 pb-2.5">
@@ -208,6 +231,7 @@ const FinanceRefundDetail: React.FC = () => {
    const [refund, setRefund] = useState<IRefundRequest | null>(null);
    const [logs, setLogs] = useState<IRefundLog[]>([]);
    const [noteDraft, setNoteDraft] = useState('');
+   const [logAudienceFilter, setLogAudienceFilter] = useState<LogAudienceFilter>('ALL');
 
    useEffect(() => {
       const loadData = () => {
@@ -247,6 +271,10 @@ const FinanceRefundDetail: React.FC = () => {
       if (!refund) return [];
       return getAvailableActions(refund, user?.role);
    }, [refund, user?.role]);
+   const filteredLogs = useMemo(
+      () => filterByLogAudience(logs, logAudienceFilter, getRefundLogAudience),
+      [logAudienceFilter, logs]
+   );
 
    const handleWorkflowAction = (action: RefundAction) => {
       if (!refund) return;
@@ -261,6 +289,8 @@ const FinanceRefundDetail: React.FC = () => {
          window.alert('Không thể cập nhật trạng thái hoàn tiền.');
          return;
       }
+
+      syncQuotationRefundAmount(refund.soCode);
 
       addRefundLog({
          id: `RLOG-${Date.now()}`,
@@ -517,11 +547,15 @@ const FinanceRefundDetail: React.FC = () => {
                         </div>
 
                         <div className="mt-3">
-                           {logs.length > 0 ? (
+                           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                              <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Bộ lọc log note</div>
+                              <LogAudienceFilterControl value={logAudienceFilter} onChange={setLogAudienceFilter} />
+                           </div>
+                           {filteredLogs.length > 0 ? (
                               <div className="space-y-3">
-                                 {logs.map((log, index) => (
+                                 {filteredLogs.map((log, index) => (
                                     <div key={log.id} className="relative pl-4">
-                                       {index < logs.length - 1 && <div className="absolute left-[5px] top-3 h-[calc(100%+10px)] w-px bg-slate-200" />}
+                                       {index < filteredLogs.length - 1 && <div className="absolute left-[5px] top-3 h-[calc(100%+10px)] w-px bg-slate-200" />}
                                        <div className="absolute left-0 top-1.5 h-[10px] w-[10px] rounded-full border-2 border-white bg-blue-500" />
                                        <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
                                           <div className="text-[12px] font-semibold leading-4 text-slate-900">{log.action}</div>
@@ -532,7 +566,7 @@ const FinanceRefundDetail: React.FC = () => {
                                  ))}
                               </div>
                            ) : (
-                              <div className="text-[12px] italic text-slate-400">Chưa có lịch sử xử lý.</div>
+                              <div className="text-[12px] italic text-slate-400">Chưa có lịch sử phù hợp bộ lọc.</div>
                            )}
                         </div>
                      </section>

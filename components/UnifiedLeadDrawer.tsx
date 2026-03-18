@@ -17,11 +17,16 @@ import CreateMeetingModal from './CreateMeetingModal';
 import { MeetingCustomerOption } from '../utils/meetingHelpers';
 import {
     DEFAULT_QUOTATION_RECEIPT_TYPE,
-    normalizeQuotationReceiptType,
-    QUOTATION_RECEIPT_TYPE_OPTIONS
+    normalizeQuotationReceiptType
 } from '../utils/quotationReceiptType';
+import {
+    formatServicePaymentPlanNote,
+    resolveServicePaymentPlan
+} from '../utils/servicePaymentPlans';
 import ClassCodeLookupInput from './ClassCodeLookupInput';
 import { buildTrainingClassLookupOptions } from '../utils/trainingClassLookup';
+import LogAudienceFilterControl from './LogAudienceFilter';
+import { LogAudienceFilter } from '../utils/logAudience';
 
 interface UnifiedLeadDrawerProps {
     lead: ILead;
@@ -235,6 +240,14 @@ const getResolvedLineItemTotal = (item: Partial<IQuotationLineItem>) => {
 const getCatalogByProduct = (productName: string) =>
     ORDER_LINE_CATALOG.find((item) => item.product === productName);
 
+const getPrimaryCatalogByServicePackage = (
+    market?: CreatorMarket | '',
+    servicePackage?: CreatorServicePackage | ''
+) =>
+    ORDER_LINE_CATALOG.find(
+        (item) => item.market === market && item.servicePackage === servicePackage
+    );
+
 const mapStoredItemsToQuotationLineItems = (items: any[] = [], leadData?: Partial<ILead>): IQuotationLineItem[] =>
     items.map((item, index) => {
         const quantity = Math.max(1, Number(item?.quantity) || 1);
@@ -327,6 +340,24 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
     const { user } = useAuth();
     const navigate = useNavigate();
     const [lead, setLead] = useState<ILead>(initialLead || {} as ILead);
+    const quotationSalesOptions = useMemo(() => {
+        const options = new Map<string, { id: string; name: string; avatar: string; role: string }>();
+
+        if (user?.id && user?.name) {
+            options.set(user.id, {
+                id: user.id,
+                name: user.name,
+                avatar: user.name.slice(0, 2).toUpperCase(),
+                role: user.role || 'Sales Rep'
+            });
+        }
+
+        MOCK_USERS
+            .filter((item) => item.role !== 'Contract Manager')
+            .forEach((item) => options.set(item.id, item));
+
+        return Array.from(options.values());
+    }, [user?.id, user?.name, user?.role]);
 
     // UI States
     const [chatterTab, setChatterTab] = useState<'message' | 'note' | 'activity' | 'meeting'>('note');
@@ -369,6 +400,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
     const [pendingConvertLead, setPendingConvertLead] = useState<ILead | null>(null);
     const [completingActivityId, setCompletingActivityId] = useState<string | null>(null);
     const [completionNote, setCompletionNote] = useState('');
+    const [logAudienceFilter, setLogAudienceFilter] = useState<LogAudienceFilter>('ALL');
     const [scheduleNext, setScheduleNext] = useState(true); // Default to true to suggest next activity
     const [showAssignModal, setShowAssignModal] = useState(false);
     const [showQuotationCreator, setShowQuotationCreator] = useState(false);
@@ -495,10 +527,11 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
 
     // Quotation Specific Fields
     const [quotationData, setQuotationData] = useState({
-        paymentMethod: '',
+        paymentMethod: 'Chuyển khoản',
         expirationDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
         pricelist: '[Center 11] Base Price (VND)',
         orderMode: DEFAULT_QUOTATION_RECEIPT_TYPE,
+        salespersonName: user?.name || '',
         serviceType: 'Training' as 'StudyAbroad' | 'Training' | 'Combo',
         classCode: '',
         schedule: '',
@@ -1315,6 +1348,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                 expirationDate: existingQuotation.expirationDate || existingQuotation.updatedAt?.slice(0, 10) || prev.expirationDate,
                 pricelist: existingQuotation.pricelist || prev.pricelist,
                 orderMode: normalizeQuotationReceiptType(existingQuotation.orderMode || prev.orderMode),
+                salespersonName: existingQuotation.salespersonName || existingQuotation.createdBy || prev.salespersonName || user?.name || '',
                 classCode: existingQuotation.classCode || prev.classCode,
                 schedule: existingQuotation.schedule || prev.schedule,
                 pricingNote: existingQuotation.pricingNote || prev.pricingNote,
@@ -1327,6 +1361,12 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
             setQuotationLineItems(nextLineItems);
             setDiscountAdjustment(deriveDiscountAdjustment(lead.discount, nextLineItems));
             setQuotationWorkflowStatus('draft');
+            setQuotationData(prev => ({
+                ...prev,
+                paymentMethod: 'Chuyển khoản',
+                expirationDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+                salespersonName: user?.name || prev.salespersonName || ''
+            }));
         }
         setEditingOrderLineId(null);
         setProgramDropdownOpen(false);
@@ -1424,7 +1464,8 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
             paymentDocuments: existing?.paymentDocuments,
             needInvoice: quotationData.needInvoice,
             logNotes,
-            createdBy: user?.name || 'System'
+            createdBy: quotationData.salespersonName || user?.name || 'System',
+            salespersonName: quotationData.salespersonName || user?.name || 'System'
         };
 
         if (existing) {
@@ -1437,7 +1478,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
     };
 
     const handleSaveQuotationDraft = () => {
-        upsertQuotation(QuotationStatus.DRAFT, 'Lưu báo giá nháp', `Chính sách giá: ${quotationData.pricelist}`);
+        upsertQuotation(QuotationStatus.DRAFT, 'Lưu báo giá nháp', `Hạn: ${quotationData.expirationDate || 'N/A'}`);
         setQuotationWorkflowStatus('draft');
         showToast("Đã lưu báo giá nháp.", 'success');
     };
@@ -1446,7 +1487,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
         const savedQuotation = upsertQuotation(
             QuotationStatus.DRAFT,
             'Tạo báo giá',
-            `Chính sách giá: ${quotationData.pricelist} | Hạn: ${quotationData.expirationDate || 'N/A'}`
+            `Hạn: ${quotationData.expirationDate || 'N/A'}`
         );
         const statusLog: any = {
             id: `act-${Date.now()}`,
@@ -1474,14 +1515,10 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
     };
 
     const handleConfirmQuotation = () => {
-        if (!quotationData.paymentMethod) {
-            showToast("Phương thức thanh toán là bắt buộc trước khi xác nhận.", 'error');
-            return;
-        }
         const savedQuotation = upsertQuotation(
             QuotationStatus.SALE_ORDER,
             'Confirm Sale',
-            `Đã xác nhận đơn bán hàng. PTTT: ${quotationData.paymentMethod}`
+            'Đã xác nhận đơn bán hàng.'
         );
         setQuotationWorkflowStatus('sale_order');
         showToast(`Đã xác nhận ${savedQuotation.soCode} thành Sale Order.`, 'success');
@@ -1535,26 +1572,9 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
         );
     }, [orderLineDraft.servicePackage, orderLineDraft.targetMarket]);
 
-    const availableCourseOptions = useMemo(() => {
-        const productCatalog = availableProducts.find((item) => item.product === orderLineDraft.productName);
-        return productCatalog?.courseOptions || [];
-    }, [availableProducts, orderLineDraft.productName]);
-
     const availableProgramOptions = useMemo(() => {
-        const productCatalog = availableProducts.find((item) => item.product === orderLineDraft.productName);
-        return productCatalog?.programOptions || [];
-    }, [availableProducts, orderLineDraft.productName]);
-
-    const availableTesterOptions = useMemo(() => {
-        if (!orderLineDraft.targetMarket) return creatorTeachers;
-        return creatorTeachers.filter((teacher) => {
-            const subjects = teacher.teachSubjects.map((item) => item.toLowerCase());
-            if (orderLineDraft.targetMarket === 'Đức') {
-                return subjects.some((subject) => subject.includes('đức') || subject.includes('german'));
-            }
-            return subjects.some((subject) => subject.includes('trung') || subject.includes('chinese'));
-        });
-    }, [creatorTeachers, orderLineDraft.targetMarket]);
+        return Array.from(new Set(availableProducts.flatMap((item) => item.programOptions)));
+    }, [availableProducts]);
 
     const availableClassOptions = useMemo(() => {
         if (!orderLineDraft.targetMarket) return creatorClasses;
@@ -1572,6 +1592,11 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
             return orderLineDraft.programs.some((program) => classTokens.includes(program.toLowerCase()));
         });
     }, [creatorClasses, orderLineDraft.programs, orderLineDraft.targetMarket]);
+
+    const resolvedOrderPaymentPlan = useMemo(
+        () => resolveServicePaymentPlan(orderLineDraft.targetMarket, orderLineDraft.servicePackage, orderLineDraft.unitPrice),
+        [orderLineDraft.servicePackage, orderLineDraft.targetMarket, orderLineDraft.unitPrice]
+    );
 
     const openNewOrderLineModal = () => {
         setEditingOrderLineId(null);
@@ -1613,26 +1638,13 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
 
     const handleOrderDraftServiceChange = (servicePackage: CreatorServicePackage | '') => {
         setProgramDropdownOpen(false);
+        const catalog = getPrimaryCatalogByServicePackage(orderLineDraft.targetMarket, servicePackage);
         setOrderLineDraft((prev) => ({
             ...prev,
             servicePackage,
-            productId: undefined,
-            productName: '',
-            courseName: '',
-            programs: [],
-            classId: '',
-            unitPrice: 0
-        }));
-    };
-
-    const handleOrderDraftProductChange = (productName: string) => {
-        const catalog = getCatalogByProduct(productName);
-        setProgramDropdownOpen(false);
-        setOrderLineDraft((prev) => ({
-            ...prev,
             productId: catalog?.id,
-            productName,
-            courseName: catalog?.courseOptions[0] || '',
+            productName: catalog?.product || servicePackage,
+            courseName: '',
             programs: [],
             classId: '',
             unitPrice: catalog?.defaultPrice || 0
@@ -1660,28 +1672,26 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
     };
 
     const handleSaveOrderLine = (mode: 'close' | 'new') => {
-        if (!orderLineDraft.productName || !orderLineDraft.studentName || !orderLineDraft.targetMarket || !orderLineDraft.servicePackage) {
-            showToast('Vui lòng chọn sản phẩm và điền đủ thông tin bắt buộc của dòng báo giá.', 'error');
+        if (!orderLineDraft.studentName || !orderLineDraft.targetMarket || !orderLineDraft.servicePackage) {
+            showToast('Vui lòng điền đủ tên học sinh, thị trường mục tiêu và gói dịch vụ.', 'error');
             return;
         }
 
-        const selectedTester = getTeachers().find((teacher) => teacher.id === orderLineDraft.testerId);
         const selectedClass = [...getTrainingClasses(), ...CREATOR_CLASS_FALLBACKS].find((item) => item.id === orderLineDraft.classId);
         const total = calculateOrderLineTotal(orderLineDraft.unitPrice, 1, orderLineDraft.discountPercent);
+        const paymentPlan = resolveServicePaymentPlan(orderLineDraft.targetMarket, orderLineDraft.servicePackage, orderLineDraft.unitPrice);
+        const pricingNote = formatServicePaymentPlanNote(paymentPlan);
 
         const nextLine: IQuotationLineItem = {
             id: editingOrderLineId || orderLineDraft.id,
             productId: orderLineDraft.productId,
-            name: orderLineDraft.productName,
+            name: orderLineDraft.productName || orderLineDraft.servicePackage,
             quantity: 1,
             unitPrice: orderLineDraft.unitPrice,
             discount: orderLineDraft.discountPercent,
             total,
             studentName: orderLineDraft.studentName,
             studentDob: fromInputDate(orderLineDraft.studentDob, lead.dob),
-            testerId: orderLineDraft.testerId || undefined,
-            testerName: selectedTester?.fullName,
-            courseName: orderLineDraft.courseName || undefined,
             targetMarket: orderLineDraft.targetMarket || undefined,
             servicePackage: orderLineDraft.servicePackage || undefined,
             programs: orderLineDraft.programs,
@@ -1695,6 +1705,9 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                 ? prev.map((item) => (item.id === editingOrderLineId ? nextLine : item))
                 : [...prev, nextLine]
         );
+        if (pricingNote) {
+            setQuotationData((prev) => ({ ...prev, pricingNote }));
+        }
 
         if (mode === 'new') {
             setEditingOrderLineId(null);
@@ -1713,7 +1726,9 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
     // Log Grouping Logic
     const groupedLogs = useMemo(() => {
         const groups: Record<string, any[]> = {};
-        const logs = lead.activities || [];
+        const logs = (lead.activities || []).filter((log: any) =>
+            logAudienceFilter === 'ALL' ? true : logAudienceFilter === 'SYSTEM' ? log.type === 'system' : log.type !== 'system'
+        );
         const sortedLogs = [...logs].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
         sortedLogs.forEach(log => {
             const dateStr = new Date(log.timestamp).toLocaleDateString('vi-VN');
@@ -1721,7 +1736,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
             groups[dateStr].push(log);
         });
         return groups;
-    }, [lead.activities]);
+    }, [lead.activities, logAudienceFilter]);
 
     const formatMetaDateTime = (value?: string) => {
         if (!value) return '-';
@@ -2225,7 +2240,14 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
 
                         {/* TIMELINE */}
                         <div className="flex-1 overflow-auto p-4 custom-scrollbar space-y-6">
-                            {Object.entries(groupedLogs).map(([date, logs]) => (
+                            <div className="flex justify-end">
+                                <LogAudienceFilterControl value={logAudienceFilter} onChange={setLogAudienceFilter} />
+                            </div>
+                            {Object.keys(groupedLogs).length === 0 ? (
+                                <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
+                                    Chưa có log note phù hợp bộ lọc.
+                                </div>
+                            ) : Object.entries(groupedLogs).map(([date, logs]) => (
                                 <div key={date}>
                                     <div className="flex items-center gap-4 mb-4">
                                         <div className="h-px bg-slate-200 flex-1"></div>
@@ -2358,39 +2380,9 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                 {showQuotationCreator && (
                     <div className="fixed inset-0 z-[100] bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
                         <div className="bg-white rounded-lg shadow-2xl w-full max-w-6xl h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
-                            {/* Breadcrumbs & Actions Area */}
-                            <div className="bg-slate-50 border-b border-slate-200 px-6 py-2 flex items-center justify-between">
-                                <div className="flex items-center gap-2 text-xs text-slate-500 font-medium">
-                                    <span>Quy trình</span>
-                                    <ChevronRight size={14} />
-                                    <span>[Center-2]Groupclass</span>
-                                    <ChevronRight size={14} />
-                                    <span className="text-slate-900 font-bold">Mới</span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <button onClick={handleSaveQuotationDraft} className="px-5 py-1.5 bg-blue-600 text-white text-xs font-bold rounded shadow-sm hover:bg-blue-700 flex items-center gap-2 group transition-all uppercase">
-                                        <Save size={14} className="group-hover:scale-110" /> LƯU
-                                    </button>
-                                    <button onClick={() => setShowQuotationCreator(false)} className="px-5 py-1.5 bg-white border border-slate-300 text-slate-600 text-xs font-bold rounded shadow-sm hover:bg-slate-50 uppercase">
-                                        BỎ QUA
-                                    </button>
-                                </div>
-                            </div>
-
-                            {/* Status Bar (Odoo Style) */}
-                            <div className="bg-white border-b border-slate-200 px-6 py-2 flex items-center justify-between">
-                                <div className="flex gap-2">
-                                    <button
-                                        onClick={handleCreateQuotation}
-                                        className="px-3 py-1 bg-[#2b5a83] text-white text-[10px] font-bold rounded uppercase hover:bg-[#1f4463] shadow-sm transition-colors"
-                                    >
-                                        Tạo báo giá
-                                    </button>
-                                    <button onClick={handlePrintQuotation} className="px-3 py-1 border border-slate-300 text-slate-600 text-[10px] font-bold rounded uppercase hover:bg-slate-50 transition-colors">In</button>
-                                    <button onClick={handleConfirmQuotation} className="px-3 py-1 border border-slate-300 text-slate-600 text-[10px] font-bold rounded uppercase hover:bg-slate-50 transition-colors">Xác nhận</button>
-                                    <button onClick={handleCancelQuotation} className="px-3 py-1 border border-slate-300 text-slate-600 text-[10px] font-bold rounded uppercase hover:bg-slate-50 transition-colors">Hủy</button>
-                                </div>
-                                <div className="flex h-8">
+                            <div className="bg-white border-b border-slate-200 px-6 py-2">
+                                <div className="flex flex-wrap items-center justify-between gap-3">
+                                    <div className="flex h-8">
                                     <div className="flex items-center">
                                         <div className={`px-5 py-1.5 text-[10px] font-extrabold uppercase border-l border-t border-b border-slate-200 rounded-l-md ${quotationWorkflowStatus === 'draft' ? 'bg-blue-50 text-[#2b5a83]' : 'bg-white text-slate-400'}`}>Báo giá</div>
                                         <div className="relative h-full w-[16px] overflow-hidden">
@@ -2409,6 +2401,16 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                                     {quotationWorkflowStatus === 'cancelled' && (
                                         <div className="ml-2 px-3 py-1.5 bg-red-50 text-red-600 text-[10px] font-bold uppercase border border-red-200 rounded-md">Đã hủy</div>
                                     )}
+                                    </div>
+
+                                    <div className="flex items-center gap-2">
+                                        <button onClick={handleCreateQuotation} className="px-5 py-1.5 bg-blue-600 text-white text-xs font-bold rounded shadow-sm hover:bg-blue-700 transition-all uppercase">
+                                            Tạo
+                                        </button>
+                                        <button onClick={() => setShowQuotationCreator(false)} className="flex h-8 w-8 items-center justify-center rounded border border-slate-300 bg-white text-slate-600 shadow-sm hover:bg-slate-50">
+                                            <X size={14} />
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
 
@@ -2426,20 +2428,17 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                                                 </div>
                                             </div>
                                             <div className="flex min-h-[32px] items-center">
-                                                <label className="w-40 text-[13px] font-bold text-slate-700">Phương thức thanh toán</label>
+                                                <label className="w-40 text-[13px] font-bold text-slate-700">Sale phụ trách</label>
                                                 <select
-                                                    className={`flex-1 px-3 py-1.5 bg-blue-50 border rounded text-[13px] outline-none transition-colors ${quotationData.paymentMethod ? 'border-slate-300 focus:border-blue-500' : 'border-red-300 focus:border-red-500'}`}
-                                                    value={quotationData.paymentMethod}
-                                                    onChange={e => setQuotationData({ ...quotationData, paymentMethod: e.target.value })}
+                                                    className="flex-1 px-3 py-1.5 bg-blue-50 border border-slate-300 rounded text-[13px] outline-none transition-colors focus:border-blue-500"
+                                                    value={quotationData.salespersonName || user?.name || ''}
+                                                    onChange={e => setQuotationData({ ...quotationData, salespersonName: e.target.value })}
                                                 >
-                                                    <option value="">-- Chọn phương thức --</option>
-                                                    <option value="Tiền mặt">Tiền mặt</option>
-                                                    <option value="Chuyển khoản">Chuyển khoản</option>
+                                                    {quotationSalesOptions.map((option) => (
+                                                        <option key={option.id} value={option.name}>{option.name}</option>
+                                                    ))}
                                                 </select>
                                             </div>
-                                            {!quotationData.paymentMethod && (
-                                                <div className="text-[11px] text-red-600 font-bold pl-40">* Bắt buộc chọn trước khi xác nhận đơn hàng</div>
-                                            )}
                                         </div>
 
                                         <div className="space-y-4">
@@ -2454,33 +2453,6 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                                                     />
                                                 </div>
                                             </div>
-                                            <div className="flex min-h-[32px] items-center">
-                                                <label className="w-[148px] text-[13px] font-bold text-slate-700">Chính sách giá</label>
-                                                <div className="flex-1">
-                                                    <select
-                                                        className="w-full px-3 py-1.5 bg-blue-50 border border-slate-300 rounded text-[13px] outline-none focus:border-blue-500 transition-colors"
-                                                        value={quotationData.pricelist}
-                                                        onChange={e => setQuotationData({ ...quotationData, pricelist: e.target.value })}
-                                                    >
-                                                        <option value="[Center 11] Base Price (VND)">[Center 11] Base Price (VND)</option>
-                                                        <option value="VIP Pricelist">VIP Pricelist</option>
-                                                    </select>
-                                                </div>
-                                            </div>
-                                            <div className="flex min-h-[32px] items-center">
-                                                <label className="w-[148px] text-[13px] font-bold text-slate-700">Loại phiếu thu</label>
-                                                <div className="flex-1">
-                                                    <select
-                                                        className="w-full px-3 py-1.5 bg-blue-50 border border-slate-300 rounded text-[13px] outline-none focus:border-blue-500 appearance-none"
-                                                        value={normalizeQuotationReceiptType(quotationData.orderMode)}
-                                                        onChange={e => setQuotationData({ ...quotationData, orderMode: e.target.value })}
-                                                    >
-                                                        {QUOTATION_RECEIPT_TYPE_OPTIONS.map((option) => (
-                                                            <option key={option.value} value={option.value}>{option.label}</option>
-                                                        ))}
-                                                    </select>
-                                                </div>
-                                            </div>
                                         </div>
                                     </div>
 
@@ -2493,13 +2465,18 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                                     {/* Order Lines Table */}
                                     {quotationCreatorTab === 'order_lines' && (
                                         <div className="overflow-x-auto">
-                                            <table className="w-full border-collapse text-left text-[12px]">
+                                            <table className="w-full table-fixed border-collapse text-left text-[12px]">
+                                                <colgroup>
+                                                    <col className="w-[19%]" />
+                                                    <col className="w-[30%]" />
+                                                    <col className="w-[15%]" />
+                                                    <col className="w-[14%]" />
+                                                    <col className="w-[22%]" />
+                                                </colgroup>
                                                 <thead className="bg-[#f8f9fa] font-bold uppercase text-slate-700">
                                                     <tr className="border-b border-slate-200">
-                                                        <th className="p-3">Sản phẩm</th>
-                                                        <th className="p-3">Tên học viên</th>
-                                                        <th className="p-3">Ngày sinh</th>
-                                                        <th className="p-3">Mô tả</th>
+                                                        <th className="p-3">Gói dịch vụ</th>
+                                                        <th className="p-3">Chương trình</th>
                                                         <th className="p-3 text-right">Đơn giá</th>
                                                         <th className="p-3 text-center">Giảm giá (%)</th>
                                                         <th className="p-3 text-right">Thành tiền</th>
@@ -2512,35 +2489,33 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                                                             className="cursor-pointer border-b border-slate-100 transition-colors hover:bg-slate-50"
                                                             onClick={() => openEditOrderLineModal(item.id)}
                                                         >
-                                                            <td className="align-top p-3 font-bold text-blue-700">{item.name || '-'}</td>
-                                                            <td className="align-top p-3 text-slate-900">{item.studentName || lead.name || '-'}</td>
-                                                            <td className="align-top p-3 text-slate-600">{formatDisplayDate(item.studentDob)}</td>
+                                                            <td className="align-top p-3 text-slate-700">{item.servicePackage || '-'}</td>
                                                             <td className="align-top p-3 text-slate-500">
                                                                 <div className="text-[11px] leading-5">
                                                                     <div className="font-semibold text-slate-700">
-                                                                        {[item.targetMarket, item.servicePackage, item.courseName].filter(Boolean).join(' • ') || '-'}
+                                                                        {item.programs?.length ? item.programs.join(', ') : item.courseName || '-'}
                                                                     </div>
-                                                                    {item.testerName && (
+                                                                    {item.courseName && item.programs?.length ? (
+                                                                        <div>
+                                                                            <span className="font-semibold text-slate-500">Khóa học:</span> {item.courseName}
+                                                                        </div>
+                                                                    ) : null}
+                                                                    {item.testerName ? (
                                                                         <div>
                                                                             <span className="font-semibold text-slate-500">Tester:</span> {item.testerName}
                                                                         </div>
-                                                                    )}
-                                                                    {item.programs?.length ? (
-                                                                        <div>
-                                                                            <span className="font-semibold text-slate-500">Chương trình:</span> {item.programs.join(', ')}
-                                                                        </div>
                                                                     ) : null}
-                                                                    {item.className && (
+                                                                    {item.className ? (
                                                                         <div>
                                                                             <span className="font-semibold text-slate-500">Lớp:</span> {item.className}
                                                                         </div>
-                                                                    )}
-                                                                    {item.additionalInfo && (
+                                                                    ) : null}
+                                                                    {item.additionalInfo ? (
                                                                         <div>
                                                                             <span className="font-semibold text-slate-500">Thông tin thêm:</span> {item.additionalInfo}
                                                                         </div>
-                                                                    )}
-                                                                    {!item.testerName && !item.programs?.length && !item.className && !item.additionalInfo && (
+                                                                    ) : null}
+                                                                    {!item.courseName && !item.programs?.length && !item.testerName && !item.className && !item.additionalInfo && (
                                                                         <div className="italic text-slate-400">Không có thông tin thêm</div>
                                                                     )}
                                                                 </div>
@@ -2551,7 +2526,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                                                         </tr>
                                                     ))}
                                                     <tr className="bg-slate-50/30">
-                                                        <td colSpan={7} className="p-3">
+                                                        <td colSpan={5} className="p-3">
                                                             <button onClick={openNewOrderLineModal} className="flex items-center gap-1 font-bold text-blue-600 transition-all hover:underline">
                                                                 <Plus size={14} /> Thêm một dòng
                                                             </button>
@@ -2653,9 +2628,9 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                                     </div>
 
                                     {showOrderLineModal && (
-                                        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
-                                            <div className="w-full max-w-5xl rounded-lg bg-white shadow-2xl">
-                                                <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+                                        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/50 p-3 backdrop-blur-sm">
+                                            <div className="flex max-h-[calc(100vh-1rem)] w-full max-w-5xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl">
+                                                <div className="shrink-0 flex items-center justify-between border-b border-slate-200 px-6 py-3">
                                                     <h3 className="text-lg font-bold text-slate-900">
                                                         {editingOrderLineId ? 'Cập nhật đơn hàng' : 'Thêm đơn hàng'}
                                                     </h3>
@@ -2664,8 +2639,9 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                                                     </button>
                                                 </div>
 
-                                                <div className="grid gap-5 px-6 py-5 md:grid-cols-2">
-                                                    <div className="space-y-4">
+                                                <div className="min-h-0 overflow-y-auto px-6 py-4">
+                                                    <div className="grid gap-4 md:grid-cols-2">
+                                                    <div className="min-w-0 space-y-3">
                                                         <div>
                                                             <label className="mb-1 block text-xs font-bold uppercase text-slate-600">Tên học sinh</label>
                                                             <input
@@ -2713,58 +2689,30 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                                                                 ))}
                                                             </select>
                                                         </div>
-
-                                                        <div>
-                                                            <label className="mb-1 block text-xs font-bold uppercase text-slate-600">Sản phẩm</label>
-                                                            <select
-                                                                value={orderLineDraft.productName}
-                                                                onChange={(e) => handleOrderDraftProductChange(e.target.value)}
-                                                                className="h-10 w-full rounded border border-slate-300 bg-white px-3 text-sm outline-none focus:border-blue-500"
-                                                            >
-                                                                <option value="">-- Chọn sản phẩm --</option>
-                                                                {availableProducts.map((product) => (
-                                                                    <option key={product.id} value={product.product}>{product.product}</option>
-                                                                ))}
-                                                            </select>
-                                                        </div>
                                                     </div>
 
-                                                    <div className="space-y-4">
-                                                        <div>
-                                                            <label className="mb-1 block text-xs font-bold uppercase text-slate-600">Khóa học</label>
-                                                            <select
-                                                                value={orderLineDraft.courseName}
-                                                                onChange={(e) => setOrderLineDraft((prev) => ({ ...prev, courseName: e.target.value }))}
-                                                                className="h-10 w-full rounded border border-slate-300 bg-white px-3 text-sm outline-none focus:border-blue-500"
-                                                            >
-                                                                <option value="">-- Chọn khóa học --</option>
-                                                                {availableCourseOptions.map((course) => (
-                                                                    <option key={course} value={course}>{course}</option>
-                                                                ))}
-                                                            </select>
-                                                        </div>
-
-                                                        <div ref={programDropdownRef} className="relative">
+                                                    <div className="min-w-0 space-y-3">
+                                                        <div ref={programDropdownRef} className="relative min-w-0">
                                                             <label className="mb-1 block text-xs font-bold uppercase text-slate-600">Chương trình</label>
                                                             <button
                                                                 type="button"
                                                                 onClick={() => setProgramDropdownOpen((prev) => !prev)}
-                                                                className="flex min-h-[44px] w-full items-start justify-between gap-3 rounded border border-slate-300 bg-white px-3 py-2 text-left text-sm outline-none transition-colors hover:border-blue-400 focus:border-blue-500"
+                                                                className="flex h-10 w-full items-center justify-between gap-3 rounded border border-slate-300 bg-white px-3 text-left text-sm outline-none transition-colors hover:border-blue-400 focus:border-blue-500"
                                                             >
-                                                                <div className="flex flex-1 flex-wrap gap-2">
+                                                                <div className="min-w-0 flex flex-1 flex-nowrap items-center gap-2 overflow-hidden">
                                                                     {orderLineDraft.programs.length > 0 ? (
                                                                         orderLineDraft.programs.map((program) => (
-                                                                            <span key={program} className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
+                                                                            <span key={program} className="shrink-0 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
                                                                                 {program}
                                                                             </span>
                                                                         ))
                                                                     ) : (
-                                                                        <span className="pt-1 text-sm text-slate-400">
+                                                                        <span className="truncate text-sm text-slate-400">
                                                                             -- Chọn chương trình --
                                                                         </span>
                                                                     )}
                                                                 </div>
-                                                                <ChevronDown size={16} className={`mt-1 shrink-0 text-slate-400 transition-transform ${programDropdownOpen ? 'rotate-180' : ''}`} />
+                                                                <ChevronDown size={16} className={`shrink-0 text-slate-400 transition-transform ${programDropdownOpen ? 'rotate-180' : ''}`} />
                                                             </button>
 
                                                             {programDropdownOpen && (
@@ -2806,21 +2754,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                                                             </select>
                                                         </div>
 
-                                                        <div>
-                                                            <label className="mb-1 block text-xs font-bold uppercase text-slate-600">Tester</label>
-                                                            <select
-                                                                value={orderLineDraft.testerId}
-                                                                onChange={(e) => setOrderLineDraft((prev) => ({ ...prev, testerId: e.target.value }))}
-                                                                className="h-10 w-full rounded border border-slate-300 bg-white px-3 text-sm outline-none focus:border-blue-500"
-                                                            >
-                                                                <option value="">-- Chọn người cho test --</option>
-                                                                {availableTesterOptions.map((teacher) => (
-                                                                    <option key={teacher.id} value={teacher.id}>{teacher.fullName}</option>
-                                                                ))}
-                                                            </select>
-                                                        </div>
-
-                                                        <div className="grid grid-cols-2 gap-4">
+                                                        <div className="space-y-3">
                                                             <div>
                                                                 <label className="mb-1 block text-xs font-bold uppercase text-slate-600">Đơn giá</label>
                                                                 <input
@@ -2846,17 +2780,54 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                                                     </div>
 
                                                     <div className="md:col-span-2">
-                                                        <label className="mb-1 block text-xs font-bold uppercase text-slate-600">Thông tin thêm</label>
-                                                        <textarea
-                                                            value={orderLineDraft.additionalInfo}
-                                                            onChange={(e) => setOrderLineDraft((prev) => ({ ...prev, additionalInfo: e.target.value }))}
-                                                            className="h-24 w-full resize-none rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500"
-                                                            placeholder="Nhập ghi chú hoặc yêu cầu đặc biệt..."
-                                                        />
+                                                        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                                                            <div className="mb-2">
+                                                                <div className="text-xs font-bold uppercase tracking-wide text-slate-600">Lộ trình đóng phí</div>
+                                                                <div className="text-sm text-slate-500">Hiển thị theo cấu hình admin của gói dịch vụ đã chọn.</div>
+                                                            </div>
+
+                                                            {resolvedOrderPaymentPlan ? (
+                                                                <div className="overflow-x-auto">
+                                                                    <table className="w-full border-collapse text-left text-sm">
+                                                                        <thead>
+                                                                            <tr className="border-b border-slate-200 text-xs font-bold uppercase text-slate-500">
+                                                                                <th className="py-2 pr-4">Đợt thu</th>
+                                                                                <th className="py-2 pr-4">Điều kiện đóng</th>
+                                                                                <th className="py-2 text-right">Số tiền</th>
+                                                                            </tr>
+                                                                        </thead>
+                                                                        <tbody>
+                                                                            {resolvedOrderPaymentPlan.steps.map((step) => (
+                                                                                <tr key={step.installmentLabel} className="border-b border-slate-100 last:border-b-0">
+                                                                                    <td className="py-3 pr-4 font-semibold text-slate-700">{step.installmentLabel}</td>
+                                                                                    <td className="py-3 pr-4 text-slate-600">{step.condition}</td>
+                                                                                    <td className="py-3 text-right font-semibold text-slate-900">{step.amount.toLocaleString('vi-VN')} đ</td>
+                                                                                </tr>
+                                                                            ))}
+                                                                        </tbody>
+                                                                    </table>
+                                                                </div>
+                                                            ) : (
+                                                                <div className="rounded border border-dashed border-slate-300 bg-white px-4 py-4 text-sm text-slate-500">
+                                                                    Chọn thị trường và gói dịch vụ để xem lộ trình đóng phí.
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+
+                                                        <div className="md:col-span-2">
+                                                            <label className="mb-1 block text-xs font-bold uppercase text-slate-600">Thông tin thêm</label>
+                                                            <textarea
+                                                                value={orderLineDraft.additionalInfo}
+                                                                onChange={(e) => setOrderLineDraft((prev) => ({ ...prev, additionalInfo: e.target.value }))}
+                                                                className="h-20 w-full resize-none rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500"
+                                                                placeholder="Nhập ghi chú hoặc yêu cầu đặc biệt..."
+                                                            />
+                                                        </div>
                                                     </div>
                                                 </div>
 
-                                                <div className="flex items-center justify-between border-t border-slate-200 px-6 py-4">
+                                                <div className="shrink-0 flex items-center justify-between border-t border-slate-200 px-6 py-3">
                                                     <div className="text-sm font-semibold text-slate-700">
                                                         Thành tiền: <span className="text-base text-blue-700">{calculateOrderLineTotal(orderLineDraft.unitPrice, 1, orderLineDraft.discountPercent).toLocaleString('vi-VN')} đ</span>
                                                     </div>

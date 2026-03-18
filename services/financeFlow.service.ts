@@ -304,3 +304,99 @@ export const unlockQuotationAfterAccounting = (
   updateQuotation(updatedQuotation);
   return { ok: true, quotation: updatedQuotation };
 };
+
+export const requestQuotationCancelApproval = (
+  quotationId: string,
+  userId: string,
+  userRole?: UserRole
+): { ok: boolean; quotation?: IQuotation; error?: string } => {
+  if (userRole !== UserRole.ACCOUNTANT) {
+    return { ok: false, error: 'Chỉ Kế toán được gửi yêu cầu hủy SO' };
+  }
+
+  const quotation = getQuotations().find((q) => q.id === quotationId);
+  if (!quotation) return { ok: false, error: 'Không tìm thấy báo giá' };
+
+  if (quotation.status !== QuotationStatus.SALE_CONFIRMED && quotation.status !== QuotationStatus.SALE_ORDER) {
+    return { ok: false, error: 'Chỉ SO đã Confirm mới được gửi yêu cầu hủy' };
+  }
+
+  if (quotation.transactionStatus === 'DA_DUYET') {
+    return { ok: false, error: 'Giao dịch đã duyệt, không thể gửi yêu cầu hủy ở bước này' };
+  }
+
+  if (quotation.cancelRequestStatus === 'CHO_DUYET') {
+    return { ok: true, quotation };
+  }
+
+  const updatedQuotation = appendQuotationLog(
+    {
+      ...quotation,
+      cancelRequestStatus: 'CHO_DUYET',
+      cancelRequestedAt: new Date().toISOString(),
+      cancelRequestedBy: userId,
+      updatedAt: new Date().toISOString()
+    },
+    'Accounting Requested Cancel',
+    `Kế toán gửi yêu cầu hủy SO ${quotation.soCode}`
+  );
+
+  updateQuotation(updatedQuotation);
+  return { ok: true, quotation: updatedQuotation };
+};
+
+export const approveQuotationCancelApproval = (
+  quotationId: string,
+  userId: string,
+  userRole?: UserRole
+): { ok: boolean; quotation?: IQuotation; error?: string } => {
+  if (userRole !== UserRole.ADMIN && userRole !== UserRole.FOUNDER) {
+    return { ok: false, error: 'Chỉ Admin được duyệt hủy SO' };
+  }
+
+  const quotation = getQuotations().find((q) => q.id === quotationId);
+  if (!quotation) return { ok: false, error: 'Không tìm thấy báo giá' };
+
+  if (quotation.cancelRequestStatus !== 'CHO_DUYET') {
+    return { ok: false, error: 'SO chưa có yêu cầu hủy chờ duyệt' };
+  }
+
+  const relatedPendingTransactions = getTransactions().filter(
+    (transaction) => transaction.quotationId === quotation.id && transaction.status === 'CHO_DUYET'
+  );
+  relatedPendingTransactions.forEach((transaction) => {
+    updateTransaction({
+      ...transaction,
+      status: 'TU_CHOI',
+      note: transaction.note
+        ? `${transaction.note} | Admin duyệt hủy SO`
+        : `Admin duyệt hủy SO bởi ${userId}`
+    });
+  });
+
+  const updatedQuotation = appendQuotationLog(
+    {
+      ...quotation,
+      status: QuotationStatus.SENT,
+      contractStatus: 'quotation',
+      transactionStatus:
+        quotation.transactionStatus === 'CHO_DUYET' || relatedPendingTransactions.length > 0
+          ? 'TU_CHOI'
+          : quotation.transactionStatus === 'DA_DUYET'
+            ? 'DA_DUYET'
+            : 'NONE',
+      saleConfirmedAt: undefined,
+      saleConfirmedBy: undefined,
+      confirmDate: undefined,
+      cancelRequestStatus: 'DA_DUYET',
+      cancelApprovedAt: new Date().toISOString(),
+      cancelApprovedBy: userId,
+      updatedAt: new Date().toISOString()
+    },
+    'Admin Approved Cancel',
+    `Admin duyệt hủy SO ${quotation.soCode}, chuyển về trạng thái Đã gửi`
+  );
+
+  updateQuotation(updatedQuotation);
+  return { ok: true, quotation: updatedQuotation };
+};

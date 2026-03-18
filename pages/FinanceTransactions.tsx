@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Calendar, Check, CheckCircle2, ChevronDown, Columns3, FileText, Filter, Plus, RotateCcw, Rows3, UploadCloud, XCircle } from 'lucide-react';
+import { Calendar, Check, CheckCircle2, ChevronDown, Columns3, FileText, Filter, Paperclip, Plus, RotateCcw, Rows3, XCircle } from 'lucide-react';
 import { IQuotation, ITransaction, QuotationStatus, UserRole } from '../types';
 import {
   addTransaction,
+  getActualTransactions,
   getQuotations,
   removeActualTransactionByRelatedId,
   getSalesTeams,
@@ -29,6 +30,7 @@ type CreateTransactionFormState = {
   businessType: string;
   relatedEntity: string;
   quotationId: string;
+  installmentTermId: string;
   note: string;
   amount: string;
   method: 'CHUYEN_KHOAN' | 'TIEN_MAT';
@@ -53,6 +55,7 @@ type ColumnId =
 type TransactionRow = {
   transaction: ITransaction;
   quotation?: IQuotation;
+  actualTransactionSynced: boolean;
   transactionCode: string;
   businessGroup: BusinessGroup;
   businessGroupLabel: string;
@@ -76,7 +79,7 @@ const COLUMN_OPTIONS: Array<{ id: ColumnId; label: string }> = [
   { id: 'businessGroup', label: 'Nhóm nghiệp vụ' },
   { id: 'businessType', label: 'Loại nghiệp vụ' },
   { id: 'relatedEntity', label: 'Đối tượng liên quan' },
-  { id: 'contractCode', label: 'Hợp đồng' },
+  { id: 'contractCode', label: 'SO' },
   { id: 'amount', label: 'Số tiền' },
   { id: 'paymentMethod', label: 'Thanh toán' },
   { id: 'proof', label: 'Chứng từ' },
@@ -143,6 +146,7 @@ const createInitialTransactionForm = (): CreateTransactionFormState => ({
   businessType: BUSINESS_TYPE_OPTIONS.THU[0],
   relatedEntity: '',
   quotationId: '',
+  installmentTermId: '',
   note: '',
   amount: '',
   method: 'CHUYEN_KHOAN',
@@ -379,15 +383,15 @@ const getProofLabel = (transaction: ITransaction) => {
   return 'Không có';
 };
 
-const getApprovalStage = (transaction: ITransaction, isLocked: boolean, requiresCeoApproval: boolean): ApprovalStage => {
+const getApprovalStage = (transaction: ITransaction, actualTransactionSynced: boolean, requiresCeoApproval: boolean): ApprovalStage => {
   if (transaction.status === 'TU_CHOI') return 'TU_CHOI';
-  if (isLocked) return 'HOAN_TAT';
   if (transaction.status === 'CHO_DUYET') return 'CHO_DUYET';
+  if (actualTransactionSynced) return 'HOAN_TAT';
   if (requiresCeoApproval) return 'CEO_DUYET';
   return 'KE_TOAN_DUYET';
 };
 
-const ApprovalStageView: React.FC<{ stage: ApprovalStage; requiresCeoApproval: boolean }> = ({ stage, requiresCeoApproval }) => {
+const ApprovalStageView: React.FC<{ stage: ApprovalStage }> = ({ stage }) => {
   const stageMeta: Record<ApprovalStage, { label: string; tone: string }> = {
     CHO_DUYET: {
       label: 'Chờ duyệt',
@@ -398,7 +402,7 @@ const ApprovalStageView: React.FC<{ stage: ApprovalStage; requiresCeoApproval: b
       tone: 'bg-blue-50 text-blue-700 border border-blue-200'
     },
     CEO_DUYET: {
-      label: requiresCeoApproval ? 'CEO duyệt' : 'Hoàn tất',
+      label: 'CEO duyệt',
       tone: 'bg-violet-50 text-violet-700 border border-violet-200'
     },
     HOAN_TAT: {
@@ -431,6 +435,7 @@ const FinanceTransactions: React.FC = () => {
   const filterMenuRef = useRef<HTMLDivElement | null>(null);
   const [transactions, setTransactions] = useState<ITransaction[]>([]);
   const [quotations, setQuotations] = useState<IQuotation[]>([]);
+  const [actualTransactions, setActualTransactions] = useState<ReturnType<typeof getActualTransactions>>([]);
   const [creatorDirectory, setCreatorDirectory] = useState<Map<string, string>>(new Map());
   const [statusFilter, setStatusFilter] = useState<ApprovalFilter>('ALL');
   const [businessGroupFilter, setBusinessGroupFilter] = useState<'ALL' | BusinessGroup>('ALL');
@@ -457,6 +462,7 @@ const FinanceTransactions: React.FC = () => {
   const loadData = () => {
     setTransactions(getTransactions());
     setQuotations(getQuotations());
+    setActualTransactions(getActualTransactions());
     const salesMap = new Map<string, string>();
     getSalesTeams().forEach((team) => {
       team.members.forEach((member) => {
@@ -473,10 +479,12 @@ const FinanceTransactions: React.FC = () => {
     loadData();
     window.addEventListener('educrm:transactions-changed', loadData as EventListener);
     window.addEventListener('educrm:quotations-changed', loadData as EventListener);
+    window.addEventListener('educrm:actual-transactions-changed', loadData as EventListener);
     window.addEventListener('educrm:sales-teams-changed', loadData as EventListener);
     return () => {
       window.removeEventListener('educrm:transactions-changed', loadData as EventListener);
       window.removeEventListener('educrm:quotations-changed', loadData as EventListener);
+      window.removeEventListener('educrm:actual-transactions-changed', loadData as EventListener);
       window.removeEventListener('educrm:sales-teams-changed', loadData as EventListener);
     };
   }, []);
@@ -503,14 +511,19 @@ const FinanceTransactions: React.FC = () => {
   }, [filtersOpen, isColumnMenuOpen, isTimeMenuOpen]);
 
   const quotationMap = useMemo(() => new Map(quotations.map((q) => [q.id, q])), [quotations]);
+  const actualTransactionMap = useMemo(
+    () => new Map(actualTransactions.filter((item) => item.relatedId).map((item) => [item.relatedId as string, item])),
+    [actualTransactions]
+  );
 
   const rows = useMemo<TransactionRow[]>(() => {
     return transactions.map((transaction, index) => {
       const quotation = quotationMap.get(transaction.quotationId);
       const isLocked = quotation?.status === QuotationStatus.LOCKED;
+      const actualTransactionSynced = actualTransactionMap.has(transaction.id);
       const businessGroup = inferBusinessGroup(transaction);
       const requiresCeoApproval = businessGroup !== 'THU' || transaction.amount >= 100_000_000;
-      const approvalStage = getApprovalStage(transaction, Boolean(isLocked), requiresCeoApproval);
+      const approvalStage = getApprovalStage(transaction, actualTransactionSynced, requiresCeoApproval);
       const transactionCode =
         transaction.code ||
         (businessGroup === 'THU'
@@ -522,6 +535,7 @@ const FinanceTransactions: React.FC = () => {
       return {
         transaction,
         quotation,
+        actualTransactionSynced,
         transactionCode,
         businessGroup,
         businessGroupLabel: getBusinessGroupLabel(businessGroup),
@@ -540,7 +554,7 @@ const FinanceTransactions: React.FC = () => {
         isLocked: Boolean(isLocked)
       };
     });
-  }, [creatorDirectory, quotationMap, transactions]);
+  }, [actualTransactionMap, creatorDirectory, quotationMap, transactions]);
 
   const businessTypeOptions = useMemo(
     () => Array.from(new Set(rows.map((row) => row.businessType).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'vi')),
@@ -573,10 +587,40 @@ const FinanceTransactions: React.FC = () => {
         })),
     [quotations]
   );
+  const selectedCreateQuotationRecord = useMemo(
+    () => quotations.find((quotation) => quotation.id === createForm.quotationId),
+    [createForm.quotationId, quotations]
+  );
   const selectedCreateQuotation = useMemo(
     () => quotationOptions.find((quotation) => quotation.id === createForm.quotationId),
     [createForm.quotationId, quotationOptions]
   );
+  const selectedCreateInstallmentOptions = useMemo(() => {
+    if (!selectedCreateQuotationRecord) return [];
+
+    const lineItems = Array.isArray(selectedCreateQuotationRecord.lineItems) ? selectedCreateQuotationRecord.lineItems : [];
+    const options = lineItems.flatMap((lineItem, lineIndex) => {
+      const schedules = Array.isArray(lineItem.paymentSchedule) && lineItem.paymentSchedule.length > 0
+        ? lineItem.paymentSchedule
+        : [{
+            id: `${lineItem.id || lineIndex}-term-1`,
+            termNo: 1,
+            installmentLabel: 'Lần 1',
+            condition: 'Theo thỏa thuận',
+            amount: lineItem.total || lineItem.unitPrice || 0
+          }];
+
+      return schedules.map((term, termIndex) => ({
+        id: `${lineItem.id || `line-${lineIndex + 1}`}-${term.id || termIndex + 1}`,
+        termNo: Number(term.termNo || termIndex + 1),
+        installmentLabel: term.installmentLabel || `Lần ${term.termNo || termIndex + 1}`,
+        amount: Number(term.amount || 0),
+        label: `${lineItem.name || lineItem.servicePackage || `Dòng ${lineIndex + 1}`} - ${term.installmentLabel || `Lần ${term.termNo || termIndex + 1}`}`
+      }));
+    });
+
+    return options;
+  }, [selectedCreateQuotationRecord]);
 
   const filteredRows = useMemo(() => {
     const timeBounds = getTimeRangeBounds(timeRangeType, customStartDate, customEndDate);
@@ -804,17 +848,52 @@ const FinanceTransactions: React.FC = () => {
       ...current,
       businessGroup,
       businessType: BUSINESS_TYPE_OPTIONS[businessGroup][0],
-      quotationId: businessGroup === 'THU' ? current.quotationId : ''
+      quotationId: businessGroup === 'THU' ? current.quotationId : '',
+      installmentTermId: businessGroup === 'THU' ? current.installmentTermId : ''
     }));
   };
 
   const handleChangeCreateQuotation = (quotationId: string) => {
     const selectedQuotation = quotationOptions.find((quotation) => quotation.id === quotationId);
+    const selectedQuotationRecord = quotations.find((quotation) => quotation.id === quotationId);
+    const firstInstallment = selectedQuotationRecord?.lineItems
+      ?.flatMap((lineItem, lineIndex) => {
+        const schedules = Array.isArray(lineItem.paymentSchedule) && lineItem.paymentSchedule.length > 0
+          ? lineItem.paymentSchedule
+          : [{
+              id: `${lineItem.id || lineIndex}-term-1`,
+              termNo: 1,
+              installmentLabel: 'Lần 1',
+              amount: lineItem.total || lineItem.unitPrice || 0
+            }];
+
+        return schedules.map((term, termIndex) => ({
+          id: `${lineItem.id || `line-${lineIndex + 1}`}-${term.id || termIndex + 1}`,
+          amount: Number(term.amount || 0)
+        }));
+      })
+      ?.at(0);
+
     setCreateForm((current) => ({
       ...current,
       quotationId,
+      installmentTermId: firstInstallment?.id || '',
       relatedEntity: selectedQuotation ? selectedQuotation.customerName : current.relatedEntity,
-      amount: selectedQuotation && !current.amount ? String(selectedQuotation.amount) : current.amount
+      amount:
+        firstInstallment && current.businessGroup === 'THU'
+          ? String(firstInstallment.amount || 0)
+          : selectedQuotation && !current.amount
+            ? String(selectedQuotation.amount)
+            : current.amount
+    }));
+  };
+
+  const handleChangeCreateInstallmentTerm = (installmentTermId: string) => {
+    const selectedInstallment = selectedCreateInstallmentOptions.find((option) => option.id === installmentTermId);
+    setCreateForm((current) => ({
+      ...current,
+      installmentTermId,
+      amount: selectedInstallment ? String(selectedInstallment.amount || 0) : current.amount
     }));
   };
 
@@ -830,7 +909,7 @@ const FinanceTransactions: React.FC = () => {
     }
 
     if (createForm.businessGroup === 'THU' && !createForm.quotationId) {
-      alert('Vui lòng chọn hợp đồng học viên');
+      alert('Vui lòng chọn SO học viên');
       return;
     }
 
@@ -851,11 +930,15 @@ const FinanceTransactions: React.FC = () => {
       const createdAt = Date.now();
       const paidAt = createForm.paidDate ? new Date(`${createForm.paidDate}T00:00:00`).getTime() : createdAt;
       const proofUrl = createForm.proofFile ? await readFileAsDataUrl(createForm.proofFile) : '';
+      const selectedInstallment = selectedCreateInstallmentOptions.find((option) => option.id === createForm.installmentTermId);
       const newTransaction: ITransaction = {
         id: `TRX-${createdAt}`,
         code: getNextTransactionCode(createForm.businessGroup),
         quotationId: createForm.quotationId,
         soCode: selectedCreateQuotation?.soCode || '',
+        installmentTermId: selectedInstallment?.id || '',
+        installmentTermNo: selectedInstallment?.termNo,
+        installmentLabel: selectedInstallment?.installmentLabel || '',
         customerId: selectedCreateQuotation?.customerId || createForm.relatedEntity.trim(),
         studentName: createForm.businessGroup === 'THU' ? createForm.relatedEntity.trim() : undefined,
         relatedEntityLabel: createForm.relatedEntity.trim(),
@@ -1099,7 +1182,7 @@ const FinanceTransactions: React.FC = () => {
       {visibleColumns.includes('createdAt') && <td className="px-3 py-2.5 whitespace-nowrap">{row.createdAtLabel}</td>}
       {visibleColumns.includes('approvalStage') && (
         <td className="px-3 py-2.5">
-          <ApprovalStageView stage={row.approvalStage} requiresCeoApproval={row.requiresCeoApproval} />
+          <ApprovalStageView stage={row.approvalStage} />
         </td>
       )}
       {visibleColumns.includes('note') && (
@@ -1525,7 +1608,7 @@ const FinanceTransactions: React.FC = () => {
                 {visibleColumns.includes('businessGroup') && <th className="px-3 py-2.5">Nhóm NV</th>}
                 {visibleColumns.includes('businessType') && <th className="px-3 py-2.5">Loại nghiệp vụ</th>}
                 {visibleColumns.includes('relatedEntity') && <th className="px-3 py-2.5">Đối tượng</th>}
-                {visibleColumns.includes('contractCode') && <th className="px-3 py-2.5">Hợp đồng</th>}
+                {visibleColumns.includes('contractCode') && <th className="px-3 py-2.5">SO</th>}
                 {visibleColumns.includes('amount') && <th className="px-3 py-2.5 text-right">Số tiền</th>}
                 {visibleColumns.includes('paymentMethod') && <th className="px-3 py-2.5">Thanh toán</th>}
                 {visibleColumns.includes('proof') && <th className="px-3 py-2.5">Chứng từ</th>}
@@ -1576,13 +1659,11 @@ const FinanceTransactions: React.FC = () => {
               </div>
               <button
                 type="button"
-                onClick={() => {
-                  setIsCreateModalOpen(false);
-                  resetCreateForm();
-                }}
-                className="rounded-lg px-3 py-1.5 text-sm font-semibold text-slate-500 hover:bg-slate-50"
+                onClick={handleCreateTransaction}
+                disabled={isSubmittingCreate}
+                className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                Đóng
+                {isSubmittingCreate ? 'Đang lưu...' : 'Lưu'}
               </button>
             </div>
 
@@ -1631,13 +1712,13 @@ const FinanceTransactions: React.FC = () => {
                   </label>
 
                   <label className="text-sm">
-                    <span className="mb-1.5 block font-semibold text-slate-700">Hợp đồng HV</span>
+                    <span className="mb-1.5 block font-semibold text-slate-700">SO học viên</span>
                     <select
                       value={createForm.quotationId}
                       onChange={(event) => handleChangeCreateQuotation(event.target.value)}
                       className="w-full rounded-xl border border-slate-200 px-3 py-2.5 outline-none focus:border-blue-500"
                     >
-                      <option value="">Chọn hợp đồng (nếu có)</option>
+                      <option value="">Chọn SO (nếu có)</option>
                       {quotationOptions.map((quotation) => (
                         <option key={quotation.id} value={quotation.id}>
                           {quotation.label}
@@ -1646,6 +1727,43 @@ const FinanceTransactions: React.FC = () => {
                     </select>
                     {createForm.businessGroup === 'THU' && <span className="mt-1 block text-xs text-slate-400">Bắt buộc với giao dịch thu học viên.</span>}
                   </label>
+
+                  {createForm.businessGroup === 'THU' && (
+                    <label className="text-sm">
+                      <span className="mb-1.5 block font-semibold text-slate-700">Thu cho lần mấy</span>
+                      <select
+                        value={createForm.installmentTermId}
+                        onChange={(event) => handleChangeCreateInstallmentTerm(event.target.value)}
+                        className="w-full rounded-xl border border-slate-200 px-3 py-2.5 outline-none focus:border-blue-500"
+                        disabled={!createForm.quotationId}
+                      >
+                        <option value="">{createForm.quotationId ? 'Chọn lần thu' : 'Chọn SO trước'}</option>
+                        {selectedCreateInstallmentOptions.map((option) => (
+                          <option key={option.id} value={option.id}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+
+                  {createForm.businessGroup === 'THU' && (
+                    <label className="text-sm">
+                      <span className="mb-1.5 block font-semibold text-slate-700">Chứng từ</span>
+                      <span className="inline-flex h-[42px] w-full max-w-full cursor-pointer items-center gap-2.5 rounded-xl border border-slate-200 bg-white px-2.5 text-left outline-none transition-colors hover:border-blue-300">
+                        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-slate-50 text-slate-500">
+                          <Paperclip size={13} />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-[13px] leading-4 text-slate-800">
+                            {createForm.proofFile ? createForm.proofFile.name : 'Ghim chứng từ'}
+                          </span>
+                          <span className="block text-xs text-slate-400">Ảnh / PDF</span>
+                        </span>
+                        <input type="file" accept="image/*,.pdf" className="hidden" onChange={handleCreateProofFileChange} />
+                      </span>
+                    </label>
+                  )}
 
                   <label className="text-sm md:col-span-2">
                     <span className="mb-1.5 block font-semibold text-slate-700">Nội dung</span>
@@ -1702,23 +1820,7 @@ const FinanceTransactions: React.FC = () => {
 
               <section className="rounded-2xl border border-slate-200 p-5">
                 <div className="mb-4">
-                  <h3 className="text-base font-bold text-slate-900">3. Upload chứng từ</h3>
-                </div>
-                <label className="flex cursor-pointer flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 px-6 py-8 text-center hover:bg-slate-100">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-100 text-blue-600">
-                    <UploadCloud size={22} />
-                  </div>
-                  <div>
-                    <div className="font-semibold text-slate-800">{createForm.proofFile ? createForm.proofFile.name : 'Tải lên chứng từ'}</div>
-                    <div className="text-sm text-slate-500">Ảnh / PDF, kéo thả hoặc bấm để chọn</div>
-                  </div>
-                  <input type="file" accept="image/*,.pdf" className="hidden" onChange={handleCreateProofFileChange} />
-                </label>
-              </section>
-
-              <section className="rounded-2xl border border-slate-200 p-5">
-                <div className="mb-4">
-                  <h3 className="text-base font-bold text-slate-900">4. Hệ thống chung</h3>
+                  <h3 className="text-base font-bold text-slate-900">3. Hệ thống chung</h3>
                 </div>
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
                   <div className="rounded-xl bg-slate-50 px-3 py-3 text-sm">
@@ -1751,15 +1853,6 @@ const FinanceTransactions: React.FC = () => {
                 className="rounded-xl px-4 py-2 text-sm font-semibold text-slate-500 hover:bg-slate-50"
               >
                 Hủy
-              </button>
-              <button
-                type="button"
-                onClick={handleCreateTransaction}
-                disabled={isSubmittingCreate}
-                className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                <Plus size={16} />
-                {isSubmittingCreate ? 'Đang tạo...' : 'Tạo phiếu duyệt'}
               </button>
             </div>
           </div>

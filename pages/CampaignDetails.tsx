@@ -1,5 +1,5 @@
-import React, { useRef, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
     ArrowLeft,
     LayoutDashboard,
@@ -79,6 +79,55 @@ type LeadRecord = {
     source: string;
 };
 
+type CampaignDetailType = 'manual' | 'auto';
+type CampaignDetailStatus = 'Running' | 'Paused' | 'Planned' | 'Completed';
+
+type CampaignDetailMeta = {
+    name: string;
+    channel: string;
+    status: CampaignDetailStatus;
+    campaignType: CampaignDetailType;
+    apiConnected: boolean;
+};
+
+const CAMPAIGN_DETAIL_META: Record<string, CampaignDetailMeta> = {
+    camp_01: {
+        name: 'Trại Hè 2024',
+        channel: 'Facebook Lead Form',
+        status: 'Running',
+        campaignType: 'auto',
+        apiConnected: true
+    },
+    camp_02: {
+        name: 'Khóa học IELTS Online',
+        channel: 'Google Ads',
+        status: 'Paused',
+        campaignType: 'auto',
+        apiConnected: true
+    },
+    camp_03: {
+        name: 'Hội thảo Du học Đức',
+        channel: 'Event/Offline',
+        status: 'Running',
+        campaignType: 'manual',
+        apiConnected: false
+    },
+    camp_04: {
+        name: 'TikTok Brand Awareness',
+        channel: 'TikTok',
+        status: 'Running',
+        campaignType: 'auto',
+        apiConnected: true
+    },
+    camp_05: {
+        name: 'Email Marketing - Khách cũ',
+        channel: 'Email',
+        status: 'Running',
+        campaignType: 'manual',
+        apiConnected: false
+    }
+};
+
 const IMPORT_TEMPLATE_ROWS = [
     {
         ho_ten: 'Nguyen Van A',
@@ -146,8 +195,41 @@ const INITIAL_LEADS: LeadRecord[] = Array.from({ length: 20 }, (_, i) => ({
 const CampaignDetails: React.FC = () => {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
+    const location = useLocation();
     const [activeTab, setActiveTab] = useState<'dashboard' | 'api' | 'form' | 'data'>('dashboard');
+    const campaignMeta = useMemo<CampaignDetailMeta>(() => {
+        const routeState = location.state as {
+            campaignName?: string;
+            channel?: string;
+            status?: CampaignDetailStatus;
+            campaignType?: CampaignDetailType;
+            apiConnected?: boolean;
+        } | null;
+        if (routeState?.campaignType && routeState?.campaignName && routeState?.channel && routeState?.status) {
+            return {
+                name: routeState.campaignName,
+                channel: routeState.channel,
+                status: routeState.status,
+                campaignType: routeState.campaignType,
+                apiConnected: routeState.campaignType === 'auto'
+            };
+        }
 
+        return CAMPAIGN_DETAIL_META[id || ''] || {
+            name: id || 'Campaign',
+            channel: 'Facebook Lead Form',
+            status: 'Running',
+            campaignType: 'auto',
+            apiConnected: true
+        };
+    }, [id, location.state]);
+    const isAutoCampaign = campaignMeta.campaignType === 'auto';
+
+    useEffect(() => {
+        if (!isAutoCampaign && activeTab === 'api') {
+            setActiveTab('dashboard');
+        }
+    }, [activeTab, isAutoCampaign]);
     // View Mode for Data Tab
     const [viewMode, setViewMode] = useState<'table' | 'kanban' | 'funnel'>('table');
 
@@ -359,6 +441,8 @@ const CampaignDetails: React.FC = () => {
         { id: 'data', label: 'Danh sÃ¡ch Data', icon: Database },
     ];
 
+    const visibleTabs = isAutoCampaign ? tabs : tabs.filter((tab) => tab.id !== 'api');
+
     // --- DRAG AND DROP HANDLERS ---
     const handleDragStart = (e: React.DragEvent, id: number) => {
         setDraggedItem(id);
@@ -536,8 +620,10 @@ const CampaignDetails: React.FC = () => {
                         <ArrowLeft size={20} />
                     </button>
                     <div>
-                        <h1 className="text-xl font-bold text-slate-900 tracking-tight">Chiáº¿n dá»‹ch: {id || 'Tráº¡i HÃ¨ 2024'}</h1>
-                        <p className="text-xs text-slate-500 font-medium">Facebook Lead Form â€¢ <span className="text-green-600 font-bold">Äang cháº¡y</span></p>
+                        <h1 className="text-xl font-bold text-slate-900 tracking-tight">Chiáº¿n dá»‹ch: {campaignMeta.name}</h1>
+                        <p className="text-xs text-slate-500 font-medium">
+                            {campaignMeta.channel} â€¢ {isAutoCampaign ? 'Chiáº¿n dá»‹ch tá»± Ä‘á»™ng' : 'Chiáº¿n dá»‹ch thÆ°á»ng'} â€¢ <span className={`font-bold ${campaignMeta.status === 'Running' ? 'text-green-600' : 'text-slate-500'}`}>{campaignMeta.status === 'Running' ? 'Äang cháº¡y' : campaignMeta.status}</span>
+                        </p>
                     </div>
                 </div>
             </div>
@@ -545,7 +631,7 @@ const CampaignDetails: React.FC = () => {
             {/* Tabs Navigation */}
             <div className="bg-white border-b border-slate-200 shrink-0">
                 <div className="max-w-[1600px] mx-auto px-6 flex gap-8 font-inter">
-                    {tabs.map(tab => (
+                    {visibleTabs.map(tab => (
                         <button
                             key={tab.id}
                             onClick={() => setActiveTab(tab.id as any)}
@@ -630,7 +716,7 @@ const CampaignDetails: React.FC = () => {
                     )}
 
                     {/* TAB 2: API CONFIG */}
-                    {activeTab === 'api' && (
+                    {activeTab === 'api' && isAutoCampaign && (
                         <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in duration-500">
                             <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
                                 <div className="flex items-center gap-3 mb-2">

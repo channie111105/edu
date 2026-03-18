@@ -13,8 +13,12 @@ interface SmartSearchBarProps {
     onAddFilter: (filter: SearchFilter) => void;
     onRemoveFilter: (index: number) => void;
     onClearAll: () => void;
+    activeField?: { field: string; label: string; color?: string } | null;
+    onFieldFilterConsumed?: () => void;
     placeholder?: string;
-    contextLabel?: string; // e.g., "@My Lead", "@Leads", "@Deals"
+    contextLabel?: string;
+    compact?: boolean;
+    fullWidth?: boolean;
 }
 
 const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
@@ -22,73 +26,83 @@ const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
     onAddFilter,
     onRemoveFilter,
     onClearAll,
-    placeholder = "Tìm kiếm...",
-    contextLabel
+    activeField,
+    onFieldFilterConsumed,
+    placeholder = 'Tim kiem...',
+    contextLabel,
+    compact = false,
+    fullWidth = false
 }) => {
     const [inputValue, setInputValue] = React.useState('');
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === 'Enter' && inputValue.trim()) {
-            // Add as a general search filter
             onAddFilter({
-                field: 'search',
-                label: 'Tìm kiếm',
-                value: inputValue.trim()
+                field: activeField?.field || 'search',
+                label: activeField?.label || 'Tim kiem',
+                value: inputValue.trim(),
+                color: activeField?.color
             });
+            onFieldFilterConsumed?.();
             setInputValue('');
         }
     };
 
     return (
-        <div className="relative flex-1 max-w-2xl">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 z-10" />
+        <div className={`relative flex-1 ${fullWidth ? 'max-w-none' : 'max-w-2xl'}`}>
+            <Search size={compact ? 14 : 16} className={`absolute left-3 top-1/2 z-10 -translate-y-1/2 text-slate-400 ${compact ? 'text-slate-500' : ''}`} />
 
-            <div className="flex items-center gap-1.5 w-full pl-9 pr-10 py-1.5 border border-slate-200 rounded-lg bg-white focus-within:ring-2 focus-within:ring-blue-500 min-h-[38px]">
-                {/* Context Label Badge */}
+            <div className={`flex w-full items-center gap-1.5 border border-slate-200 bg-white pl-9 pr-10 focus-within:ring-2 focus-within:ring-blue-500 ${compact ? 'min-h-[34px] rounded-md py-1' : 'min-h-[38px] rounded-lg py-1.5'}`}>
                 {contextLabel && (
-                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold bg-slate-700 text-white border border-slate-600">
+                    <span className={`inline-flex items-center rounded border border-slate-600 bg-slate-700 text-white ${compact ? 'px-1.5 py-0.5 text-[10px] font-semibold' : 'px-2 py-0.5 text-xs font-bold'}`}>
                         {contextLabel}
                     </span>
                 )}
 
-                {/* Filter Chips */}
+                {activeField && (
+                    <span className={`inline-flex items-center rounded border border-emerald-200 bg-emerald-100 text-emerald-700 ${compact ? 'px-1.5 py-0.5 text-[10px] font-semibold' : 'px-2 py-0.5 text-xs font-bold'}`}>
+                        Filter: {activeField.label}
+                    </span>
+                )}
+
                 {filters.map((filter, index) => (
                     <div
                         key={index}
-                        className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-medium ${filter.color || 'bg-blue-100 text-blue-700'
-                            } border border-current border-opacity-20`}
+                        className={`inline-flex items-center gap-1.5 rounded border border-current border-opacity-20 font-medium ${filter.color || 'bg-blue-100 text-blue-700'} ${compact ? 'px-1.5 py-0.5 text-[10px]' : 'px-2 py-0.5 text-xs'}`}
                     >
-                        <span className="opacity-70 text-[10px] uppercase tracking-wide">{filter.label}:</span>
+                        {filter.label ? (
+                            <span className={`opacity-70 uppercase tracking-wide ${compact ? 'text-[9px]' : 'text-[10px]'}`}>{filter.label}:</span>
+                        ) : null}
                         <span className="font-semibold">{filter.value}</span>
                         <button
                             onClick={() => onRemoveFilter(index)}
                             className="ml-0.5 hover:bg-black hover:bg-opacity-10 rounded p-0.5"
-                            title="Xóa filter"
+                            title="Xoa filter"
                         >
                             <X size={12} />
                         </button>
                     </div>
                 ))}
 
-                {/* Input */}
                 <input
                     type="text"
                     value={inputValue}
                     onChange={(e) => setInputValue(e.target.value)}
                     onKeyDown={handleKeyDown}
-                    placeholder={filters.length === 0 && !contextLabel ? placeholder : ""}
-                    className="flex-1 min-w-[120px] outline-none text-sm bg-transparent"
+                    placeholder={filters.length === 0 && !contextLabel
+                        ? (activeField ? `Nhap gia tri cho ${activeField.label.toLowerCase()}...` : placeholder)
+                        : ''}
+                    className={`min-w-[120px] flex-1 bg-transparent outline-none ${compact ? 'text-[12px]' : 'text-sm'}`}
                 />
             </div>
 
-            {/* Clear All Button */}
             {filters.length > 0 && (
                 <button
                     onClick={onClearAll}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-600"
-                    title="Xóa tất cả filters"
+                    className={`absolute right-3 top-1/2 -translate-y-1/2 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 ${compact ? 'text-slate-500' : ''}`}
+                    title="Xoa tat ca filters"
                 >
-                    <X size={16} />
+                    <X size={compact ? 14 : 16} />
                 </button>
             )}
         </div>

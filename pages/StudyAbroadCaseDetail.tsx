@@ -25,6 +25,8 @@ import {
 } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import LogAudienceFilterControl from '../components/LogAudienceFilter';
+import { isSystemActor, LogAudienceFilter } from '../utils/logAudience';
 import {
   getStudyAbroadCaseList,
   StudyAbroadCaseCompleteness,
@@ -680,6 +682,7 @@ const StudyAbroadCaseDetail: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [logAudienceFilter, setLogAudienceFilter] = useState<LogAudienceFilter>('ALL');
   const [row, setRow] = useState<StudyAbroadCaseRecord | null>(null);
   const [editForm, setEditForm] = useState<EditFormState | null>(null);
   const [saveNotice, setSaveNotice] = useState('');
@@ -810,6 +813,22 @@ const StudyAbroadCaseDetail: React.FC = () => {
 
     return groups;
   }, [statusLogs]);
+  const filteredStatusTimelineGroups = useMemo(
+    () =>
+      statusTimelineGroups
+        .map((group) => ({
+          ...group,
+          items: group.items.filter((item) =>
+            logAudienceFilter === 'ALL'
+              ? true
+              : logAudienceFilter === 'SYSTEM'
+                ? isSystemActor(item.user)
+                : !isSystemActor(item.user)
+          )
+        }))
+        .filter((group) => group.items.length > 0),
+    [logAudienceFilter, statusTimelineGroups]
+  );
 
   if (loading) {
     return (
@@ -1678,9 +1697,12 @@ const StudyAbroadCaseDetail: React.FC = () => {
                   <div className="mt-1 text-[13px] leading-5 text-slate-500">LÆ°u láº¡i cÃ¡c thay Ä‘á»•i tráº¡ng thÃ¡i cá»§a há»“ sÆ¡, ká»ƒ cáº£ thay Ä‘á»•i chÆ°a lÆ°u.</div>
                 </div>
                 <div className="max-h-[640px] overflow-auto p-5">
-                  {statusTimelineGroups.length ? (
+                  <div className="mb-4 flex justify-end">
+                    <LogAudienceFilterControl value={logAudienceFilter} onChange={setLogAudienceFilter} />
+                  </div>
+                  {filteredStatusTimelineGroups.length ? (
                     <div className="space-y-6">
-                      {statusTimelineGroups.map((group) => (
+                      {filteredStatusTimelineGroups.map((group) => (
                         <div key={group.date}>
                           <div className="mb-4 flex items-center gap-3">
                             <div className="h-px flex-1 bg-slate-200" />

@@ -1,4 +1,7 @@
 ﻿import { ILead, IDeal, IContact, IContract, LeadStatus, DealStage, ContractStatus, IMeeting, MeetingStatus, MeetingType, IQuotation, IQuotationLineItem, QuotationStatus, IAdmission, IStudent, StudentStatus, ITransaction, IClassStudent, ITeacher, ILogNote, ITrainingClass, IStudentScore, IDebtTerm, IClassSession, IAttendanceRecord, IStudyNote, AttendanceStatus, IActualTransaction, IActualTransactionLog, IRefundRequest, IRefundLog, ISalesKpiTarget, ISalesTeam } from '../types';
+import type { IStudentClaim } from '../types';
+
+import { decodeMojibakeText } from './mojibake';
 
 export const KEYS = {
   LEADS: 'educrm_leads_v2', // Changed key to force fresh load
@@ -8,6 +11,7 @@ export const KEYS = {
   QUOTATIONS: 'educrm_quotations',
   TRANSACTIONS: 'educrm_transactions',
   STUDENTS: 'educrm_students',
+  STUDENT_CLAIMS: 'educrm_student_claims',
   ADMISSIONS: 'educrm_admissions',
   CLASS_STUDENTS: 'educrm_class_students',
   STUDENT_SCORES: 'educrm_student_scores',
@@ -32,7 +36,17 @@ export const KEYS = {
   INIT: 'educrm_initialized'
 };
 
-export type LeadDistributionMode = 'auto' | 'manual';
+export const FIXED_LEAD_TAGS = [
+  'Gọi lần 1',
+  'Gọi lần 2',
+  'Zalo',
+  'Hotline',
+  'Facebook',
+  'Tiềm năng',
+  'Cần tư vấn'
+] as const;
+
+export type LeadDistributionMode = 'manual';
 export type LeadDistributionMethod = 'round_robin' | 'weighted';
 
 export interface ILeadDistributionConfig {
@@ -50,6 +64,87 @@ const emitClientEvent = (eventName: string) => {
     window.dispatchEvent(new CustomEvent(eventName));
   }
 };
+
+const decodeStorageValue = <T,>(value: T): T => {
+  if (typeof value === 'string') return decodeMojibakeText(value) as T;
+  if (Array.isArray(value)) return value.map((item) => decodeStorageValue(item)) as T;
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, nestedValue]) => [key, decodeStorageValue(nestedValue)])
+    ) as T;
+  }
+  return value;
+};
+
+const STUDENT_TEXT_REPAIR_BY_ID: Record<string, Partial<IStudent>> = {
+  'ST-0001': { name: 'Nguyễn Văn A', campus: 'Hà Nội', className: 'GER-A1-K35' },
+  'ST-0002': { name: 'Trần Thị B', campus: 'Hà Nội' },
+  'ST-0003': { name: 'Lê Văn C', campus: 'HCM' },
+  'ST-0004': { name: 'Phạm Thị D', campus: 'Đà Nẵng', className: 'GER-B1-K12' },
+  'ST-0005': { name: 'Hoàng Văn E', campus: 'Hà Nội' }
+};
+
+const QUOTATION_TEXT_REPAIR_BY_ID: Record<string, Partial<IQuotation>> = {
+  'Q-001': { customerName: 'Nguyễn Văn A', product: 'Du học Đức - Combo A1-B1' },
+  'Q-002': { customerName: 'Trần Thị B', product: 'Khóa tiếng Đức B1-B2' },
+  'Q-003': { customerName: 'Lê Văn C', product: 'Combo Du học nghề Úc' },
+  'Q-004': { customerName: 'Phạm Thị D', product: 'Du học Đức - Trọn gói' },
+  'Q-005': { customerName: 'Hoàng Văn E', product: 'Tiếng Đức A1-B1' },
+  'Q-006': { customerName: 'Nguyễn Thị F', product: 'Khóa tiếng Đức A2' },
+  'Q-007': { customerName: 'Đỗ Văn G', product: 'Combo Du học Đức' }
+};
+
+const ADMISSION_TEXT_REPAIR_BY_ID: Record<string, Partial<IAdmission>> = {
+  'ADM-0001': { campusId: 'Hà Nội' },
+  'ADM-0003': { campusId: 'Hà Nội' }
+};
+
+const TRANSACTION_TEXT_REPAIR_BY_ID: Record<string, Partial<ITransaction>> = {
+  'TRX-0001': { studentName: 'Nguyễn Thị F', note: 'Chờ kế toán duyệt UNC' },
+  'TRX-0002': { studentName: 'Đỗ Văn G', note: 'Chờ duyệt giao dịch từ sale confirm' },
+  'TRX-0003': { studentName: 'Phạm Thị D' },
+  'TRX-0004': { studentName: 'Hoàng Văn E', note: 'Thiếu chứng từ thanh toán' },
+  'TRX-0005': { studentName: 'Trần Thị B' },
+  'TRX-0006': { studentName: 'Lê Văn C', note: 'Đã duyệt phiếu thu' },
+  'TRX-0007': { studentName: 'Nguyễn Văn A' }
+};
+
+const normalizeStudentRecord = (student: IStudent): IStudent => {
+  const normalized = decodeStorageValue(student) as IStudent;
+  return {
+    ...normalized,
+    note: normalizeEnrollmentText(normalized.note),
+    ...(STUDENT_TEXT_REPAIR_BY_ID[student.id] || {})
+  };
+};
+
+const normalizeQuotationRecord = (quotation: IQuotation): IQuotation => ({
+  ...decodeStorageValue(quotation),
+  ...(QUOTATION_TEXT_REPAIR_BY_ID[quotation.id] || {})
+});
+
+const normalizeAdmissionRecord = (admission: IAdmission): IAdmission => {
+  const normalized = decodeStorageValue(admission) as IAdmission;
+  return {
+    ...normalized,
+    note: normalizeEnrollmentText(normalized.note),
+    ...(ADMISSION_TEXT_REPAIR_BY_ID[admission.id] || {})
+  };
+};
+
+const normalizeStudentClaimRecord = (claim: IStudentClaim): IStudentClaim => {
+  const normalized = decodeStorageValue(claim) as IStudentClaim;
+  return {
+    ...normalized,
+    reason: normalizeEnrollmentText(normalized.reason),
+    note: normalizeEnrollmentText(normalized.note)
+  };
+};
+
+const normalizeTransactionRecord = (transaction: ITransaction): ITransaction => ({
+  ...decodeStorageValue(transaction),
+  ...(TRANSACTION_TEXT_REPAIR_BY_ID[transaction.id] || {})
+});
 
 // ... (existing code)
 
@@ -172,19 +267,43 @@ export const addRefundLog = (log: IRefundLog) => {
 };
 
 // TAGS
+const normalizeLeadTag = (tag: unknown): string => decodeMojibakeText(String(tag ?? '')).trim();
+
+const normalizeLeadTagList = (tags: unknown): string[] => {
+  const rawTags = Array.isArray(tags) ? tags : [];
+  const uniqueTags = new Set<string>();
+
+  rawTags.forEach((tag) => {
+    const normalized = normalizeLeadTag(tag);
+    if (normalized) uniqueTags.add(normalized);
+  });
+
+  FIXED_LEAD_TAGS.forEach((tag) => uniqueTags.add(tag));
+
+  const fixedTags = FIXED_LEAD_TAGS.filter((tag) => uniqueTags.has(tag));
+  const customTags = Array.from(uniqueTags).filter((tag) => !FIXED_LEAD_TAGS.includes(tag as typeof FIXED_LEAD_TAGS[number]));
+
+  return [...fixedTags, ...customTags];
+};
+
 export const getTags = (): string[] => {
   try {
     const data = localStorage.getItem(KEYS.TAGS);
-    return data ? JSON.parse(data) : ['Gá»i láº§n 1', 'Gá»i láº§n 2', 'Zalo', 'Hotline', 'Facebook', 'Tiá»m nÄƒng', 'Cáº§n tÆ° váº¥n'];
-  } catch { return ['Gá»i láº§n 1', 'Gá»i láº§n 2', 'Zalo', 'Hotline', 'Facebook', 'Tiá»m nÄƒng', 'Cáº§n tÆ° váº¥n']; }
+    return normalizeLeadTagList(data ? JSON.parse(data) : []);
+  } catch {
+    return [...FIXED_LEAD_TAGS];
+  }
 };
 
 export const saveTags = (tags: string[]) => {
-  localStorage.setItem(KEYS.TAGS, JSON.stringify(tags));
+  const normalizedTags = normalizeLeadTagList(tags);
+  localStorage.setItem(KEYS.TAGS, JSON.stringify(normalizedTags));
+  emitClientEvent('educrm:tags-changed');
+  return normalizedTags;
 };
 
 const getDefaultLeadDistributionConfig = (): ILeadDistributionConfig => ({
-  mode: 'auto',
+  mode: 'manual',
   method: 'round_robin',
   roundRobinIndex: 0,
   weightedIndex: 0,
@@ -213,7 +332,7 @@ export const getLeadDistributionConfig = (): ILeadDistributionConfig => {
     if (!data) return getDefaultLeadDistributionConfig();
     const parsed = JSON.parse(data) as Partial<ILeadDistributionConfig>;
     return {
-      mode: parsed.mode === 'manual' ? 'manual' : 'auto',
+      mode: 'manual',
       method: sanitizeDistributionMethod(parsed.method),
       roundRobinIndex: Number.isFinite(parsed.roundRobinIndex) ? Math.max(0, Math.floor(parsed.roundRobinIndex as number)) : 0,
       weightedIndex: Number.isFinite(parsed.weightedIndex) ? Math.max(0, Math.floor(parsed.weightedIndex as number)) : 0,
@@ -231,7 +350,7 @@ export const saveLeadDistributionConfig = (config: Partial<ILeadDistributionConf
   const next: ILeadDistributionConfig = {
     ...current,
     ...config,
-    mode: config.mode === 'manual' ? 'manual' : config.mode === 'auto' ? 'auto' : current.mode,
+    mode: 'manual',
     method: config.method ? sanitizeDistributionMethod(config.method) : current.method,
     roundRobinIndex: Number.isFinite(config.roundRobinIndex) ? Math.max(0, Math.floor(config.roundRobinIndex as number)) : current.roundRobinIndex,
     weightedIndex: Number.isFinite(config.weightedIndex) ? Math.max(0, Math.floor(config.weightedIndex as number)) : current.weightedIndex,
@@ -241,60 +360,6 @@ export const saveLeadDistributionConfig = (config: Partial<ILeadDistributionConf
   localStorage.setItem(KEYS.LEAD_DISTRIBUTION_CONFIG, JSON.stringify(next));
   emitClientEvent('educrm:lead-distribution-config-changed');
   return next;
-};
-
-export const allocateLeadOwnersRoundRobin = (leadCount: number, repIds: string[]): string[] => {
-  if (leadCount <= 0 || repIds.length === 0) return [];
-  const config = getLeadDistributionConfig();
-  const startIndex = config.roundRobinIndex % repIds.length;
-  const assignedOwners: string[] = [];
-
-  for (let i = 0; i < leadCount; i++) {
-    assignedOwners.push(repIds[(startIndex + i) % repIds.length]);
-  }
-
-  saveLeadDistributionConfig({
-    roundRobinIndex: (startIndex + leadCount) % repIds.length
-  });
-
-  return assignedOwners;
-};
-
-const buildWeightedOwnerPool = (repIds: string[], weightedRatios: Record<string, number>): string[] => {
-  const pool: string[] = [];
-  repIds.forEach((repId) => {
-    const weight = Math.max(0, Math.floor(Number(weightedRatios[repId] || 0)));
-    if (weight <= 0) return;
-    for (let i = 0; i < weight; i++) {
-      pool.push(repId);
-    }
-  });
-  return pool;
-};
-
-export const allocateLeadOwnersWeighted = (
-  leadCount: number,
-  repIds: string[],
-  weightedRatios?: Record<string, number>
-): string[] => {
-  if (leadCount <= 0 || repIds.length === 0) return [];
-
-  const config = getLeadDistributionConfig();
-  const ratios = weightedRatios ?? config.weightedRatios;
-  const weightedPool = buildWeightedOwnerPool(repIds, ratios);
-  const ownerPool = weightedPool.length > 0 ? weightedPool : repIds;
-  const startIndex = config.weightedIndex % ownerPool.length;
-  const assignedOwners: string[] = [];
-
-  for (let i = 0; i < leadCount; i++) {
-    assignedOwners.push(ownerPool[(startIndex + i) % ownerPool.length]);
-  }
-
-  saveLeadDistributionConfig({
-    weightedIndex: (startIndex + leadCount) % ownerPool.length
-  });
-
-  return assignedOwners;
 };
 
 export const getSalesTeams = (): ISalesTeam[] => {
@@ -367,6 +432,7 @@ const normalizeQuotation = (quotation: IQuotation): IQuotation => {
     updatedAt: quotation.updatedAt || quotation.createdAt || quotationDate,
     quotationDate,
     confirmDate,
+    refundAmount: Math.max(0, Number(quotation.refundAmount) || 0),
     contractStatus:
       quotation.contractStatus ||
       (quotation.status === QuotationStatus.LOCKED
@@ -381,7 +447,7 @@ export const getQuotations = (): IQuotation[] => {
   try {
     const data = localStorage.getItem(KEYS.QUOTATIONS);
     const list: IQuotation[] = data ? JSON.parse(data) : [];
-    return list.map(normalizeQuotation);
+    return list.map((item) => normalizeQuotation(normalizeQuotationRecord(item)));
   } catch (e) { return []; }
 };
 
@@ -412,14 +478,15 @@ export const updateQuotation = (updated: IQuotation) => {
 export const getTransactions = (): ITransaction[] => {
   try {
     const data = localStorage.getItem(KEYS.TRANSACTIONS);
-    return data ? JSON.parse(data) : [];
+    const list: ITransaction[] = data ? JSON.parse(data) : [];
+    return list.map(normalizeTransactionRecord);
   } catch {
     return [];
   }
 };
 
 export const saveTransactions = (transactions: ITransaction[]) => {
-  localStorage.setItem(KEYS.TRANSACTIONS, JSON.stringify(transactions));
+  localStorage.setItem(KEYS.TRANSACTIONS, JSON.stringify(transactions.map(normalizeTransactionRecord)));
   emitClientEvent('educrm:transactions-changed');
 };
 
@@ -500,8 +567,8 @@ const buildStudentNote = (
   const productName = lineItem?.name || quotation.product;
   const plannedClass = resolvedClass?.code || lineItem?.classId || quotation.classCode;
 
-  if (productName) parts.push(`Sáº£n pháº©m: ${productName}`);
-  if (plannedClass) parts.push(`Lá»›p dá»± kiáº¿n: ${plannedClass}`);
+  if (productName) parts.push(`Sản phẩm: ${productName}`);
+  if (plannedClass) parts.push(`Lớp dự kiến: ${plannedClass}`);
 
   return parts.join(' | ');
 };
@@ -522,7 +589,7 @@ const getQuotationStudentDrafts = (quotation: IQuotation): QuotationStudentDraft
         address: quotation.studentAddress || lead?.address || '',
         guardianName: quotation.guardianName || lead?.guardianName || '',
         guardianPhone: quotation.guardianPhone || lead?.guardianPhone || '',
-        campus: resolvedClass?.campus || lead?.city || 'HÃ  Ná»™i',
+        campus: resolvedClass?.campus || lead?.city || 'Hà Nội',
         classId: item.classId || resolvedClass?.id || quotation.classCode,
         className: item.className || resolvedClass?.name || quotation.classCode,
         level: item.courseName || item.name || quotation.product || quotation.serviceType,
@@ -545,7 +612,7 @@ const getQuotationStudentDrafts = (quotation: IQuotation): QuotationStudentDraft
       address: quotation.studentAddress || lead?.address || '',
       guardianName: quotation.guardianName || lead?.guardianName || '',
       guardianPhone: quotation.guardianPhone || lead?.guardianPhone || '',
-      campus: resolvedClass?.campus || lead?.city || 'HÃ  Ná»™i',
+      campus: resolvedClass?.campus || lead?.city || 'Hà Nội',
       classId: quotation.classCode || resolvedClass?.id,
       className: resolvedClass?.name || quotation.classCode,
       level: quotation.product || quotation.serviceType,
@@ -627,7 +694,7 @@ export const createStudentsFromQuotation = (quotation: IQuotation): IStudent[] =
       leadId: quotation.leadId || current?.leadId,
       quotationLineItemId: draft.lineItemId || current?.quotationLineItemId,
       payerName: quotation.customerName || current?.payerName,
-      campus: isEnrolled ? current?.campus || draft.campus : draft.campus || current?.campus || 'HÃ  Ná»™i',
+      campus: isEnrolled ? current?.campus || draft.campus : draft.campus || current?.campus || 'Hà Nội',
       classId: isEnrolled ? current?.classId : draft.classId || current?.classId,
       className: isEnrolled ? current?.className : draft.className || current?.className,
       admissionDate: current?.admissionDate || now,
@@ -729,12 +796,13 @@ export const updateMeeting = (updated: IMeeting) => {
 export const getStudents = (): IStudent[] => {
   try {
     const data = localStorage.getItem(KEYS.STUDENTS);
-    return data ? JSON.parse(data) : [];
+    const list: IStudent[] = data ? JSON.parse(data) : [];
+    return list.map(normalizeStudentRecord);
   } catch { return []; }
 };
 
 export const saveStudents = (students: IStudent[]) => {
-  localStorage.setItem(KEYS.STUDENTS, JSON.stringify(students));
+  localStorage.setItem(KEYS.STUDENTS, JSON.stringify(students.map(normalizeStudentRecord)));
   emitClientEvent('educrm:students-changed');
 };
 
@@ -749,17 +817,56 @@ export const updateStudent = (updated: IStudent) => {
   return false;
 };
 
+export const getStudentClaims = (): IStudentClaim[] => {
+  try {
+    const data = localStorage.getItem(KEYS.STUDENT_CLAIMS);
+    const list: IStudentClaim[] = data ? JSON.parse(data) : [];
+    return list
+      .map(normalizeStudentClaimRecord)
+      .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
+  } catch {
+    return [];
+  }
+};
+
+export const saveStudentClaims = (claims: IStudentClaim[]) => {
+  localStorage.setItem(KEYS.STUDENT_CLAIMS, JSON.stringify(claims.map(normalizeStudentClaimRecord)));
+  emitClientEvent('educrm:student-claims-changed');
+};
+
+export const createStudentClaim = (claim: IStudentClaim) => {
+  const list = getStudentClaims();
+  list.unshift(normalizeStudentClaimRecord(claim));
+  saveStudentClaims(list);
+  return claim;
+};
+
+export const updateStudentClaim = (updated: IStudentClaim) => {
+  const list = getStudentClaims();
+  const idx = list.findIndex((item) => item.id === updated.id);
+  if (idx !== -1) {
+    list[idx] = normalizeStudentClaimRecord({
+      ...updated,
+      updatedAt: updated.updatedAt || new Date().toISOString()
+    });
+    saveStudentClaims(list);
+    return true;
+  }
+  return false;
+};
+
 export const getAdmissions = (): IAdmission[] => {
   try {
     const data = localStorage.getItem(KEYS.ADMISSIONS);
-    return data ? JSON.parse(data) : [];
+    const list: IAdmission[] = data ? JSON.parse(data) : [];
+    return list.map(normalizeAdmissionRecord);
   } catch {
     return [];
   }
 };
 
 export const saveAdmissions = (admissions: IAdmission[]) => {
-  localStorage.setItem(KEYS.ADMISSIONS, JSON.stringify(admissions));
+  localStorage.setItem(KEYS.ADMISSIONS, JSON.stringify(admissions.map(normalizeAdmissionRecord)));
   emitClientEvent('educrm:admissions-changed');
   emitClientEvent('educrm_cases_updated');
 };
@@ -920,6 +1027,24 @@ export const updateDebtTerms = (classId: string, studentId: string, debtTerms: I
     debtStatus: debtSummary.debtStatus,
     totalDebt: debtSummary.totalDebt,
     nearestDueDate: debtSummary.nearestDueDate
+  };
+  saveClassStudents(list);
+  return list[idx];
+};
+
+export const updateClassStudentStatus = (
+  classId: string,
+  studentId: string,
+  status: IClassStudent['status']
+) => {
+  const list = getClassStudents();
+  const idx = list.findIndex((item) => item.classId === classId && item.studentId === studentId);
+  if (idx < 0) return null;
+
+  list[idx] = {
+    ...list[idx],
+    status,
+    studentStatus: status
   };
   saveClassStudents(list);
   return list[idx];
@@ -1386,7 +1511,27 @@ export const addClassLog = (classId: string, action: string, message: string, cr
     action,
     message,
     createdAt: new Date().toISOString(),
-    createdBy
+    createdBy,
+    category: 'SYSTEM'
+  });
+};
+
+export const addStudentLog = (
+  studentId: string,
+  action: string,
+  message: string,
+  createdBy = 'system',
+  category: ILogNote['category'] = 'SYSTEM'
+) => {
+  return addLogNote({
+    id: `LOG-STUDENT-${Date.now()}`,
+    entityType: 'STUDENT',
+    entityId: studentId,
+    action,
+    message,
+    createdAt: new Date().toISOString(),
+    createdBy,
+    category
   });
 };
 
@@ -1570,11 +1715,11 @@ const INITIAL_QUOTATIONS: IQuotation[] = [
   {
     id: 'Q-001',
     soCode: 'SO001',
-    customerName: 'Nguyá»…n VÄƒn A',
+    customerName: 'Nguyễn Văn A',
     customerId: 'CUST-001',
     studentId: 'ST-0001',
     serviceType: 'StudyAbroad',
-    product: 'Du há»c Äá»©c - Combo A1-B1',
+    product: 'Du học Đức - Combo A1-B1',
     amount: 45000000,
     finalAmount: 45000000,
     createdAt: new Date().toISOString(),
@@ -1587,11 +1732,11 @@ const INITIAL_QUOTATIONS: IQuotation[] = [
   {
     id: 'Q-002',
     soCode: 'SO002',
-    customerName: 'Tráº§n Thá»‹ B',
+    customerName: 'Trần Thị B',
     customerId: 'CUST-002',
     studentId: 'ST-0002',
     serviceType: 'Training',
-    product: 'KhÃ³a tiáº¿ng Äá»©c B1-B2',
+    product: 'Khóa tiếng Đức B1-B2',
     amount: 55000000,
     finalAmount: 55000000,
     createdAt: new Date().toISOString(),
@@ -1604,11 +1749,11 @@ const INITIAL_QUOTATIONS: IQuotation[] = [
   {
     id: 'Q-003',
     soCode: 'SO003',
-    customerName: 'LÃª Van C',
+    customerName: 'Lê Văn C',
     customerId: 'CUST-003',
     studentId: 'ST-0003',
     serviceType: 'Combo',
-    product: 'Combo Du há»c nghá» Ãšc',
+    product: 'Combo Du học nghề Úc',
     amount: 210000000,
     finalAmount: 210000000,
     createdAt: new Date().toISOString(),
@@ -1621,11 +1766,11 @@ const INITIAL_QUOTATIONS: IQuotation[] = [
   {
     id: 'Q-004',
     soCode: 'SO004',
-    customerName: 'Pháº¡m Thá»‹ D',
+    customerName: 'Phạm Thị D',
     customerId: 'CUST-004',
     studentId: 'ST-0004',
     serviceType: 'StudyAbroad',
-    product: 'Du há»c Äá»©c - Trá»n gÃ³i',
+    product: 'Du học Đức - Trọn gói',
     amount: 180000000,
     finalAmount: 170000000,
     createdAt: new Date().toISOString(),
@@ -1638,10 +1783,10 @@ const INITIAL_QUOTATIONS: IQuotation[] = [
   {
     id: 'Q-005',
     soCode: 'SO005',
-    customerName: 'HoÃ ng Van E',
+    customerName: 'Hoàng Văn E',
     customerId: 'CUST-005',
     serviceType: 'Training',
-    product: 'Tiáº¿ng Äá»©c A1-B1',
+    product: 'Tiếng Đức A1-B1',
     amount: 25000000,
     finalAmount: 25000000,
     createdAt: new Date().toISOString(),
@@ -1658,10 +1803,10 @@ const INITIAL_QUOTATIONS: IQuotation[] = [
   {
     id: 'Q-006',
     soCode: 'SO006',
-    customerName: 'Nguyá»…n Thá»‹ F',
+    customerName: 'Nguyễn Thị F',
     customerId: 'CUST-006',
     serviceType: 'Training',
-    product: 'KhÃ³a tiáº¿ng Äá»©c A2',
+    product: 'Khóa tiếng Đức A2',
     amount: 30000000,
     finalAmount: 30000000,
     createdAt: new Date().toISOString(),
@@ -1678,10 +1823,10 @@ const INITIAL_QUOTATIONS: IQuotation[] = [
   {
     id: 'Q-007',
     soCode: 'SO007',
-    customerName: 'Äá»— VÄƒn G',
+    customerName: 'Đỗ Văn G',
     customerId: 'CUST-007',
     serviceType: 'Combo',
-    product: 'Combo Du há»c Äá»©c',
+    product: 'Combo Du học Đức',
     amount: 120000000,
     finalAmount: 120000000,
     createdAt: new Date().toISOString(),
@@ -1853,12 +1998,12 @@ const INITIAL_STUDENTS: any[] = [
   {
     id: 'ST-0001',
     code: 'HV24-0001',
-    name: 'Nguyá»…n VÄƒn A',
+    name: 'Nguyễn Văn A',
     phone: '0900000001',
     email: 'a@example.com',
     customerId: 'CUST-001',
     soId: 'Q-001',
-    campus: 'HÃ  Ná»™i',
+    campus: 'Hà Nội',
     className: 'GER-A1-K35',
     status: StudentStatus.ENROLLED,
     enrollmentStatus: 'DA_GHI_DANH',
@@ -1867,12 +2012,12 @@ const INITIAL_STUDENTS: any[] = [
   {
     id: 'ST-0002',
     code: 'HV24-0002',
-    name: 'Tráº§n Thá»‹ B',
+    name: 'Trần Thị B',
     phone: '0900000002',
     email: 'b@example.com',
     customerId: 'CUST-002',
     soId: 'Q-002',
-    campus: 'HÃ  Ná»™i',
+    campus: 'Hà Nội',
     status: StudentStatus.ADMISSION,
     enrollmentStatus: 'CHUA_GHI_DANH',
     createdAt: new Date().toISOString()
@@ -1880,7 +2025,7 @@ const INITIAL_STUDENTS: any[] = [
   {
     id: 'ST-0003',
     code: 'HV24-0003',
-    name: 'LÃª Van C',
+    name: 'Lê Văn C',
     phone: '0900000003',
     email: 'c@example.com',
     customerId: 'CUST-003',
@@ -1893,12 +2038,12 @@ const INITIAL_STUDENTS: any[] = [
   {
     id: 'ST-0004',
     code: 'HV24-0004',
-    name: 'Pháº¡m Thá»‹ D',
+    name: 'Phạm Thị D',
     phone: '0900000004',
     email: 'd@example.com',
     customerId: 'CUST-004',
     soId: 'Q-004',
-    campus: 'ÄÃ  Náºµng',
+    campus: 'Đà Nẵng',
     className: 'GER-B1-K12',
     status: StudentStatus.ENROLLED,
     enrollmentStatus: 'DA_GHI_DANH',
@@ -1907,12 +2052,12 @@ const INITIAL_STUDENTS: any[] = [
   {
     id: 'ST-0005',
     code: 'HV24-0005',
-    name: 'HoÃ ng Van E',
+    name: 'Hoàng Văn E',
     phone: '0900000005',
     email: 'e@example.com',
     customerId: 'CUST-005',
     soId: 'Q-005',
-    campus: 'HÃ  Ná»™i',
+    campus: 'Hà Nội',
     status: StudentStatus.ADMISSION,
     enrollmentStatus: 'CHUA_GHI_DANH',
     createdAt: new Date().toISOString()
@@ -1926,7 +2071,7 @@ const INITIAL_ADMISSIONS: IAdmission[] = [
     studentId: 'ST-0002',
     quotationId: 'Q-002',
     classId: 'GER-A1-K36',
-    campusId: 'HÃ  Ná»™i',
+    campusId: 'Hà Nội',
     status: 'CHO_DUYET',
     createdBy: 'u1',
     createdAt: new Date().toISOString()
@@ -1948,7 +2093,7 @@ const INITIAL_ADMISSIONS: IAdmission[] = [
     studentId: 'ST-0001',
     quotationId: 'Q-001',
     classId: 'GER-A1-K35',
-    campusId: 'HÃ  Ná»™i',
+    campusId: 'Hà Nội',
     status: 'DA_DUYET',
     createdBy: 'u1',
     createdAt: new Date().toISOString()
@@ -2116,7 +2261,7 @@ const INITIAL_TRANSACTIONS: ITransaction[] = [
     quotationId: 'Q-006',
     soCode: 'SO006',
     customerId: 'CUST-006',
-    studentName: 'Nguyá»…n Thá»‹ F',
+    studentName: 'Nguyễn Thị F',
     amount: 30000000,
     method: 'CHUYEN_KHOAN',
     proofType: 'UNC',
@@ -2124,14 +2269,14 @@ const INITIAL_TRANSACTIONS: ITransaction[] = [
     status: 'CHO_DUYET',
     createdAt: Date.now() - 3 * 60 * 60 * 1000,
     createdBy: 'u2',
-    note: 'Chá» káº¿ toÃ¡n duyá»‡t UNC'
+    note: 'Chờ kế toán duyệt UNC'
   },
   {
     id: 'TRX-0002',
     quotationId: 'Q-007',
     soCode: 'SO007',
     customerId: 'CUST-007',
-    studentName: 'Äá»— VÄƒn G',
+    studentName: 'Đỗ Văn G',
     amount: 120000000,
     method: 'CHUYEN_KHOAN',
     proofType: 'UNC',
@@ -2139,14 +2284,14 @@ const INITIAL_TRANSACTIONS: ITransaction[] = [
     status: 'CHO_DUYET',
     createdAt: Date.now() - 2 * 60 * 60 * 1000,
     createdBy: 'u1',
-    note: 'Chá» duyá»‡t giao dá»‹ch tá»« sale confirm'
+    note: 'Chờ duyệt giao dịch từ sale confirm'
   },
   {
     id: 'TRX-0003',
     quotationId: 'Q-004',
     soCode: 'SO004',
     customerId: 'CUST-004',
-    studentName: 'Pháº¡m Thá»‹ D',
+    studentName: 'Phạm Thị D',
     amount: 170000000,
     method: 'CHUYEN_KHOAN',
     proofType: 'UNC',
@@ -2160,21 +2305,21 @@ const INITIAL_TRANSACTIONS: ITransaction[] = [
     quotationId: 'Q-005',
     soCode: 'SO005',
     customerId: 'CUST-005',
-    studentName: 'HoÃ ng Van E',
+    studentName: 'Hoàng Văn E',
     amount: 25000000,
     method: 'OTHER',
     proofType: 'NONE',
     status: 'TU_CHOI',
     createdAt: Date.now() - 12 * 60 * 60 * 1000,
     createdBy: 'u1',
-    note: 'Thiáº¿u chá»©ng tá»« thanh toÃ¡n'
+    note: 'Thiếu chứng từ thanh toán'
   },
   {
     id: 'TRX-0005',
     quotationId: 'Q-002',
     soCode: 'SO002',
     customerId: 'CUST-002',
-    studentName: 'Tráº§n Thá»‹ B',
+    studentName: 'Trần Thị B',
     amount: 55000000,
     method: 'CHUYEN_KHOAN',
     proofType: 'UNC',
@@ -2188,21 +2333,21 @@ const INITIAL_TRANSACTIONS: ITransaction[] = [
     quotationId: 'Q-003',
     soCode: 'SO003',
     customerId: 'CUST-003',
-    studentName: 'LÃª Van C',
+    studentName: 'Lê Văn C',
     amount: 210000000,
     method: 'TIEN_MAT',
     proofType: 'PHIEU_THU',
     status: 'DA_DUYET',
     createdAt: Date.now() - 30 * 60 * 60 * 1000,
     createdBy: 'u2',
-    note: 'ÄÃ£ duyá»‡t phiáº¿u thu'
+    note: 'Đã duyệt phiếu thu'
   },
   {
     id: 'TRX-0007',
     quotationId: 'Q-001',
     soCode: 'SO001',
     customerId: 'CUST-001',
-    studentName: 'Nguyá»…n VÄƒn A',
+    studentName: 'Nguyễn Văn A',
     amount: 45000000,
     method: 'CHUYEN_KHOAN',
     proofType: 'UNC',
@@ -2466,6 +2611,9 @@ const MOJIBAKE_TEXT_MAP: Record<string, string> = {
   'Ti?ng Ã?c A1-B1': 'Tiáº¿ng Äá»©c A1-B1',
   'KhÃ³a ti?ng Ã?c A2': 'KhÃ³a tiáº¿ng Äá»©c A2',
   'Combo Du h?c Ã?c': 'Combo Du há»c Äá»©c',
+  'Sáº£n pháº©m': 'Sản phẩm',
+  'Lá»›p dá»± kiáº¿n': 'Lớp dự kiến',
+  'Chuyá»ƒn lá»›p': 'Chuyển lớp',
   'G?i l?n 1': 'Gá»i láº§n 1',
   'G?i l?n 2': 'Gá»i láº§n 2',
   'Ti?m nang': 'Tiá»m nÄƒng',
@@ -2517,9 +2665,7 @@ const decodeUnicodeEscapeLiterals = (value: string): string => {
 };
 
 const normalizeMojibakeString = (value: string): string => {
-  let normalized = decodeUnicodeEscapeLiterals(value);
-  normalized = tryDecodeMojibake(normalized);
-  normalized = decodeUnicodeEscapeLiterals(normalized);
+  let normalized = decodeMojibakeText(value);
 
   Object.entries(MOJIBAKE_TEXT_MAP).forEach(([wrong, right]) => {
     if (normalized.includes(wrong)) {
@@ -2534,12 +2680,14 @@ const normalizeMojibakeString = (value: string): string => {
   return normalized;
 };
 
+const normalizeEnrollmentText = (value?: string): string => normalizeMojibakeString(String(value || ''));
+
 const normalizeMojibakeInObject = (value: any): any => {
   if (typeof value === 'string') return normalizeMojibakeString(value);
-  if (Array.isArray(value)) return value.map(normalizeMojibakeInObject);
+  if (Array.isArray(value)) return value.map((item) => normalizeMojibakeInObject(item));
   if (value && typeof value === 'object') {
     return Object.fromEntries(
-      Object.entries(value).map(([key, val]) => [key, normalizeMojibakeInObject(val)])
+      Object.entries(value).map(([key, nestedValue]) => [key, normalizeMojibakeInObject(nestedValue)])
     );
   }
   return value;
@@ -2547,14 +2695,16 @@ const normalizeMojibakeInObject = (value: any): any => {
 
 const migrateMojibakeTextData = () => {
   try {
-    const migrationKey = 'educrm_migration_text_fix_v5';
+    const migrationKey = 'educrm_migration_text_fix_v7';
     if (localStorage.getItem(migrationKey) === 'done') return;
 
     const keysToNormalize = [
       KEYS.LEADS,
       KEYS.CONTACTS,
       KEYS.QUOTATIONS,
+      KEYS.CONTRACTS,
       KEYS.STUDENTS,
+      KEYS.STUDENT_CLAIMS,
       KEYS.ADMISSIONS,
       KEYS.CLASS_STUDENTS,
       KEYS.STUDENT_SCORES,
@@ -2577,7 +2727,18 @@ const migrateMojibakeTextData = () => {
       if (!raw) return;
       try {
         const parsed = JSON.parse(raw);
-        const normalized = normalizeMojibakeInObject(parsed);
+        let normalized = normalizeMojibakeInObject(parsed);
+
+        if (key === KEYS.STUDENTS && Array.isArray(normalized)) {
+          normalized = normalized.map((item) => normalizeStudentRecord(item as IStudent));
+        } else if (key === KEYS.QUOTATIONS && Array.isArray(normalized)) {
+          normalized = normalized.map((item) => normalizeQuotationRecord(item as IQuotation));
+        } else if (key === KEYS.ADMISSIONS && Array.isArray(normalized)) {
+          normalized = normalized.map((item) => normalizeAdmissionRecord(item as IAdmission));
+        } else if (key === KEYS.TRANSACTIONS && Array.isArray(normalized)) {
+          normalized = normalized.map((item) => normalizeTransactionRecord(item as ITransaction));
+        }
+
         if (JSON.stringify(parsed) !== JSON.stringify(normalized)) {
           localStorage.setItem(key, JSON.stringify(normalized));
         }
@@ -2617,6 +2778,9 @@ export const initializeData = () => {
   }
   if (!localStorage.getItem(KEYS.STUDENTS)) {
     localStorage.setItem(KEYS.STUDENTS, JSON.stringify(INITIAL_STUDENTS));
+  }
+  if (!localStorage.getItem(KEYS.STUDENT_CLAIMS)) {
+    localStorage.setItem(KEYS.STUDENT_CLAIMS, JSON.stringify([]));
   }
   if (!localStorage.getItem(KEYS.ADMISSIONS)) {
     localStorage.setItem(KEYS.ADMISSIONS, JSON.stringify(INITIAL_ADMISSIONS));
@@ -2963,10 +3127,13 @@ export const getContracts = (): IContract[] => {
   try {
     const data = localStorage.getItem(KEYS.CONTRACTS);
     const contracts: IContract[] = data ? JSON.parse(data) : [];
-    return contracts.map((contract) => ({
-      ...contract,
-      templateFields: contract.templateFields || {}
-    }));
+    return contracts.map((contract) => {
+      const normalized = decodeStorageValue(contract) as IContract;
+      return {
+        ...normalized,
+        templateFields: normalized.templateFields || {}
+      };
+    });
   } catch (e) { return []; }
 };
 
@@ -3022,7 +3189,7 @@ export const upsertLinkedContractFromQuotation = (quotation: IQuotation, actor: 
         : existing?.status || ContractStatus.DRAFT,
     signedDate: existing?.signedDate || normalizedQuotation.lockedAt || normalizedQuotation.confirmDate,
     createdBy: existing?.createdBy || actor,
-    templateName: existing?.templateName || 'Máº«u há»£p Ä‘á»“ng Ä‘Ã o táº¡o',
+    templateName: existing?.templateName || 'Mẫu hợp đồng đào tạo',
     templateFields: {
       centerRepresentative: existing?.templateFields?.centerRepresentative || '',
       studentName: existing?.templateFields?.studentName || getPrimaryQuotationStudentName(normalizedQuotation),
@@ -3036,12 +3203,12 @@ export const upsertLinkedContractFromQuotation = (quotation: IQuotation, actor: 
       contractNote: existing?.templateFields?.contractNote || '',
       paymentMethod:
         existing?.templateFields?.paymentMethod ||
-        (normalizedQuotation.paymentMethod === 'CK' ? 'Chuyá»ƒn khoáº£n' : normalizedQuotation.paymentMethod === 'CASH' ? 'Tiá»n máº·t' : ''),
+        (normalizedQuotation.paymentMethod === 'CK' ? 'Chuyển khoản' : normalizedQuotation.paymentMethod === 'CASH' ? 'Tiền mặt' : ''),
       quotationCode: normalizedQuotation.soCode,
       quotationDate: existing?.templateFields?.quotationDate || (normalizedQuotation.quotationDate ? new Date(normalizedQuotation.quotationDate).toLocaleDateString('vi-VN') : ''),
       confirmDate: existing?.templateFields?.confirmDate || (normalizedQuotation.confirmDate ? new Date(normalizedQuotation.confirmDate).toLocaleDateString('vi-VN') : ''),
       productName: existing?.templateFields?.productName || normalizedQuotation.product || '',
-      totalAmount: existing?.templateFields?.totalAmount || `${(normalizedQuotation.finalAmount || normalizedQuotation.amount || 0).toLocaleString('vi-VN')} Ä‘`
+      totalAmount: existing?.templateFields?.totalAmount || `${(normalizedQuotation.finalAmount || normalizedQuotation.amount || 0).toLocaleString('vi-VN')} đ`
     },
     importedAt: existing?.importedAt || now,
     importedBy: existing?.importedBy || actor,

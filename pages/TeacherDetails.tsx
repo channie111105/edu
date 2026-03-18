@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Calendar, Edit, Plus, Power, Trash2, User } from 'lucide-react';
+import LogAudienceFilterControl from '../components/LogAudienceFilter';
 import { ITeacher } from '../types';
 import {
   addLogNote,
@@ -13,6 +14,7 @@ import {
   updateTeacher
 } from '../utils/storage';
 import { useAuth } from '../contexts/AuthContext';
+import { filterByLogAudience, getILogNoteAudience, LogAudienceFilter } from '../utils/logAudience';
 
 const TeacherDetails: React.FC = () => {
   const { id } = useParams();
@@ -28,6 +30,7 @@ const TeacherDetails: React.FC = () => {
   const [noteInput, setNoteInput] = useState('');
   const [classSearch, setClassSearch] = useState('');
   const [selectedClassId, setSelectedClassId] = useState('');
+  const [logAudienceFilter, setLogAudienceFilter] = useState<LogAudienceFilter>('ALL');
 
   const loadData = () => {
     if (!id) return;
@@ -63,6 +66,10 @@ const TeacherDetails: React.FC = () => {
   }, [classes, classSearch, teacher]);
 
   const logs = useMemo(() => (teacher ? getLogNotes('TEACHER', teacher.id) : []), [teacher?.id, teacher?.updatedAt]);
+  const filteredLogs = useMemo(
+    () => filterByLogAudience(logs, logAudienceFilter, getILogNoteAudience),
+    [logAudienceFilter, logs]
+  );
 
   if (!teacher) {
     return (
@@ -226,15 +233,18 @@ const TeacherDetails: React.FC = () => {
       {activeTab === 'logs' && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="md:col-span-2 bg-white border rounded-xl p-4">
-            <h3 className="font-bold mb-3">Lịch sử log note</h3>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+              <h3 className="font-bold">Lịch sử log note</h3>
+              <LogAudienceFilterControl value={logAudienceFilter} onChange={setLogAudienceFilter} />
+            </div>
             <div className="space-y-3 max-h-[420px] overflow-auto">
-              {logs.length > 0 ? logs.map((log) => (
+              {filteredLogs.length > 0 ? filteredLogs.map((log) => (
                 <div key={log.id} className="border-l-2 border-blue-200 pl-3 py-1">
                   <div className="text-sm font-semibold">{log.action}</div>
                   <div className="text-sm text-slate-600">{log.message}</div>
                   <div className="text-xs text-slate-400 mt-1">{new Date(log.createdAt).toLocaleString('vi-VN')} • {log.createdBy}</div>
                 </div>
-              )) : <div className="text-sm text-slate-500">Chưa có log.</div>}
+              )) : <div className="text-sm text-slate-500">Chưa có log phù hợp bộ lọc.</div>}
             </div>
           </div>
           <div className="bg-white border rounded-xl p-4">
@@ -328,4 +338,3 @@ const EditTeacherModal: React.FC<{
 };
 
 export default TeacherDetails;
-

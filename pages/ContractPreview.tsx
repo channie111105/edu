@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Printer } from 'lucide-react';
-import { IAdmission, IContract, IQuotation, IStudent, QuotationStatus } from '../types';
+import { IAdmission, IContract, IQuotation, IStudent } from '../types';
 import { getAdmissions, getContractByQuotationId, getPrimaryQuotationStudentName, getQuotations, getStudents, quotationLinksToStudent } from '../utils/storage';
 
 const formatDate = (value?: string) => {
@@ -48,18 +48,6 @@ const ContractPreview: React.FC = () => {
         <p className="text-slate-600">Không tìm thấy báo giá.</p>
         <button onClick={() => navigate('/contracts/quotations')} className="mt-4 rounded border border-slate-300 px-3 py-2">
           Quay lại
-        </button>
-      </div>
-    );
-  }
-
-  if (quotation.status !== QuotationStatus.LOCKED) {
-    return (
-      <div className="mx-auto max-w-4xl p-6">
-        <p className="font-semibold text-slate-700">Chỉ in hợp đồng khi SO đã khóa.</p>
-        <p className="mt-1 text-slate-500">Trạng thái hiện tại: {quotation.status}</p>
-        <button onClick={() => navigate(`/contracts/quotations/${quotation.id}`)} className="mt-4 rounded border border-slate-300 px-3 py-2">
-          Quay lại báo giá
         </button>
       </div>
     );

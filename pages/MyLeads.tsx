@@ -6,6 +6,7 @@ import { LeadStatus, ILead, IDeal, DealStage } from '../types';
 import UnifiedLeadDrawer from '../components/UnifiedLeadDrawer';
 import LeadPivotTable from '../components/LeadPivotTable';
 import LeadStudentInfoTab from '../components/LeadStudentInfoTab';
+import LeadTagManager from '../components/LeadTagManager';
 import SLABadge from '../components/SLABadge';
 import OdooSearchBar, { SearchFilter, SearchFieldConfig } from '../components/OdooSearchBar';
 import SLAWarningBanner from '../components/SLAWarningBanner';
@@ -23,6 +24,7 @@ import {
    LeadCreateModalTab,
    resolveLeadCampus,
 } from '../utils/leadCreateForm';
+import { FIXED_LEAD_TAGS } from '../utils/storage';
 import { decodeMojibakeReactNode } from '../utils/mojibake';
 import {
    Inbox, Search, Phone, Filter, CheckCircle2, Clock,
@@ -81,6 +83,25 @@ const MyLeads: React.FC = () => {
    const [isAddingTag, setIsAddingTag] = useState(false);
    const patchNewLeadData = (patch: Partial<LeadCreateFormData>) => {
       setNewLeadData((prev) => ({ ...prev, ...patch }));
+   };
+   const addTagCatalogEntry = (tag: string) => {
+      const value = tag.trim();
+      if (!value) return;
+      const nextTags = saveTags([...availableTags, value]);
+      setAvailableTags(nextTags);
+   };
+   const deleteTagCatalogEntry = (tag: string) => {
+      if (FIXED_LEAD_TAGS.includes(tag as typeof FIXED_LEAD_TAGS[number])) return;
+      const nextTags = saveTags(availableTags.filter((item) => item !== tag));
+      setAvailableTags(nextTags);
+      setNewLeadData((prev) => ({ ...prev, tags: prev.tags.filter((item) => item !== tag) }));
+   };
+   const addTagToNewLead = (tag: string) => {
+      setNewLeadData((prev) => (
+         prev.tags.includes(tag)
+            ? prev
+            : { ...prev, tags: [...prev.tags, tag] }
+      ));
    };
 
    // Pivot/Group State
@@ -371,6 +392,12 @@ const MyLeads: React.FC = () => {
          salesperson: user?.id || ''
       }));
    }, [user, reloadMyLeads]);
+
+   useEffect(() => {
+      const syncTags = () => setAvailableTags(getTags());
+      window.addEventListener('educrm:tags-changed', syncTags as EventListener);
+      return () => window.removeEventListener('educrm:tags-changed', syncTags as EventListener);
+   }, []);
 
    useEffect(() => {
       const handleLeadsChanged = () => {
@@ -1902,70 +1929,26 @@ const MyLeads: React.FC = () => {
 
                            <div className="flex items-start gap-4">
                               <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold mt-1.5">Tags</label>
-                              <div className="flex-1 flex flex-col gap-1.5">
-                                 <div className="flex gap-2">
-                                    {!isAddingTag ? (
-                                       <select
-                                          className="flex-1 px-2 py-1.5 border border-slate-300 rounded text-xs bg-white outline-none focus:border-purple-500"
-                                          onChange={(e) => {
-                                             if (e.target.value === 'khác') {
-                                                setIsAddingTag(true);
-                                             } else if (e.target.value && !newLeadData.tags.includes(e.target.value)) {
-                                                setNewLeadData({ ...newLeadData, tags: [...newLeadData.tags, e.target.value] });
-                                             }
-                                             e.target.value = "";
-                                          }}
-                                       >
-                                          <option value="">-- Chọn Tag --</option>
-                                          {availableTags.filter(t => !newLeadData.tags.includes(t)).map(t => (
-                                             <option key={t} value={t}>{t}</option>
-                                          ))}
-                                          <option value="khác" className="font-bold text-blue-600">+ Khác</option>
-                                       </select>
-                                    ) : (
-                                       <input
-                                          autoFocus
-                                          className="flex-1 px-2 py-1.5 border border-purple-400 rounded text-xs outline-none ring-2 ring-purple-100"
-                                          placeholder="Nhập tag mới rồi ấn Enter..."
-                                          onBlur={() => setIsAddingTag(false)}
-                                          onKeyDown={(e) => {
-                                             if (e.key === 'Enter') {
-                                                e.preventDefault();
-                                                const val = (e.target as HTMLInputElement).value.trim();
-                                                if (val) {
-                                                   if (!newLeadData.tags.includes(val)) {
-                                                      setNewLeadData({ ...newLeadData, tags: [...newLeadData.tags, val] });
-                                                   }
-                                                   if (!availableTags.includes(val)) {
-                                                      const newAvailable = [...availableTags, val];
-                                                      setAvailableTags(newAvailable);
-                                                      saveTags(newAvailable);
-                                                   }
-                                                   setIsAddingTag(false);
-                                                }
-                                             } else if (e.key === 'Escape') {
-                                                setIsAddingTag(false);
-                                             }
-                                          }}
-                                       />
-                                    )}
-                                 </div>
-                                 {newLeadData.tags.length > 0 && (
-                                    <div className="flex flex-wrap gap-1">
-                                       {newLeadData.tags.map(tag => (
-                                          <span key={tag} className="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-50 text-purple-700 text-[10px] font-bold rounded border border-purple-100">
-                                             {tag}
-                                             <button onClick={() => setNewLeadData({ ...newLeadData, tags: newLeadData.tags.filter(t => t !== tag) })} className="hover:text-purple-900 transition-colors">
-                                                <X size={10} strokeWidth={3} />
-                                             </button>
-                                          </span>
-                                       ))}
-                                    </div>
-                                 )}
-                              </div>
-                           </div>
+                                                            <LeadTagManager
+                                 selectedTags={newLeadData.tags}
+                                 availableTags={availableTags}
+                                 fixedTags={FIXED_LEAD_TAGS}
+                                 isAdding={isAddingTag}
+                                 accent="purple"
+                                 mode="dropdown"
+                                 onStartAdding={() => setIsAddingTag(true)}
+                                 onStopAdding={() => setIsAddingTag(false)}
+                                 onAddTag={addTagToNewLead}
+                                 onCreateTag={(tag) => {
+                                    addTagCatalogEntry(tag);
+                                    addTagToNewLead(tag);
+                                 }}
+                                 onRemoveSelectedTag={(tag) => setNewLeadData((prev) => ({ ...prev, tags: prev.tags.filter((item) => item !== tag) }))}
+                                 onDeleteTag={deleteTagCatalogEntry}
+                              />
                         </div>
                      </div>
+                  </div>
 
                      <div className="mt-8 border-t border-slate-200 pt-4">
                         <div className="flex border-b border-slate-200 mb-4">
@@ -2078,3 +2061,4 @@ const MyLeads: React.FC = () => {
 };
 
 export default MyLeads;
+

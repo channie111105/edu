@@ -1,5 +1,6 @@
 ﻿import React, { useEffect, useMemo, useState } from 'react';
 import { Calendar, FileSpreadsheet, NotebookPen, Plus, Save, Settings2, ChevronRight, Filter, Rows3 } from 'lucide-react';
+import LogAudienceFilterControl from '../components/LogAudienceFilter';
 import PinnedSearchInput, { PinnedSearchChip } from '../components/PinnedSearchInput';
 import { decodeMojibakeReactNode, decodeMojibakeText } from '../utils/mojibake';
 import {
@@ -38,6 +39,7 @@ import {
   upsertStudentScore,
   upsertStudyNote
 } from '../utils/storage';
+import { filterByLogAudience, getILogNoteAudience, LogAudienceFilter } from '../utils/logAudience';
 
 const STATUS = ['DRAFT', 'ACTIVE', 'DONE', 'CANCELED'] as const;
 const STATUS_LABEL: Record<ITrainingClass['status'], string> = {
@@ -332,6 +334,7 @@ const TrainingClassList: React.FC = () => {
   const [studyNotes, setStudyNotes] = useState<IStudyNote[]>([]);
   const [attendanceDraft, setAttendanceDraft] = useState<AttendanceDraft>({});
   const [attendanceSaveMessage, setAttendanceSaveMessage] = useState('');
+  const [logAudienceFilter, setLogAudienceFilter] = useState<LogAudienceFilter>('ALL');
   const [noteModal, setNoteModal] = useState<NoteModalState | null>(null);
   const [createClassOpen, setCreateClassOpen] = useState(false);
   const [createClassError, setCreateClassError] = useState('');
@@ -626,6 +629,10 @@ const TrainingClassList: React.FC = () => {
   const quotations = useMemo(() => getQuotations(), [classes, members, students]);
 
   const logs = useMemo(() => (selected ? getLogNotes('CLASS', selected.id) : []), [selected, members, classes]);
+  const filteredLogs = useMemo(
+    () => filterByLogAudience(logs, logAudienceFilter, getILogNoteAudience),
+    [logAudienceFilter, logs]
+  );
   const availableStudents = selected ? students.filter((s) => !rows.some((r) => r.member.studentId === s.id)) : [];
   const transferTargets = selected ? classes.filter((c) => c.id !== selected.id) : [];
   const inferredLevel = selected?.level || selected?.code.match(/(A1|A2|B1|B2|C1|C2)/i)?.[1]?.toUpperCase() || '-';
@@ -1448,8 +1455,12 @@ const TrainingClassList: React.FC = () => {
             </button>
           </div>
         </div>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div className="text-sm font-semibold text-slate-900">Lịch sử log note</div>
+          <LogAudienceFilterControl value={logAudienceFilter} onChange={setLogAudienceFilter} />
+        </div>
         <div className="min-h-0 flex-1 space-y-2 overflow-y-auto rounded-xl border p-3">
-          {logs.map((l) => (
+          {filteredLogs.map((l) => (
             <div key={l.id} className="rounded-lg border bg-[#f8fafc] p-3">
               <p className="text-sm font-semibold">{l.action}</p>
               <p className="text-sm text-slate-700">{l.message}</p>
@@ -1458,7 +1469,7 @@ const TrainingClassList: React.FC = () => {
               </p>
             </div>
           ))}
-          {!logs.length && <p className="text-sm text-slate-500">Chưa có lịch sử.</p>}
+          {!filteredLogs.length && <p className="text-sm text-slate-500">Chưa có lịch sử phù hợp bộ lọc.</p>}
         </div>
       </div>
     );

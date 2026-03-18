@@ -89,7 +89,7 @@ export const createLeadInitialState = (salesperson = ''): LeadCreateFormData => 
   product: '',
   market: '',
   channel: '',
-  status: 'NEW',
+  status: 'new',
   targetCountry: '',
   studentName: '',
   studentDob: '',

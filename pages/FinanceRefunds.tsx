@@ -15,8 +15,10 @@ import {
    X
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import LogAudienceFilterControl from '../components/LogAudienceFilter';
 import { IRefundLog, IRefundRequest, RefundStatus } from '../types';
 import { addRefund, addRefundLog, getRefundLogs, getRefunds, saveRefunds } from '../utils/storage';
+import { filterByLogAudience, getRefundLogAudience, LogAudienceFilter } from '../utils/logAudience';
 
 const REFUND_REASONS = [
    'Rút hồ sơ',
@@ -465,6 +467,7 @@ const FinanceRefunds: React.FC = () => {
    const [showColumnMenu, setShowColumnMenu] = useState(false);
    const [showCreateModal, setShowCreateModal] = useState(false);
    const [showLogModal, setShowLogModal] = useState<IRefundRequest | null>(null);
+   const [logAudienceFilter, setLogAudienceFilter] = useState<LogAudienceFilter>('ALL');
    const [toastMessage, setToastMessage] = useState<string | null>(null);
    const [formData, setFormData] = useState<RefundFormState>(EMPTY_FORM);
    const [errors, setErrors] = useState<FormErrors>({});
@@ -526,10 +529,14 @@ const FinanceRefunds: React.FC = () => {
 
    const selectedLogs = useMemo(() => {
       if (!showLogModal) return [];
-      return getRefundLogs(showLogModal.id).sort(
-         (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      return filterByLogAudience(
+         getRefundLogs(showLogModal.id).sort(
+          (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+         ),
+         logAudienceFilter,
+         getRefundLogAudience
       );
-   }, [showLogModal, logs]);
+   }, [showLogModal, logs, logAudienceFilter]);
 
    const activeRefundColumns = useMemo(
       () => REFUND_COLUMN_OPTIONS.filter((column) => visibleColumns.includes(column.id)),
@@ -1281,6 +1288,9 @@ const FinanceRefunds: React.FC = () => {
                   </div>
 
                   <div className="max-h-[70vh] space-y-4 overflow-y-auto p-6">
+                     <div className="flex justify-end">
+                        <LogAudienceFilterControl value={logAudienceFilter} onChange={setLogAudienceFilter} />
+                     </div>
                      {selectedLogs.length > 0 ? (
                         selectedLogs.map((log) => (
                            <div key={log.id} className="rounded-lg border border-slate-200 bg-slate-50 p-4">
@@ -1292,7 +1302,7 @@ const FinanceRefunds: React.FC = () => {
                            </div>
                         ))
                      ) : (
-                        <div className="py-12 text-center italic text-slate-400">Chưa có log xử lý.</div>
+                        <div className="py-12 text-center italic text-slate-400">Chưa có log xử lý phù hợp bộ lọc.</div>
                      )}
                   </div>
                </div>

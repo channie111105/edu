@@ -263,6 +263,7 @@ const Campaigns: React.FC = () => {
     }
     const normalizedCampaignData = {
       ...newCampaignData,
+      apiConnected: newCampaignData.campaignType === 'auto',
       startDate: toDisplayDate(newCampaignData.startDate),
       endDate: toDisplayDate(newCampaignData.endDate)
     };
@@ -369,7 +370,7 @@ const Campaigns: React.FC = () => {
                 <tr>
                   <th className="p-4">Tên chiến dịch</th>
                   <th className="p-4">Kênh</th>
-                  <th className="p-4 text-center">API</th>
+                  {campaignTypeTab === 'auto' && <th className="p-4 text-center">API</th>}
                   <th className="p-4 text-center">Trạng thái</th>
                   <th className="p-4">Thời gian</th>
                   <th className="p-4 text-right">Ngân sách</th>
@@ -384,21 +385,31 @@ const Campaigns: React.FC = () => {
                 {filteredCampaigns.map(c => (
                   <tr
                     key={c.id}
-                    onClick={() => navigate(`/campaigns/${c.id}`)}
+                    onClick={() => navigate(`/campaigns/${c.id}`, {
+                      state: {
+                        campaignName: c.name,
+                        channel: c.channel,
+                        status: c.status,
+                        campaignType: c.campaignType,
+                        apiConnected: c.apiConnected
+                      }
+                    })}
                     className="hover:bg-slate-50 cursor-pointer transition-colors"
                   >
                     <td className="p-4 font-bold text-slate-900">{c.name}</td>
                     <td className="p-4 text-slate-600">{c.channel}</td>
-                    <td className="p-4 text-center">
-                      <span
-                        className={`inline-flex px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-widest border ${c.apiConnected
-                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                          : 'bg-slate-100 text-slate-500 border-slate-200'
-                          }`}
-                      >
-                        {c.apiConnected ? 'On' : 'Off'}
-                      </span>
-                    </td>
+                    {campaignTypeTab === 'auto' && (
+                      <td className="p-4 text-center">
+                        <span
+                          className={`inline-flex px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-widest border ${c.apiConnected
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            : 'bg-slate-100 text-slate-500 border-slate-200'
+                            }`}
+                        >
+                          {c.apiConnected ? 'On' : 'Off'}
+                        </span>
+                      </td>
+                    )}
                     <td className="p-4 flex justify-center">
                       <div
                         onClick={(e) => handleToggleStatus(e, c.id)}
@@ -474,7 +485,15 @@ const Campaigns: React.FC = () => {
                       draggable
                       onDragStart={(e) => handleDragStart(e, campaign.id)}
                       onDragEnd={handleDragEnd}
-                      onClick={() => navigate(`/campaigns/${campaign.id}`)}
+                      onClick={() => navigate(`/campaigns/${campaign.id}`, {
+                        state: {
+                          campaignName: campaign.name,
+                          channel: campaign.channel,
+                          status: campaign.status,
+                          campaignType: campaign.campaignType,
+                          apiConnected: campaign.apiConnected
+                        }
+                      })}
                       className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 cursor-move hover:shadow-md transition-all group active:cursor-grabbing"
                     >
                       <div className="flex items-start gap-3 mb-3">
@@ -514,12 +533,14 @@ const Campaigns: React.FC = () => {
                           <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded border border-slate-200">
                             {campaign.channel}
                           </span>
-                          <span className={`text-[10px] px-1.5 py-0.5 rounded border font-bold ${campaign.apiConnected
-                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                            : 'bg-slate-100 text-slate-500 border-slate-200'
-                            }`}>
-                            API {campaign.apiConnected ? 'ON' : 'OFF'}
-                          </span>
+                          {campaign.campaignType === 'auto' && (
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded border font-bold ${campaign.apiConnected
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              : 'bg-slate-100 text-slate-500 border-slate-200'
+                              }`}>
+                              API {campaign.apiConnected ? 'ON' : 'OFF'}
+                            </span>
+                          )}
                         </div>
                         <div className="text-[10px] text-slate-400">
                           {campaign.endDate}
@@ -725,7 +746,8 @@ const Campaigns: React.FC = () => {
                   </div>
                   <div>
                     <label className="block text-slate-700 text-sm font-bold mb-2">Đấu nối API</label>
-                    <div className="h-[42px] px-3 border border-slate-200 rounded-lg bg-slate-50 flex items-center justify-between">
+                    {newCampaignData.campaignType === 'auto' ? (
+                    <div className="h-[42px] px-3 border border-emerald-200 rounded-lg bg-emerald-50 flex items-center justify-between">
                       <span className={`text-sm font-bold ${newCampaignData.apiConnected ? 'text-emerald-600' : 'text-slate-500'}`}>
                         {newCampaignData.apiConnected ? 'Đang bật' : 'Đang tắt'}
                       </span>
@@ -736,6 +758,11 @@ const Campaigns: React.FC = () => {
                         {newCampaignData.apiConnected ? 'On' : 'Off'}
                       </span>
                     </div>
+                    ) : (
+                    <div className="min-h-[42px] px-3 border border-slate-200 rounded-lg bg-slate-50 flex items-center">
+                      <span className="text-sm font-medium text-slate-500">Chiáº¿n dá»‹ch thÆ°á»ng khÃ´ng cÃ³ Ä‘áº¥u ná»‘i API.</span>
+                    </div>
+                    )}
                   </div>
                 </div>
               </div>

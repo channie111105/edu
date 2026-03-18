@@ -22,7 +22,9 @@ import {
   saveActualTransactions,
   updateActualTransaction
 } from '../utils/storage';
+import LogAudienceFilterControl from '../components/LogAudienceFilter';
 import PinnedSearchInput, { PinnedSearchChip } from '../components/PinnedSearchInput';
+import { filterByLogAudience, getActualTransactionLogAudience, LogAudienceFilter } from '../utils/logAudience';
 
 type BusinessGroup = 'THU' | 'CHI' | 'DIEU_CHINH';
 type ApprovalStage = 'CHO_DUYET' | 'KE_TOAN_DUYET' | 'CEO_DUYET' | 'HOAN_TAT' | 'TU_CHOI';
@@ -688,6 +690,7 @@ const FinanceMoneyOut: React.FC = () => {
   const [isTimeMenuOpen, setIsTimeMenuOpen] = useState(false);
   const [isQuickFilterOpen, setIsQuickFilterOpen] = useState(false);
   const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
+  const [logAudienceFilter, setLogAudienceFilter] = useState<LogAudienceFilter>('ALL');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTransactionId, setEditingTransactionId] = useState<string | null>(null);
   const [selectedAttachment, setSelectedAttachment] = useState<File | null>(null);
@@ -1370,6 +1373,7 @@ const FinanceMoneyOut: React.FC = () => {
     const itemLogs = (logsByTransaction[row.actual.id] || []).sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
+    const filteredItemLogs = filterByLogAudience(itemLogs, logAudienceFilter, getActualTransactionLogAudience);
 
     return (
       <React.Fragment key={row.actual.id}>
@@ -1398,10 +1402,13 @@ const FinanceMoneyOut: React.FC = () => {
         {expandedLogId === row.actual.id && (
           <tr className="bg-slate-50">
             <td colSpan={visibleColumns.length + 1} className="px-6 py-4">
-              <p className="text-xs font-bold text-slate-500 uppercase mb-2">Lịch sử log note</p>
-              {itemLogs.length ? (
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
+                <p className="text-xs font-bold uppercase text-slate-500">Lịch sử log note</p>
+                <LogAudienceFilterControl value={logAudienceFilter} onChange={setLogAudienceFilter} />
+              </div>
+              {filteredItemLogs.length ? (
                 <div className="space-y-2">
-                  {itemLogs.map((log) => (
+                  {filteredItemLogs.map((log) => (
                     <div key={log.id} className="text-sm bg-white border border-slate-200 rounded-lg px-3 py-2">
                       <p className="text-slate-800 font-medium">{log.message}</p>
                       <p className="text-xs text-slate-500 mt-1">
@@ -1411,7 +1418,7 @@ const FinanceMoneyOut: React.FC = () => {
                   ))}
                 </div>
               ) : (
-                <p className="text-sm text-slate-500 italic">Chưa có log note.</p>
+                <p className="text-sm text-slate-500 italic">Chưa có log note phù hợp bộ lọc.</p>
               )}
             </td>
           </tr>

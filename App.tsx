@@ -24,6 +24,7 @@ import Students from './pages/Students';
 import StudentList from './pages/StudentList';
 import StudentProfile from './pages/StudentProfile';
 import Contracts from './pages/Contracts';
+import ContractStudentDetail from './pages/ContractStudentDetail';
 import EnrollmentContracts from './pages/EnrollmentContracts';
 import ContractDashboard from './pages/ContractDashboard';
 import Quotations from './pages/Quotations';
@@ -154,6 +155,7 @@ const AppRoutes = () => {
           {/* Contracts Module */}
           <Route path="contracts/dashboard" element={<ContractDashboard />} />
           <Route path="contracts" element={<Contracts />} />
+          <Route path="contracts/students/:id" element={<ContractStudentDetail />} />
           <Route path="contracts/contracts-list" element={<EnrollmentContracts />} />
           <Route path="contracts/quotations" element={<Quotations />} />
           <Route path="contracts/quotations/:id/contract" element={<ContractPreview />} />

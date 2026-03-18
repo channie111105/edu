@@ -428,6 +428,9 @@ export interface ITransaction {
   code?: string;
   quotationId: string;
   soCode: string;
+  installmentTermId?: string;
+  installmentTermNo?: number;
+  installmentLabel?: string;
   customerId: string;
   studentName?: string;
   relatedEntityLabel?: string;
@@ -536,6 +539,22 @@ export interface IStudent {
   profileImage?: string;
   note?: string;
   createdAt: string;
+}
+
+export type StudentClaimType = 'KHONG_CO' | 'CHUYEN_LOP' | 'TAM_DUNG' | 'BAO_LUU' | 'HOC_LAI' | 'KHAC';
+export type StudentClaimStatus = 'KHONG_CO' | 'CHO_XU_LY' | 'DA_XU_LY' | 'TU_CHOI' | 'DA_HUY';
+
+export interface IStudentClaim {
+  id: string;
+  studentId: string;
+  claimType: StudentClaimType;
+  claimStatus: StudentClaimStatus;
+  reason?: string;
+  note?: string;
+  createdAt: string;
+  createdBy: string;
+  updatedAt?: string;
+  updatedBy?: string;
 }
 
 export interface IAdmission {
@@ -694,12 +713,13 @@ export interface ITeacher {
 
 export interface ILogNote {
   id: string;
-  entityType: 'TEACHER' | 'CLASS';
+  entityType: 'TEACHER' | 'CLASS' | 'STUDENT';
   entityId: string;
   action: string;
   message: string;
   createdAt: string;
   createdBy: string;
+  category?: 'SYSTEM' | 'USER';
 }
 
 export enum QuotationStatus {
@@ -709,6 +729,8 @@ export enum QuotationStatus {
   SALE_ORDER = 'Sale Order',
   LOCKED = 'Locked'
 }
+
+export type QuotationCancelRequestStatus = 'NONE' | 'CHO_DUYET' | 'DA_DUYET' | 'TU_CHOI';
 
 export interface IQuotationLogNote {
   id: string;
@@ -752,6 +774,17 @@ export interface IQuotationLineItem {
   classId?: string;
   className?: string;
   additionalInfo?: string;
+  paymentSchedule?: IQuotationPaymentScheduleTerm[];
+}
+
+export interface IQuotationPaymentScheduleTerm {
+  id: string;
+  termNo: number;
+  installmentLabel: string;
+  condition: string;
+  amount: number;
+  expectedDate?: string;
+  dueDate?: string;
 }
 
 export interface IQuotation {
@@ -771,6 +804,7 @@ export interface IQuotation {
   amount: number;
   discount?: number;
   finalAmount: number;
+  refundAmount?: number;
   pricingNote?: string;
   expirationDate?: string;
   pricelist?: string;
@@ -784,6 +818,11 @@ export interface IQuotation {
   saleConfirmedAt?: string;
   saleConfirmedBy?: string;
   transactionStatus?: 'NONE' | 'CHO_DUYET' | 'DA_DUYET' | 'TU_CHOI';
+  cancelRequestStatus?: QuotationCancelRequestStatus;
+  cancelRequestedAt?: string;
+  cancelRequestedBy?: string;
+  cancelApprovedAt?: string;
+  cancelApprovedBy?: string;
   lockedAt?: string;
   lockedBy?: string;
   contractId?: string;

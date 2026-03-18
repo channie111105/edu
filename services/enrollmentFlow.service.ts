@@ -8,6 +8,7 @@
 import {
   addStudentToClass,
   addClassLog,
+  addStudentLog,
   addAdmission,
   createStudentsFromQuotation,
   createStudentFromQuotation,
@@ -176,6 +177,14 @@ export const createAdmission = (payload: CreateAdmissionPayload): IAdmission => 
     status: StudentStatus.ADMISSION
   });
 
+  addStudentLog(
+    student.id,
+    'CREATE_ADMISSION',
+    `Tạo hồ sơ ${item.code} chờ duyệt cho lớp ${item.classId} tại ${item.campusId}`,
+    payload.createdBy,
+    'SYSTEM'
+  );
+
   updateQuotation(
     appendLog(
       {
@@ -265,6 +274,13 @@ export const approveAdmission = (
     `Đào tạo duyệt ${approved.code}, gán học viên ${updatedStudent.name} vào lớp`,
     approvedBy
   );
+  addStudentLog(
+    updatedStudent.id,
+    'APPROVE_ADMISSION',
+    `Duyệt ${approved.code} và ghi danh vào lớp ${admission.classId}`,
+    approvedBy,
+    'SYSTEM'
+  );
 
   return { ok: true, data: { admission: approved, student: updatedStudent, quotation: updatedQuotation } };
 };
@@ -281,5 +297,53 @@ export const rejectAdmission = (admissionId: string, reason?: string): { ok: boo
     updatedAt: new Date().toISOString()
   };
   updateAdmission(rejected);
+  addStudentLog(
+    admission.studentId,
+    'REJECT_ADMISSION',
+    `Từ chối ${admission.code}${reason ? `: ${reason}` : ''}`,
+    'training',
+    'SYSTEM'
+  );
   return { ok: true, admission: rejected };
+};
+
+export const cancelAdmission = (
+  admissionId: string,
+  cancelledBy = 'system',
+  reason = 'Hủy ghi danh'
+): { ok: boolean; admission?: IAdmission; student?: IStudent } => {
+  const admission = getAdmissions().find((a) => a.id === admissionId);
+  if (!admission || admission.status !== 'CHO_DUYET') {
+    return { ok: false };
+  }
+
+  const student = getStudents().find((item) => item.id === admission.studentId);
+  if (!student) {
+    return { ok: false };
+  }
+
+  const cancelled: IAdmission = {
+    ...admission,
+    status: 'TU_CHOI',
+    note: reason || admission.note,
+    updatedAt: new Date().toISOString()
+  };
+  updateAdmission(cancelled);
+
+  const updatedStudent: IStudent = {
+    ...student,
+    enrollmentStatus: 'CHUA_GHI_DANH',
+    status: StudentStatus.ADMISSION
+  };
+  updateStudent(updatedStudent);
+
+  addStudentLog(
+    student.id,
+    'CANCEL_ADMISSION',
+    `Hủy hồ sơ ${admission.code}${reason ? `: ${reason}` : ''}`,
+    cancelledBy,
+    'SYSTEM'
+  );
+
+  return { ok: true, admission: cancelled, student: updatedStudent };
 };

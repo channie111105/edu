@@ -3,17 +3,24 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Save, Printer, ChevronRight, ChevronDown, FileText, Lock, Plus } from 'lucide-react';
 import { useRef } from 'react';
 import { Paperclip, Send, X } from 'lucide-react';
-import { IContract, IQuotation, IQuotationLineItem, IQuotationLogNote, ITeacher, ITrainingClass, QuotationStatus, UserRole } from '../types';
-import { addQuotation, getContacts, getContractByQuotationId, getContracts, getDealById, getLeadById, getLeads, getQuotations, getTeachers, getTrainingClasses, updateContract, updateQuotation, upsertLinkedContractFromQuotation } from '../utils/storage';
+import { ContractStatus, IContract, IQuotation, IQuotationLineItem, IQuotationLogNote, IQuotationPaymentScheduleTerm, ITeacher, ITrainingClass, QuotationStatus, UserRole } from '../types';
+import { addQuotation, getContacts, getContractByQuotationId, getContracts, getDealById, getLeadById, getLeads, getQuotations, getSalesTeams, getTeachers, getTrainingClasses, getTransactions, updateContract, updateQuotation, upsertLinkedContractFromQuotation } from '../utils/storage';
 import { useAuth } from '../contexts/AuthContext';
-import { confirmSale, lockQuotationAfterAccounting } from '../services/financeFlow.service';
+import { approveQuotationCancelApproval, confirmSale, lockQuotationAfterAccounting, requestQuotationCancelApproval } from '../services/financeFlow.service';
+import { ensureStudentProfilesFromQuotation } from '../services/enrollmentFlow.service';
 import {
   DEFAULT_QUOTATION_RECEIPT_TYPE,
   normalizeQuotationReceiptType,
   QUOTATION_RECEIPT_TYPE_OPTIONS
 } from '../utils/quotationReceiptType';
+import {
+  formatServicePaymentPlanNote,
+  resolveServicePaymentPlan
+} from '../utils/servicePaymentPlans';
 import ClassCodeLookupInput from '../components/ClassCodeLookupInput';
 import { buildTrainingClassLookupOptions } from '../utils/trainingClassLookup';
+import LogAudienceFilterControl from '../components/LogAudienceFilter';
+import { filterByLogAudience, getQuotationLogAudience, LogAudienceFilter } from '../utils/logAudience';
 
 const SERVICES = [
   { id: 'StudyAbroad', name: 'Du học' },
@@ -30,10 +37,12 @@ const PRODUCTS = [
 ];
 
 const STATUS_STEPS = [
-  { id: QuotationStatus.DRAFT, label: 'Mới' },
-  { id: QuotationStatus.SENT, label: 'Đã gửi' },
-  { id: QuotationStatus.SALE_CONFIRMED, label: 'Confirm' },
-  { id: QuotationStatus.LOCKED, label: 'Lock' }
+  { id: 'draft', label: 'Nháp' },
+  { id: 'sent', label: 'Đã gửi' },
+  { id: 'sale_order', label: 'SO' },
+  { id: 'in_progress', label: 'Đang thực hiện' },
+  { id: 'stopped', label: 'Dừng' },
+  { id: 'completed', label: 'Hoàn tất' }
 ] as const;
 
 const DEFAULT_CONTRACT_TEMPLATE_NAME = 'Mẫu hợp đồng đào tạo';
@@ -45,7 +54,7 @@ const CONTRACT_FIELD_CONFIG = [
   { key: 'identityCard', label: 'CCCD học sinh', placeholder: 'Số CCCD học sinh' }
 ] as const;
 
-type QuotationTab = 'order_lines' | 'other_info' | 'contract';
+type QuotationTab = 'order_lines' | 'other_info' | 'contract' | 'payment_debt';
 
 type ContractDraftState = {
   templateName: string;
@@ -82,6 +91,23 @@ type CreatorOrderDraft = {
   unitPrice: number;
   discountPercent: number;
   additionalInfo: string;
+  paymentSchedule: IQuotationPaymentScheduleTerm[];
+};
+
+type PaymentDebtCollectionStatus = 'CHUA_DEN' | 'CAN_XU_LY' | 'THU_1_PHAN' | 'HOAN_TAT';
+
+const PAYMENT_DEBT_STATUS_LABELS: Record<PaymentDebtCollectionStatus, string> = {
+  CHUA_DEN: 'Chưa đến',
+  CAN_XU_LY: 'Cần xử lý',
+  THU_1_PHAN: 'Thu 1 phần',
+  HOAN_TAT: 'Hoàn tất'
+};
+
+const PAYMENT_DEBT_STATUS_STYLES: Record<PaymentDebtCollectionStatus, string> = {
+  CHUA_DEN: 'bg-slate-100 text-slate-600',
+  CAN_XU_LY: 'bg-[#fef3c7] text-[#78350f]',
+  THU_1_PHAN: 'bg-[#dbeafe] text-[#1d4ed8]',
+  HOAN_TAT: 'bg-[#dcfce7] text-[#166534]'
 };
 
 type CustomerOption = {
@@ -246,6 +272,7 @@ const formatDisplayDate = (value?: string) => {
 };
 
 const formatCurrency = (value?: number) => `${(value || 0).toLocaleString('vi-VN')} đ`;
+const formatCurrencyValue = (value?: number) => `${(value || 0).toLocaleString('vi-VN')}`;
 const toNumberOrZero = (value: number | string | undefined) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -265,26 +292,114 @@ const isImageAttachment = (value: string) =>
 const getCatalogByProduct = (productName: string) =>
   ORDER_LINE_CATALOG.find((item) => item.product === productName);
 
+const getPrimaryCatalogByServicePackage = (
+  market?: CreatorMarket | '',
+  servicePackage?: CreatorServicePackage | ''
+) =>
+  ORDER_LINE_CATALOG.find(
+    (item) => item.market === market && item.servicePackage === servicePackage
+  );
+
+const getServicePackageFromServiceType = (serviceType?: IQuotation['serviceType']): CreatorServicePackage =>
+  serviceType === 'StudyAbroad' ? 'Du học' : serviceType === 'Combo' ? 'Combo' : 'Đào tạo';
+
+const calculateOrderDraftLineTotal = (unitPrice: number, discountPercent: number) =>
+  Math.max(0, Math.round((Number(unitPrice) || 0) * (1 - (Number(discountPercent) || 0) / 100)));
+
+const buildPaymentScheduleFromPlan = (
+  plan: ReturnType<typeof resolveServicePaymentPlan>
+): IQuotationPaymentScheduleTerm[] =>
+  plan?.steps.map((step, index) => ({
+    id: `payment-step-${index + 1}`,
+    termNo: index + 1,
+    installmentLabel: step.installmentLabel,
+    condition: step.condition,
+    amount: step.amount,
+    expectedDate: '',
+    dueDate: ''
+  })) || [];
+
+const buildPaymentScheduleFallback = (amount: number): IQuotationPaymentScheduleTerm[] => [
+  {
+    id: 'payment-step-1',
+    termNo: 1,
+    installmentLabel: 'Lần 1',
+    condition: 'Theo thỏa thuận',
+    amount: Math.max(0, Math.round(Number(amount) || 0)),
+    expectedDate: '',
+    dueDate: ''
+  }
+];
+
+const normalizePaymentSchedule = (
+  schedule: IQuotationPaymentScheduleTerm[] | undefined,
+  fallbackAmount: number
+): IQuotationPaymentScheduleTerm[] => {
+  if (!Array.isArray(schedule) || schedule.length === 0) {
+    return buildPaymentScheduleFallback(fallbackAmount);
+  }
+
+  return schedule.map((item, index) => ({
+    id: item.id || `payment-step-${index + 1}`,
+    termNo: Number(item.termNo || index + 1),
+    installmentLabel: item.installmentLabel || `Lần ${index + 1}`,
+    condition: item.condition || '',
+    amount: Math.max(0, Math.round(Number(item.amount) || 0)),
+    expectedDate: item.expectedDate || '',
+    dueDate: item.dueDate || ''
+  }));
+};
+
+const formatPaymentScheduleNote = (schedule: IQuotationPaymentScheduleTerm[]) =>
+  schedule
+    .map(
+      (item) =>
+        `${item.installmentLabel}: ${item.condition || 'Theo thỏa thuận'} - ${Math.max(0, Math.round(Number(item.amount) || 0)).toLocaleString('vi-VN')} đ`
+    )
+    .join('\n');
+
 const createOrderDraft = (
   formData: Partial<IQuotation>,
   base?: Partial<CreatorOrderDraft>,
   lineItem?: IQuotationLineItem
-): CreatorOrderDraft => ({
-  id: lineItem?.id || base?.id || `line-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-  productId: lineItem?.productId || base?.productId,
-  productName: lineItem?.name || base?.productName || '',
-  studentName: lineItem?.studentName || base?.studentName || formData.customerName || '',
-  studentDob: toInputDate(lineItem?.studentDob || base?.studentDob || formData.studentDob),
-  testerId: lineItem?.testerId || base?.testerId || '',
-  courseName: lineItem?.courseName || base?.courseName || '',
-  targetMarket: (lineItem?.targetMarket as CreatorMarket) || base?.targetMarket || (formData.targetCountry as CreatorMarket) || '',
-  servicePackage: (lineItem?.servicePackage as CreatorServicePackage) || base?.servicePackage || '',
-  programs: Array.isArray(lineItem?.programs) ? lineItem.programs : base?.programs || [],
-  classId: lineItem?.classId || base?.classId || '',
-  unitPrice: lineItem?.unitPrice || base?.unitPrice || 0,
-  discountPercent: lineItem?.discount || base?.discountPercent || 0,
-  additionalInfo: lineItem?.additionalInfo || base?.additionalInfo || ''
-});
+): CreatorOrderDraft => {
+  const targetMarket =
+    (lineItem?.targetMarket as CreatorMarket) ||
+    base?.targetMarket ||
+    (formData.targetCountry as CreatorMarket) ||
+    '';
+  const servicePackage =
+    (lineItem?.servicePackage as CreatorServicePackage) ||
+    base?.servicePackage ||
+    getServicePackageFromServiceType(formData.serviceType);
+  const unitPrice = lineItem?.unitPrice || base?.unitPrice || 0;
+  const discountPercent = lineItem?.discount || base?.discountPercent || 0;
+  const lineTotal = calculateOrderDraftLineTotal(unitPrice, discountPercent);
+  const defaultPlan = resolveServicePaymentPlan(targetMarket, servicePackage, lineTotal);
+  const fallbackSchedule = defaultPlan ? buildPaymentScheduleFromPlan(defaultPlan) : buildPaymentScheduleFallback(lineTotal);
+
+  const existingSchedule = (lineItem?.paymentSchedule as IQuotationPaymentScheduleTerm[] | undefined) || base?.paymentSchedule;
+
+  return {
+    id: lineItem?.id || base?.id || `line-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    productId: lineItem?.productId || base?.productId,
+    productName: lineItem?.name || base?.productName || '',
+    studentName: lineItem?.studentName || base?.studentName || formData.customerName || '',
+    studentDob: toInputDate(lineItem?.studentDob || base?.studentDob || formData.studentDob),
+    testerId: lineItem?.testerId || base?.testerId || '',
+    courseName: lineItem?.courseName || base?.courseName || '',
+    targetMarket,
+    servicePackage,
+    programs: Array.isArray(lineItem?.programs) ? lineItem.programs : base?.programs || [],
+    classId: lineItem?.classId || base?.classId || '',
+    unitPrice,
+    discountPercent,
+    additionalInfo: lineItem?.additionalInfo || base?.additionalInfo || '',
+    paymentSchedule: existingSchedule && existingSchedule.length > 0
+      ? normalizePaymentSchedule(existingSchedule, lineTotal)
+      : fallbackSchedule
+  };
+};
 
 const getPrimaryQuotationStudentName = (quotation?: Partial<IQuotation> | null) => {
   const lineItems = Array.isArray(quotation?.lineItems) ? quotation.lineItems : [];
@@ -424,6 +539,7 @@ const QuotationDetails: React.FC = () => {
     templateFields: {}
   });
   const [logNoteContent, setLogNoteContent] = useState('');
+  const [logAudienceFilter, setLogAudienceFilter] = useState<LogAudienceFilter>('ALL');
   const [pendingLogAttachments, setPendingLogAttachments] = useState<string[]>([]);
   const logAttachmentInputRef = useRef<HTMLInputElement | null>(null);
   const programDropdownRef = useRef<HTMLDivElement | null>(null);
@@ -436,10 +552,14 @@ const QuotationDetails: React.FC = () => {
     amount: 0,
     discount: 0,
     finalAmount: 0,
+    refundAmount: 0,
+    paymentMethod: 'CK',
     expirationDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
     pricelist: '[Center 11] Base Price (VND)',
     orderMode: DEFAULT_QUOTATION_RECEIPT_TYPE,
     needInvoice: false,
+    createdBy: user?.id || 'system',
+    salespersonName: user?.name || 'Tôi',
     createdAt: new Date().toISOString(),
     quotationDate: new Date().toISOString()
   });
@@ -449,10 +569,35 @@ const QuotationDetails: React.FC = () => {
   }));
 
   useEffect(() => {
-    if (initialTab === 'order_lines' || initialTab === 'other_info' || initialTab === 'contract') {
+    if (initialTab === 'order_lines' || initialTab === 'other_info' || initialTab === 'contract' || initialTab === 'payment_debt') {
       setActiveTab(initialTab);
     }
   }, [initialTab]);
+
+  useEffect(() => {
+    if (!formData.id) return;
+
+    const syncRefundAmountFromQuotation = () => {
+      const latestQuotation = getQuotations().find((quotation) => quotation.id === formData.id);
+      if (!latestQuotation) return;
+
+      setFormData((prev) => {
+        const nextRefundAmount = Math.max(0, Number(latestQuotation.refundAmount) || 0);
+        if (Math.max(0, Number(prev.refundAmount) || 0) === nextRefundAmount) {
+          return prev;
+        }
+
+        return {
+          ...prev,
+          refundAmount: nextRefundAmount
+        };
+      });
+    };
+
+    syncRefundAmountFromQuotation();
+    window.addEventListener('educrm:quotations-changed', syncRefundAmountFromQuotation as EventListener);
+    return () => window.removeEventListener('educrm:quotations-changed', syncRefundAmountFromQuotation as EventListener);
+  }, [formData.id]);
 
   useEffect(() => {
     if (!programDropdownOpen) return;
@@ -482,6 +627,34 @@ const QuotationDetails: React.FC = () => {
 
   const loadClassCodeOptions = () =>
     buildTrainingClassLookupOptions([...getTrainingClasses(), ...CREATOR_CLASS_FALLBACKS]);
+
+  const salesOwnerOptions = useMemo(() => {
+    const options = new Map<string, { id: string; name: string }>();
+
+    if (user?.id && user?.name) {
+      options.set(user.id, { id: user.id, name: user.name });
+    }
+
+    getSalesTeams().forEach((team) => {
+      team.members.forEach((member) => {
+        if (!member.userId || !member.name) return;
+        options.set(member.userId, { id: member.userId, name: member.name });
+      });
+    });
+
+    return Array.from(options.values());
+  }, [user?.id, user?.name]);
+
+  useEffect(() => {
+    if (!isNew) return;
+
+    setFormData((prev) => ({
+      ...prev,
+      paymentMethod: 'CK',
+      createdBy: user?.id || 'system',
+      salespersonName: user?.name || 'Tôi'
+    }));
+  }, [isNew, user?.id, user?.name]);
 
   useEffect(() => {
     if (isNew) {
@@ -630,14 +803,26 @@ const QuotationDetails: React.FC = () => {
 
   const isLocked = formData.status === QuotationStatus.LOCKED;
   const userRole = user?.role as UserRole | undefined;
+  const cancelRequestStatus = formData.cancelRequestStatus || 'NONE';
+  const hasPendingCancelRequest = cancelRequestStatus === 'CHO_DUYET';
   const canConfirmByRole = [UserRole.SALES_REP, UserRole.SALES_LEADER, UserRole.ADMIN, UserRole.FOUNDER].includes(userRole || UserRole.SALES_REP);
   const canLockByRole = userRole === UserRole.ACCOUNTANT;
+  const canCancelByRole = userRole === UserRole.ACCOUNTANT;
+  const canApproveCancelByRole = userRole === UserRole.ADMIN || userRole === UserRole.FOUNDER;
   const canLockByTransaction = formData.transactionStatus === 'DA_DUYET';
   const canConfirmNow = !isLocked && (formData.status === QuotationStatus.DRAFT || formData.status === QuotationStatus.SENT);
   const canLockStage = !isLocked && (formData.status === QuotationStatus.SALE_CONFIRMED || formData.status === QuotationStatus.SALE_ORDER);
-  const canLockNow = canLockStage && canLockByRole && canLockByTransaction;
+  const canCancelNow =
+    canLockStage &&
+    canCancelByRole &&
+    formData.transactionStatus !== 'DA_DUYET' &&
+    cancelRequestStatus !== 'CHO_DUYET';
+  const canApproveCancelNow = hasPendingCancelRequest && canApproveCancelByRole;
+  const canLockNow = canLockStage && canLockByRole && canLockByTransaction && !hasPendingCancelRequest;
   const lockButtonTitle = !canLockStage
     ? 'Cần Confirm trước khi Lock'
+    : hasPendingCancelRequest
+      ? 'SO đang có yêu cầu hủy chờ duyệt'
     : !canLockByRole
       ? 'Chỉ Kế toán được khóa SO'
       : !canLockByTransaction
@@ -645,12 +830,147 @@ const QuotationDetails: React.FC = () => {
         : 'Khóa SO';
   const normalizedStatus =
     formData.status === QuotationStatus.SALE_ORDER ? QuotationStatus.SALE_CONFIRMED : formData.status;
-  const recordStatusLabel = normalizedStatus === QuotationStatus.LOCKED ? 'Locked' : 'Quotation';
+  const workflowPaymentMetrics = useMemo(() => {
+    const fallbackServicePackage =
+      formData.serviceType === 'StudyAbroad'
+        ? 'Du học'
+        : formData.serviceType === 'Combo'
+          ? 'Combo'
+          : 'Đào tạo';
 
-  const stepIndex = useMemo(() => {
-    const steps = [QuotationStatus.DRAFT, QuotationStatus.SENT, QuotationStatus.SALE_CONFIRMED, QuotationStatus.LOCKED];
-    return steps.indexOf(normalizedStatus as QuotationStatus);
-  }, [normalizedStatus]);
+    const sourceLineItems: IQuotationLineItem[] =
+      creatorLineItems.length > 0
+        ? creatorLineItems
+        : Array.isArray(formData.lineItems) && formData.lineItems.length > 0
+          ? formData.lineItems
+          : [
+              {
+                id: 'workflow-fallback-line',
+                name: formData.product || '',
+                quantity: 1,
+                unitPrice: toNumberOrZero(formData.finalAmount || formData.amount),
+                discount: 0,
+                total: toNumberOrZero(formData.finalAmount || formData.amount),
+                servicePackage: formData.lineItems?.[0]?.servicePackage || fallbackServicePackage,
+                targetMarket: formData.lineItems?.[0]?.targetMarket || formData.targetCountry
+              }
+            ];
+
+    let totalDue = 0;
+    let firstInstallmentDue = 0;
+    let installmentCount = 0;
+
+    sourceLineItems.forEach((item) => {
+      const discountPercent = Math.max(0, toNumberOrZero(item.discount));
+      const lineTotal =
+        Math.max(0, toNumberOrZero(item.total)) ||
+        Math.max(0, Math.round(toNumberOrZero(item.unitPrice) * (1 - discountPercent / 100)));
+
+      totalDue += lineTotal;
+
+      const resolvedPlan = resolveServicePaymentPlan(
+        item.targetMarket || formData.targetCountry,
+        item.servicePackage || fallbackServicePackage,
+        lineTotal
+      );
+
+      if (resolvedPlan && resolvedPlan.steps.length > 0) {
+        firstInstallmentDue += resolvedPlan.steps[0].amount;
+        installmentCount += resolvedPlan.steps.length;
+        return;
+      }
+
+      firstInstallmentDue += lineTotal;
+      installmentCount += 1;
+    });
+
+    const approvedPayments = formData.id
+      ? getTransactions().filter(
+          (transaction) => transaction.quotationId === formData.id && transaction.status === 'DA_DUYET'
+        )
+      : [];
+    const totalPaid = approvedPayments.reduce((sum, transaction) => sum + toNumberOrZero(transaction.amount), 0);
+
+    return {
+      totalDue: Math.max(totalDue, toNumberOrZero(formData.finalAmount || formData.amount)),
+      firstInstallmentDue: Math.max(0, firstInstallmentDue || totalDue || toNumberOrZero(formData.finalAmount || formData.amount)),
+      installmentCount: Math.max(installmentCount, 1),
+      totalPaid
+    };
+  }, [
+    creatorLineItems,
+    formData.amount,
+    formData.finalAmount,
+    formData.id,
+    formData.lineItems,
+    formData.product,
+    formData.serviceType,
+    formData.targetCountry
+  ]);
+  const workflowStatusId = useMemo(() => {
+    const { firstInstallmentDue, installmentCount, totalDue, totalPaid } = workflowPaymentMetrics;
+
+    if (cancelRequestStatus === 'DA_DUYET') {
+      return 'stopped';
+    }
+
+    if (totalDue > 0 && totalPaid >= totalDue) {
+      return 'completed';
+    }
+
+    if (
+      linkedContract?.status === ContractStatus.COMPLETED ||
+      formData.serviceProcessStatus === 'PROCESSED' ||
+      formData.serviceProcessStatus === 'DEPARTED'
+    ) {
+      return 'completed';
+    }
+
+    if (
+      normalizedStatus === QuotationStatus.SALE_CONFIRMED ||
+      formData.status === QuotationStatus.LOCKED ||
+      linkedContract?.status === ContractStatus.SIGNED ||
+      linkedContract?.status === ContractStatus.ACTIVE
+    ) {
+      if (firstInstallmentDue > 0 && totalPaid >= firstInstallmentDue) {
+        return installmentCount <= 1 ? 'completed' : 'in_progress';
+      }
+
+      return 'sale_order';
+    }
+
+    if (normalizedStatus === QuotationStatus.SENT) {
+      return 'sent';
+    }
+
+    return 'draft';
+  }, [cancelRequestStatus, formData.serviceProcessStatus, formData.status, linkedContract?.status, normalizedStatus, workflowPaymentMetrics]);
+
+  const recordStatusLabel = useMemo(() => {
+    const current = STATUS_STEPS.find((step) => step.id === workflowStatusId);
+    return current?.label || 'Nháp';
+  }, [workflowStatusId]);
+
+  const stepIndex = useMemo(
+    () => STATUS_STEPS.findIndex((step) => step.id === workflowStatusId),
+    [workflowStatusId]
+  );
+
+  useEffect(() => {
+    if (!formData.id) return;
+    if (workflowStatusId !== 'in_progress' && workflowStatusId !== 'completed') return;
+    if ((formData.studentIds && formData.studentIds.length > 0) || formData.studentId) return;
+
+    const students = ensureStudentProfilesFromQuotation(formData.id);
+    if (!students.length) return;
+
+    const nextStudentIds = students.map((student) => student.id);
+    setFormData((prev) => ({
+      ...prev,
+      studentId: nextStudentIds[0] || prev.studentId,
+      studentIds: nextStudentIds
+    }));
+  }, [formData.id, formData.studentId, formData.studentIds, workflowStatusId]);
 
   const derivedContractFields = useMemo(
     () => ({
@@ -853,6 +1173,7 @@ const QuotationDetails: React.FC = () => {
       paymentProof: formData.paymentProof,
       orderMode: normalizeQuotationReceiptType(formData.orderMode),
       createdBy: formData.createdBy || user?.id || 'system',
+      salespersonName: formData.salespersonName || user?.name || 'Tôi',
       updatedAt: now,
       status: nextStatus,
       id: formData.id || `Q-${Date.now()}`,
@@ -967,15 +1288,53 @@ const QuotationDetails: React.FC = () => {
     alert('Đã khóa đơn hàng và tạo hồ sơ học viên');
   };
 
-  const handleStageClick = (stepId: QuotationStatus) => {
+  const handleRequestCancel = () => {
+    if (!formData.id) {
+      alert('Cần lưu SO trước khi gửi yêu cầu hủy');
+      return;
+    }
+
+    const res = requestQuotationCancelApproval(formData.id, user?.id || 'system', userRole);
+    if (!res.ok || !res.quotation) {
+      alert(res.error || 'Không thể gửi yêu cầu hủy');
+      return;
+    }
+
+    setFormData({
+      ...res.quotation,
+      orderMode: normalizeQuotationReceiptType(res.quotation.orderMode)
+    });
+    alert('Đã gửi yêu cầu hủy. SO đang chờ Admin duyệt');
+  };
+
+  const handleApproveCancel = () => {
+    if (!formData.id) {
+      alert('Không tìm thấy SO để duyệt hủy');
+      return;
+    }
+
+    const res = approveQuotationCancelApproval(formData.id, user?.id || 'system', userRole);
+    if (!res.ok || !res.quotation) {
+      alert(res.error || 'Không thể duyệt hủy SO');
+      return;
+    }
+
+    setFormData({
+      ...res.quotation,
+      orderMode: normalizeQuotationReceiptType(res.quotation.orderMode)
+    });
+    alert('Admin đã duyệt hủy. SO được chuyển về trạng thái Đã gửi');
+  };
+
+  const handleStageClick = (stepId: (typeof STATUS_STEPS)[number]['id']) => {
     if (isLocked) return;
 
-    if (stepId === QuotationStatus.SENT && formData.status === QuotationStatus.DRAFT) {
+    if (stepId === 'sent' && formData.status === QuotationStatus.DRAFT) {
       handleSend();
       return;
     }
 
-    if (stepId === QuotationStatus.SALE_CONFIRMED && formData.status !== QuotationStatus.LOCKED) {
+    if (stepId === 'sale_order' && formData.status !== QuotationStatus.LOCKED) {
       if (!canConfirmByRole) {
         alert('Chỉ Sales được xác nhận Sale');
         return;
@@ -984,7 +1343,7 @@ const QuotationDetails: React.FC = () => {
       return;
     }
 
-    if (stepId === QuotationStatus.LOCKED) {
+    if (stepId === 'in_progress') {
       if (!canLockByRole) {
         alert('Chỉ Kế toán được khóa SO');
         return;
@@ -993,28 +1352,40 @@ const QuotationDetails: React.FC = () => {
         alert('Cần kế toán duyệt giao dịch trước khi khóa SO');
         return;
       }
+      if (hasPendingCancelRequest) {
+        alert('SO đang có yêu cầu hủy chờ duyệt');
+        return;
+      }
       handleLock();
     }
   };
 
-  const getStepInteraction = (stepId: QuotationStatus) => {
-    if (isLocked) return { clickable: false, title: 'SO đã khóa' };
-    if (stepId === QuotationStatus.SENT) {
+  const getStepInteraction = (stepId: (typeof STATUS_STEPS)[number]['id']) => {
+    if (stepId === 'draft') return { clickable: false, title: 'Bước khởi tạo' };
+    if (stepId === 'sent') {
       return {
         clickable: formData.status === QuotationStatus.DRAFT,
         title: formData.status === QuotationStatus.DRAFT ? 'Chuyển SO sang Đã gửi' : 'Đã qua bước gửi báo giá'
       };
     }
-    if (stepId === QuotationStatus.SALE_CONFIRMED) {
+    if (stepId === 'sale_order') {
       return {
         clickable: canConfirmByRole && formData.status !== QuotationStatus.LOCKED,
         title: canConfirmByRole ? 'Mở bước Confirm Sale' : 'Chỉ Sales được xác nhận Sale'
       };
     }
-    if (stepId === QuotationStatus.LOCKED) {
+    if (stepId === 'in_progress') {
       if (!canLockByRole) return { clickable: false, title: 'Chỉ Kế toán được khóa SO (trong SO hoặc màn hình giao dịch)' };
+      if (hasPendingCancelRequest) return { clickable: false, title: 'SO đang có yêu cầu hủy chờ duyệt' };
       if (!canLockByTransaction) return { clickable: false, title: 'Cần giao dịch được duyệt trước' };
-      return { clickable: true, title: 'Khóa SO' };
+      if (isLocked) return { clickable: false, title: 'SO đã ở trạng thái đang thực hiện' };
+      return { clickable: true, title: 'Chuyển SO sang Đang thực hiện' };
+    }
+    if (stepId === 'stopped') {
+      return { clickable: false, title: 'Bước dừng xử lý' };
+    }
+    if (stepId === 'completed') {
+      return { clickable: false, title: 'Bước hoàn tất' };
     }
     return { clickable: false, title: 'Bước khởi tạo' };
   };
@@ -1062,26 +1433,13 @@ const QuotationDetails: React.FC = () => {
 
   const handleOrderDraftServiceChange = (servicePackage: CreatorServicePackage | '') => {
     setProgramDropdownOpen(false);
+    const catalog = getPrimaryCatalogByServicePackage(orderLineDraft.targetMarket, servicePackage);
     setOrderLineDraft((prev) => ({
       ...prev,
       servicePackage,
-      productId: undefined,
-      productName: '',
-      courseName: '',
-      programs: [],
-      classId: '',
-      unitPrice: 0
-    }));
-  };
-
-  const handleOrderDraftProductChange = (productName: string) => {
-    const catalog = getCatalogByProduct(productName);
-    setProgramDropdownOpen(false);
-    setOrderLineDraft((prev) => ({
-      ...prev,
       productId: catalog?.id,
-      productName,
-      courseName: catalog?.courseOptions[0] || '',
+      productName: catalog?.product || servicePackage,
+      courseName: '',
       programs: [],
       classId: '',
       unitPrice: catalog?.defaultPrice || 0
@@ -1098,6 +1456,24 @@ const QuotationDetails: React.FC = () => {
     }));
   };
 
+  const handleOrderDraftPaymentScheduleChange = (
+    rowId: string,
+    field: keyof Pick<IQuotationPaymentScheduleTerm, 'installmentLabel' | 'condition' | 'amount' | 'expectedDate' | 'dueDate'>,
+    value: string
+  ) => {
+    setOrderLineDraft((prev) => ({
+      ...prev,
+      paymentSchedule: prev.paymentSchedule.map((row) =>
+        row.id !== rowId
+          ? row
+          : {
+              ...row,
+              [field]: field === 'amount' ? Math.max(0, Math.round(Number(value) || 0)) : value
+            }
+      )
+    }));
+  };
+
   const handleRemoveOrderLine = () => {
     if (editingCreatorLineId) {
       setCreatorLineItems((prev) => prev.filter((item) => item.id !== editingCreatorLineId));
@@ -1106,34 +1482,33 @@ const QuotationDetails: React.FC = () => {
   };
 
   const handleSaveOrderLine = (mode: 'close' | 'new') => {
-    if (!orderLineDraft.productName || !orderLineDraft.studentName || !orderLineDraft.targetMarket || !orderLineDraft.servicePackage) {
-      alert('Vui lòng nhập đủ sản phẩm, tên học sinh, thị trường mục tiêu và gói dịch vụ.');
+    if (!orderLineDraft.studentName || !orderLineDraft.targetMarket || !orderLineDraft.servicePackage) {
+      alert('Vui lòng nhập đủ tên học sinh, thị trường mục tiêu và gói dịch vụ.');
       return;
     }
 
-    const selectedTester = getTeachers().find((teacher) => teacher.id === orderLineDraft.testerId);
     const selectedClass = [...getTrainingClasses(), ...CREATOR_CLASS_FALLBACKS].find((item) => item.id === orderLineDraft.classId);
     const total = calculateCreatorLineTotal(orderLineDraft.unitPrice, orderLineDraft.discountPercent);
+    const paymentSchedule = normalizePaymentSchedule(orderLineDraft.paymentSchedule, total);
+    const pricingNote = formatPaymentScheduleNote(paymentSchedule);
 
     const nextLineItem: IQuotationLineItem = {
       id: editingCreatorLineId || orderLineDraft.id,
       productId: orderLineDraft.productId,
-      name: orderLineDraft.productName,
+      name: orderLineDraft.productName || orderLineDraft.servicePackage,
       quantity: 1,
       unitPrice: orderLineDraft.unitPrice,
       discount: orderLineDraft.discountPercent,
       total,
       studentName: orderLineDraft.studentName,
       studentDob: fromInputDate(orderLineDraft.studentDob, formData.studentDob),
-      testerId: orderLineDraft.testerId || undefined,
-      testerName: selectedTester?.fullName,
-      courseName: orderLineDraft.courseName || undefined,
       targetMarket: orderLineDraft.targetMarket || undefined,
       servicePackage: orderLineDraft.servicePackage || undefined,
       programs: orderLineDraft.programs,
       classId: orderLineDraft.classId || undefined,
       className: selectedClass?.name,
-      additionalInfo: orderLineDraft.additionalInfo || undefined
+      additionalInfo: orderLineDraft.additionalInfo || undefined,
+      paymentSchedule
     };
 
     setCreatorLineItems((prev) =>
@@ -1141,6 +1516,9 @@ const QuotationDetails: React.FC = () => {
         ? prev.map((item) => (item.id === editingCreatorLineId ? nextLineItem : item))
         : [...prev, nextLineItem]
     );
+    if (pricingNote) {
+      setFormData((prev) => ({ ...prev, pricingNote }));
+    }
 
     if (mode === 'new') {
       setEditingCreatorLineId(null);
@@ -1174,11 +1552,6 @@ const QuotationDetails: React.FC = () => {
   };
 
   const handleConfirmCreatorQuotation = () => {
-    if (!formData.paymentMethod) {
-      alert('Phương thức thanh toán là bắt buộc trước khi xác nhận.');
-      return;
-    }
-
     const savedQuotation = persistQuotation({
       nextStatus: QuotationStatus.SALE_ORDER,
       syncContract: false
@@ -1277,27 +1650,9 @@ const QuotationDetails: React.FC = () => {
     );
   }, [orderLineDraft.servicePackage, orderLineDraft.targetMarket]);
 
-  const availableCourseOptions = useMemo(() => {
-    const productCatalog = availableProducts.find((item) => item.product === orderLineDraft.productName);
-    if (productCatalog) return productCatalog.courseOptions;
-    return Array.from(new Set(availableProducts.flatMap((item) => item.courseOptions)));
-  }, [availableProducts, orderLineDraft.productName]);
-
   const availableProgramOptions = useMemo(() => {
-    const productCatalog = availableProducts.find((item) => item.product === orderLineDraft.productName);
-    if (productCatalog) return productCatalog.programOptions;
     return Array.from(new Set(availableProducts.flatMap((item) => item.programOptions)));
-  }, [availableProducts, orderLineDraft.productName]);
-
-  const availableTesterOptions = useMemo(() => {
-    if (!orderLineDraft.targetMarket) return creatorTeachers;
-    return creatorTeachers.filter((teacher) => {
-      if (orderLineDraft.targetMarket === 'Đức') {
-        return teacher.teachSubjects.includes('German') || teacher.teachLevels.some((level) => /A|B/i.test(level));
-      }
-      return teacher.teachSubjects.includes('Chinese') || teacher.teachLevels.some((level) => /HSK/i.test(level));
-    });
-  }, [creatorTeachers, orderLineDraft.targetMarket]);
+  }, [availableProducts]);
 
   const availableClassOptions = useMemo(() => {
     if (!orderLineDraft.targetMarket) return creatorClasses;
@@ -1321,6 +1676,15 @@ const QuotationDetails: React.FC = () => {
   );
 
   const creatorGrandTotal = creatorSubtotal;
+  const resolvedOrderPaymentPlan = useMemo(
+    () =>
+      resolveServicePaymentPlan(
+        orderLineDraft.targetMarket,
+        orderLineDraft.servicePackage,
+        calculateOrderDraftLineTotal(orderLineDraft.unitPrice, orderLineDraft.discountPercent)
+      ),
+    [orderLineDraft.discountPercent, orderLineDraft.servicePackage, orderLineDraft.targetMarket, orderLineDraft.unitPrice]
+  );
   const quotationServicePackageSummary = useMemo(() => {
     const packageNames = Array.from(
       new Set(
@@ -1342,15 +1706,13 @@ const QuotationDetails: React.FC = () => {
       { label: 'Khách hàng', value: formData.customerName || '-', wide: false },
       { label: 'SĐT khách hàng', value: formData.studentPhone || '-', wide: false },
       { label: 'Gói dịch vụ', value: quotationServicePackageSummary || '-', wide: false },
-      { label: 'Địa chỉ khách hàng', value: formData.studentAddress || '-', wide: true },
-      { label: 'Chính sách bán', value: formData.pricelist || '-', wide: false },
+      { label: 'Địa chỉ khách hàng', value: formData.studentAddress || '-', wide: false },
       { label: 'Ngày hết hạn báo giá', value: formatDisplayDate(formData.expirationDate) || '-', wide: false },
       { label: 'Giá tiền', value: quotationAmountDisplay, wide: false }
     ],
     [
       formData.customerName,
       formData.expirationDate,
-      formData.pricelist,
       formData.studentAddress,
       formData.studentPhone,
       quotationAmountDisplay,
@@ -1380,6 +1742,40 @@ const QuotationDetails: React.FC = () => {
       }
     ];
   }, [creatorLineItems, formData, productOptions]);
+
+  useEffect(() => {
+    setOrderLineDraft((prev) => {
+      if (!prev.targetMarket || !prev.servicePackage) {
+        if (prev.paymentSchedule.length === 0) return prev;
+        return { ...prev, paymentSchedule: [] };
+      }
+
+      const fallbackAmount = calculateOrderDraftLineTotal(prev.unitPrice, prev.discountPercent);
+      const templateSchedule = resolvedOrderPaymentPlan
+        ? buildPaymentScheduleFromPlan(resolvedOrderPaymentPlan)
+        : buildPaymentScheduleFallback(fallbackAmount);
+      const mergedSchedule = templateSchedule.map((step, index) => {
+        const existing = prev.paymentSchedule[index];
+        return {
+          ...step,
+          id: existing?.id || step.id,
+          installmentLabel: existing?.installmentLabel || step.installmentLabel,
+          condition: existing?.condition || step.condition,
+          expectedDate: existing?.expectedDate || '',
+          dueDate: existing?.dueDate || ''
+        };
+      });
+
+      if (JSON.stringify(mergedSchedule) === JSON.stringify(prev.paymentSchedule)) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        paymentSchedule: mergedSchedule
+      };
+    });
+  }, [resolvedOrderPaymentPlan]);
 
   const syncEditableOrderLineItems = (nextItems: IQuotationLineItem[]) => {
     const normalizedItems = nextItems.map((item, index) => {
@@ -1424,9 +1820,135 @@ const QuotationDetails: React.FC = () => {
     }));
   };
 
+  const paymentDebtRows = useMemo(() => {
+    const totalPaid = formData.id
+      ? getTransactions()
+          .filter((transaction) => transaction.quotationId === formData.id && transaction.status === 'DA_DUYET')
+          .reduce((sum, transaction) => sum + toNumberOrZero(transaction.amount), 0)
+      : 0;
+
+    let paidPool = totalPaid;
+    const rows = editableOrderLineItems.flatMap((item, itemIndex) => {
+      const lineTotal = Math.max(0, toNumberOrZero(item.total) || calculateOrderDraftLineTotal(item.unitPrice || 0, item.discount || 0));
+      const schedule = normalizePaymentSchedule(item.paymentSchedule, lineTotal);
+
+      return schedule.map((term, termIndex) => {
+        const mustCollect = Math.max(0, toNumberOrZero(term.amount));
+        const paidAmount = Math.min(mustCollect, Math.max(paidPool, 0));
+        paidPool = Math.max(paidPool - paidAmount, 0);
+        const remainingAmount = Math.max(mustCollect - paidAmount, 0);
+        const dueTimestamp = term.dueDate ? new Date(term.dueDate).getTime() : Number.NaN;
+
+        let status: PaymentDebtCollectionStatus = 'CAN_XU_LY';
+        if (remainingAmount <= 0) status = 'HOAN_TAT';
+        else if (paidAmount > 0) status = 'THU_1_PHAN';
+        else if (!Number.isNaN(dueTimestamp) && dueTimestamp > Date.now()) status = 'CHUA_DEN';
+
+        return {
+          id: `${item.id}-${term.id || termIndex + 1}`,
+          lineLabel: item.name || item.servicePackage || `Dòng ${itemIndex + 1}`,
+          installmentLabel: term.installmentLabel || `Lần ${term.termNo || termIndex + 1}`,
+          condition: term.condition || '-',
+          mustCollect,
+          remainingAmount,
+          status,
+          expectedDate: term.expectedDate,
+          dueDate: term.dueDate
+        };
+      });
+    });
+
+    return {
+      rows,
+      totalPaid,
+      totalMustCollect: rows.reduce((sum, row) => sum + row.mustCollect, 0),
+      totalRemaining: rows.reduce((sum, row) => sum + row.remainingAmount, 0)
+    };
+  }, [editableOrderLineItems, formData.id]);
+
+  const approvedRefundAmount = Math.max(0, toNumberOrZero(formData.refundAmount));
+  const totalMustCollectAmount = Math.max(paymentDebtRows.totalMustCollect, toNumberOrZero(formData.finalAmount || formData.amount));
+  const totalApprovedCollectedAmount = paymentDebtRows.totalPaid;
+  const actualNetAmount = Math.max(0, totalMustCollectAmount - totalApprovedCollectedAmount - approvedRefundAmount);
+
+  const paymentDebtSection = (
+    <div className="space-y-2">
+      <div className="bg-white">
+        <div className="border-b border-slate-100 px-3 py-2">
+          <div>
+            <div className="text-sm font-semibold text-slate-900">Thanh toán & công nợ</div>
+            <div className="text-[11px] text-slate-500">Danh sách công nợ theo lộ trình đóng phí đã nhập trên SO.</div>
+          </div>
+        </div>
+
+        {paymentDebtRows.rows.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[1180px] text-left">
+              <colgroup>
+                <col className="w-[25%]" />
+                <col className="w-[8%]" />
+                <col className="w-[26%]" />
+                <col className="w-[10%]" />
+                <col className="w-[10%]" />
+                <col className="w-[10%]" />
+                <col className="w-[5.5%]" />
+                <col className="w-[5.5%]" />
+              </colgroup>
+              <thead className="bg-slate-50">
+                <tr>
+                  <th className="whitespace-nowrap px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.04em] text-slate-500">Gói dịch vụ</th>
+                  <th className="whitespace-nowrap px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.04em] text-slate-500">Đợt thu</th>
+                  <th className="whitespace-nowrap px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.04em] text-slate-500">Điều kiện đóng</th>
+                  <th className="whitespace-nowrap px-3 py-1.5 text-right text-[11px] font-bold uppercase tracking-[0.04em] text-slate-500">Phải thu</th>
+                  <th className="whitespace-nowrap px-3 py-1.5 text-right text-[11px] font-bold uppercase tracking-[0.04em] text-slate-500">Còn thiếu</th>
+                  <th className="whitespace-nowrap px-3 py-1.5 text-center text-[11px] font-bold uppercase tracking-[0.04em] text-slate-500">Trạng thái</th>
+                  <th className="whitespace-nowrap px-3 py-1.5 text-center text-[11px] font-bold uppercase tracking-[0.04em] text-slate-500">Thời gian dự kiến</th>
+                  <th className="whitespace-nowrap px-3 py-1.5 text-center text-[11px] font-bold uppercase tracking-[0.04em] text-slate-500">Thời gian cần đóng</th>
+                </tr>
+              </thead>
+              <tbody>
+                {paymentDebtRows.rows.map((row) => (
+                  <tr key={row.id} className="border-b border-slate-50 last:border-b-0">
+                    <td className="whitespace-nowrap px-3 py-1 align-top text-[13px] font-medium text-slate-800">{row.lineLabel}</td>
+                    <td className="whitespace-nowrap px-3 py-1 align-top text-[12px] text-slate-700">{row.installmentLabel}</td>
+                    <td className="whitespace-nowrap px-3 py-1 align-top text-[12px] text-slate-600">{row.condition || '-'}</td>
+                    <td className="whitespace-nowrap px-3 py-1 align-top text-right text-[12px] font-semibold text-slate-800">{formatCurrencyValue(row.mustCollect)}</td>
+                    <td className="whitespace-nowrap px-3 py-1 align-top text-right text-[12px] font-semibold text-amber-700">{formatCurrencyValue(row.remainingAmount)}</td>
+                    <td className="whitespace-nowrap px-3 py-1 align-top text-center">
+                      <span className={`inline-flex rounded-sm px-1.5 py-0.5 text-[10px] font-semibold ${PAYMENT_DEBT_STATUS_STYLES[row.status]}`}>
+                        {PAYMENT_DEBT_STATUS_LABELS[row.status]}
+                      </span>
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-1 align-top text-center text-[12px] text-slate-600">{formatDisplayDate(row.expectedDate) || '-'}</td>
+                    <td className="whitespace-nowrap px-3 py-1 align-top text-center text-[12px] text-slate-600">{formatDisplayDate(row.dueDate) || '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot className="bg-slate-50">
+                <tr className="border-t border-slate-100">
+                  <td className="whitespace-nowrap px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.04em] text-slate-500" colSpan={3}>
+                    Tổng
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-1.5 text-right text-[12px] font-bold text-slate-900">{formatCurrencyValue(paymentDebtRows.totalMustCollect)}</td>
+                  <td className="whitespace-nowrap px-3 py-1.5 text-right text-[12px] font-bold text-amber-700">{formatCurrencyValue(paymentDebtRows.totalRemaining)}</td>
+                  <td className="whitespace-nowrap px-3 py-1.5 text-center text-[11px] text-slate-500">Đã thu: {formatCurrencyValue(paymentDebtRows.totalPaid)}</td>
+                  <td className="px-3 py-1.5" colSpan={2} />
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        ) : (
+          <div className="px-4 py-10 text-center text-sm text-slate-500">
+            Chưa có lộ trình đóng phí để hiển thị công nợ.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
   const handleEditableOrderLineChange = (
     lineId: string,
-    field: 'name' | 'studentName' | 'studentDob' | 'courseName' | 'unitPrice' | 'additionalInfo',
+    field: 'name' | 'studentName' | 'studentDob' | 'servicePackage' | 'courseName' | 'unitPrice' | 'discount' | 'additionalInfo',
     value: string
   ) => {
     const nextItems = editableOrderLineItems.map((item) => {
@@ -1438,6 +1960,15 @@ const QuotationDetails: React.FC = () => {
           ...item,
           unitPrice,
           total: Math.max(0, unitPrice * (item.quantity || 1) * (1 - (item.discount || 0) / 100))
+        };
+      }
+
+      if (field === 'discount') {
+        const discount = Math.min(100, Math.max(0, toNumberOrZero(value)));
+        return {
+          ...item,
+          discount,
+          total: Math.max(0, (item.unitPrice || 0) * (item.quantity || 1) * (1 - discount / 100))
         };
       }
 
@@ -1453,48 +1984,10 @@ const QuotationDetails: React.FC = () => {
   const newQuotationView = isNew ? (
       <div className="min-h-screen bg-slate-100 p-4 md:p-6 text-sm text-slate-800">
         <div className="mx-auto max-w-7xl">
-          <div className="mb-4 flex items-center gap-2 text-slate-500">
-            <button onClick={() => navigate('/contracts/quotations')} className="hover:text-blue-600">Báo giá</button>
-            <ChevronRight size={14} />
-            <span className="font-semibold text-slate-900">Mới</span>
-          </div>
-
-          <div className="overflow-hidden rounded-lg border bg-white shadow-sm">
-            <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-6 py-2">
-              <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
-                <span>Quy trình</span>
-                <ChevronRight size={14} />
-                <span>[Center-2]Groupclass</span>
-                <ChevronRight size={14} />
-                <span className="font-bold text-slate-900">Mới</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <button onClick={handleSaveCreatorDraft} className="flex items-center gap-2 rounded bg-blue-600 px-5 py-1.5 text-xs font-bold uppercase text-white shadow-sm hover:bg-blue-700">
-                  <Save size={14} /> Lưu
-                </button>
-                <button onClick={() => navigate('/contracts/quotations')} className="rounded border border-slate-300 bg-white px-5 py-1.5 text-xs font-bold uppercase text-slate-600 shadow-sm hover:bg-slate-50">
-                  Bỏ qua
-                </button>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-2">
-              <div className="flex gap-2">
-                <button onClick={handleCreateCreatorQuotation} className="rounded bg-[#2b5a83] px-3 py-1 text-[10px] font-bold uppercase text-white shadow-sm transition-colors hover:bg-[#1f4463]">
-                  Tạo báo giá
-                </button>
-                <button onClick={handlePrintCreatorQuotation} className="rounded border border-slate-300 px-3 py-1 text-[10px] font-bold uppercase text-slate-600 transition-colors hover:bg-slate-50">
-                  In
-                </button>
-                <button onClick={handleConfirmCreatorQuotation} className="rounded border border-slate-300 px-3 py-1 text-[10px] font-bold uppercase text-slate-600 transition-colors hover:bg-slate-50">
-                  Xác nhận
-                </button>
-                <button onClick={handleCancelCreatorQuotation} className="rounded border border-slate-300 px-3 py-1 text-[10px] font-bold uppercase text-slate-600 transition-colors hover:bg-slate-50">
-                  Hủy
-                </button>
-              </div>
-
-              <div className="flex h-8">
+        <div className="overflow-hidden rounded-lg border bg-white shadow-sm">
+            <div className="border-b border-slate-200 bg-white px-6 py-2">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex h-8">
                 <div className="flex items-center">
                   <div className={`rounded-l-md border border-slate-200 px-5 py-1.5 text-[10px] font-extrabold uppercase ${quotationCreatorWorkflowStatus === 'draft' ? 'bg-blue-50 text-[#2b5a83]' : 'bg-white text-slate-400'}`}>Báo giá</div>
                   <div className="relative h-full w-[16px] overflow-hidden">
@@ -1513,6 +2006,16 @@ const QuotationDetails: React.FC = () => {
                 {quotationCreatorWorkflowStatus === 'cancelled' && (
                   <div className="ml-2 rounded-md border border-red-200 bg-red-50 px-3 py-1.5 text-[10px] font-bold uppercase text-red-600">Đã hủy</div>
                 )}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button onClick={handleCreateCreatorQuotation} className="rounded bg-blue-600 px-5 py-1.5 text-xs font-bold uppercase text-white shadow-sm hover:bg-blue-700">
+                    Tạo
+                  </button>
+                  <button onClick={() => navigate('/contracts/quotations')} className="flex h-8 w-8 items-center justify-center rounded border border-slate-300 bg-white text-slate-600 shadow-sm hover:bg-slate-50">
+                    <X size={14} />
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -1577,25 +2080,24 @@ const QuotationDetails: React.FC = () => {
                     </div>
 
                     <div className="flex min-h-[32px] items-center">
-                      <label className="w-40 text-[13px] font-bold text-slate-700">Phương thức thanh toán</label>
+                      <label className="w-40 text-[13px] font-bold text-slate-700">Sale phụ trách</label>
                       <select
-                        className={`flex-1 rounded border px-3 py-1.5 text-[13px] outline-none transition-colors ${formData.paymentMethod ? 'border-slate-300 bg-blue-50 focus:border-blue-500' : 'border-red-300 bg-blue-50 focus:border-red-500'}`}
-                        value={formData.paymentMethod === 'CASH' ? 'Tiền mặt' : formData.paymentMethod === 'CK' ? 'Chuyển khoản' : ''}
-                        onChange={(e) =>
+                        className="flex-1 rounded border border-slate-300 bg-blue-50 px-3 py-1.5 text-[13px] outline-none transition-colors focus:border-blue-500"
+                        value={formData.createdBy || user?.id || ''}
+                        onChange={(e) => {
+                          const selectedSale = salesOwnerOptions.find((option) => option.id === e.target.value);
                           setFormData((prev) => ({
                             ...prev,
-                            paymentMethod: e.target.value === 'Tiền mặt' ? 'CASH' : e.target.value === 'Chuyển khoản' ? 'CK' : undefined
-                          }))
-                        }
+                            createdBy: e.target.value,
+                            salespersonName: selectedSale?.name || prev.salespersonName || ''
+                          }));
+                        }}
                       >
-                        <option value="">-- Chọn phương thức --</option>
-                        <option value="Tiền mặt">Tiền mặt</option>
-                        <option value="Chuyển khoản">Chuyển khoản</option>
+                        {salesOwnerOptions.map((option) => (
+                          <option key={option.id} value={option.id}>{option.name}</option>
+                        ))}
                       </select>
                     </div>
-                    {!formData.paymentMethod && (
-                      <div className="pl-40 text-[11px] font-bold text-red-600">* Bắt buộc chọn trước khi xác nhận đơn hàng</div>
-                    )}
                   </div>
 
                   <div className="space-y-4">
@@ -1610,35 +2112,6 @@ const QuotationDetails: React.FC = () => {
                         />
                       </div>
                     </div>
-
-                    <div className="flex min-h-[32px] items-center">
-                      <label className="w-[148px] text-[13px] font-bold text-slate-700">Chính sách giá</label>
-                      <div className="flex-1">
-                        <select
-                          className="w-full rounded border border-slate-300 bg-blue-50 px-3 py-1.5 text-[13px] outline-none transition-colors focus:border-blue-500"
-                          value={formData.pricelist || '[Center 11] Base Price (VND)'}
-                          onChange={(e) => setFormData((prev) => ({ ...prev, pricelist: e.target.value }))}
-                        >
-                          <option value="[Center 11] Base Price (VND)">[Center 11] Base Price (VND)</option>
-                          <option value="VIP Pricelist">VIP Pricelist</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    <div className="flex min-h-[32px] items-center">
-                      <label className="w-[148px] text-[13px] font-bold text-slate-700">Loại phiếu thu</label>
-                      <div className="flex-1">
-                        <select
-                          className="w-full appearance-none rounded border border-slate-300 bg-blue-50 px-3 py-1.5 text-[13px] outline-none transition-colors focus:border-blue-500"
-                          value={normalizeQuotationReceiptType(formData.orderMode)}
-                          onChange={(e) => setFormData((prev) => ({ ...prev, orderMode: e.target.value }))}
-                        >
-                          {QUOTATION_RECEIPT_TYPE_OPTIONS.map((option) => (
-                            <option key={option.value} value={option.value}>{option.label}</option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
                   </div>
                 </div>
 
@@ -1651,20 +2124,16 @@ const QuotationDetails: React.FC = () => {
                   <div className="overflow-x-auto">
                     <table className="w-full table-fixed border-collapse text-left text-[12px]">
                       <colgroup>
-                        <col className="w-[16%]" />
+                        <col className="w-[19%]" />
+                        <col className="w-[30%]" />
                         <col className="w-[15%]" />
-                        <col className="w-[12%]" />
-                        <col className="w-[27%]" />
-                        <col className="w-[10%]" />
-                        <col className="w-[9%]" />
-                        <col className="w-[11%]" />
+                        <col className="w-[14%]" />
+                        <col className="w-[22%]" />
                       </colgroup>
                       <thead className="bg-[#f8f9fa] font-bold uppercase text-slate-700">
                         <tr className="border-b border-slate-200">
-                          <th className="p-3">Sản phẩm</th>
-                          <th className="p-3">Tên học sinh</th>
-                          <th className="p-3">Ngày sinh</th>
-                          <th className="p-3">Mô tả</th>
+                          <th className="p-3">Gói dịch vụ</th>
+                          <th className="p-3">Chương trình</th>
                           <th className="p-3 text-right">Đơn giá</th>
                           <th className="p-3 text-center">Giảm giá (%)</th>
                           <th className="p-3 text-right">Thành tiền</th>
@@ -1677,35 +2146,33 @@ const QuotationDetails: React.FC = () => {
                             className="cursor-pointer border-b border-slate-100 transition-colors hover:bg-slate-50"
                             onClick={() => openEditOrderLineModal(item.id)}
                           >
-                            <td className="align-top p-3 font-bold text-blue-700">{item.name || '-'}</td>
-                            <td className="align-top p-3 text-slate-900">{item.studentName || formData.customerName || customerQuery || '-'}</td>
-                            <td className="align-top p-3 text-slate-600">{item.studentDob ? formatDisplayDate(item.studentDob) : '--/--/----'}</td>
+                            <td className="align-top p-3 text-slate-700">{item.servicePackage || '-'}</td>
                             <td className="align-top p-3 text-slate-500">
                               <div className="text-[11px] leading-5">
                                 <div className="font-semibold text-slate-700">
-                                  {[item.targetMarket, item.servicePackage, item.courseName].filter(Boolean).join(' • ') || '-'}
+                                  {item.programs?.length ? item.programs.join(', ') : item.courseName || '-'}
                                 </div>
-                                {item.testerName && (
+                                {item.courseName && item.programs?.length ? (
+                                  <div>
+                                    <span className="font-semibold text-slate-500">Khóa học:</span> {item.courseName}
+                                  </div>
+                                ) : null}
+                                {item.testerName ? (
                                   <div>
                                     <span className="font-semibold text-slate-500">Tester:</span> {item.testerName}
                                   </div>
-                                )}
-                                {item.programs?.length ? (
-                                  <div>
-                                    <span className="font-semibold text-slate-500">Chương trình:</span> {item.programs.join(', ')}
-                                  </div>
                                 ) : null}
-                                {item.className && (
+                                {item.className ? (
                                   <div>
                                     <span className="font-semibold text-slate-500">Lớp:</span> {item.className}
                                   </div>
-                                )}
-                                {item.additionalInfo && (
+                                ) : null}
+                                {item.additionalInfo ? (
                                   <div>
                                     <span className="font-semibold text-slate-500">Thông tin thêm:</span> {item.additionalInfo}
                                   </div>
-                                )}
-                                {!item.testerName && !item.programs?.length && !item.className && !item.additionalInfo && (
+                                ) : null}
+                                {!item.courseName && !item.programs?.length && !item.testerName && !item.className && !item.additionalInfo && (
                                   <div className="italic text-slate-400">Không có thông tin thêm</div>
                                 )}
                               </div>
@@ -1716,7 +2183,7 @@ const QuotationDetails: React.FC = () => {
                           </tr>
                         ))}
                         <tr className="bg-slate-50/30">
-                          <td colSpan={7} className="p-3">
+                          <td colSpan={5} className="p-3">
                             <button onClick={openNewOrderLineModal} className="flex items-center gap-1 font-bold text-blue-600 transition-all hover:underline">
                               <Plus size={14} /> Thêm đơn hàng
                             </button>
@@ -1812,9 +2279,9 @@ const QuotationDetails: React.FC = () => {
                 </div>
 
                 {showOrderLineModal && (
-                  <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
-                    <div className="w-full max-w-5xl rounded-lg bg-white shadow-2xl">
-                      <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+                  <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/50 p-3 backdrop-blur-sm">
+                    <div className="flex max-h-[calc(100vh-1rem)] w-full max-w-5xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl">
+                      <div className="shrink-0 flex items-center justify-between border-b border-slate-200 px-6 py-3">
                         <h3 className="text-lg font-bold text-slate-900">
                           {editingCreatorLineId ? 'Cập nhật đơn hàng' : 'Thêm đơn hàng'}
                         </h3>
@@ -1823,8 +2290,9 @@ const QuotationDetails: React.FC = () => {
                         </button>
                       </div>
 
-                      <div className="grid gap-5 px-6 py-5 md:grid-cols-2">
-                        <div className="space-y-4">
+                      <div className="min-h-0 overflow-y-auto px-6 py-4">
+                        <div className="grid gap-4 md:grid-cols-2">
+                        <div className="min-w-0 space-y-3">
                           <div>
                             <label className="mb-1 block text-xs font-bold uppercase text-slate-600">Tên học sinh</label>
                             <input
@@ -1872,59 +2340,30 @@ const QuotationDetails: React.FC = () => {
                               ))}
                             </select>
                           </div>
-
-                          <div>
-                            <label className="mb-1 block text-xs font-bold uppercase text-slate-600">Sản phẩm</label>
-                            <select
-                              value={orderLineDraft.productName}
-                              onChange={(e) => handleOrderDraftProductChange(e.target.value)}
-                              className="h-10 w-full rounded border border-slate-300 bg-white px-3 text-sm outline-none focus:border-blue-500"
-                            >
-                              <option value="">-- Chọn sản phẩm --</option>
-                              {availableProducts.map((product) => (
-                                <option key={product.id} value={product.product}>{product.product}</option>
-                              ))}
-                            </select>
-                          </div>
-
                         </div>
 
-                        <div className="space-y-4">
-                          <div>
-                            <label className="mb-1 block text-xs font-bold uppercase text-slate-600">Khóa học</label>
-                            <select
-                              value={orderLineDraft.courseName}
-                              onChange={(e) => setOrderLineDraft((prev) => ({ ...prev, courseName: e.target.value }))}
-                              className="h-10 w-full rounded border border-slate-300 bg-white px-3 text-sm outline-none focus:border-blue-500"
-                            >
-                              <option value="">-- Chọn khóa học --</option>
-                              {availableCourseOptions.map((course) => (
-                                <option key={course} value={course}>{course}</option>
-                              ))}
-                            </select>
-                          </div>
-
-                          <div ref={programDropdownRef} className="relative">
+                        <div className="min-w-0 space-y-3">
+                          <div ref={programDropdownRef} className="relative min-w-0">
                             <label className="mb-1 block text-xs font-bold uppercase text-slate-600">Chương trình</label>
                             <button
                               type="button"
                               onClick={() => setProgramDropdownOpen((prev) => !prev)}
-                              className="flex min-h-[44px] w-full items-start justify-between gap-3 rounded border border-slate-300 bg-white px-3 py-2 text-left text-sm outline-none transition-colors hover:border-blue-400 focus:border-blue-500"
+                              className="flex h-10 w-full items-center justify-between gap-3 rounded border border-slate-300 bg-white px-3 text-left text-sm outline-none transition-colors hover:border-blue-400 focus:border-blue-500"
                             >
-                              <div className="flex flex-1 flex-wrap gap-2">
+                              <div className="min-w-0 flex flex-1 flex-nowrap items-center gap-2 overflow-hidden">
                                 {orderLineDraft.programs.length > 0 ? (
                                   orderLineDraft.programs.map((program) => (
-                                    <span key={program} className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
+                                    <span key={program} className="shrink-0 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
                                       {program}
                                     </span>
                                   ))
                                 ) : (
-                                  <span className="pt-1 text-sm text-slate-400">
+                                  <span className="truncate text-sm text-slate-400">
                                     -- Chọn chương trình --
                                   </span>
                                 )}
                               </div>
-                              <ChevronDown size={16} className={`mt-1 shrink-0 text-slate-400 transition-transform ${programDropdownOpen ? 'rotate-180' : ''}`} />
+                              <ChevronDown size={16} className={`shrink-0 text-slate-400 transition-transform ${programDropdownOpen ? 'rotate-180' : ''}`} />
                             </button>
 
                             {programDropdownOpen && (
@@ -1966,21 +2405,7 @@ const QuotationDetails: React.FC = () => {
                             </select>
                           </div>
 
-                          <div>
-                            <label className="mb-1 block text-xs font-bold uppercase text-slate-600">Tester</label>
-                            <select
-                              value={orderLineDraft.testerId}
-                              onChange={(e) => setOrderLineDraft((prev) => ({ ...prev, testerId: e.target.value }))}
-                              className="h-10 w-full rounded border border-slate-300 bg-white px-3 text-sm outline-none focus:border-blue-500"
-                            >
-                              <option value="">-- Chọn người cho test --</option>
-                              {availableTesterOptions.map((teacher) => (
-                                <option key={teacher.id} value={teacher.id}>{teacher.fullName}</option>
-                              ))}
-                            </select>
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-3">
                             <div>
                               <label className="mb-1 block text-xs font-bold uppercase text-slate-600">Đơn giá</label>
                               <input
@@ -2005,18 +2430,95 @@ const QuotationDetails: React.FC = () => {
                           </div>
                         </div>
 
-                        <div className="md:col-span-2">
-                          <label className="mb-1 block text-xs font-bold uppercase text-slate-600">Thông tin thêm</label>
-                          <textarea
-                            value={orderLineDraft.additionalInfo}
-                            onChange={(e) => setOrderLineDraft((prev) => ({ ...prev, additionalInfo: e.target.value }))}
-                            className="h-24 w-full resize-none rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500"
-                            placeholder="Nhập ghi chú hoặc yêu cầu đặc biệt..."
-                          />
+                            <div className="md:col-span-2">
+                              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                                <div className="mb-2 flex items-center justify-between">
+                                  <div>
+                                    <div className="text-xs font-bold uppercase tracking-wide text-slate-600">Lộ trình đóng phí</div>
+                                    <div className="text-sm text-slate-500">Mặc định theo cấu hình admin, có thể chỉnh trực tiếp trước khi lưu.</div>
+                                  </div>
+                                </div>
+
+                            {orderLineDraft.paymentSchedule.length > 0 ? (
+                              <div className="overflow-x-auto">
+                                <table className="w-full border-collapse text-left text-sm">
+                                  <thead>
+                                    <tr className="border-b border-slate-200 text-xs font-bold uppercase text-slate-500">
+                                      <th className="py-2 pr-4">Đợt thu</th>
+                                      <th className="py-2 pr-4">Điều kiện đóng</th>
+                                      <th className="py-2 pr-4">Số tiền</th>
+                                      <th className="py-2 pr-4">Thời gian dự kiến</th>
+                                      <th className="py-2">Thời gian cần đóng</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {orderLineDraft.paymentSchedule.map((step) => (
+                                      <tr key={step.id} className="border-b border-slate-100 last:border-b-0">
+                                        <td className="py-2 pr-4 align-top">
+                                          <input
+                                            value={step.installmentLabel}
+                                            onChange={(e) => handleOrderDraftPaymentScheduleChange(step.id, 'installmentLabel', e.target.value)}
+                                            className="h-10 w-full rounded border border-slate-300 bg-white px-3 text-sm outline-none focus:border-blue-500"
+                                          />
+                                        </td>
+                                        <td className="py-2 pr-4 align-top">
+                                          <input
+                                            value={step.condition}
+                                            onChange={(e) => handleOrderDraftPaymentScheduleChange(step.id, 'condition', e.target.value)}
+                                            className="h-10 w-full rounded border border-slate-300 bg-white px-3 text-sm outline-none focus:border-blue-500"
+                                          />
+                                        </td>
+                                        <td className="py-2 pr-4 align-top">
+                                          <input
+                                            type="number"
+                                            min={0}
+                                            value={step.amount}
+                                            onChange={(e) => handleOrderDraftPaymentScheduleChange(step.id, 'amount', e.target.value)}
+                                            className="h-10 w-full rounded border border-slate-300 bg-white px-3 text-sm outline-none focus:border-blue-500"
+                                          />
+                                        </td>
+                                        <td className="py-2 pr-4 align-top">
+                                          <input
+                                            type="date"
+                                            value={toInputDate(step.expectedDate)}
+                                            onChange={(e) => handleOrderDraftPaymentScheduleChange(step.id, 'expectedDate', fromInputDate(e.target.value, step.expectedDate) || '')}
+                                            className="h-10 w-full rounded border border-slate-300 bg-white px-3 text-sm outline-none focus:border-blue-500"
+                                          />
+                                        </td>
+                                        <td className="py-2 align-top">
+                                          <input
+                                            type="date"
+                                            value={toInputDate(step.dueDate)}
+                                            onChange={(e) => handleOrderDraftPaymentScheduleChange(step.id, 'dueDate', fromInputDate(e.target.value, step.dueDate) || '')}
+                                            className="h-10 w-full rounded border border-slate-300 bg-white px-3 text-sm outline-none focus:border-blue-500"
+                                          />
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            ) : (
+                              <div className="rounded border border-dashed border-slate-300 bg-white px-4 py-4 text-sm text-slate-500">
+                                Chọn thị trường và gói dịch vụ để tạo lộ trình đóng phí.
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                          <div className="md:col-span-2">
+                            <label className="mb-1 block text-xs font-bold uppercase text-slate-600">Thông tin thêm</label>
+                            <textarea
+                              value={orderLineDraft.additionalInfo}
+                              onChange={(e) => setOrderLineDraft((prev) => ({ ...prev, additionalInfo: e.target.value }))}
+                              className="h-20 w-full resize-none rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500"
+                              placeholder="Nhập ghi chú hoặc yêu cầu đặc biệt..."
+                            />
+                          </div>
                         </div>
                       </div>
 
-                      <div className="flex items-center justify-between border-t border-slate-200 px-6 py-4">
+                      <div className="shrink-0 flex items-center justify-between border-t border-slate-200 px-6 py-3">
                         <div className="text-sm font-semibold text-slate-600">
                           Thành tiền: <span className="text-base text-blue-700">{calculateCreatorLineTotal(orderLineDraft.unitPrice, orderLineDraft.discountPercent).toLocaleString('vi-VN')} đ</span>
                         </div>
@@ -2188,9 +2690,14 @@ const QuotationDetails: React.FC = () => {
   return fallback;
 }, [formData.createdAt, formData.createdBy, formData.logNotes, formData.paymentProof, formData.saleConfirmedAt, formData.status, formData.updatedAt]);
 
+  const filteredActivityLogs = useMemo(
+    () => filterByLogAudience(activityLogs, logAudienceFilter, getQuotationLogAudience),
+    [activityLogs, logAudienceFilter]
+  );
+
   const groupedActivityLogs = useMemo(() => {
     const groups: Record<string, IQuotationLogNote[]> = {};
-    const sortedLogs = [...activityLogs].sort((a, b) => {
+    const sortedLogs = [...filteredActivityLogs].sort((a, b) => {
       const tsA = Date.parse(a.timestamp || '');
       const tsB = Date.parse(b.timestamp || '');
       return (Number.isNaN(tsB) ? 0 : tsB) - (Number.isNaN(tsA) ? 0 : tsA);
@@ -2203,7 +2710,7 @@ const QuotationDetails: React.FC = () => {
     });
 
     return groups;
-  }, [activityLogs]);
+  }, [filteredActivityLogs]);
 
   if (newQuotationView) return newQuotationView;
 
@@ -2240,6 +2747,18 @@ const QuotationDetails: React.FC = () => {
           .quotation-print-hide { display: none !important; }
           .quotation-screen-only { display: none !important; }
           .quotation-print-only { display: block !important; }
+          .quotation-print-title {
+            margin: 0 0 18px 0;
+            text-align: center;
+          }
+          .quotation-print-title-text {
+            font-size: 28px;
+            line-height: 1.1;
+            font-weight: 800;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+            color: #0f172a;
+          }
           .quotation-print-summary-grid {
             display: grid !important;
             grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -2343,8 +2862,8 @@ const QuotationDetails: React.FC = () => {
           )}
         </div>
 
-        <div className="bg-white border rounded p-2 flex items-center justify-between mb-4 gap-2 flex-wrap">
-          <div className="flex items-center gap-2">
+        <div className="bg-white border rounded p-2 mb-4">
+          <div className="flex items-center gap-2 overflow-x-auto whitespace-nowrap">
             {formData.status === QuotationStatus.DRAFT && (
               <button onClick={handleSend} className="px-3 py-1.5 rounded bg-purple-600 text-white text-xs font-semibold">Gửi Email</button>
             )}
@@ -2356,6 +2875,30 @@ const QuotationDetails: React.FC = () => {
             >
               Confirm
             </button>
+            {(canLockStage || hasPendingCancelRequest || canApproveCancelNow) && (
+              <button
+                onClick={canApproveCancelNow ? handleApproveCancel : handleRequestCancel}
+                disabled={!canCancelNow && !canApproveCancelNow}
+                title={
+                  canApproveCancelNow
+                    ? 'Admin duyệt yêu cầu hủy SO'
+                    : hasPendingCancelRequest
+                      ? 'SO đang chờ Admin duyệt hủy'
+                      : !canCancelByRole
+                        ? 'Chỉ Kế toán được gửi yêu cầu hủy'
+                        : formData.transactionStatus === 'DA_DUYET'
+                          ? 'Giao dịch đã duyệt, không thể gửi yêu cầu hủy ở bước này'
+                          : 'Gửi yêu cầu hủy SO'
+                }
+                className={`px-3 py-1.5 rounded text-xs font-semibold border ${
+                  canApproveCancelNow
+                    ? 'border-amber-300 bg-amber-50 text-amber-700'
+                    : 'border-rose-200 bg-white text-rose-600'
+                } disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400`}
+              >
+                {canApproveCancelNow ? 'Duyệt hủy' : hasPendingCancelRequest ? 'Chờ duyệt' : 'Hủy'}
+              </button>
+            )}
             <button
               onClick={handleLock}
               disabled={!canLockNow}
@@ -2363,6 +2906,12 @@ const QuotationDetails: React.FC = () => {
               className="px-3 py-1.5 rounded border text-xs font-semibold disabled:text-slate-400"
             >
               Lock
+            </button>
+            <button
+              onClick={handlePrintQuotation}
+              className="px-3 py-1.5 rounded bg-blue-600 text-white text-xs font-semibold inline-flex items-center gap-1"
+            >
+              <Printer size={14} /> In báo giá
             </button>
             {canLockStage && (
               <button
@@ -2373,53 +2922,57 @@ const QuotationDetails: React.FC = () => {
                 Giao diện kế toán
               </button>
             )}
-            {formData.status === QuotationStatus.LOCKED && (
-              <button onClick={handlePrintQuotation} className="px-3 py-1.5 rounded bg-blue-600 text-white text-xs font-semibold inline-flex items-center gap-1">
-                <Printer size={14} /> In báo giá
-              </button>
-            )}
+            <span className="px-2 py-1 text-xs font-semibold rounded bg-blue-50 text-blue-700">
+              Trạng thái: {recordStatusLabel}
+            </span>
             {formData.transactionStatus && formData.transactionStatus !== 'NONE' && (
               <span className="px-2 py-1 text-xs border rounded bg-slate-50">Giao dịch: {formData.transactionStatus}</span>
             )}
-            <span className={`px-2 py-1 text-xs font-semibold rounded ${recordStatusLabel === 'Locked' ? 'bg-slate-200 text-slate-800' : 'bg-blue-50 text-blue-700'}`}>
-              Status: {recordStatusLabel}
-            </span>
-          </div>
-
-          <div className="flex items-center border rounded overflow-hidden">
-            {STATUS_STEPS.map((step, idx) => {
-              const { clickable, title } = getStepInteraction(step.id);
-              const isReached = idx <= stepIndex;
-              const isCurrent = normalizedStatus === step.id;
-              return (
-                <button
-                  key={step.id}
-                  type="button"
-                  title={title}
-                  disabled={!clickable}
-                  onClick={() => clickable && handleStageClick(step.id)}
-                  className={`px-3 py-1.5 text-[11px] font-bold uppercase transition-colors ${
-                    isCurrent
-                      ? 'text-blue-700 bg-blue-50'
-                      : isReached
-                        ? 'text-slate-700 bg-white'
-                        : 'text-slate-500 bg-slate-100'
-                  } ${clickable ? 'cursor-pointer hover:bg-blue-50 hover:text-blue-700' : 'cursor-default'}`}
-                >
-                  {step.label}
-                </button>
-              );
-            })}
+            {cancelRequestStatus !== 'NONE' && (
+              <span className="px-2 py-1 text-xs border rounded bg-amber-50 border-amber-200 text-amber-700">
+                Hủy SO: {cancelRequestStatus}
+              </span>
+            )}
+            <div className="ml-auto flex items-center border rounded overflow-hidden">
+              {STATUS_STEPS.map((step, idx) => {
+                const { clickable, title } = getStepInteraction(step.id);
+                const isReached = idx <= stepIndex;
+                const isCurrent = workflowStatusId === step.id;
+                return (
+                  <button
+                    key={step.id}
+                    type="button"
+                    title={title}
+                    disabled={!clickable}
+                    onClick={() => clickable && handleStageClick(step.id)}
+                    className={`px-3 py-1.5 text-[11px] font-bold uppercase transition-colors ${
+                      isCurrent
+                        ? 'text-blue-700 bg-blue-50'
+                        : isReached
+                          ? 'text-slate-700 bg-white'
+                          : 'text-slate-500 bg-slate-100'
+                    } ${clickable ? 'cursor-pointer hover:bg-blue-50 hover:text-blue-700' : 'cursor-default'}`}
+                  >
+                    {step.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_380px] gap-4">
           <div id="quotation-print-root" className="bg-white border rounded p-6">
+            <div className="quotation-print-only">
+              <div className="quotation-print-title">
+                <div className="quotation-print-title-text">BÁO GIÁ</div>
+              </div>
+            </div>
             <div className="flex items-start justify-between mb-6">
               <div>
                 <div className="flex items-center gap-2 mb-2">
                   <h1 className="text-4xl font-bold text-slate-900">{isNew ? 'Báo giá mới' : formData.soCode}</h1>
-                  <span className={`px-2 py-1 text-xs font-semibold rounded ${recordStatusLabel === 'Locked' ? 'bg-slate-200 text-slate-800' : 'bg-blue-50 text-blue-700'}`}>
+                  <span className="px-2 py-1 text-xs font-semibold rounded bg-blue-50 text-blue-700">
                     {recordStatusLabel}
                   </span>
                 </div>
@@ -2514,15 +3067,36 @@ const QuotationDetails: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="text-xs font-bold uppercase text-blue-800">Chính sách bán</label>
+                <label className="text-xs font-bold uppercase text-blue-800">{approvedRefundAmount > 0 ? 'Tổng phải thu' : 'Giá tiền'}</label>
                 <input
-                  className="w-full border-b py-1 outline-none"
-                  value={formData.pricelist || ''}
-                  onChange={(e) => !isLocked && setFormData((p) => ({ ...p, pricelist: e.target.value }))}
-                  disabled={isLocked}
-                  placeholder="VD: [Center 11] Base Price (VND)"
+                  className="w-full border-b py-1 font-semibold text-slate-800 outline-none"
+                  value={quotationAmountDisplay}
+                  readOnly
+                  disabled
                 />
               </div>
+              {approvedRefundAmount > 0 && (
+                <>
+                  <div>
+                    <label className="text-xs font-bold uppercase text-blue-800">Hoàn phí</label>
+                    <input
+                      className="w-full border-b py-1 font-semibold text-amber-700 outline-none"
+                      value={formatCurrency(approvedRefundAmount)}
+                      readOnly
+                      disabled
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold uppercase text-blue-800">Thực thu</label>
+                    <input
+                      className="w-full border-b py-1 font-semibold text-emerald-700 outline-none"
+                      value={formatCurrency(actualNetAmount)}
+                      readOnly
+                      disabled
+                    />
+                  </div>
+                </>
+              )}
               <div>
                 <label className="text-xs font-bold uppercase text-blue-800">Ngày hết hạn báo giá</label>
                 <input
@@ -2541,15 +3115,6 @@ const QuotationDetails: React.FC = () => {
                   onChange={(e) => !isLocked && setFormData((p) => ({ ...p, studentAddress: e.target.value }))}
                   disabled={isLocked}
                   placeholder="Nhập địa chỉ khách hàng"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-bold uppercase text-blue-800">Giá tiền</label>
-                <input
-                  className="w-full border-b py-1 font-semibold text-slate-800 outline-none"
-                  value={quotationAmountDisplay}
-                  readOnly
-                  disabled
                 />
               </div>
             </div>
@@ -2573,6 +3138,7 @@ const QuotationDetails: React.FC = () => {
               <button onClick={() => setActiveTab('order_lines')} className={`pb-2 font-semibold ${activeTab === 'order_lines' ? 'text-blue-700 border-b-2 border-blue-700' : 'text-slate-500'}`}>Chi tiết đơn hàng</button>
               <button onClick={() => setActiveTab('other_info')} className={`pb-2 font-semibold ${activeTab === 'other_info' ? 'text-blue-700 border-b-2 border-blue-700' : 'text-slate-500'}`}>Thông tin khác</button>
               <button onClick={() => setActiveTab('contract')} className={`pb-2 font-semibold inline-flex items-center gap-2 ${activeTab === 'contract' ? 'text-blue-700 border-b-2 border-blue-700' : 'text-slate-500'}`}>Hợp đồng {linkedContract && <FileText size={14} className="text-blue-600" />}</button>
+              <button onClick={() => setActiveTab('payment_debt')} className={`pb-2 font-semibold ${activeTab === 'payment_debt' ? 'text-blue-700 border-b-2 border-blue-700' : 'text-slate-500'}`}>Thanh toán & công nợ</button>
             </div>
 
             {activeTab === 'order_lines' && (
@@ -2581,32 +3147,29 @@ const QuotationDetails: React.FC = () => {
                   <div className="mb-3 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">Chi tiết đơn hàng</div>
                   <table className="quotation-print-table">
                     <colgroup>
-                      <col style={{ width: '19%' }} />
+                      <col style={{ width: '18%' }} />
+                      <col style={{ width: '30%' }} />
                       <col style={{ width: '16%' }} />
                       <col style={{ width: '14%' }} />
-                      <col style={{ width: '24%' }} />
-                      <col style={{ width: '13%' }} />
-                      <col style={{ width: '14%' }} />
+                      <col style={{ width: '22%' }} />
                     </colgroup>
                     <thead>
                       <tr>
-                        <th>Sản phẩm</th>
-                        <th>Học sinh</th>
-                        <th>Ngày sinh</th>
+                        <th>Gói dịch vụ</th>
                         <th>Chương trình</th>
-                        <th className="text-right">Giá đơn hàng</th>
-                        <th>Ghi chú</th>
+                        <th className="text-right">Đơn giá</th>
+                        <th>Giảm giá</th>
+                        <th className="text-right">Thành tiền</th>
                       </tr>
                     </thead>
                     <tbody>
                       {editableOrderLineItems.map((item) => (
                         <tr key={`print-${item.id}`}>
-                          <td>{item.name || '-'}</td>
-                          <td>{item.studentName || '-'}</td>
-                          <td>{formatDisplayDate(item.studentDob) || '-'}</td>
-                          <td>{item.courseName || item.programs?.join(', ') || '-'}</td>
+                          <td>{item.servicePackage || '-'}</td>
+                          <td>{item.programs?.join(', ') || item.courseName || '-'}</td>
                           <td className="text-right">{formatCurrency(item.unitPrice || 0)}</td>
-                          <td>{item.additionalInfo || '-'}</td>
+                          <td>{item.discount || 0}%</td>
+                          <td className="text-right">{formatCurrency(item.total || 0)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -2632,61 +3195,23 @@ const QuotationDetails: React.FC = () => {
                   <table className="w-full text-left text-sm mb-4">
                     <thead>
                       <tr className="border-b-2 border-slate-800 text-xs uppercase">
-                        <th className="py-2">Sản phẩm</th>
-                        <th className="py-2">Học sinh</th>
-                        <th className="py-2">Ngày sinh</th>
+                        <th className="py-2">Gói dịch vụ</th>
                         <th className="py-2">Chương trình</th>
-                        <th className="py-2 text-right">Giá đơn hàng</th>
-                        <th className="py-2">Ghi chú</th>
+                        <th className="py-2 text-right">Đơn giá</th>
+                        <th className="py-2 text-center">Giảm giá</th>
+                        <th className="py-2 text-right">Thành tiền</th>
                       </tr>
                     </thead>
                     <tbody>
                       {editableOrderLineItems.map((item) => (
                         <tr key={item.id}>
                           <td className="py-3 pr-3 align-top">
-                            <select
-                              className="w-full rounded border p-2"
-                              value={item.name || ''}
-                              onChange={(e) => {
-                                if (isLocked) return;
-                                const productName = e.target.value;
-                                const product = productOptions.find((option) => option.name === productName);
-                                const nextUnitPrice = product?.price ?? item.unitPrice;
-                                const nextLine = {
-                                  ...item,
-                                  name: productName,
-                                  productId: product?.id || item.productId,
-                                  unitPrice: nextUnitPrice,
-                                  total: Math.max(0, nextUnitPrice * (item.quantity || 1) * (1 - (item.discount || 0) / 100))
-                                };
-                                syncEditableOrderLineItems(
-                                  editableOrderLineItems.map((currentItem) => (currentItem.id === item.id ? nextLine : currentItem))
-                                );
-                              }}
-                              disabled={isLocked}
-                            >
-                              <option value="">-- Chọn sản phẩm --</option>
-                              {productOptions.map((product) => (
-                                <option key={product.id} value={product.name}>{product.name}</option>
-                              ))}
-                            </select>
-                          </td>
-                          <td className="py-3 pr-3 align-top">
                             <input
                               className="w-full rounded border p-2"
-                              value={item.studentName || ''}
-                              onChange={(e) => !isLocked && handleEditableOrderLineChange(item.id, 'studentName', e.target.value)}
+                              value={item.servicePackage || ''}
+                              onChange={(e) => !isLocked && handleEditableOrderLineChange(item.id, 'servicePackage', e.target.value)}
                               disabled={isLocked}
-                              placeholder="Tên học sinh"
-                            />
-                          </td>
-                          <td className="py-3 pr-3 align-top">
-                            <input
-                              type="date"
-                              className="w-full rounded border p-2"
-                              value={toInputDate(item.studentDob)}
-                              onChange={(e) => !isLocked && handleEditableOrderLineChange(item.id, 'studentDob', fromInputDate(e.target.value, item.studentDob) || '')}
-                              disabled={isLocked}
+                              placeholder="Gói dịch vụ"
                             />
                           </td>
                           <td className="py-3 pr-3 align-top">
@@ -2709,14 +3234,22 @@ const QuotationDetails: React.FC = () => {
                               placeholder="0"
                             />
                           </td>
-                          <td className="py-3 align-top">
+                          <td className="py-3 pr-3 align-top">
                             <input
-                              className="w-full rounded border p-2"
-                              value={item.additionalInfo || ''}
-                              onChange={(e) => !isLocked && handleEditableOrderLineChange(item.id, 'additionalInfo', e.target.value)}
+                              type="number"
+                              min="0"
+                              max="100"
+                              className="w-full rounded border p-2 text-center"
+                              value={item.discount || 0}
+                              onChange={(e) => !isLocked && handleEditableOrderLineChange(item.id, 'discount', e.target.value)}
                               disabled={isLocked}
-                              placeholder="Ghi chú"
+                              placeholder="0"
                             />
+                          </td>
+                          <td className="py-3 align-top">
+                            <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-right font-semibold text-slate-700">
+                              {formatCurrency(item.total || 0)}
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -2736,7 +3269,7 @@ const QuotationDetails: React.FC = () => {
               <div className="grid md:grid-cols-2 gap-8">
                 <div className="space-y-3">
                   <h3 className="font-bold text-sm uppercase border-b pb-2">Thông tin sales</h3>
-                  <div className="flex justify-between"><span>Người phụ trách</span><span className="font-medium text-blue-700">{user?.name || 'Sales Rep'}</span></div>
+                  <div className="flex justify-between"><span>Người phụ trách</span><span className="font-medium text-blue-700">{formData.salespersonName || user?.name || 'Sales Rep'}</span></div>
                   <div className="flex justify-between"><span>Đội nhóm</span><span>Sales Team 1</span></div>
                   <div className="flex justify-between items-center">
                     <span>Chi nhánh</span>
@@ -2909,15 +3442,21 @@ const QuotationDetails: React.FC = () => {
                       <button type="button" onClick={handleSaveContractDraft} className="inline-flex items-center gap-2 rounded bg-blue-600 px-4 py-2 text-xs font-semibold text-white">
                         <Save size={14} /> Lưu contract riêng
                       </button>
-                      {formData.status === QuotationStatus.LOCKED && (
+                      {formData.id && (
                         <button type="button" onClick={() => navigate(`/contracts/quotations/${formData.id}/contract`)} className="inline-flex items-center gap-2 rounded border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700">
                           <Printer size={14} /> Xem bản in
                         </button>
                       )}
                     </div>
+
+                    <div className="pt-2">
+                      {paymentDebtSection}
+                    </div>
                 </div>
               </div>
             )}
+
+            {activeTab === 'payment_debt' && paymentDebtSection}
           </div>
 
           <div className="h-fit overflow-hidden rounded border bg-white xl:sticky xl:top-4">
@@ -2998,8 +3537,13 @@ const QuotationDetails: React.FC = () => {
             </div>
 
             <div className="max-h-[560px] overflow-auto p-4">
-              {isNew && activityLogs.length === 0 ? (
+              <div className="mb-4 flex flex-wrap items-center justify-end gap-3">
+                <LogAudienceFilterControl value={logAudienceFilter} onChange={setLogAudienceFilter} />
+              </div>
+              {isNew && filteredActivityLogs.length === 0 ? (
                 <div className="text-sm text-slate-500">Đang tạo báo giá mới...</div>
+              ) : Object.keys(groupedActivityLogs).length === 0 ? (
+                <div className="text-sm text-slate-500">Chưa có log note phù hợp bộ lọc.</div>
               ) : (
                 <div className="space-y-6">
                   {Object.entries(groupedActivityLogs).map(([date, logs]) => (
