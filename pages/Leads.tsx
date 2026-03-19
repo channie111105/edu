@@ -460,12 +460,10 @@ const Leads: React.FC = () => {
     'email',
     'phone',
     'salesperson',
-    'campaign',
     'source',
     'tags',
     'product',
-    'status',
-    'referredBy'
+    'status'
   ]);
 
   const ALL_COLUMNS = [
@@ -1845,43 +1843,44 @@ const Leads: React.FC = () => {
 
     if (normalizedStatus === STANDARD_LEAD_STATUS.LOST) {
       return {
-        label: 'M?t',
+        label: 'Mất',
         className: 'border-rose-200 bg-rose-50 text-rose-700'
       };
     }
 
     if (normalizedStatus === STANDARD_LEAD_STATUS.UNVERIFIED) {
       return {
-        label: 'Kh?ng x?c th?c',
+        label: 'Không xác thực',
         className: 'border-amber-200 bg-amber-50 text-amber-700'
       };
     }
 
     if (!lead.ownerId) {
       return {
-        label: 'M?i',
+        label: 'Mới',
         className: 'border-[#e4e7ec] bg-[#f8fafc] text-slate-600'
       };
     }
 
     if ([STANDARD_LEAD_STATUS.NEW, STANDARD_LEAD_STATUS.ASSIGNED].includes(normalizedStatus)) {
       return {
-        label: '?? chia',
+        label: 'Đã chia',
         className: 'border-[#d7e3f4] bg-[#eef4fb] text-[#4f6b8a]'
       };
     }
 
     return {
-      label: '?ang x? l?',
+      label: 'Đang xử lý',
       className: 'border-[#d9e7df] bg-[#edf6f1] text-[#55756a]'
     };
   };
 
-  const compactHeaderCellClass = 'whitespace-nowrap border-b border-[#f1f5f9] px-2 py-1.5 text-left text-[10px] font-bold uppercase tracking-[0.08em] text-[#7b8794]';
+  const compactHeaderCellClass = 'border-b border-[#f1f5f9] px-2 py-1.5 text-left text-[10px] font-bold uppercase tracking-[0.06em] text-[#7b8794]';
   const compactBodyCellClass = 'whitespace-nowrap px-2 py-1 align-middle text-[12px] text-slate-700';
   const compactMetaCellClass = 'whitespace-nowrap px-2 py-1 align-middle text-[12px] text-slate-600';
   const flatRibbonButtonClass = 'inline-flex items-center gap-1 rounded-sm border border-transparent px-2 py-1 text-[11px] font-semibold text-slate-700 transition-colors hover:border-[#d8dee8] hover:bg-white hover:text-slate-900';
   const compactToolbarButtonClass = 'inline-flex items-center gap-1 rounded-sm border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900';
+  const leadTableColSpan = visibleColumns.length + 1;
 
   return decodeMojibakeReactNode(
     <>
@@ -2686,7 +2685,7 @@ const Leads: React.FC = () => {
                 )}
               </div>
               <div className="overflow-x-auto">
-              <table className="w-full border-collapse text-left">
+              <table className="w-full table-fixed border-collapse text-left">
                 <thead className="sticky top-0 z-10 bg-[#fafbfc]">
                   <tr>
                     <th className={`${compactHeaderCellClass} w-8 text-center`}>
@@ -2717,7 +2716,7 @@ const Leads: React.FC = () => {
                 </thead>
                 <tbody className="divide-y divide-[#f1f5f9]">
                   {filteredLeads.length === 0 ? (
-                    <tr><td colSpan={9} className="px-3 py-4 text-center text-[12px] text-slate-400">No data available</td></tr>
+                    <tr><td colSpan={leadTableColSpan} className="px-3 py-4 text-center text-[12px] text-slate-400">No data available</td></tr>
                   ) : (
                     filteredLeads.map(lead => {
                       // Helper: Find next activity
@@ -2754,12 +2753,12 @@ const Leads: React.FC = () => {
                           )}
 
                           {visibleColumns.includes('contact') && (
-                            <td className={`${compactBodyCellClass} max-w-[180px] overflow-hidden text-[13px] font-bold text-slate-900`} title={lead.name}>
+                            <td className={`${compactBodyCellClass} max-w-[150px] overflow-hidden text-[13px] font-bold text-slate-900`} title={lead.name}>
                               <span className="block truncate">{lead.name}</span>
                             </td>
                           )}
-                          {visibleColumns.includes('company') && <td className={`${compactMetaCellClass} max-w-[120px] truncate`} title={(lead as any).company}>{(lead as any).company || '-'}</td>}
-                          {visibleColumns.includes('email') && <td className={`${compactMetaCellClass} max-w-[140px] truncate`} title={lead.email}>{lead.email || '-'}</td>}
+                          {visibleColumns.includes('company') && <td className={`${compactMetaCellClass} max-w-[96px] truncate`} title={(lead as any).company}>{(lead as any).company || '-'}</td>}
+                          {visibleColumns.includes('email') && <td className={`${compactMetaCellClass} max-w-[124px] truncate`} title={lead.email}>{lead.email || '-'}</td>}
                           {visibleColumns.includes('phone') && <td className={`${compactBodyCellClass} text-right font-semibold text-slate-700`}>{lead.phone || '-'}</td>}
                           {visibleColumns.includes('salesperson') && (
                             <td className={compactBodyCellClass}>
@@ -2777,14 +2776,14 @@ const Leads: React.FC = () => {
                           )}
 
                           {visibleColumns.includes('campaign') && (
-                            <td className={`${compactBodyCellClass} max-w-[180px] overflow-hidden`} title={lead.marketingData?.campaign || (lead as any).campaign || '-'}>
+                            <td className={`${compactBodyCellClass} max-w-[120px] overflow-hidden`} title={lead.marketingData?.campaign || (lead as any).campaign || '-'}>
                               <span className="block truncate">{lead.marketingData?.campaign || (lead as any).campaign || '-'}</span>
                             </td>
                           )}
                           {visibleColumns.includes('source') && (
                             <td className={compactBodyCellClass}>
                               <span
-                                className="inline-flex max-w-[160px] items-center rounded-sm border border-teal-100 bg-teal-50/70 px-1.5 py-0 text-[10px] font-semibold text-teal-700"
+                                className="inline-flex max-w-[96px] items-center rounded-sm border border-teal-100 bg-teal-50/70 px-1.5 py-0 text-[10px] font-semibold text-teal-700"
                                 onClick={(e) => handleClickableField(e, 'source', 'Nguá»“n', lead.source, 'bg-teal-100 text-teal-700')}
                                 title={lead.source}
                               >
@@ -2810,7 +2809,7 @@ const Leads: React.FC = () => {
                             );
                           })()}</td>}
                           {visibleColumns.includes('market') && <td className={`${compactMetaCellClass} max-w-[110px] truncate`}>{(lead as any).marketingData?.market || '-'}</td>}
-                          {visibleColumns.includes('product') && <td className={`${compactMetaCellClass} max-w-[140px] truncate`} title={lead.program || (lead as any).product}>{(lead as any).product || lead.program || '-'}</td>}
+                          {visibleColumns.includes('product') && <td className={`${compactMetaCellClass} max-w-[120px] truncate`} title={lead.program || (lead as any).product}>{(lead as any).product || lead.program || '-'}</td>}
 
                           {/* Next Activity */}
                           {visibleColumns.includes('nextActivity') && (
@@ -2856,14 +2855,14 @@ const Leads: React.FC = () => {
                             </td>
                           )}
 
-                          {visibleColumns.includes('referredBy') && <td className={`${compactMetaCellClass} max-w-[110px] truncate`}>{(lead as any).referredBy || '-'}</td>}
+                          {visibleColumns.includes('referredBy') && <td className={`${compactMetaCellClass} max-w-[90px] truncate`}>{(lead as any).referredBy || '-'}</td>}
 
                           {visibleColumns.includes('status') && (
                             <td className="px-2 py-1 text-center align-middle">
                               {(() => {
                                 const allocationStatus = getAllocationStatusMeta(lead);
                                 return (
-                                  <span className={`inline-flex rounded-sm border px-1.5 py-0 text-[10px] font-semibold ${allocationStatus.className}`}>
+                                  <span className={`inline-flex max-w-[78px] justify-center rounded-sm border px-1.5 py-0 text-[10px] font-semibold ${allocationStatus.className}`}>
                                     {allocationStatus.label}
                                   </span>
                                 );

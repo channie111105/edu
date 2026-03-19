@@ -23,7 +23,7 @@ export const LEAD_STATUS_LABELS: Record<LeadStatusKey, string> = {
   [LEAD_STATUS_KEYS.ASSIGNED]: 'Đã phân bổ',
   [LEAD_STATUS_KEYS.PICKED]: 'Đã nhận',
   [LEAD_STATUS_KEYS.CONTACTED]: 'Đang chăm sóc',
-  [LEAD_STATUS_KEYS.CONVERTED]: 'Đã converted',
+  [LEAD_STATUS_KEYS.CONVERTED]: 'Đã chuyển đổi',
   [LEAD_STATUS_KEYS.NURTURING]: 'Nuôi dưỡng',
   [LEAD_STATUS_KEYS.UNVERIFIED]: 'Không xác thực',
   [LEAD_STATUS_KEYS.LOST]: 'Mất',
