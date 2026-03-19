@@ -1,5 +1,5 @@
 ﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Calendar, Check, Columns3, FileText, Filter, History, Pencil, Rows3, UploadCloud } from 'lucide-react';
+import { ArrowLeft, Calendar, Check, Columns3, FileText, Filter, History, Rows3, UploadCloud } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import {
@@ -65,6 +65,8 @@ type TransactionFormState = {
   date: string;
   note: string;
 };
+
+type MoneyOutModalAction = 'VIEW' | 'PROCESS' | 'ATTACH';
 
 type MoneyOutRow = {
   actual: IActualTransaction;
@@ -649,12 +651,82 @@ const ApprovalStageBadge: React.FC<{ stage: ApprovalStage; requiresCeoApproval: 
   return <span className={`inline-flex rounded-full px-3 py-1 text-xs font-bold whitespace-nowrap ${meta[stage].tone}`}>{meta[stage].label}</span>;
 };
 
-const ReadonlyField: React.FC<{ label: string; value: React.ReactNode }> = ({ label, value }) => (
-  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
-    <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">{label}</div>
-    <div className="mt-1 text-sm font-medium text-slate-800 break-words">{value}</div>
+const DetailSheetRow: React.FC<{ label: string; value: React.ReactNode; className?: string }> = ({ label, value, className }) => (
+  <div className={`flex items-start gap-3 py-1.5 ${className || ''}`.trim()}>
+    <div className="w-[128px] shrink-0 text-[11px] font-medium uppercase tracking-[0.04em] text-slate-500">{label}</div>
+    <div className="min-w-0 flex-1 text-[13px] font-semibold text-slate-900 break-words">{value}</div>
   </div>
 );
+
+const DetailStat: React.FC<{ label: string; value: React.ReactNode; tone?: 'blue' | 'green' | 'orange' | 'slate' }> = ({
+  label,
+  value,
+  tone = 'slate'
+}) => {
+  const toneClass =
+    tone === 'blue'
+      ? 'text-blue-700'
+      : tone === 'green'
+        ? 'text-emerald-700'
+        : tone === 'orange'
+          ? 'text-amber-700'
+          : 'text-slate-900';
+
+  return (
+    <div className="min-w-0 border-l border-slate-200 pl-3 first:border-l-0 first:pl-0">
+      <div className="text-[11px] font-medium text-slate-500">{label}</div>
+      <div className={`mt-0.5 text-[14px] font-bold ${toneClass}`}>{value}</div>
+    </div>
+  );
+};
+
+const StepWorkflowBar: React.FC<{ currentStep: number; labels: string[] }> = ({ currentStep, labels }) => (
+  <div className="inline-flex overflow-hidden rounded-sm border border-slate-200 bg-white">
+    {labels.map((label, index) => {
+      const stepNumber = index + 1;
+      const isActive = stepNumber <= currentStep;
+      return (
+        <div
+          key={label}
+          className={`border-l border-slate-200 px-3 py-1.5 text-[11px] font-semibold first:border-l-0 ${
+            isActive ? 'bg-blue-50 text-blue-700' : 'bg-slate-50 text-slate-400'
+          }`}
+        >
+          {label}
+        </div>
+      );
+    })}
+  </div>
+);
+
+const AttachmentPreview: React.FC<{ name?: string; url?: string; emptyLabel?: string }> = ({
+  name,
+  url,
+  emptyLabel = 'Chưa attach chứng từ'
+}) => {
+  if (!name) return <span className="text-slate-400">{emptyLabel}</span>;
+
+  if (!url) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-1 text-xs text-slate-700">
+        <FileText size={12} />
+        {name}
+      </span>
+    );
+  }
+
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noreferrer"
+      className="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-1 text-xs text-slate-700 hover:bg-slate-200"
+    >
+      <FileText size={12} />
+      {name}
+    </a>
+  );
+};
 
 const FinanceMoneyOut: React.FC = () => {
   const { user } = useAuth();
@@ -693,6 +765,7 @@ const FinanceMoneyOut: React.FC = () => {
   const [logAudienceFilter, setLogAudienceFilter] = useState<LogAudienceFilter>('ALL');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTransactionId, setEditingTransactionId] = useState<string | null>(null);
+  const [modalAction, setModalAction] = useState<MoneyOutModalAction>('VIEW');
   const [selectedAttachment, setSelectedAttachment] = useState<File | null>(null);
   const [formData, setFormData] = useState<TransactionFormState>(() => getEmptyFormState('TC0001'));
 
@@ -1150,10 +1223,12 @@ const FinanceMoneyOut: React.FC = () => {
     setIsModalOpen(false);
     setEditingTransactionId(null);
     setSelectedAttachment(null);
+    setModalAction('VIEW');
   };
 
-  const openEditModal = (item: IActualTransaction) => {
+  const openTransactionModal = (item: IActualTransaction, action: MoneyOutModalAction) => {
     setEditingTransactionId(item.id);
+    setModalAction(action);
     setSelectedAttachment(null);
     setFormData({
       transactionCode: item.transactionCode || buildFallbackTransactionCode(item, 0),
@@ -1239,6 +1314,97 @@ const FinanceMoneyOut: React.FC = () => {
     () => rows.find((row) => row.actual.id === editingTransactionId),
     [editingTransactionId, rows]
   );
+  const hasAttachment = Boolean(selectedAttachment || (formData.attachmentName.trim() && formData.attachmentUrl.trim()));
+  const canSave =
+    Boolean(editingTransactionId) &&
+    Boolean(formData.transactionCode.trim()) &&
+    Boolean(formData.voucherNumber.trim()) &&
+    hasAttachment;
+  const isViewMode = modalAction === 'VIEW';
+  const modalTitle =
+    modalAction === 'ATTACH' ? 'Attach chứng từ phiếu thu chi' : modalAction === 'PROCESS' ? 'Xử lý phiếu thu chi' : 'Chi tiết phiếu thu chi';
+  const modalDescription =
+    modalAction === 'ATTACH'
+      ? 'Mở chi tiết phiếu để cập nhật file chứng từ đính kèm trước khi hoàn tất.'
+      : modalAction === 'PROCESS'
+        ? 'Mở chi tiết phiếu và xác nhận đã thu hoặc đã chi. Chỉ được lưu khi đã có chứng từ đính kèm.'
+        : 'Màn hình xem chi tiết hiển thị toàn bộ thông tin của phiếu thu chi, giống thao tác xem chi tiết.';
+  const saveButtonLabel = modalAction === 'ATTACH' ? 'Lưu chứng từ' : formData.type === 'IN' ? 'Lưu đã thu' : 'Lưu đã chi';
+  const detailPresentation = useMemo(() => {
+    if (!editingRow) return null;
+    const currentProcessedStatus = getProcessedStatusMeta(formData.type);
+    const currentAttachmentName = selectedAttachment?.name || formData.attachmentName;
+    const currentAttachmentUrl = selectedAttachment ? undefined : formData.attachmentUrl;
+    const workflowStep =
+      editingRow.approvalStage === 'CHO_DUYET'
+        ? 1
+        : editingRow.approvalStage === 'KE_TOAN_DUYET' || editingRow.approvalStage === 'CEO_DUYET'
+          ? 2
+          : 3;
+
+    return {
+      stats: [
+        { label: 'Số tiền', value: moneyFormat(editingRow.actual.amount), tone: 'blue' as const },
+        {
+          label: 'Trạng thái duyệt',
+          value: APPROVAL_FILTER_LABEL_MAP[editingRow.approvalStage],
+          tone: editingRow.approvalStage === 'TU_CHOI' ? ('orange' as const) : ('slate' as const)
+        },
+        { label: 'Trạng thái', value: currentProcessedStatus.label, tone: formData.type === 'IN' ? ('green' as const) : ('orange' as const) }
+      ],
+      workflowStep,
+      leftColumn: [
+        {
+          label: 'Mã giao dịch',
+          value: (
+            <div>
+              <div>{editingRow.approvalTransactionCode}</div>
+              <div className="text-[11px] font-medium text-slate-400">{editingRow.approvalReferenceLabel}</div>
+            </div>
+          )
+        },
+        { label: 'Nhóm nghiệp vụ', value: editingRow.businessGroupLabel },
+        { label: 'Loại nghiệp vụ', value: editingRow.businessType },
+        { label: 'Đối tượng', value: editingRow.relatedEntity },
+        {
+          label: 'Hợp đồng',
+          value: (
+            <div>
+              <div>{editingRow.contractCode}</div>
+              <div className="text-[11px] font-medium text-slate-400">{editingRow.contractReferenceLabel}</div>
+            </div>
+          )
+        },
+        { label: 'Số tiền', value: moneyFormat(editingRow.actual.amount) },
+        { label: 'Thanh toán', value: editingRow.paymentMethodLabel },
+        { label: 'Chứng từ', value: editingRow.proofValue },
+        { label: 'Ngày thanh toán', value: editingRow.paymentDateLabel },
+        { label: 'Ghi chú', value: editingRow.approvalNote }
+      ],
+      rightColumn: [
+        { label: 'Người tạo', value: editingRow.creatorLabel },
+        { label: 'Ngày tạo', value: editingRow.createdAtLabel },
+        {
+          label: 'Trạng thái duyệt',
+          value: <ApprovalStageBadge stage={editingRow.approvalStage} requiresCeoApproval={editingRow.requiresCeoApproval} />
+        },
+        { label: 'Mã thu chi', value: formData.transactionCode.trim() || editingRow.actual.transactionCode || '-' },
+        { label: 'Phân loại', value: TYPE_META[formData.type].label },
+        { label: 'Tài khoản tiền', value: formData.cashAccount || '-' },
+        { label: 'Số chứng từ', value: formData.voucherNumber.trim() || '-' },
+        {
+          label: 'Trạng thái xử lý',
+          value: (
+            <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold ${currentProcessedStatus.tone}`}>
+              {currentProcessedStatus.label}
+            </span>
+          )
+        },
+        { label: 'Ngày thu/chi', value: dateLabelFormat(formData.date) },
+        { label: 'Attach chứng từ', value: <AttachmentPreview name={currentAttachmentName} url={currentAttachmentUrl} /> }
+      ]
+    };
+  }, [editingRow, formData, selectedAttachment]);
 
   const renderCell = (row: MoneyOutRow, columnId: ColumnId) => {
     switch (columnId) {
@@ -1262,9 +1428,14 @@ const FinanceMoneyOut: React.FC = () => {
       case 'relatedEntity':
         return (
           <td className="px-4 py-4 text-sm text-slate-700 align-top">
-            <div className="max-w-[220px] truncate" title={row.relatedEntity}>
+            <button
+              type="button"
+              onClick={() => openTransactionModal(row.actual, 'VIEW')}
+              className="max-w-[220px] truncate text-left font-medium text-slate-800 hover:text-blue-600 hover:underline"
+              title={`Xem chi tiết ${row.relatedEntity}`}
+            >
               {row.relatedEntity}
-            </div>
+            </button>
           </td>
         );
       case 'contractCode':
@@ -1342,26 +1513,7 @@ const FinanceMoneyOut: React.FC = () => {
       case 'attachment':
         return (
           <td className="px-4 py-4">
-            {row.actual.attachmentName ? (
-              row.actual.attachmentUrl ? (
-                <a
-                  href={row.actual.attachmentUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-1 text-xs text-slate-700 bg-slate-100 px-2 py-1 rounded hover:bg-slate-200"
-                >
-                  <FileText size={12} />
-                  {row.actual.attachmentName}
-                </a>
-              ) : (
-                <span className="inline-flex items-center gap-1 text-xs text-slate-700 bg-slate-100 px-2 py-1 rounded">
-                  <FileText size={12} />
-                  {row.actual.attachmentName}
-                </span>
-              )
-            ) : (
-              <span className="text-xs text-slate-400">Chưa attach chứng từ</span>
-            )}
+            <AttachmentPreview name={row.actual.attachmentName} url={row.actual.attachmentUrl} />
           </td>
         );
       default:
@@ -1377,20 +1529,41 @@ const FinanceMoneyOut: React.FC = () => {
 
     return (
       <React.Fragment key={row.actual.id}>
-        <tr className="hover:bg-slate-50 transition-colors align-top">
+        <tr
+          className="cursor-pointer hover:bg-slate-50 transition-colors align-top"
+          onClick={() => openTransactionModal(row.actual, 'VIEW')}
+          title={`Xem chi tiết ${row.relatedEntity}`}
+        >
           {visibleColumns.map((columnId) => (
             <React.Fragment key={columnId}>{renderCell(row, columnId)}</React.Fragment>
           ))}
-          <td className="w-[150px] min-w-[150px] px-4 py-4 text-right align-top">
-            <div className="ml-auto flex max-w-[130px] flex-wrap items-center justify-end gap-x-3 gap-y-2">
+          <td className="w-[170px] min-w-[170px] px-4 py-4 text-right align-top">
+            <div className="ml-auto flex max-w-[160px] flex-wrap items-center justify-end gap-x-3 gap-y-2">
               <button
-                onClick={() => openEditModal(row.actual)}
-                className="text-xs font-semibold text-slate-700 hover:underline inline-flex items-center gap-1"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  openTransactionModal(row.actual, 'PROCESS');
+                }}
+                className={`text-xs font-semibold hover:underline inline-flex items-center gap-1 ${
+                  row.actual.type === 'IN' ? 'text-emerald-700' : 'text-rose-700'
+                }`}
               >
-                <Pencil size={12} /> Sửa
+                <Check size={12} /> {row.actual.type === 'IN' ? 'Đã thu' : 'Đã chi'}
               </button>
               <button
-                onClick={() => setExpandedLogId(expandedLogId === row.actual.id ? null : row.actual.id)}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  openTransactionModal(row.actual, 'ATTACH');
+                }}
+                className="text-xs font-semibold text-slate-700 hover:underline inline-flex items-center gap-1"
+              >
+                <UploadCloud size={12} /> Attach chứng từ
+              </button>
+              <button
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setExpandedLogId(expandedLogId === row.actual.id ? null : row.actual.id);
+                }}
                 className="text-xs font-semibold text-blue-600 hover:underline inline-flex items-center gap-1"
               >
                 <History size={12} /> Log note
@@ -1840,7 +2013,7 @@ const FinanceMoneyOut: React.FC = () => {
                       {column.label}
                     </th>
                   ))}
-                  <th className="w-[150px] min-w-[150px] px-4 py-4 text-right">Thao tác</th>
+                  <th className="w-[170px] min-w-[170px] px-4 py-4 text-right">Thao tác</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -1874,184 +2047,182 @@ const FinanceMoneyOut: React.FC = () => {
 
         {isModalOpen && (
           <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-xl border border-slate-200 shadow-xl w-full max-w-6xl max-h-[92vh] overflow-y-auto">
-              <div className="px-6 py-4 border-b border-slate-200 sticky top-0 bg-white z-10">
-                <h2 className="text-lg font-bold text-slate-900">Cập nhật phiếu thu chi</h2>
-                <p className="text-sm text-slate-500">
-                  Phiếu này được chuyển từ `Duyệt giao dịch`. Bạn chỉ chỉnh phần kế toán và bắt buộc phải có chứng từ đính kèm.
-                </p>
+            <div className="bg-white rounded-lg border border-slate-200 shadow-xl w-full max-w-5xl max-h-[92vh] overflow-y-auto">
+              <div className="px-5 py-3 border-b border-[#f1f5f9] sticky top-0 bg-white z-10">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <h2 className="text-[22px] font-bold text-slate-900">{modalTitle}</h2>
+                    <p className="text-[13px] text-slate-500">{modalDescription}</p>
+                  </div>
+                  {detailPresentation && (
+                    <div className="flex flex-col items-start gap-2 lg:items-end">
+                      <StepWorkflowBar currentStep={detailPresentation.workflowStep} labels={['Duyệt GD', 'Kế toán', 'Hoàn tất']} />
+                      <div className="grid w-full min-w-[420px] grid-cols-3 gap-0 lg:w-auto">
+                        {detailPresentation.stats.map((item) => (
+                          <DetailStat key={item.label} label={item.label} value={item.value} tone={item.tone} />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
 
-              <div className="p-6 space-y-6">
-                <section className="rounded-2xl border border-slate-200 p-5">
-                  <div className="mb-4 flex items-center justify-between gap-3">
-                    <div>
-                      <h3 className="text-base font-bold text-slate-900">Thông tin duyệt giao dịch</h3>
-                      <p className="text-sm text-slate-500">Nhóm field cũ từ phân hệ duyệt lệnh.</p>
-                    </div>
-                    {editingRow?.source && (
-                      <ApprovalStageBadge stage={editingRow.approvalStage} requiresCeoApproval={editingRow.requiresCeoApproval} />
-                    )}
+              <div className="p-5 space-y-4">
+                <section className="border-b border-[#f1f5f9] pb-4">
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <div className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">Chi tiết phiếu thu chi</div>
+                    {editingRow && <span className="text-[11px] font-semibold text-slate-400">{editingRow.actual.id}</span>}
                   </div>
 
-                  {editingRow?.source ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-                      <ReadonlyField
-                        label="Mã giao dịch"
-                        value={
-                          <div>
-                            <div>{editingRow.approvalTransactionCode}</div>
-                            <div className="text-xs text-slate-400">{editingRow.approvalReferenceLabel}</div>
-                          </div>
-                        }
-                      />
-                      <ReadonlyField label="Nhóm nghiệp vụ" value={editingRow.businessGroupLabel} />
-                      <ReadonlyField label="Loại nghiệp vụ" value={editingRow.businessType} />
-                      <ReadonlyField label="Đối tượng liên quan" value={editingRow.relatedEntity} />
-                      <ReadonlyField
-                        label="Hợp đồng"
-                        value={
-                          <div>
-                            <div>{editingRow.contractCode}</div>
-                            <div className="text-xs text-slate-400">{editingRow.contractReferenceLabel}</div>
-                          </div>
-                        }
-                      />
-                      <ReadonlyField label="Số tiền" value={moneyFormat(editingRow.actual.amount)} />
-                      <ReadonlyField label="Hình thức thanh toán" value={editingRow.paymentMethodLabel} />
-                      <ReadonlyField label="Chứng từ" value={editingRow.proofValue} />
-                      <ReadonlyField label="Ngày thanh toán" value={editingRow.paymentDateLabel} />
-                      <ReadonlyField label="Người tạo" value={editingRow.creatorLabel} />
-                      <ReadonlyField label="Ngày tạo" value={editingRow.createdAtLabel} />
-                      <ReadonlyField
-                        label="Trạng thái duyệt"
-                        value={<ApprovalStageBadge stage={editingRow.approvalStage} requiresCeoApproval={editingRow.requiresCeoApproval} />}
-                      />
-                      <div className="md:col-span-2 xl:col-span-4">
-                        <ReadonlyField label="Ghi chú" value={editingRow.approvalNote} />
+                  {detailPresentation ? (
+                    <div className="grid gap-6 lg:grid-cols-[1.5fr_1fr]">
+                      <div className="divide-y divide-[#f1f5f9]">
+                        {detailPresentation.leftColumn.map((field) => (
+                          <DetailSheetRow key={field.label} label={field.label} value={field.value} />
+                        ))}
+                      </div>
+                      <div className="divide-y divide-[#f1f5f9]">
+                        {detailPresentation.rightColumn.map((field) => (
+                          <DetailSheetRow key={field.label} label={field.label} value={field.value} />
+                        ))}
                       </div>
                     </div>
                   ) : (
-                    <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-sm text-slate-600">
-                      Phiếu này không gắn với bản ghi từ phân hệ duyệt giao dịch. Nếu cần đủ thông tin nghiệp vụ phía trên, hãy tạo ở màn hình
-                      `Duyệt giao dịch` trước rồi đồng bộ sang `Thu chi`.
+                    <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-sm text-slate-600">
+                      Không tìm thấy dữ liệu chi tiết cho phiếu thu chi này.
                     </div>
                   )}
                 </section>
 
-                <section className="rounded-2xl border border-slate-200 p-5">
-                  <div className="mb-4">
-                    <h3 className="text-base font-bold text-slate-900">Thông tin kế toán thu chi</h3>
-                    <p className="text-sm text-slate-500">Nhóm field kế toán sửa trực tiếp ở màn hình này.</p>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-sm font-semibold text-slate-700">Mã thu chi</label>
-                      <input
-                        type="text"
-                        value={formData.transactionCode}
-                        onChange={(e) => setFormData((prev) => ({ ...prev, transactionCode: e.target.value }))}
-                        className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
-                        placeholder="Ví dụ: TC0001"
-                      />
+                {!isViewMode && (
+                  <section>
+                    <div className="mb-3">
+                      <h3 className="text-[14px] font-bold text-slate-900">Cập nhật xử lý thu chi</h3>
+                      <p className="text-[12px] text-slate-500">
+                        {modalAction === 'ATTACH'
+                          ? 'Gắn hoặc thay thế chứng từ đính kèm cho phiếu.'
+                          : `Khi xác nhận ${formData.type === 'IN' ? 'đã thu' : 'đã chi'}, bắt buộc phải có chứng từ đính kèm mới được lưu.`}
+                      </p>
                     </div>
 
-                    <div>
-                      <label className="text-sm font-semibold text-slate-700">Phân loại</label>
-                      <select
-                        value={formData.type}
-                        onChange={(e) => setFormData((prev) => ({ ...prev, type: e.target.value as TransactionType }))}
-                        className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
-                      >
-                        <option value="OUT">Chi</option>
-                        <option value="IN">Thu</option>
-                      </select>
-                    </div>
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                      <div>
+                        <label className="text-[11px] font-semibold uppercase tracking-[0.04em] text-slate-500">Mã thu chi</label>
+                        <input
+                          type="text"
+                          value={formData.transactionCode}
+                          onChange={(e) => setFormData((prev) => ({ ...prev, transactionCode: e.target.value }))}
+                          className="mt-1 w-full rounded-sm border border-slate-200 px-3 py-2 text-[13px]"
+                          placeholder="Ví dụ: TC0001"
+                        />
+                      </div>
 
-                    <div>
-                      <label className="text-sm font-semibold text-slate-700">Tài khoản tiền</label>
-                      <select
-                        value={formData.cashAccount}
-                        onChange={(e) => setFormData((prev) => ({ ...prev, cashAccount: e.target.value }))}
-                        className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
-                      >
-                        {MONEY_ACCOUNTS.map((account) => (
-                          <option key={account} value={account}>
-                            {account}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                      <div>
+                        <label className="text-[11px] font-semibold uppercase tracking-[0.04em] text-slate-500">Phân loại</label>
+                        <select
+                          value={formData.type}
+                          onChange={(e) => setFormData((prev) => ({ ...prev, type: e.target.value as TransactionType }))}
+                          className="mt-1 w-full rounded-sm border border-slate-200 px-3 py-2 text-[13px]"
+                        >
+                          <option value="OUT">Chi</option>
+                          <option value="IN">Thu</option>
+                        </select>
+                      </div>
 
-                    <div>
-                      <label className="text-sm font-semibold text-slate-700">Số chứng từ</label>
-                      <input
-                        type="text"
-                        value={formData.voucherNumber}
-                        onChange={(e) => setFormData((prev) => ({ ...prev, voucherNumber: e.target.value }))}
-                        className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
-                        placeholder="Ví dụ: PT-2026-0103 / PC-014 / UNC-2026-0201"
-                      />
-                    </div>
+                      <div>
+                        <label className="text-[11px] font-semibold uppercase tracking-[0.04em] text-slate-500">Tài khoản tiền</label>
+                        <select
+                          value={formData.cashAccount}
+                          onChange={(e) => setFormData((prev) => ({ ...prev, cashAccount: e.target.value }))}
+                          className="mt-1 w-full rounded-sm border border-slate-200 px-3 py-2 text-[13px]"
+                        >
+                          {MONEY_ACCOUNTS.map((account) => (
+                            <option key={account} value={account}>
+                              {account}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
 
-                    <div>
-                      <label className="text-sm font-semibold text-slate-700">Trạng thái</label>
-                      <div className="mt-1 h-[42px] rounded-lg border border-slate-200 px-3 flex items-center text-sm font-semibold text-slate-700 bg-slate-50">
-                        {getProcessedStatusMeta(formData.type).label}
+                      <div>
+                        <label className="text-[11px] font-semibold uppercase tracking-[0.04em] text-slate-500">Số chứng từ</label>
+                        <input
+                          type="text"
+                          value={formData.voucherNumber}
+                          onChange={(e) => setFormData((prev) => ({ ...prev, voucherNumber: e.target.value }))}
+                          className="mt-1 w-full rounded-sm border border-slate-200 px-3 py-2 text-[13px]"
+                          placeholder="Ví dụ: PT-2026-0103 / PC-014 / UNC-2026-0201"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-semibold uppercase tracking-[0.04em] text-slate-500">Trạng thái</label>
+                        <div className="mt-1 flex h-[38px] items-center rounded-sm border border-slate-200 bg-slate-50 px-3 text-[13px] font-semibold text-slate-700">
+                          {getProcessedStatusMeta(formData.type).label}
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-semibold uppercase tracking-[0.04em] text-slate-500">Ngày thu/chi</label>
+                        <input
+                          type="date"
+                          value={formData.date}
+                          onChange={(e) => setFormData((prev) => ({ ...prev, date: e.target.value }))}
+                          className="mt-1 w-full rounded-sm border border-slate-200 px-3 py-2 text-[13px]"
+                        />
+                      </div>
+
+                      <div className="md:col-span-2">
+                        <label className="text-[11px] font-semibold uppercase tracking-[0.04em] text-slate-500">Attach chứng từ</label>
+                        <label className="mt-1 flex cursor-pointer items-center justify-between gap-3 rounded-sm border border-dashed border-slate-300 px-3 py-2 text-[13px] text-slate-600 hover:bg-slate-50">
+                          <span className="truncate">{selectedAttachment?.name || formData.attachmentName || 'Chọn file chứng từ'}</span>
+                          <span className="inline-flex shrink-0 items-center gap-2 rounded-sm bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-700">
+                            <UploadCloud size={14} />
+                            Attach
+                          </span>
+                          <input type="file" accept=".pdf,image/*" className="hidden" onChange={handleAttachmentChange} />
+                        </label>
+                        <p className={`mt-1.5 text-[11px] font-medium ${hasAttachment ? 'text-emerald-600' : 'text-rose-600'}`}>
+                          {hasAttachment
+                            ? 'Đã có chứng từ đính kèm, có thể lưu phiếu.'
+                            : 'Chưa có chứng từ đính kèm. Nút lưu sẽ bị khóa cho đến khi attach chứng từ.'}
+                        </p>
+                      </div>
+
+                      <div className="md:col-span-2">
+                        <label className="text-[11px] font-semibold uppercase tracking-[0.04em] text-slate-500">Ghi chú kế toán</label>
+                        <textarea
+                          value={formData.note}
+                          onChange={(e) => setFormData((prev) => ({ ...prev, note: e.target.value }))}
+                          className="mt-1 min-h-[78px] w-full rounded-sm border border-slate-200 px-3 py-2 text-[13px]"
+                          placeholder="Ghi chú nội bộ nếu cần..."
+                        />
                       </div>
                     </div>
-
-                    <div>
-                      <label className="text-sm font-semibold text-slate-700">Ngày thu/chi</label>
-                      <input
-                        type="date"
-                        value={formData.date}
-                        onChange={(e) => setFormData((prev) => ({ ...prev, date: e.target.value }))}
-                        className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
-                      />
-                    </div>
-
-                    <div className="md:col-span-2">
-                      <label className="text-sm font-semibold text-slate-700">Attach chứng từ</label>
-                      <label className="mt-1 flex items-center justify-between gap-3 rounded-lg border border-dashed border-slate-300 px-3 py-2 text-sm text-slate-600 cursor-pointer hover:bg-slate-50">
-                        <span className="truncate">{selectedAttachment?.name || formData.attachmentName || 'Chọn file chứng từ'}</span>
-                        <span className="inline-flex items-center gap-2 rounded-md bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700 shrink-0">
-                          <UploadCloud size={14} />
-                          Attach
-                        </span>
-                        <input type="file" accept=".pdf,image/*" className="hidden" onChange={handleAttachmentChange} />
-                      </label>
-                    </div>
-
-                    <div className="md:col-span-2">
-                      <label className="text-sm font-semibold text-slate-700">Ghi chú kế toán</label>
-                      <textarea
-                        value={formData.note}
-                        onChange={(e) => setFormData((prev) => ({ ...prev, note: e.target.value }))}
-                        className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm min-h-[88px]"
-                        placeholder="Ghi chú nội bộ nếu cần..."
-                      />
-                    </div>
-                  </div>
-                </section>
+                  </section>
+                )}
               </div>
 
-              <div className="px-6 py-4 border-t border-slate-200 flex justify-end gap-2 sticky bottom-0 bg-white">
+              <div className="px-5 py-3 border-t border-[#f1f5f9] flex justify-end gap-2 sticky bottom-0 bg-white">
                 <button
                   onClick={closeModal}
-                  className="px-4 py-2 rounded-lg text-sm font-semibold border border-slate-200 text-slate-700 hover:bg-slate-50"
+                  className="rounded-sm border border-slate-200 px-3 py-1.5 text-[12px] font-semibold text-slate-700 hover:bg-slate-50"
                 >
-                  Hủy
+                  {isViewMode ? 'Đóng' : 'Hủy'}
                 </button>
-                <button
-                  onClick={() => {
-                    void handleSubmit();
-                  }}
-                  className="px-4 py-2 rounded-lg text-sm font-bold bg-blue-600 text-white hover:bg-blue-700"
-                >
-                  Lưu thay đổi
-                </button>
+                {!isViewMode && (
+                  <button
+                    onClick={() => {
+                      void handleSubmit();
+                    }}
+                    disabled={!canSave}
+                    className={`rounded-sm px-3 py-1.5 text-[12px] font-bold ${
+                      canSave ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                    }`}
+                  >
+                    {saveButtonLabel}
+                  </button>
+                )}
               </div>
             </div>
           </div>

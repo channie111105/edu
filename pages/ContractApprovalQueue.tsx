@@ -12,9 +12,10 @@ const ContractApprovalQueue: React.FC = () => {
   const [students, setStudents] = useState<IStudent[]>([]);
   const [quotations, setQuotations] = useState<IQuotation[]>([]);
   const [search, setSearch] = useState('');
-  const [showReject, setShowReject] = useState(false);
-  const [rejectId, setRejectId] = useState<string | null>(null);
-  const [rejectReason, setRejectReason] = useState('');
+  const [showDecisionModal, setShowDecisionModal] = useState(false);
+  const [decisionId, setDecisionId] = useState<string | null>(null);
+  const [decisionAction, setDecisionAction] = useState<'approve' | 'reject'>('approve');
+  const [decisionNote, setDecisionNote] = useState('');
 
   const loadData = () => {
     setAdmissions(getAdmissions());
@@ -64,44 +65,38 @@ const ContractApprovalQueue: React.FC = () => {
       });
   }, [admissions, students, quotations, search]);
 
-  const handleApprove = (id: string) => {
+  const openDecisionModal = (id: string, action: 'approve' | 'reject' = 'approve') => {
     if (!canApproveByTraining) {
-      alert('Chỉ Quản lý Đào tạo được confirm hồ sơ chờ duyệt');
+      alert('Chỉ Quản lý Đào tạo được duyệt hồ sơ chờ duyệt');
       return;
     }
-    const res = approveAdmission(id, user?.id || 'training');
-    if (!res.ok) {
-      alert(res.error || 'Không thể duyệt hồ sơ này');
-      return;
-    }
-    loadData();
-    alert('Đã duyệt ghi danh và cập nhật trạng thái hợp đồng');
+    setDecisionId(id);
+    setDecisionAction(action);
+    setDecisionNote('');
+    setShowDecisionModal(true);
   };
 
-  const openReject = (id: string) => {
+  const handleDecision = () => {
     if (!canApproveByTraining) {
-      alert('Chỉ Quản lý Đào tạo được từ chối hồ sơ chờ duyệt');
+      alert('Chỉ Quản lý Đào tạo được duyệt hồ sơ chờ duyệt');
       return;
     }
-    setRejectId(id);
-    setRejectReason('');
-    setShowReject(true);
-  };
+    if (!decisionId) return;
 
-  const handleReject = () => {
-    if (!canApproveByTraining) {
-      alert('Chỉ Quản lý Đào tạo được từ chối hồ sơ chờ duyệt');
-      return;
-    }
-    if (!rejectId) return;
-    const res = rejectAdmission(rejectId, rejectReason.trim());
+    const res =
+      decisionAction === 'approve'
+        ? approveAdmission(decisionId, user?.id || 'training', decisionNote.trim())
+        : rejectAdmission(decisionId, decisionNote.trim(), user?.id || 'training');
+
     if (!res.ok) {
-      alert('Không thể từ chối hồ sơ này');
+      alert(decisionAction === 'approve' ? 'Không thể duyệt hồ sơ này' : 'Không thể từ chối hồ sơ này');
       return;
     }
-    setShowReject(false);
-    setRejectId(null);
+    setShowDecisionModal(false);
+    setDecisionId(null);
+    setDecisionNote('');
     loadData();
+    alert(decisionAction === 'approve' ? 'Đã duyệt ghi danh và cập nhật trạng thái hợp đồng' : 'Đã từ chối hồ sơ chờ duyệt');
   };
 
   return (
@@ -164,16 +159,10 @@ const ContractApprovalQueue: React.FC = () => {
                     {canApproveByTraining ? (
                       <div className="flex justify-end gap-2">
                         <button
-                          onClick={() => openReject(admission.id)}
-                          className="px-3 py-1.5 rounded text-xs font-bold border border-rose-200 text-rose-700 hover:bg-rose-50"
-                        >
-                          Từ chối
-                        </button>
-                        <button
-                          onClick={() => handleApprove(admission.id)}
+                          onClick={() => openDecisionModal(admission.id)}
                           className="px-3 py-1.5 rounded text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 inline-flex items-center gap-1"
                         >
-                          <CheckCircle2 size={13} /> Confirm
+                          <CheckCircle2 size={13} /> Duyệt admission
                         </button>
                       </div>
                     ) : (
@@ -191,25 +180,40 @@ const ContractApprovalQueue: React.FC = () => {
         </table>
       </div>
 
-      {showReject && (
+      {showDecisionModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50">
           <div className="bg-white w-full max-w-md rounded-xl shadow-xl p-5">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-slate-900">Từ chối Admission</h3>
-              <button onClick={() => setShowReject(false)} className="text-slate-400 hover:text-slate-600">
+              <h3 className="font-bold text-slate-900">Duyệt admission</h3>
+              <button onClick={() => setShowDecisionModal(false)} className="text-slate-400 hover:text-slate-600">
                 <XCircle size={18} />
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-2 mb-4">
+              <button
+                onClick={() => setDecisionAction('approve')}
+                className={`rounded-lg border px-3 py-2 text-sm font-semibold ${decisionAction === 'approve' ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-slate-300 text-slate-700'}`}
+              >
+                Đồng ý
+              </button>
+              <button
+                onClick={() => setDecisionAction('reject')}
+                className={`rounded-lg border px-3 py-2 text-sm font-semibold ${decisionAction === 'reject' ? 'border-rose-300 bg-rose-50 text-rose-700' : 'border-slate-300 text-slate-700'}`}
+              >
+                Từ chối
               </button>
             </div>
             <textarea
               className="w-full h-28 border border-slate-300 rounded p-2 text-sm"
-              placeholder="Nhập lý do từ chối..."
-              value={rejectReason}
-              onChange={(e) => setRejectReason(e.target.value)}
+              placeholder="Nhập ghi chú duyệt..."
+              value={decisionNote}
+              onChange={(e) => setDecisionNote(e.target.value)}
             />
             <div className="flex justify-end gap-2 mt-4">
-              <button onClick={() => setShowReject(false)} className="px-3 py-2 rounded border border-slate-300 text-slate-700">Hủy</button>
-              <button onClick={handleReject} className="px-3 py-2 rounded bg-rose-600 text-white hover:bg-rose-700 inline-flex items-center gap-1">
-                <XCircle size={14} /> Xác nhận từ chối
+              <button onClick={() => setShowDecisionModal(false)} className="px-3 py-2 rounded border border-slate-300 text-slate-700">Hủy</button>
+              <button onClick={handleDecision} className={`px-3 py-2 rounded text-white inline-flex items-center gap-1 ${decisionAction === 'approve' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700'}`}>
+                {decisionAction === 'approve' ? <CheckCircle2 size={14} /> : <XCircle size={14} />}
+                {decisionAction === 'approve' ? 'Xác nhận duyệt' : 'Xác nhận từ chối'}
               </button>
             </div>
           </div>

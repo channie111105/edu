@@ -6,6 +6,7 @@ import PinnedSearchInput, { PinnedSearchChip } from '../components/PinnedSearchI
 
 type DebtPaymentStatus = 'CHUA_THU' | 'DA_THU_MOT_PHAN' | 'THU_DU' | 'DA_HUY';
 type DebtQuickFilter = 'ALL' | 'CHUA_THU' | 'DA_THU_MOT_PHAN' | 'THU_DU' | 'DA_HUY' | 'QUA_HAN';
+type DebtPageTab = 'ALL' | 'OVERDUE' | 'PAID';
 type TimeRangeType = 'all' | 'today' | 'yesterday' | 'thisWeek' | 'last7Days' | 'last30Days' | 'thisMonth' | 'lastMonth' | 'custom';
 type DebtAdvancedFieldId = 'paymentStatus' | 'programName' | 'servicePackage' | 'chargeName' | 'ownerName' | 'branchName';
 type DebtGroupFieldId = DebtAdvancedFieldId;
@@ -94,6 +95,16 @@ const DEFAULT_VISIBLE_COLUMNS: DebtColumnId[] = [
   'remainingAmount',
   'dueDate',
   'paymentStatus'
+];
+const OVERDUE_TAB_COLUMNS: DebtColumnId[] = [
+  'collectionCode',
+  'studentName',
+  'contractCode',
+  'remainingAmount',
+  'dueDate',
+  'overdueDays',
+  'ownerName',
+  'branchName'
 ];
 const COLUMN_WIDTH_CLASS: Partial<Record<DebtColumnId, string>> = {
   collectionCode: 'w-[18%]',
@@ -306,6 +317,7 @@ const FinanceDebtList: React.FC = () => {
   const [quotations, setQuotations] = useState<IQuotation[]>([]);
   const [contracts, setContracts] = useState<IContract[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [activeTab, setActiveTab] = useState<DebtPageTab>('ALL');
   const [quickFilter, setQuickFilter] = useState<DebtQuickFilter>('ALL');
   const [timeRangeType, setTimeRangeType] = useState<TimeRangeType>('all');
   const [customStartDate, setCustomStartDate] = useState('');
@@ -486,16 +498,10 @@ const FinanceDebtList: React.FC = () => {
       });
   }, [classMap, classStudents, contractByQuotationId, quotationMap, quotations, salesDirectory, studentMap]);
 
-  const filteredRows = useMemo(() => {
+  const scopedRows = useMemo(() => {
     const timeBounds = getTimeRangeBounds(timeRangeType, customStartDate, customEndDate);
 
     return rows.filter((item) => {
-      if (quickFilter === 'QUA_HAN') {
-        if (item.overdueDays <= 0 || item.remainingAmount <= 0) return false;
-      } else if (quickFilter !== 'ALL' && item.paymentStatus !== quickFilter) {
-        return false;
-      }
-
       if (programFilter !== 'ALL' && item.programName !== programFilter) return false;
       if (servicePackageFilter !== 'ALL' && item.servicePackage !== servicePackageFilter) return false;
       if (chargeNameFilter !== 'ALL' && item.chargeName !== chargeNameFilter) return false;
@@ -527,7 +533,22 @@ const FinanceDebtList: React.FC = () => {
         .toLowerCase()
         .includes(q);
     });
-  }, [branchFilter, chargeNameFilter, customEndDate, customStartDate, ownerFilter, programFilter, quickFilter, rows, searchTerm, servicePackageFilter, timeRangeType]);
+  }, [branchFilter, chargeNameFilter, customEndDate, customStartDate, ownerFilter, programFilter, rows, searchTerm, servicePackageFilter, timeRangeType]);
+
+  const filteredRows = useMemo(() => {
+    return scopedRows.filter((item) => {
+      if (activeTab === 'OVERDUE' && !(item.overdueDays > 0 && item.remainingAmount > 0)) return false;
+      if (activeTab === 'PAID' && item.paymentStatus !== 'THU_DU') return false;
+
+      if (quickFilter === 'QUA_HAN') {
+        if (item.overdueDays <= 0 || item.remainingAmount <= 0) return false;
+      } else if (quickFilter !== 'ALL' && item.paymentStatus !== quickFilter) {
+        return false;
+      }
+
+      return true;
+    });
+  }, [activeTab, quickFilter, scopedRows]);
 
   const clearAllSearchFilters = () => {
     setSearchTerm('');
@@ -558,10 +579,6 @@ const FinanceDebtList: React.FC = () => {
     });
   };
 
-  const visibleColumnOptions = useMemo(
-    () => COLUMN_OPTIONS.filter((item) => visibleColumns.includes(item.id)),
-    [visibleColumns]
-  );
   const getColumnWidthClass = (columnId: DebtColumnId) => COLUMN_WIDTH_CLASS[columnId] || '';
   const quickFilterOptions = useMemo(
     () => [
@@ -727,6 +744,66 @@ const FinanceDebtList: React.FC = () => {
     return Array.from(groups.values());
   }, [filteredRows, groupByFields]);
 
+  const dashboardSummary = useMemo(() => {
+    const debtRows = scopedRows.filter((item) => item.remainingAmount > 0 && item.paymentStatus !== 'DA_HUY');
+    const overdueRows = debtRows.filter((item) => item.overdueDays > 0);
+    const dueSoonRows = debtRows.filter((item) => item.overdueDays === 0).filter((item) => {
+      const dueDate = toDateOnly(item.dueDate);
+      if (!dueDate) return false;
+      const today = startOfDay(new Date());
+      const diffDays = Math.ceil((dueDate.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
+      return diffDays >= 0 && diffDays <= 7;
+    });
+
+    const programBreakdown = Array.from(
+      debtRows.reduce<Map<string, number>>((acc, row) => {
+        acc.set(row.programName, (acc.get(row.programName) || 0) + row.remainingAmount);
+        return acc;
+      }, new Map())
+    )
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 4);
+
+    const branchBreakdown = Array.from(
+      debtRows.reduce<Map<string, number>>((acc, row) => {
+        acc.set(row.branchName, (acc.get(row.branchName) || 0) + row.remainingAmount);
+        return acc;
+      }, new Map())
+    )
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 4);
+
+    return {
+      totalReceivable: debtRows.reduce((sum, row) => sum + row.remainingAmount, 0),
+      dueSoonCount: dueSoonRows.length,
+      overdueCount: overdueRows.length,
+      debtorStudents: new Set(debtRows.map((row) => row.studentName)).size,
+      debtItems: debtRows.length,
+      programBreakdown,
+      branchBreakdown
+    };
+  }, [scopedRows]);
+
+  const tabCounts = useMemo(
+    () => ({
+      ALL: scopedRows.length,
+      OVERDUE: scopedRows.filter((item) => item.overdueDays > 0 && item.remainingAmount > 0).length,
+      PAID: scopedRows.filter((item) => item.paymentStatus === 'THU_DU').length
+    }),
+    [scopedRows]
+  );
+
+  const effectiveVisibleColumns = useMemo(() => {
+    if (activeTab === 'OVERDUE') return OVERDUE_TAB_COLUMNS;
+    if (activeTab === 'PAID') return visibleColumns.filter((column) => column !== 'overdueDays');
+    return visibleColumns;
+  }, [activeTab, visibleColumns]);
+
+  const effectiveVisibleColumnOptions = useMemo(
+    () => COLUMN_OPTIONS.filter((item) => effectiveVisibleColumns.includes(item.id)),
+    [effectiveVisibleColumns]
+  );
+
   const removeSearchChip = (chipKey: string) => {
     if (chipKey === 'quickFilter') {
       setQuickFilter('ALL');
@@ -832,79 +909,79 @@ const FinanceDebtList: React.FC = () => {
 
   const renderDebtRow = (item: DebtRow) => (
     <tr key={item.id} className="transition-colors hover:bg-slate-50">
-      {visibleColumns.includes('collectionCode') && (
+      {effectiveVisibleColumns.includes('collectionCode') && (
         <td className={`${getColumnWidthClass('collectionCode')} px-3 py-4 text-sm font-bold text-blue-600`}>
           <div className="truncate" title={item.collectionCode}>
             {item.collectionCode}
           </div>
         </td>
       )}
-      {visibleColumns.includes('studentName') && (
+      {effectiveVisibleColumns.includes('studentName') && (
         <td className={`${getColumnWidthClass('studentName')} px-3 py-4 text-sm font-semibold text-slate-900`}>
           <div className="truncate" title={item.studentName}>
             {item.studentName}
           </div>
         </td>
       )}
-      {visibleColumns.includes('contractCode') && (
+      {effectiveVisibleColumns.includes('contractCode') && (
         <td className={`${getColumnWidthClass('contractCode')} px-3 py-4 text-sm text-slate-700`}>
           <div className="truncate" title={item.contractCode}>
             {item.contractCode}
           </div>
         </td>
       )}
-      {visibleColumns.includes('programName') && (
+      {effectiveVisibleColumns.includes('programName') && (
         <td className={`${getColumnWidthClass('programName')} px-3 py-4 text-sm text-slate-700`}>
           <div className="max-w-[220px] truncate" title={item.programName}>
             {item.programName}
           </div>
         </td>
       )}
-      {visibleColumns.includes('servicePackage') && (
+      {effectiveVisibleColumns.includes('servicePackage') && (
         <td className={`${getColumnWidthClass('servicePackage')} px-3 py-4 text-sm text-slate-700`}>
           <div className="truncate" title={item.servicePackage}>
             {item.servicePackage}
           </div>
         </td>
       )}
-      {visibleColumns.includes('chargeName') && (
+      {effectiveVisibleColumns.includes('chargeName') && (
         <td className={`${getColumnWidthClass('chargeName')} px-3 py-4 text-sm text-slate-700`}>
           <div className="truncate" title={item.chargeName}>
             {item.chargeName}
           </div>
         </td>
       )}
-      {visibleColumns.includes('amountDue') && <td className={`${getColumnWidthClass('amountDue')} px-3 py-4 whitespace-nowrap text-right text-sm font-bold text-slate-800`}>{money(item.amountDue)}</td>}
-      {visibleColumns.includes('overdueDays') && (
+      {effectiveVisibleColumns.includes('amountDue') && <td className={`${getColumnWidthClass('amountDue')} px-3 py-4 whitespace-nowrap text-right text-sm font-bold text-slate-800`}>{money(item.amountDue)}</td>}
+      {effectiveVisibleColumns.includes('overdueDays') && (
         <td className={`${getColumnWidthClass('overdueDays')} px-3 py-4 whitespace-nowrap text-sm`}>
           {item.overdueDays > 0 ? <span className="font-bold text-red-600">{item.overdueDays} ngÃ y</span> : <span className="text-slate-400">0 ngÃ y</span>}
         </td>
       )}
-      {visibleColumns.includes('paidAmount') && <td className={`${getColumnWidthClass('paidAmount')} px-3 py-4 whitespace-nowrap text-right text-sm font-semibold text-emerald-700`}>{money(item.paidAmount)}</td>}
-      {visibleColumns.includes('remainingAmount') && <td className={`${getColumnWidthClass('remainingAmount')} px-3 py-4 whitespace-nowrap text-right text-sm font-bold text-slate-900`}>{money(item.remainingAmount)}</td>}
-      {visibleColumns.includes('dueDate') && <td className={`${getColumnWidthClass('dueDate')} px-3 py-4 whitespace-nowrap text-sm text-slate-700`}>{formatDate(item.dueDate)}</td>}
-      {visibleColumns.includes('paymentStatus') && (
+      {effectiveVisibleColumns.includes('paidAmount') && <td className={`${getColumnWidthClass('paidAmount')} px-3 py-4 whitespace-nowrap text-right text-sm font-semibold text-emerald-700`}>{money(item.paidAmount)}</td>}
+      {effectiveVisibleColumns.includes('remainingAmount') && <td className={`${getColumnWidthClass('remainingAmount')} px-3 py-4 whitespace-nowrap text-right text-sm font-bold text-slate-900`}>{money(item.remainingAmount)}</td>}
+      {effectiveVisibleColumns.includes('dueDate') && <td className={`${getColumnWidthClass('dueDate')} px-3 py-4 whitespace-nowrap text-sm text-slate-700`}>{formatDate(item.dueDate)}</td>}
+      {effectiveVisibleColumns.includes('paymentStatus') && (
         <td className={`${getColumnWidthClass('paymentStatus')} px-3 py-4`}>
           <span className={`inline-block whitespace-nowrap rounded border px-2.5 py-1 text-xs font-bold ${STATUS_META[item.paymentStatus].badge}`}>
             {STATUS_META[item.paymentStatus].label}
           </span>
         </td>
       )}
-      {visibleColumns.includes('ownerName') && (
+      {effectiveVisibleColumns.includes('ownerName') && (
         <td className={`${getColumnWidthClass('ownerName')} px-3 py-4 text-sm text-slate-700`}>
           <div className="truncate" title={item.ownerName}>
             {item.ownerName}
           </div>
         </td>
       )}
-      {visibleColumns.includes('branchName') && (
+      {effectiveVisibleColumns.includes('branchName') && (
         <td className={`${getColumnWidthClass('branchName')} px-3 py-4 text-sm text-slate-700`}>
           <div className="truncate" title={item.branchName}>
             {item.branchName}
           </div>
         </td>
       )}
-      {visibleColumns.includes('note') && (
+      {effectiveVisibleColumns.includes('note') && (
         <td className={`${getColumnWidthClass('note')} px-3 py-4 text-sm text-slate-600`}>
           <div className="truncate" title={item.note}>
             {item.note}
@@ -922,7 +999,85 @@ const FinanceDebtList: React.FC = () => {
           <p className="text-slate-500">Theo dõi công nợ theo từng đợt thu, số tiền đã thu, còn lại, hạn thanh toán và người phụ trách.</p>
         </div>
 
+        <div className="mb-6 grid gap-4 xl:grid-cols-[1.55fr_1fr]">
+          <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="mb-4 text-lg font-bold text-slate-900">Dashboard tổng quan</div>
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+                <div className="text-[11px] font-bold uppercase tracking-[0.04em] text-slate-500">Tổng còn phải thu</div>
+                <div className="mt-2 text-xl font-black text-slate-900">{money(dashboardSummary.totalReceivable)}</div>
+              </div>
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+                <div className="text-[11px] font-bold uppercase tracking-[0.04em] text-amber-700">Sắp đến hạn</div>
+                <div className="mt-2 text-xl font-black text-amber-800">{dashboardSummary.dueSoonCount}</div>
+              </div>
+              <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3">
+                <div className="text-[11px] font-bold uppercase tracking-[0.04em] text-rose-700">Quá hạn</div>
+                <div className="mt-2 text-xl font-black text-rose-800">{dashboardSummary.overdueCount}</div>
+              </div>
+              <div className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-3">
+                <div className="text-[11px] font-bold uppercase tracking-[0.04em] text-sky-700">Số học viên nợ</div>
+                <div className="mt-2 text-xl font-black text-sky-800">{dashboardSummary.debtorStudents}</div>
+              </div>
+              <div className="rounded-lg border border-violet-200 bg-violet-50 px-4 py-3">
+                <div className="text-[11px] font-bold uppercase tracking-[0.04em] text-violet-700">Số khoản nợ</div>
+                <div className="mt-2 text-xl font-black text-violet-800">{dashboardSummary.debtItems}</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-1">
+            <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="mb-3 text-sm font-bold text-slate-900">Nợ theo chương trình</div>
+              <div className="space-y-2">
+                {dashboardSummary.programBreakdown.length ? dashboardSummary.programBreakdown.map(([name, amount]) => (
+                  <div key={name} className="flex items-center justify-between gap-3 text-sm">
+                    <div className="truncate text-slate-600" title={name}>{name}</div>
+                    <div className="whitespace-nowrap font-semibold text-slate-900">{money(amount)}</div>
+                  </div>
+                )) : <div className="text-sm text-slate-400">Chưa có dữ liệu.</div>}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="mb-3 text-sm font-bold text-slate-900">Nợ theo chi nhánh / cơ sở</div>
+              <div className="space-y-2">
+                {dashboardSummary.branchBreakdown.length ? dashboardSummary.branchBreakdown.map(([name, amount]) => (
+                  <div key={name} className="flex items-center justify-between gap-3 text-sm">
+                    <div className="truncate text-slate-600" title={name}>{name}</div>
+                    <div className="whitespace-nowrap font-semibold text-slate-900">{money(amount)}</div>
+                  </div>
+                )) : <div className="text-sm text-slate-400">Chưa có dữ liệu.</div>}
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div className="overflow-visible rounded-xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-200 px-4 pt-4">
+            <div className="mb-3 flex flex-wrap gap-2">
+              {[
+                { id: 'ALL' as DebtPageTab, label: 'Danh sách chi tiết', count: tabCounts.ALL },
+                { id: 'OVERDUE' as DebtPageTab, label: 'Tab quá hạn', count: tabCounts.OVERDUE },
+                { id: 'PAID' as DebtPageTab, label: 'Tab đã thu đủ', count: tabCounts.PAID }
+              ].map((tab) => {
+                const active = activeTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-semibold ${
+                      active ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                    }`}
+                  >
+                    <span>{tab.label}</span>
+                    <span className={`rounded-full px-2 py-0.5 text-xs ${active ? 'bg-white/15 text-white' : 'bg-slate-100 text-slate-600'}`}>{tab.count}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50/50 p-4">
             <div className="min-w-[320px] flex-1">
               <PinnedSearchInput
@@ -1369,7 +1524,7 @@ const FinanceDebtList: React.FC = () => {
             <table className="w-full table-fixed border-collapse text-left">
               <thead className="border-b border-slate-200 bg-[#F8FAFC]">
                 <tr>
-                  {visibleColumnOptions.map((column) => (
+                  {effectiveVisibleColumnOptions.map((column) => (
                     <th
                       key={column.id}
                       className={`${getColumnWidthClass(column.id)} px-3 py-4 text-xs font-bold uppercase tracking-wider text-slate-500 ${
@@ -1390,7 +1545,7 @@ const FinanceDebtList: React.FC = () => {
                     groupedRows.map((group) => (
                       <React.Fragment key={group.key}>
                         <tr className="bg-slate-50/80">
-                          <td colSpan={visibleColumns.length} className="px-4 py-3">
+                          <td colSpan={effectiveVisibleColumns.length} className="px-4 py-3">
                             <div className="flex flex-wrap items-center justify-between gap-3">
                               <div>
                                 <div className="text-sm font-bold text-slate-900">{group.label}</div>
@@ -1409,79 +1564,79 @@ const FinanceDebtList: React.FC = () => {
                   ) : (
                   filteredRows.map((item) => (
                     <tr key={item.id} className="transition-colors hover:bg-slate-50">
-                      {visibleColumns.includes('collectionCode') && (
+                      {effectiveVisibleColumns.includes('collectionCode') && (
                         <td className={`${getColumnWidthClass('collectionCode')} px-3 py-4 text-sm font-bold text-blue-600`}>
                           <div className="truncate" title={item.collectionCode}>
                             {item.collectionCode}
                           </div>
                         </td>
                       )}
-                      {visibleColumns.includes('studentName') && (
+                      {effectiveVisibleColumns.includes('studentName') && (
                         <td className={`${getColumnWidthClass('studentName')} px-3 py-4 text-sm font-semibold text-slate-900`}>
                           <div className="truncate" title={item.studentName}>
                             {item.studentName}
                           </div>
                         </td>
                       )}
-                      {visibleColumns.includes('contractCode') && (
+                      {effectiveVisibleColumns.includes('contractCode') && (
                         <td className={`${getColumnWidthClass('contractCode')} px-3 py-4 text-sm text-slate-700`}>
                           <div className="truncate" title={item.contractCode}>
                             {item.contractCode}
                           </div>
                         </td>
                       )}
-                      {visibleColumns.includes('programName') && (
+                      {effectiveVisibleColumns.includes('programName') && (
                         <td className={`${getColumnWidthClass('programName')} px-3 py-4 text-sm text-slate-700`}>
                           <div className="max-w-[220px] truncate" title={item.programName}>
                             {item.programName}
                           </div>
                         </td>
                       )}
-                      {visibleColumns.includes('servicePackage') && (
+                      {effectiveVisibleColumns.includes('servicePackage') && (
                         <td className={`${getColumnWidthClass('servicePackage')} px-3 py-4 text-sm text-slate-700`}>
                           <div className="truncate" title={item.servicePackage}>
                             {item.servicePackage}
                           </div>
                         </td>
                       )}
-                      {visibleColumns.includes('chargeName') && (
+                      {effectiveVisibleColumns.includes('chargeName') && (
                         <td className={`${getColumnWidthClass('chargeName')} px-3 py-4 text-sm text-slate-700`}>
                           <div className="truncate" title={item.chargeName}>
                             {item.chargeName}
                           </div>
                         </td>
                       )}
-                      {visibleColumns.includes('amountDue') && <td className={`${getColumnWidthClass('amountDue')} px-3 py-4 text-right text-sm font-bold text-slate-800 whitespace-nowrap`}>{money(item.amountDue)}</td>}
-                      {visibleColumns.includes('overdueDays') && (
+                      {effectiveVisibleColumns.includes('amountDue') && <td className={`${getColumnWidthClass('amountDue')} px-3 py-4 text-right text-sm font-bold text-slate-800 whitespace-nowrap`}>{money(item.amountDue)}</td>}
+                      {effectiveVisibleColumns.includes('overdueDays') && (
                         <td className={`${getColumnWidthClass('overdueDays')} px-3 py-4 text-sm whitespace-nowrap`}>
                           {item.overdueDays > 0 ? <span className="font-bold text-red-600">{item.overdueDays} ngày</span> : <span className="text-slate-400">0 ngày</span>}
                         </td>
                       )}
-                      {visibleColumns.includes('paidAmount') && <td className={`${getColumnWidthClass('paidAmount')} px-3 py-4 text-right text-sm font-semibold text-emerald-700 whitespace-nowrap`}>{money(item.paidAmount)}</td>}
-                      {visibleColumns.includes('remainingAmount') && <td className={`${getColumnWidthClass('remainingAmount')} px-3 py-4 text-right text-sm font-bold text-slate-900 whitespace-nowrap`}>{money(item.remainingAmount)}</td>}
-                      {visibleColumns.includes('dueDate') && <td className={`${getColumnWidthClass('dueDate')} px-3 py-4 text-sm text-slate-700 whitespace-nowrap`}>{formatDate(item.dueDate)}</td>}
-                      {visibleColumns.includes('paymentStatus') && (
+                      {effectiveVisibleColumns.includes('paidAmount') && <td className={`${getColumnWidthClass('paidAmount')} px-3 py-4 text-right text-sm font-semibold text-emerald-700 whitespace-nowrap`}>{money(item.paidAmount)}</td>}
+                      {effectiveVisibleColumns.includes('remainingAmount') && <td className={`${getColumnWidthClass('remainingAmount')} px-3 py-4 text-right text-sm font-bold text-slate-900 whitespace-nowrap`}>{money(item.remainingAmount)}</td>}
+                      {effectiveVisibleColumns.includes('dueDate') && <td className={`${getColumnWidthClass('dueDate')} px-3 py-4 text-sm text-slate-700 whitespace-nowrap`}>{formatDate(item.dueDate)}</td>}
+                      {effectiveVisibleColumns.includes('paymentStatus') && (
                         <td className={`${getColumnWidthClass('paymentStatus')} px-3 py-4`}>
                           <span className={`inline-block whitespace-nowrap rounded px-2.5 py-1 text-xs font-bold border ${STATUS_META[item.paymentStatus].badge}`}>
                             {STATUS_META[item.paymentStatus].label}
                           </span>
                         </td>
                       )}
-                      {visibleColumns.includes('ownerName') && (
+                      {effectiveVisibleColumns.includes('ownerName') && (
                         <td className={`${getColumnWidthClass('ownerName')} px-3 py-4 text-sm text-slate-700`}>
                           <div className="truncate" title={item.ownerName}>
                             {item.ownerName}
                           </div>
                         </td>
                       )}
-                      {visibleColumns.includes('branchName') && (
+                      {effectiveVisibleColumns.includes('branchName') && (
                         <td className={`${getColumnWidthClass('branchName')} px-3 py-4 text-sm text-slate-700`}>
                           <div className="truncate" title={item.branchName}>
                             {item.branchName}
                           </div>
                         </td>
                       )}
-                      {visibleColumns.includes('note') && (
+                      {effectiveVisibleColumns.includes('note') && (
                         <td className={`${getColumnWidthClass('note')} px-3 py-4 text-sm text-slate-600`}>
                           <div className="truncate" title={item.note}>
                             {item.note}
@@ -1493,7 +1648,7 @@ const FinanceDebtList: React.FC = () => {
                   )
                 ) : (
                   <tr>
-                    <td colSpan={visibleColumns.length} className="py-12 text-center italic text-slate-400">
+                    <td colSpan={effectiveVisibleColumns.length} className="py-12 text-center italic text-slate-400">
                       Không tìm thấy dữ liệu công nợ phù hợp.
                     </td>
                   </tr>

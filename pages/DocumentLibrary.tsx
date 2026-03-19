@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+﻿import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     FileText,
@@ -35,7 +35,8 @@ import { APP_NAME } from '../constants';
 // --- Types ---
 
 type DocumentType = 'pdf' | 'word' | 'excel' | 'image';
-type DocumentStatus = 'active' | 'expired' | 'draft';
+type DocumentStatus = 'active' | 'expiring' | 'expired';
+type DocumentApprovalStatus = 'draft' | 'approved';
 type ScopeType = 'company' | 'branch' | 'department';
 
 interface DocumentVersion {
@@ -48,17 +49,26 @@ interface DocumentVersion {
 
 interface Document {
     id: string;
+    documentCode?: string;
     name: string;
     type: DocumentType;
     version: string;
     issueDate: string;
+    effectiveDate?: string;
     expirationDate?: string;
     uploadDate: string;
     status: DocumentStatus;
+    approvalStatus?: DocumentApprovalStatus;
     department: string;
     executingDepts: string[];
+    ownerName?: string;
+    tags?: string[];
     scope: ScopeType;
     category: string;
+    contentText?: string;
+    replacementOfId?: string;
+    replacedById?: string;
+    isLatestVersion?: boolean;
     description?: string;
     versions: DocumentVersion[];
     fileUrl?: string;
@@ -170,6 +180,126 @@ const MOCK_DOCUMENTS: Document[] = [
     }
 ];
 
+const LIBRARY_DEPARTMENTS = [
+    'Ban Giám đốc',
+    'Kinh doanh',
+    'Marketing',
+    'Đào tạo',
+    'Tài chính',
+    'Nhân sự'
+];
+
+const LIBRARY_CATEGORIES = [
+    'Quy trình',
+    'Quy định',
+    'Chính sách',
+    'Biểu mẫu',
+    'Hướng dẫn'
+];
+
+const normalizeDepartment = (value: string) => {
+    if (value.includes('Ban Gi')) return 'Ban Giám đốc';
+    if (value.includes('Kinh doanh')) return 'Kinh doanh';
+    if (value.includes('Marketing')) return 'Marketing';
+    if (value.includes('o t') || value.includes('Đào tạo')) return 'Đào tạo';
+    if (value.includes('TÃ') || value.includes('Tài chính')) return 'Tài chính';
+    if (value.includes('NhÃ¢n') || value.includes('Nhân sự')) return 'Nhân sự';
+    return value;
+};
+
+const normalizeCategory = (value: string) => {
+    if (value.includes('Quy tr')) return 'Quy trình';
+    if (value.includes('Quy Ä') || value.includes('Quy định')) return 'Quy định';
+    if (value.includes('ChÃ') || value.includes('Chính sách')) return 'Chính sách';
+    if (value.includes('Biá') || value.includes('Biểu mẫu')) return 'Biểu mẫu';
+    if (value.includes('HÆ°') || value.includes('Hướng dẫn')) return 'Hướng dẫn';
+    if (value.includes('Quyáº¿t')) return 'Quy định';
+    return value;
+};
+
+const normalizeText = (value: string) =>
+    value
+        .replace('Quy trÃ¬nh', 'Quy trình')
+        .replace('thu há»c phÃ­', 'thu học phí')
+        .replace('Quy Ä‘á»‹nh', 'Quy định')
+        .replace('Ä‘Ã o táº¡o', 'đào tạo')
+        .replace('Biá»ƒu máº«u', 'Biểu mẫu')
+        .replace('nháº­p há»c', 'nhập học')
+        .replace('ChÃ­nh sÃ¡ch', 'Chính sách')
+        .replace('hoa há»“ng', 'hoa hồng')
+        .replace('Quyáº¿t Ä‘á»‹nh bá»• nhiá»‡m TPKD', 'Hướng dẫn onboard nhân sự mới');
+
+const NORMALIZED_DOCUMENTS: Document[] = [
+    ...MOCK_DOCUMENTS.map((doc) => ({
+        ...doc,
+        documentCode:
+            doc.id === '1' ? 'DOC-TC-001' :
+            doc.id === '2' ? 'DOC-DT-015' :
+            doc.id === '3' ? 'DOC-KD-024' :
+            doc.id === '4' ? 'DOC-BGD-003' :
+            'DOC-NS-009',
+        name: normalizeText(doc.name),
+        department: normalizeDepartment(doc.department),
+        executingDepts: doc.executingDepts.map(normalizeDepartment),
+        category: normalizeCategory(doc.category),
+        effectiveDate:
+            doc.id === '1' ? '2026-01-05' :
+            doc.id === '2' ? '2025-11-01' :
+            doc.id === '3' ? '2026-02-05' :
+            doc.id === '4' ? '2026-01-01' :
+            '2025-11-01',
+        ownerName:
+            doc.id === '1' ? 'Lê Thu Hà' :
+            doc.id === '2' ? 'Nguyễn Minh Anh' :
+            doc.id === '3' ? 'Trần Quốc Bảo' :
+            doc.id === '4' ? 'Phạm Hoàng Long' :
+            'Vũ Thu Trang',
+        tags: [normalizeCategory(doc.category), normalizeDepartment(doc.department)],
+        status:
+            doc.id === '2' || doc.id === '3' ? 'expiring' :
+            doc.id === '4' ? 'expired' :
+            'active',
+        approvalStatus: doc.id === '3' ? 'draft' : 'approved',
+        contentText:
+            doc.id === '1' ? 'Quy trình thu học phí áp dụng cho toàn hệ thống, bao gồm cách ghi nhận công nợ, xác nhận đợt thanh toán và phối hợp giữa kinh doanh với tài chính.' :
+            doc.id === '2' ? 'Quy định đào tạo 2025 quy định khung lịch học, nguyên tắc bảo lưu, điều kiện mở lớp và trách nhiệm của học vụ, đào tạo, giáo viên.' :
+            doc.id === '3' ? 'Biểu mẫu nhập học 2026 bao gồm form tiếp nhận học viên, checklist hồ sơ, xác nhận lớp học và điều khoản thanh toán.' :
+            doc.id === '4' ? 'Chính sách hoa hồng Q1/2026 mô tả cơ cấu doanh số, mức thưởng theo quý và các trường hợp không áp dụng.' :
+            'Hướng dẫn onboard nhân sự mới gồm quy trình tiếp nhận, checklist bàn giao tài khoản và tài liệu đào tạo hội nhập.',
+        replacementOfId: doc.id === '1' ? 'doc-1-v1' : undefined,
+        isLatestVersion: true,
+        versions: doc.versions.map((version) => ({
+            ...version,
+            note: normalizeText(version.note)
+        }))
+    })),
+    {
+        id: 'doc-1-v1',
+        documentCode: 'DOC-TC-001',
+        name: 'Quy trình thu học phí',
+        type: 'pdf',
+        version: '1.0',
+        issueDate: '2024-01-01',
+        effectiveDate: '2024-01-05',
+        expirationDate: '2025-12-31',
+        uploadDate: '2024-01-01',
+        status: 'expired',
+        approvalStatus: 'approved',
+        department: 'Tài chính',
+        executingDepts: ['Tài chính', 'Kinh doanh'],
+        ownerName: 'Lê Thu Hà',
+        tags: ['Quy trình', 'Tài chính'],
+        scope: 'company',
+        category: 'Quy trình',
+        contentText: 'Phiên bản cũ của quy trình thu học phí. Nội dung này đã được thay thế sau khi cập nhật quy định đối soát và xác nhận công nợ năm 2026.',
+        replacedById: '1',
+        isLatestVersion: false,
+        versions: [
+            { version: '1.0', updatedAt: '2024-01-01', updatedBy: 'Admin', note: 'Ban hành lần đầu' }
+        ]
+    }
+];
+
 // --- Components ---
 
 const DocumentLibrary = () => {
@@ -180,21 +310,27 @@ const DocumentLibrary = () => {
     // Selection state
     const [selectedDept, setSelectedDept] = useState<string | 'all'>('all');
     const [selectedCategory, setSelectedCategory] = useState<string | 'all'>('all');
-    // Keep sidebar compact by default (expand on demand via chevron)
+    const [isDeptSectionOpen, setIsDeptSectionOpen] = useState(false);
+    const [isCategorySectionOpen, setIsCategorySectionOpen] = useState(false);
     const [expandedDepts, setExpandedDepts] = useState<string[]>([]);
 
     // Search state
     const [searchQuery, setSearchQuery] = useState('');
+    const [selectedStatus, setSelectedStatus] = useState<'all' | DocumentStatus>('all');
+    const [selectedScope, setSelectedScope] = useState<'all' | ScopeType>('all');
+    const [dateFieldFilter, setDateFieldFilter] = useState<'issueDate' | 'effectiveDate'>('effectiveDate');
+    const [dateFrom, setDateFrom] = useState('');
+    const [dateTo, setDateTo] = useState('');
+    const [showVersionHistory, setShowVersionHistory] = useState(false);
 
     // Modal state
     const [selectedDoc, setSelectedDoc] = useState<Document | null>(null);
     const [isDetailOpen, setIsDetailOpen] = useState(false);
     const [isUploadOpen, setIsUploadOpen] = useState(false);
 
-    // Toggle Dept Expansion
     const toggleDept = (dept: string) => {
-        setExpandedDepts(prev =>
-            prev.includes(dept) ? prev.filter(d => d !== dept) : [...prev, dept]
+        setExpandedDepts((prev) =>
+            prev.includes(dept) ? prev.filter((item) => item !== dept) : [...prev, dept]
         );
     };
 
@@ -207,13 +343,27 @@ const DocumentLibrary = () => {
         navigate('/module-selection');
     };
 
+    const documentsById = React.useMemo(
+        () => Object.fromEntries(NORMALIZED_DOCUMENTS.map((doc) => [doc.id, doc])),
+        []
+    );
+
     // Filter Logic
-    const filteredDocs = MOCK_DOCUMENTS.filter(doc => {
-        const matchSearch = doc.name.toLowerCase().includes(searchQuery.toLowerCase());
+    const filteredDocs = React.useMemo(() => NORMALIZED_DOCUMENTS.filter((doc) => {
+        if (!showVersionHistory && doc.isLatestVersion === false) return false;
+
+        const matchSearch = `${doc.name} ${doc.documentCode || ''}`.toLowerCase().includes(searchQuery.toLowerCase());
         const matchDept = selectedDept === 'all' || doc.department === selectedDept;
         const matchCategory = selectedCategory === 'all' || doc.category === selectedCategory;
-        return matchSearch && matchDept && matchCategory;
-    });
+        const matchStatus = selectedStatus === 'all' || doc.status === selectedStatus;
+        const matchScope = selectedScope === 'all' || doc.scope === selectedScope;
+
+        const rawDate = dateFieldFilter === 'issueDate' ? doc.issueDate : (doc.effectiveDate || '');
+        const matchDateFrom = !dateFrom || (rawDate && rawDate >= dateFrom);
+        const matchDateTo = !dateTo || (rawDate && rawDate <= dateTo);
+
+        return matchSearch && matchDept && matchCategory && matchStatus && matchScope && matchDateFrom && matchDateTo;
+    }), [dateFieldFilter, dateFrom, dateTo, searchQuery, selectedCategory, selectedDept, selectedScope, selectedStatus, showVersionHistory]);
 
     const getFileIcon = (type: DocumentType) => {
         switch (type) {
@@ -236,6 +386,30 @@ const DocumentLibrary = () => {
         }
     };
 
+    const getDocumentStatusBadge = (status: DocumentStatus) => {
+        if (status === 'active') {
+            return <span className="inline-flex items-center rounded-full border border-emerald-100 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">Đang áp dụng</span>;
+        }
+        if (status === 'expiring') {
+            return <span className="inline-flex items-center rounded-full border border-amber-100 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">Sắp hết hiệu lực</span>;
+        }
+        return <span className="inline-flex items-center rounded-full border border-rose-100 bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-700">Hết hiệu lực</span>;
+    };
+
+    const getDocumentStatusLabel = (status: DocumentStatus) =>
+        status === 'active' ? 'Đang áp dụng' : status === 'expiring' ? 'Sắp hết hiệu lực' : 'Hết hiệu lực';
+
+    const getScopeLabel = (scope: ScopeType) =>
+        scope === 'company' ? 'Toàn công ty' : scope === 'branch' ? 'Chi nhánh / Cơ sở' : 'Phòng ban nội bộ';
+
+    const getApprovalBadge = (approvalStatus?: DocumentApprovalStatus) =>
+        approvalStatus === 'draft'
+            ? <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">Nháp</span>
+            : <span className="inline-flex items-center rounded-full border border-sky-100 bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-700">Duyệt</span>;
+
+    const selectedDocReplacement = selectedDoc?.replacedById ? documentsById[selectedDoc.replacedById] : null;
+    const selectedDocReplaces = selectedDoc?.replacementOfId ? documentsById[selectedDoc.replacementOfId] : null;
+
     return (
         <div className="flex h-screen w-full bg-[#f8fafc]">
 
@@ -250,8 +424,83 @@ const DocumentLibrary = () => {
                     <span className="text-xl font-bold text-slate-900 cursor-pointer" onClick={() => navigate('/')}>{APP_NAME}</span>
                 </div>
 
-                {/* 2. Navigation (Tree View) */}
+                {/* 2. Navigation */}
                 <div className="flex-1 overflow-y-auto py-4 px-2 custom-scrollbar">
+                    <div className="mb-5">
+                        <button
+                            type="button"
+                            onClick={() => setIsDeptSectionOpen((prev) => !prev)}
+                            className="flex w-full items-center justify-between rounded-lg px-3 pb-2 text-left text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400 transition-colors hover:text-slate-600"
+                        >
+                            <span>Theo phòng ban</span>
+                            <ChevronDown size={16} className={`transition-transform ${isDeptSectionOpen ? 'rotate-180' : ''}`} />
+                        </button>
+                        <div className="hidden px-3 pb-2 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400">
+                            Theo phòng ban
+                        </div>
+                        <div className={isDeptSectionOpen ? 'space-y-1' : 'hidden'}>
+                            <button
+                                onClick={() => setSelectedDept('all')}
+                                className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-semibold transition-colors ${
+                                    selectedDept === 'all' ? 'bg-blue-50 text-blue-700' : 'text-slate-700 hover:bg-slate-50'
+                                }`}
+                            >
+                                <Globe size={18} className={selectedDept === 'all' ? 'text-blue-600' : 'text-slate-400'} />
+                                <span>Tất cả</span>
+                            </button>
+                            {LIBRARY_DEPARTMENTS.map((dept) => (
+                                <button
+                                    key={dept}
+                                    onClick={() => setSelectedDept(dept)}
+                                    className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-semibold transition-colors ${
+                                        selectedDept === dept ? 'bg-blue-50 text-blue-700' : 'text-slate-700 hover:bg-slate-50'
+                                    }`}
+                                >
+                                    <Briefcase size={18} className={selectedDept === dept ? 'text-blue-600' : 'text-slate-400'} />
+                                    <span>{dept}</span>
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="mb-2">
+                        <button
+                            type="button"
+                            onClick={() => setIsCategorySectionOpen((prev) => !prev)}
+                            className="flex w-full items-center justify-between rounded-lg px-3 pb-2 text-left text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400 transition-colors hover:text-slate-600"
+                        >
+                            <span>Theo loại tài liệu</span>
+                            <ChevronDown size={16} className={`transition-transform ${isCategorySectionOpen ? 'rotate-180' : ''}`} />
+                        </button>
+                        <div className="hidden px-3 pb-2 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400">
+                            Theo loại tài liệu
+                        </div>
+                        <div className={isCategorySectionOpen ? 'space-y-1' : 'hidden'}>
+                            <button
+                                onClick={() => setSelectedCategory('all')}
+                                className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-semibold transition-colors ${
+                                    selectedCategory === 'all' ? 'bg-blue-50 text-blue-700' : 'text-slate-700 hover:bg-slate-50'
+                                }`}
+                            >
+                                <FolderOpen size={18} className={selectedCategory === 'all' ? 'text-blue-600' : 'text-slate-400'} />
+                                <span>Tất cả</span>
+                            </button>
+                            {LIBRARY_CATEGORIES.map((category) => (
+                                <button
+                                    key={category}
+                                    onClick={() => setSelectedCategory(category)}
+                                    className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-semibold transition-colors ${
+                                        selectedCategory === category ? 'bg-blue-50 text-blue-700' : 'text-slate-700 hover:bg-slate-50'
+                                    }`}
+                                >
+                                    <FileCheck size={18} className={selectedCategory === category ? 'text-blue-600' : 'text-slate-400'} />
+                                    <span>{category}</span>
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="hidden">
                     {/* All Docs Link */}
                     <div
                         onClick={() => { setSelectedDept('all'); setSelectedCategory('all'); }}
@@ -335,6 +584,7 @@ const DocumentLibrary = () => {
                             );
                         })}
                     </div>
+                    </div>
                 </div>
 
                 {/* 3. Footer (User) */}
@@ -396,19 +646,47 @@ const DocumentLibrary = () => {
                             onClick={() => setIsUploadOpen(true)}
                             className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 shadow-sm transition-all"
                         >
-                            <Upload size={16} /> <span className="hidden sm:inline">Upload Tài liệu</span>
+                            <Upload size={16} /> <span className="hidden sm:inline">Tạo tài liệu</span>
                         </button>
                     </div>
                 </div>
 
                 {/* Filters Status Bar */}
-                <div className="px-6 py-3 border-b border-gray-100 bg-gray-50/50 flex items-center gap-2 overflow-x-auto">
-                    <span className="text-xs font-semibold text-gray-500 uppercase mr-2">Bộ lọc nhanh:</span>
-                    {['active', 'expired', 'draft'].map(status => (
-                        <button key={status} className="px-3 py-1 bg-white border border-gray-200 rounded-full text-xs text-gray-600 hover:border-blue-300 hover:text-blue-600 transition-colors shadow-sm">
-                            {status === 'active' ? 'Còn hiệu lực' : status === 'expired' ? 'Hết hiệu lực' : 'Nháp'}
-                        </button>
-                    ))}
+                <div className="border-b border-gray-100 bg-gray-50/50 px-6 py-3.5">
+                    <div className="grid grid-cols-[minmax(0,0.9fr)_minmax(0,0.9fr)_minmax(0,2.2fr)_minmax(0,0.95fr)_minmax(0,1.05fr)_minmax(190px,1.15fr)] items-center gap-2.5">
+                        <select value={selectedDept} onChange={(event) => setSelectedDept(event.target.value as typeof selectedDept)} className="min-w-0 w-full rounded-lg border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-gray-700">
+                            <option value="all">Phòng ban</option>
+                            {LIBRARY_DEPARTMENTS.map((department) => <option key={department} value={department}>{department}</option>)}
+                        </select>
+                        <select value={selectedCategory} onChange={(event) => setSelectedCategory(event.target.value as typeof selectedCategory)} className="min-w-0 w-full rounded-lg border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-gray-700">
+                            <option value="all">Loại tài liệu</option>
+                            {LIBRARY_CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}
+                        </select>
+                        <div className="grid min-w-0 grid-cols-[minmax(0,0.95fr)_minmax(0,1fr)_minmax(0,1fr)] gap-2.5">
+                            <select value={dateFieldFilter} onChange={(event) => setDateFieldFilter(event.target.value as 'issueDate' | 'effectiveDate')} className="min-w-0 w-full rounded-lg border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-gray-700">
+                                <option value="effectiveDate">Ngày hiệu lực</option>
+                                <option value="issueDate">Ngày ban hành</option>
+                            </select>
+                            <input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} className="min-w-0 w-full rounded-lg border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-gray-700" />
+                            <input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} className="min-w-0 w-full rounded-lg border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-gray-700" />
+                        </div>
+                        <select value={selectedStatus} onChange={(event) => setSelectedStatus(event.target.value as 'all' | DocumentStatus)} className="min-w-0 w-full rounded-lg border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-gray-700">
+                            <option value="all">Trạng thái</option>
+                            <option value="active">Đang áp dụng</option>
+                            <option value="expiring">Sắp hết hiệu lực</option>
+                            <option value="expired">Hết hiệu lực</option>
+                        </select>
+                        <select value={selectedScope} onChange={(event) => setSelectedScope(event.target.value as 'all' | ScopeType)} className="min-w-0 w-full rounded-lg border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-gray-700">
+                            <option value="all">Phạm vi áp dụng</option>
+                            <option value="company">Toàn công ty</option>
+                            <option value="branch">Chi nhánh / Cơ sở</option>
+                            <option value="department">Phòng ban nội bộ</option>
+                        </select>
+                        <label className="inline-flex min-w-0 w-full items-center gap-2 whitespace-nowrap rounded-lg border border-gray-200 bg-white px-3.5 py-2.5 text-sm font-medium text-gray-700">
+                            <input type="checkbox" checked={!showVersionHistory} onChange={(event) => setShowVersionHistory(!event.target.checked)} />
+                            Chỉ hiện bản mới nhất
+                        </label>
+                    </div>
                 </div>
 
                 {/* Table Content */}
@@ -417,11 +695,11 @@ const DocumentLibrary = () => {
                         <table className="w-full text-left border-collapse">
                             <thead className="bg-gray-50/80 sticky top-0 z-10 backdrop-blur-sm">
                                 <tr className="border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                                    <th className="px-6 py-4 w-[30%]">Tên văn bản</th>
-                                    <th className="px-6 py-4">Phân loại</th>
-                                    <th className="px-6 py-4">Ban hành / Upload</th>
-                                    <th className="px-6 py-4">Hiệu lực</th>
-                                    <th className="px-6 py-4">Phạm vi</th>
+                                    <th className="px-6 py-4 w-[30%]">Tên tài liệu</th>
+                                    <th className="px-6 py-4">Ban hành ngày</th>
+                                    <th className="px-6 py-4">Hiệu lực từ</th>
+                                    <th className="px-6 py-4">Phạm vi áp dụng</th>
+                                    <th className="px-6 py-4">Người chịu trách nhiệm</th>
                                     <th className="px-6 py-4 text-center">Trạng thái</th>
                                 </tr>
                             </thead>
@@ -441,66 +719,48 @@ const DocumentLibrary = () => {
                                                     <p className="font-semibold text-gray-900 group-hover:text-blue-700 transition-colors text-sm line-clamp-2 leading-relaxed" title={doc.name}>
                                                         {doc.name}
                                                     </p>
-                                                    <div className="flex items-center gap-2 mt-1.5">
+                                                    <div className="mt-1.5 flex flex-wrap items-center gap-2">
                                                         <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded border border-slate-200 font-mono">
                                                             v{doc.version}
                                                         </span>
+                                                        {(doc.tags || []).map((tag) => (
+                                                            <span key={tag} className="rounded-full border border-blue-100 bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-700">
+                                                                {tag}
+                                                            </span>
+                                                        ))}
                                                     </div>
                                                 </div>
                                             </div>
                                         </td>
                                         <td className="px-6 py-4">
-                                            <div className="flex flex-col gap-1">
-                                                <span className="text-sm font-medium text-gray-900">{doc.category}</span>
-                                                <span className="text-xs text-gray-500">{doc.department}</span>
+                                            <div className="flex items-center gap-1.5 text-sm text-gray-700">
+                                                <Calendar size={14} className="text-gray-400" />
+                                                <span>{doc.issueDate}</span>
                                             </div>
                                         </td>
                                         <td className="px-6 py-4">
-                                            <div className="flex flex-col gap-1 text-xs">
-                                                <div className="flex items-center gap-1.5 text-gray-700">
-                                                    <Calendar size={12} className="text-gray-400" />
-                                                    {doc.issueDate}
-                                                </div>
-                                                <div className="flex items-center gap-1.5 text-gray-400">
-                                                    <Upload size={12} className="text-gray-300" />
-                                                    {doc.uploadDate}
-                                                </div>
-                                            </div>
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            <div className="flex flex-col gap-1 text-xs">
-                                                {doc.expirationDate ? (
-                                                    <div className="flex items-center gap-1.5 text-orange-700 bg-orange-50 px-2 py-1 rounded w-fit">
-                                                        <History size={12} />
-                                                        {doc.expirationDate}
-                                                    </div>
-                                                ) : (
-                                                    <div className="text-gray-400 ml-5">-</div>
-                                                )}
+                                            <div className="flex items-center gap-1.5 text-sm text-gray-700">
+                                                <History size={14} className="text-gray-400" />
+                                                <span>{doc.effectiveDate || '--'}</span>
                                             </div>
                                         </td>
                                         <td className="px-6 py-4">
                                             <div className="flex flex-col gap-1.5">
-                                                <span className="text-xs text-xs font-medium text-slate-700 inline-flex items-center gap-1">
-                                                    <Globe size={12} />
-                                                    {doc.scope === 'company' ? 'Toàn công ty' : doc.scope === 'branch' ? 'Chi nhánh' : 'Phòng ban'}
+                                                <span className="inline-flex items-center gap-1 text-sm font-medium text-slate-700">
+                                                    <Globe size={14} className="text-slate-400" />
+                                                    {getScopeLabel(doc.scope)}
                                                 </span>
-                                                <div className="flex flex-wrap gap-1">
-                                                    {doc.executingDepts.slice(0, 1).map(dept => (
-                                                        <span key={dept} className="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded border border-blue-100 truncate max-w-[100px]">
-                                                            {dept.split('(')[0].trim()}
-                                                        </span>
-                                                    ))}
-                                                    {doc.executingDepts.length > 1 && (
-                                                        <span className="text-[10px] bg-gray-50 text-gray-600 px-1.5 py-0.5 rounded border border-gray-200">
-                                                            +{doc.executingDepts.length - 1}
-                                                        </span>
-                                                    )}
-                                                </div>
+                                                <span className="text-xs text-slate-500">{doc.department}</span>
+                                            </div>
+                                        </td>
+                                        <td className="px-6 py-4">
+                                            <div className="flex flex-col gap-1">
+                                                <span className="text-sm font-medium text-gray-900">{doc.ownerName || '--'}</span>
+                                                <span className="text-xs text-gray-500">{doc.executingDepts.join(', ')}</span>
                                             </div>
                                         </td>
                                         <td className="px-6 py-4 text-center">
-                                            {getStatusBadge(doc.status)}
+                                            {getDocumentStatusBadge(doc.status)}
                                         </td>
                                     </tr>
                                 ))}
@@ -527,117 +787,144 @@ const DocumentLibrary = () => {
             {isDetailOpen && selectedDoc && (
                 <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
                     <div className="absolute inset-0 bg-black/40 backdrop-blur-sm transition-opacity" onClick={() => setIsDetailOpen(false)}></div>
-                    <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
-                        {/* Header */}
-                        <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between bg-gray-50/50 rounded-t-2xl">
-                            <div className="flex items-center gap-4">
-                                <div className="p-3 bg-white shadow-sm rounded-xl border border-gray-100">
-                                    {getFileIcon(selectedDoc.type)}
-                                </div>
-                                <div>
-                                    <h2 className="text-xl font-bold text-gray-900">{selectedDoc.name}</h2>
-                                    <div className="flex items-center gap-2 text-sm text-gray-500 mt-1">
-                                        <span className="px-2 py-0.5 bg-gray-100 rounded text-xs text-gray-700 font-mono">v{selectedDoc.version}</span>
-                                        <span>•</span>
-                                        <span>{selectedDoc.category}</span>
-                                    </div>
+                    <div className="relative flex max-h-[90vh] w-full max-w-7xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+                        <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-6 py-4 rounded-t-3xl">
+                            <div>
+                                <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Chi tiết tài liệu</div>
+                                <div className="mt-1 flex items-center gap-2">
+                                    {getApprovalBadge(selectedDoc.approvalStatus)}
+                                    {selectedDoc.approvalStatus === 'approved' ? <span className="text-sm text-slate-500">Đang ở chế độ duyệt, không thể chỉnh sửa.</span> : <span className="text-sm text-slate-500">Có thể cập nhật khi còn ở chế độ nháp.</span>}
                                 </div>
                             </div>
-                            <button onClick={() => setIsDetailOpen(false)} className="p-2 hover:bg-gray-200 rounded-full transition-colors">
-                                <X size={24} className="text-gray-500" />
-                            </button>
+                            <div className="flex items-center gap-2">
+                                <button onClick={() => setShowVersionHistory((prev) => !prev)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:border-slate-300 hover:bg-slate-50">
+                                    {showVersionHistory ? 'Ẩn lịch sử phiên bản' : 'Xem lịch sử phiên bản'}
+                                </button>
+                                <button onClick={() => setIsUploadOpen(true)} className="rounded-lg border border-blue-600 bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700">
+                                    Tạo tài liệu
+                                </button>
+                                <button disabled={selectedDoc.approvalStatus === 'approved'} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 disabled:cursor-not-allowed disabled:opacity-40">
+                                    Chỉnh sửa
+                                </button>
+                                <button onClick={() => setIsDetailOpen(false)} className="p-2 text-slate-500 hover:bg-slate-200 rounded-full transition-colors">
+                                    <X size={22} />
+                                </button>
+                            </div>
                         </div>
 
-                        {/* Detail Content */}
-                        <div className="flex-1 overflow-y-auto p-8">
-                            <div className="grid grid-cols-3 gap-8">
-                                {/* Left Col: Attributes */}
-                                <div className="col-span-1 space-y-6 border-r border-gray-100 pr-6">
-                                    <div>
-                                        <h4 className="text-sm font-semibold text-gray-900 mb-3">Thông tin chi tiết</h4>
-                                        <div className="space-y-4">
-                                            <DetailRow icon={<Building2 size={14} />} label="Phòng ban" value={selectedDoc.department} />
-                                            <DetailRow icon={<FileCheck size={14} />} label="Loại văn bản" value={selectedDoc.category} />
-                                            <DetailRow icon={<Globe size={14} />} label="Phạm vi" value={selectedDoc.scope} />
-                                            <DetailRow icon={<CheckCircle2 size={14} />} label="Trạng thái" value={selectedDoc.status === 'active' ? 'Có hiệu lực' : 'Hết hiệu lực'} />
-                                        </div>
+                        <div className="min-h-0 overflow-y-auto">
+                        <div className="grid gap-0 xl:grid-cols-[300px_minmax(0,1fr)_280px]">
+                            <aside className="border-r border-slate-200 bg-white px-6 py-6">
+                                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                                    <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Mã tài liệu</div>
+                                    <div className="mt-2 text-sm font-semibold text-slate-900">{selectedDoc.documentCode || '--'}</div>
+                                    <div className="mt-5 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Tên tài liệu</div>
+                                    <h2 className="mt-2 text-2xl font-bold leading-tight text-slate-950">{selectedDoc.name}</h2>
+                                    <div className="mt-4 flex flex-wrap items-center gap-2">
+                                        <span className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-mono text-slate-700">v{selectedDoc.version}</span>
+                                        {getApprovalBadge(selectedDoc.approvalStatus)}
                                     </div>
-
-                                    <div>
-                                        <h4 className="text-sm font-semibold text-gray-900 mb-3">Thời gian</h4>
-                                        <div className="space-y-4">
-                                            <DetailRow icon={<Calendar size={14} />} label="Ngày ban hành" value={selectedDoc.issueDate} />
-                                            <DetailRow icon={<Upload size={14} />} label="Ngày upload" value={selectedDoc.uploadDate} />
-                                            <DetailRow icon={<History size={14} />} label="Ngày hết hạn" value={selectedDoc.expirationDate || 'Không thời hạn'} />
-                                        </div>
-                                    </div>
-
-                                    <div>
-                                        <h4 className="text-sm font-semibold text-gray-900 mb-3">Đơn vị thực thi</h4>
-                                        <div className="flex flex-wrap gap-2">
-                                            {selectedDoc.executingDepts.map(d => (
-                                                <span key={d} className="px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs border border-gray-200">
-                                                    {d}
-                                                </span>
-                                            ))}
-                                        </div>
-                                    </div>
+                                    <div className="mt-4">{getDocumentStatusBadge(selectedDoc.status)}</div>
                                 </div>
+                            </aside>
 
-                                {/* Right Col: Preview & Versions */}
-                                <div className="col-span-2 space-y-8 pl-2">
-                                    {/* File Attachment */}
-                                    <div className="bg-blue-50/50 rounded-xl p-5 border border-blue-100">
-                                        <div className="flex items-center justify-between">
-                                            <div className="flex items-center gap-3">
-                                                <div className="p-3 bg-white rounded-lg border border-blue-100 text-blue-600 shadow-sm">
-                                                    {getFileIcon(selectedDoc.type)}
-                                                </div>
-                                                <div>
-                                                    <p className="font-medium text-gray-900">File đính kèm (Scan/Gốc)</p>
-                                                    <p className="text-sm text-gray-500">Bản scan có dấu đỏ • 2.4 MB</p>
+                            <main className="bg-slate-50 px-6 py-6">
+                                {selectedDocReplacement ? (
+                                    <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                                        <span>Tài liệu này đã được thay thế bởi phiên bản mới ({selectedDocReplacement.version}).</span>
+                                        <button onClick={() => setSelectedDoc(selectedDocReplacement)} className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 font-medium text-amber-900 hover:bg-amber-100">
+                                            Mở bản mới
+                                        </button>
+                                    </div>
+                                ) : null}
+
+                                {selectedDocReplaces ? (
+                                    <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
+                                        <span>Tài liệu này thay thế cho phiên bản cũ v{selectedDocReplaces.version}.</span>
+                                        <button onClick={() => setSelectedDoc(selectedDocReplaces)} className="rounded-lg border border-sky-300 bg-white px-3 py-1.5 font-medium text-sky-900 hover:bg-sky-100">
+                                            Mở bản cũ
+                                        </button>
+                                    </div>
+                                ) : null}
+
+                                <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                                    <div className="mb-4 flex items-center justify-between gap-3">
+                                        <div>
+                                            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Nội dung chính</div>
+                                            <div className="mt-1 text-sm text-slate-500">Xem trực tiếp tài liệu, không cần tải file.</div>
+                                        </div>
+                                        <div className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
+                                            {selectedDoc.type.toUpperCase()}
+                                        </div>
+                                    </div>
+
+                                    {selectedDoc.type === 'pdf' ? (
+                                        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
+                                            <div className="border-b border-slate-200 bg-slate-50 px-4 py-2 text-xs font-medium text-slate-500">PDF Preview</div>
+                                            <div className="grid min-h-[560px] place-items-center px-8 py-10">
+                                                <div className="w-full max-w-3xl rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
+                                                    <div className="flex items-center justify-between border-b border-slate-200 pb-4">
+                                                        <div>
+                                                            <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">{selectedDoc.documentCode}</div>
+                                                            <h3 className="mt-1 text-xl font-bold text-slate-950">{selectedDoc.name}</h3>
+                                                        </div>
+                                                        <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-mono text-slate-700">v{selectedDoc.version}</span>
+                                                    </div>
+                                                    <div className="mt-6 space-y-4 text-sm leading-7 text-slate-700">
+                                                        <p>{selectedDoc.contentText}</p>
+                                                        <p>Tài liệu hiển thị trực tiếp trong màn chi tiết để người dùng đọc nhanh mà không cần tải xuống.</p>
+                                                        <p>Các phiên bản cũ chỉ nên mở khi bật xem lịch sử phiên bản.</p>
+                                                    </div>
                                                 </div>
                                             </div>
-                                            <button className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium shadow-sm transition-all">
-                                                <Download size={16} /> Tải về
-                                            </button>
                                         </div>
-                                    </div>
-
-                                    {/* Validated Status */}
-                                    {selectedDoc.status === 'active' && (
-                                        <div className="flex items-center gap-3 p-4 bg-green-50 border border-green-100 rounded-lg text-green-800">
-                                            <CheckCircle2 size={20} className="text-green-600" />
-                                            <span className="text-sm font-medium">Văn bản này đang có hiệu lực thi hành</span>
-                                        </div>
+                                    ) : (
+                                        <article className="min-h-[560px] rounded-2xl border border-slate-200 bg-slate-50 p-6 text-sm leading-7 text-slate-700 whitespace-pre-line">
+                                            {selectedDoc.contentText}
+                                        </article>
                                     )}
+                                </div>
 
-                                    {/* Version History */}
-                                    <div>
-                                        <h4 className="text-sm font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                                            <History size={16} /> Lịch sử cập nhật
-                                        </h4>
+                                {showVersionHistory ? (
+                                    <div className="mt-5 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                                        <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-slate-900">
+                                            <History size={16} /> Lịch sử phiên bản
+                                        </div>
                                         <div className="space-y-4">
-                                            {selectedDoc.versions.map((ver, idx) => (
-                                                <div key={idx} className="flex gap-4 group">
+                                            {selectedDoc.versions.map((version, index) => (
+                                                <div key={`${selectedDoc.id}-${version.version}`} className="flex gap-4">
                                                     <div className="flex flex-col items-center">
-                                                        <div className={`w-3 h-3 rounded-full border-2 ${idx === 0 ? 'bg-blue-600 border-blue-600' : 'bg-gray-200 border-gray-300'}`}></div>
-                                                        {idx !== selectedDoc.versions.length - 1 && <div className="w-0.5 h-full bg-gray-200 my-1"></div>}
+                                                        <div className={`h-3 w-3 rounded-full border-2 ${index === 0 ? 'border-blue-600 bg-blue-600' : 'border-slate-300 bg-white'}`}></div>
+                                                        {index !== selectedDoc.versions.length - 1 ? <div className="my-1 h-full w-0.5 bg-slate-200"></div> : null}
                                                     </div>
-                                                    <div className="pb-4">
-                                                        <div className="flex items-baseline gap-2">
-                                                            <span className="text-sm font-bold text-gray-900">Phiên bản {ver.version}</span>
-                                                            <span className="text-xs text-gray-500">{ver.updatedAt}</span>
+                                                    <div>
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="text-sm font-bold text-slate-900">Phiên bản {version.version}</span>
+                                                            <span className="text-xs text-slate-500">{version.updatedAt}</span>
                                                         </div>
-                                                        <p className="text-sm text-gray-600 mt-1">{ver.note}</p>
-                                                        <p className="text-xs text-gray-400 mt-1">Cập nhật bởi: {ver.updatedBy}</p>
+                                                        <p className="mt-1 text-sm text-slate-600">{version.note}</p>
+                                                        <p className="mt-1 text-xs text-slate-400">Cập nhật bởi: {version.updatedBy}</p>
                                                     </div>
                                                 </div>
                                             ))}
                                         </div>
                                     </div>
+                                ) : null}
+                            </main>
+
+                            <aside className="border-l border-slate-200 bg-white px-6 py-6">
+                                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                                    <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Thông tin phụ</div>
+                                    <div className="mt-4 space-y-4">
+                                        <DetailRow icon={<Building2 size={14} />} label="Phòng ban" value={selectedDoc.department} />
+                                        <DetailRow icon={<Globe size={14} />} label="Phạm vi" value={getScopeLabel(selectedDoc.scope)} />
+                                        <DetailRow icon={<History size={14} />} label="Ngày hiệu lực" value={selectedDoc.effectiveDate || '--'} />
+                                        <DetailRow icon={<History size={14} />} label="Ngày hết hiệu lực" value={selectedDoc.expirationDate || 'Không thời hạn'} />
+                                        <DetailRow icon={<UserIcon size={14} />} label="Người phụ trách" value={selectedDoc.ownerName || '--'} />
+                                    </div>
                                 </div>
-                            </div>
+                            </aside>
+                        </div>
                         </div>
                     </div>
                 </div>
@@ -649,89 +936,109 @@ const DocumentLibrary = () => {
                     <div className="absolute inset-0 bg-black/40 backdrop-blur-sm transition-opacity" onClick={() => setIsUploadOpen(false)}></div>
                     <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col animate-in fade-in zoom-in-95 duration-200">
                         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-                            <h2 className="text-lg font-bold text-gray-900">Upload Văn bản / Quy trình mới</h2>
+                            <h2 className="text-lg font-bold text-gray-900">Tạo tài liệu</h2>
                             <button onClick={() => setIsUploadOpen(false)} className="p-2 hover:bg-gray-100 rounded-full"><X size={20} /></button>
                         </div>
                         <div className="p-6 overflow-y-auto max-h-[80vh]">
                             <form className="space-y-5">
+                                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                                    Chế độ tạo tài liệu hỗ trợ <span className="font-semibold text-slate-900">Nháp</span> và <span className="font-semibold text-slate-900">Duyệt</span>. Tài liệu ở chế độ duyệt sẽ không được chỉnh sửa trực tiếp.
+                                </div>
                                 <div className="grid grid-cols-2 gap-5">
                                     <div className="space-y-1.5">
-                                        <label className="text-sm font-medium text-gray-700">Tên văn bản <span className="text-red-500">*</span></label>
-                                        <input type="text" className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="Nhập tên văn bản..." />
+                                        <label className="text-sm font-medium text-gray-700">Tên tài liệu <span className="text-red-500">*</span></label>
+                                        <input type="text" className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500" placeholder="Nhập tên tài liệu..." />
                                     </div>
                                     <div className="space-y-1.5">
-                                        <label className="text-sm font-medium text-gray-700">Số/Ký hiệu</label>
-                                        <input type="text" className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="VD: 01/2026/QĐ-GĐ" />
+                                        <label className="text-sm font-medium text-gray-700">Version</label>
+                                        <input type="text" className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500" placeholder="VD: 2.0" />
                                     </div>
                                 </div>
 
                                 <div className="grid grid-cols-2 gap-5">
                                     <div className="space-y-1.5">
-                                        <label className="text-sm font-medium text-gray-700">Phòng ban ban hành</label>
-                                        <select className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                                            {DEPARTMENTS.map(d => <option key={d}>{d}</option>)}
+                                        <label className="text-sm font-medium text-gray-700">Phòng ban</label>
+                                        <select className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500">
+                                            {LIBRARY_DEPARTMENTS.map((department) => <option key={department}>{department}</option>)}
                                         </select>
                                     </div>
                                     <div className="space-y-1.5">
-                                        <label className="text-sm font-medium text-gray-700">Loại văn bản</label>
-                                        <select className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                                            {CATEGORIES.map(c => <option key={c}>{c}</option>)}
+                                        <label className="text-sm font-medium text-gray-700">Loại tài liệu</label>
+                                        <select className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500">
+                                            {LIBRARY_CATEGORIES.map((category) => <option key={category}>{category}</option>)}
                                         </select>
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-5">
+                                    <div className="space-y-1.5">
+                                        <label className="text-sm font-medium text-gray-700">Tag</label>
+                                        <input type="text" className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" placeholder="VD: SOP, Nội bộ, Đào tạo" />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <label className="text-sm font-medium text-gray-700">Người chịu trách nhiệm</label>
+                                        <input type="text" className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" placeholder="Nhập tên người phụ trách" />
                                     </div>
                                 </div>
 
                                 <div className="grid grid-cols-3 gap-4">
                                     <div className="space-y-1.5">
-                                        <label className="text-sm font-medium text-gray-700">Ngày ban hành</label>
-                                        <input type="date" className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" />
+                                        <label className="text-sm font-medium text-gray-700">Ban hành ngày</label>
+                                        <input type="date" className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
                                     </div>
                                     <div className="space-y-1.5">
-                                        <label className="text-sm font-medium text-gray-700">Ngày có hiệu lực</label>
-                                        <input type="date" className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" />
+                                        <label className="text-sm font-medium text-gray-700">Hiệu lực từ</label>
+                                        <input type="date" className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
                                     </div>
                                     <div className="space-y-1.5">
-                                        <label className="text-sm font-medium text-gray-700">Ngày hết hạn (nếu có)</label>
-                                        <input type="date" className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" />
+                                        <label className="text-sm font-medium text-gray-700">Hết hiệu lực ngày</label>
+                                        <input type="date" className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
                                     </div>
                                 </div>
 
-                                <div className="space-y-1.5">
-                                    <label className="text-sm font-medium text-gray-700">Phạm vi áp dụng</label>
-                                    <div className="flex gap-4 mt-1">
-                                        <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-                                            <input type="radio" name="scope" className="text-blue-600 focus:ring-blue-500" defaultChecked /> Toàn công ty
-                                        </label>
-                                        <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-                                            <input type="radio" name="scope" className="text-blue-600 focus:ring-blue-500" /> Chi nhánh / Cơ sở
-                                        </label>
-                                        <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-                                            <input type="radio" name="scope" className="text-blue-600 focus:ring-blue-500" /> Phòng ban nội bộ
-                                        </label>
+                                <div className="grid grid-cols-3 gap-5">
+                                    <div className="space-y-1.5">
+                                        <label className="text-sm font-medium text-gray-700">Phạm vi áp dụng</label>
+                                        <select className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500">
+                                            <option value="company">Toàn công ty</option>
+                                            <option value="branch">Chi nhánh / Cơ sở</option>
+                                            <option value="department">Phòng ban nội bộ</option>
+                                        </select>
                                     </div>
-                                </div>
-
-                                <div className="space-y-1.5">
-                                    <label className="text-sm font-medium text-gray-700">Đơn vị thực thi (Tags)</label>
-                                    <input type="text" className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" placeholder="Nhập tên phòng ban..." />
+                                    <div className="space-y-1.5">
+                                        <label className="text-sm font-medium text-gray-700">Trạng thái</label>
+                                        <select className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500">
+                                            <option value="active">Đang áp dụng</option>
+                                            <option value="expiring">Sắp hết hiệu lực</option>
+                                            <option value="expired">Hết hiệu lực</option>
+                                        </select>
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <label className="text-sm font-medium text-gray-700">Chế độ tài liệu</label>
+                                        <select className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500">
+                                            <option value="draft">Nháp</option>
+                                            <option value="approved">Duyệt</option>
+                                        </select>
+                                    </div>
                                 </div>
 
                                 <div className="space-y-2">
-                                    <label className="text-sm font-medium text-gray-700">File đính kèm (Scan có dấu / PDF)</label>
-                                    <div className="border-2 border-dashed border-gray-300 rounded-xl p-6 flex flex-col items-center justify-center text-center hover:bg-gray-50 transition-colors cursor-pointer group">
-                                        <div className="p-3 bg-blue-50 text-blue-600 rounded-full mb-3 group-hover:scale-110 transition-transform">
+                                    <label className="text-sm font-medium text-gray-700">File đính kèm</label>
+                                    <div className="group cursor-pointer rounded-xl border-2 border-dashed border-gray-300 p-6 text-center transition-colors hover:bg-gray-50">
+                                        <div className="mb-3 inline-flex rounded-full bg-blue-50 p-3 text-blue-600 transition-transform group-hover:scale-110">
                                             <Upload size={20} />
                                         </div>
-                                        <p className="text-sm text-gray-900 font-medium">Click để tải lên hoặc kéo thả file vào đây</p>
-                                        <p className="text-xs text-gray-500 mt-1">Hỗ trợ PDF, Word, Excel, Ảnh (Max 10MB)</p>
+                                        <p className="text-sm font-medium text-gray-900">Click để tải lên hoặc kéo thả file vào đây</p>
+                                        <p className="mt-1 text-xs text-gray-500">Hỗ trợ PDF, Word, Excel, ảnh. Tối đa 10MB</p>
                                     </div>
                                 </div>
                             </form>
                         </div>
                         <div className="px-6 py-4 border-t border-gray-100 bg-gray-50 flex justify-end gap-3 rounded-b-2xl">
-                            <button onClick={() => setIsUploadOpen(false)} className="px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-100">Hủy bỏ</button>
-                            <button className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 shadow-sm">Lưu văn bản</button>
+                            <button onClick={() => setIsUploadOpen(false)} className="px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-100">Hủy</button>
+                            <button className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 shadow-sm">Tạo tài liệu</button>
                         </div>
-                    </div>
+                        </div>
                 </div>
             )}
         </div>

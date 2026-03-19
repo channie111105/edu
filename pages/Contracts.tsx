@@ -11,6 +11,7 @@ import {
   ITeacher,
   ITrainingClass,
   QuotationStatus,
+  StudentClaimStatus,
   StudentStatus,
   UserRole
 } from '../types';
@@ -38,7 +39,7 @@ import { decodeMojibakeReactNode, decodeMojibakeText } from '../utils/mojibake';
 
 type EnrollmentTabKey = 'waiting_enrollment' | 'waiting_approval' | 'enrolled' | 'processing' | 'students' | 'all';
 type GroupByKey = 'campus' | 'program' | 'currentClass' | 'studentStatus' | 'admissionStatus';
-type AdvancedFilterFieldKey = 'campus' | 'program' | 'currentClass' | 'studentStatus' | 'admissionStatus';
+type AdvancedFilterFieldKey = 'campus' | 'program' | 'currentClass' | 'studentStatus' | 'admissionStatus' | 'claimStatus';
 type StudentLifecycleStatus =
   | 'MOI_TAO'
   | 'CHO_GHI_DANH'
@@ -65,6 +66,8 @@ type StudentEnrollmentRow = {
   studentStatusLabel: string;
   admissionStatusKey: AdmissionDisplayStatus;
   admissionStatusLabel: string;
+  claimStatusKey: StudentClaimStatus;
+  claimStatusLabel: string;
   canEnroll: boolean;
   canCancelAdmission: boolean;
   needsProcessing: boolean;
@@ -125,7 +128,8 @@ const ADVANCED_FILTER_FIELDS: Array<{ key: AdvancedFilterFieldKey; label: string
   { key: 'program', label: 'Chương trình' },
   { key: 'currentClass', label: 'Lớp hiện tại' },
   { key: 'studentStatus', label: 'Trạng thái học viên' },
-  { key: 'admissionStatus', label: 'Trạng thái ghi danh' }
+  { key: 'admissionStatus', label: 'Trạng thái ghi danh' },
+  { key: 'claimStatus', label: 'Trạng thái claim' }
 ];
 
 const formatDisplayDate = (value?: string) => {
@@ -175,6 +179,7 @@ const Contracts: React.FC = () => {
   const [currentClassFilter, setCurrentClassFilter] = useState('all');
   const [studentStatusFilter, setStudentStatusFilter] = useState<'all' | StudentLifecycleStatus>('all');
   const [admissionStatusFilter, setAdmissionStatusFilter] = useState<'all' | AdmissionDisplayStatus>('all');
+  const [claimStatusFilter, setClaimStatusFilter] = useState<'all' | Exclude<StudentClaimStatus, 'KHONG_CO'>>('all');
   const [groupBy, setGroupBy] = useState<GroupByKey[]>([]);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [activeAdvancedFilterField, setActiveAdvancedFilterField] = useState<AdvancedFilterFieldKey>('campus');
@@ -303,6 +308,7 @@ const Contracts: React.FC = () => {
             : latestAdmission?.status === 'CHO_DUYET'
               ? 'CHO_DUYET'
               : 'CHUA_TAO';
+        const claimStatusKey: StudentClaimStatus = latestClaim?.claimStatus || 'KHONG_CO';
         const canEnroll =
           !!lockedQuotation &&
           student.enrollmentStatus !== 'DA_GHI_DANH' &&
@@ -312,7 +318,7 @@ const Contracts: React.FC = () => {
           new Set([
             ...(activeClaim ? [`Claim: ${CLAIM_TYPE_LABELS[activeClaim.claimType] || activeClaim.claimType}`] : []),
             ...PROCESSING_NOTE_RULES.filter(({ keyword }) =>
-              normalizeText([student.note, latestAdmission?.note, currentClassStudent?.status].filter(Boolean).join(' ')).includes(keyword)
+              normalizeText([activeClaim?.note, latestAdmission?.note, currentClassStudent?.status].filter(Boolean).join(' ')).includes(keyword)
             ).map(({ label }) => label)
           ])
         );
@@ -335,6 +341,8 @@ const Contracts: React.FC = () => {
           studentStatusLabel: STUDENT_STATUS_LABELS[studentStatusKey],
           admissionStatusKey,
           admissionStatusLabel: ADMISSION_STATUS_LABELS[admissionStatusKey],
+          claimStatusKey,
+          claimStatusLabel: CLAIM_STATUS_LABELS[claimStatusKey],
           canEnroll,
           canCancelAdmission,
           needsProcessing: processingReasons.length > 0 || !!activeClaim,
@@ -350,12 +358,13 @@ const Contracts: React.FC = () => {
       waiting_approval: 0,
       enrolled: 0,
       processing: 0,
-      students: studentRows.length,
+      students: 0,
       all: studentRows.length
     } as Record<EnrollmentTabKey, number>;
 
     studentRows.forEach((row) => {
       if (row.needsProcessing) next.processing += 1;
+      if (row.needsProcessing) next.students += 1;
       if (row.admissionStatusKey === 'CHO_DUYET') next.waiting_approval += 1;
       else if (['DA_GHI_DANH', 'DANG_HOC', 'TAM_DUNG', 'HOAN_THANH'].includes(row.studentStatusKey)) next.enrolled += 1;
       else next.waiting_enrollment += 1;
@@ -369,7 +378,10 @@ const Contracts: React.FC = () => {
 
   const filteredRows = useMemo(() => {
     const byTab = studentRows.filter((row) => {
-      if (activeTab === 'students') return true;
+      if (activeTab === 'students') {
+        if (claimStatusFilter !== 'all') return row.claimStatusKey === claimStatusFilter;
+        return row.needsProcessing;
+      }
       if (activeTab === 'processing') return row.needsProcessing;
       if (activeTab === 'waiting_approval') return row.admissionStatusKey === 'CHO_DUYET';
       if (activeTab === 'enrolled') return ['DA_GHI_DANH', 'DANG_HOC', 'TAM_DUNG', 'HOAN_THANH'].includes(row.studentStatusKey);
@@ -396,6 +408,7 @@ const Contracts: React.FC = () => {
           row.teacher?.fullName,
           row.studentStatusLabel,
           row.admissionStatusLabel,
+          row.claimStatusLabel,
           row.processingReasons.join(' ')
         ]
           .map(normalizeText)
@@ -407,10 +420,11 @@ const Contracts: React.FC = () => {
       const currentClassMatch = currentClassFilter === 'all' || row.currentClassLabel === currentClassFilter;
       const studentStatusMatch = studentStatusFilter === 'all' || row.studentStatusKey === studentStatusFilter;
       const admissionStatusMatch = admissionStatusFilter === 'all' || row.admissionStatusKey === admissionStatusFilter;
+      const claimStatusMatch = activeTab !== 'students' || claimStatusFilter === 'all' || row.claimStatusKey === claimStatusFilter;
 
-      return searchMatch && campusMatch && programMatch && currentClassMatch && studentStatusMatch && admissionStatusMatch;
+      return searchMatch && campusMatch && programMatch && currentClassMatch && studentStatusMatch && admissionStatusMatch && claimStatusMatch;
     });
-  }, [activeTab, admissionStatusFilter, campusFilter, currentClassFilter, programFilter, search, studentRows, studentStatusFilter]);
+  }, [activeTab, admissionStatusFilter, campusFilter, claimStatusFilter, currentClassFilter, programFilter, search, studentRows, studentStatusFilter]);
 
   const groupedRows = useMemo(() => {
     if (!groupBy.length) return [{ key: 'all', label: `Táº¥t cáº£ (${filteredRows.length})`, rows: filteredRows }];
@@ -484,9 +498,10 @@ const Contracts: React.FC = () => {
     if (currentClassFilter !== 'all') count += 1;
     if (studentStatusFilter !== 'all') count += 1;
     if (admissionStatusFilter !== 'all') count += 1;
+    if (claimStatusFilter !== 'all') count += 1;
     count += groupBy.length;
     return count;
-  }, [admissionStatusFilter, campusFilter, currentClassFilter, groupBy, programFilter, studentStatusFilter]);
+  }, [admissionStatusFilter, campusFilter, claimStatusFilter, currentClassFilter, groupBy, programFilter, studentStatusFilter]);
 
   const resetAdvancedFilters = () => {
     setCampusFilter('all');
@@ -494,6 +509,7 @@ const Contracts: React.FC = () => {
     setCurrentClassFilter('all');
     setStudentStatusFilter('all');
     setAdmissionStatusFilter('all');
+    setClaimStatusFilter('all');
     setGroupBy([]);
   };
 
@@ -992,6 +1008,14 @@ const Contracts: React.FC = () => {
                           {Object.entries(ADMISSION_STATUS_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
                         </select>
                       ) : null}
+                      {activeAdvancedFilterField === 'claimStatus' ? (
+                        <select value={claimStatusFilter} onChange={(event) => setClaimStatusFilter(event.target.value as 'all' | Exclude<StudentClaimStatus, 'KHONG_CO'>)} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm">
+                          <option value="all">Tất cả trạng thái claim</option>
+                          {(['CHO_XU_LY', 'DA_XU_LY', 'TU_CHOI', 'DA_HUY'] as Array<Exclude<StudentClaimStatus, 'KHONG_CO'>>).map((status) => (
+                            <option key={status} value={status}>{CLAIM_STATUS_LABELS[status]}</option>
+                          ))}
+                        </select>
+                      ) : null}
                     </div>
                   </div>
                 </div>
@@ -1120,28 +1144,33 @@ const Contracts: React.FC = () => {
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {group.rows.length > 0 ? group.rows.map((row) => (
-                      <tr key={row.student.id} onClick={() => openStudentClaims(row.student.id)} className="cursor-pointer hover:bg-slate-50">
-                        <td className="px-4 py-3 align-top">
-                          <div className="break-words font-bold text-indigo-700">{row.student.code}</div>
-                        </td>
-                        <td className="px-4 py-3 align-top">
-                          <div className="font-semibold text-slate-900">{row.student.name}</div>
-                          <div className="text-xs text-slate-500">{row.student.phone || '--'}</div>
-                          {row.processingReasons.length ? <div className="mt-1 text-[11px] font-medium text-amber-700">{row.processingReasons.join(', ')}</div> : null}
-                        </td>
-                        <td className="px-4 py-3 align-top">{renderStudentStatusBadge(row.studentStatusKey)}</td>
-                        <td className="px-4 py-3 align-top text-[13px] text-slate-700">{CLAIM_TYPE_LABELS[row.activeClaim?.claimType || 'KHONG_CO'] || 'Không có'}</td>
-                        <td className="px-4 py-3 align-top">{renderClaimStatusBadge(row.activeClaim?.claimStatus)}</td>
-                        <td className="px-4 py-3 align-top text-[13px] text-slate-700">{formatDisplayDate(row.activeClaim?.createdAt)}</td>
-                        <td className="px-4 py-3 align-top text-[13px] text-slate-700">{row.activeClaim?.createdBy || '--'}</td>
-                        <td className="px-4 py-3 align-top">
-                          <div className="flex flex-col items-end gap-2">
-                            <button onClick={(event) => { event.stopPropagation(); openStudentClaims(row.student.id); }} className="w-full rounded-lg bg-slate-900 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-slate-800">
-                              {row.activeClaim ? 'Xử lý claim' : 'Tạo claim'}
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
+                      (() => {
+                        const displayClaim = row.activeClaim || row.latestClaim;
+                        return (
+                          <tr key={row.student.id} onClick={() => openStudentClaims(row.student.id)} className="cursor-pointer hover:bg-slate-50">
+                            <td className="px-4 py-3 align-top">
+                              <div className="break-words font-bold text-indigo-700">{row.student.code}</div>
+                            </td>
+                            <td className="px-4 py-3 align-top">
+                              <div className="font-semibold text-slate-900">{row.student.name}</div>
+                              <div className="text-xs text-slate-500">{row.student.phone || '--'}</div>
+                              {row.processingReasons.length ? <div className="mt-1 text-[11px] font-medium text-amber-700">{row.processingReasons.join(', ')}</div> : null}
+                            </td>
+                            <td className="px-4 py-3 align-top">{renderStudentStatusBadge(row.studentStatusKey)}</td>
+                            <td className="px-4 py-3 align-top text-[13px] text-slate-700">{CLAIM_TYPE_LABELS[displayClaim?.claimType || 'KHONG_CO'] || 'Không có'}</td>
+                            <td className="px-4 py-3 align-top">{renderClaimStatusBadge(displayClaim?.claimStatus)}</td>
+                            <td className="px-4 py-3 align-top text-[13px] text-slate-700">{formatDisplayDate(displayClaim?.createdAt)}</td>
+                            <td className="px-4 py-3 align-top text-[13px] text-slate-700">{displayClaim?.createdBy || '--'}</td>
+                            <td className="px-4 py-3 align-top">
+                              <div className="flex flex-col items-end gap-2">
+                                <button onClick={(event) => { event.stopPropagation(); openStudentClaims(row.student.id); }} className="w-full rounded-lg bg-slate-900 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-slate-800">
+                                  {row.activeClaim ? 'Xử lý claim' : displayClaim ? 'Xem claim' : 'Tạo claim'}
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })()
                     )) : (
                       <tr><td colSpan={8} className="px-4 py-12 text-center text-slate-500">Không có học viên phù hợp với bộ lọc hiện tại.</td></tr>
                     )}

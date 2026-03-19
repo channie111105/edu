@@ -202,7 +202,8 @@ export const createAdmission = (payload: CreateAdmissionPayload): IAdmission => 
 
 export const approveAdmission = (
   admissionId: string,
-  approvedBy = 'training'
+  approvedBy = 'training',
+  note?: string
 ): ServiceResult<{ admission: IAdmission; student?: IStudent; quotation?: IQuotation }> => {
   // TODO: replace mock store with BE API
   const admission = getAdmissions().find((a) => a.id === admissionId);
@@ -240,6 +241,7 @@ export const approveAdmission = (
     status: 'DA_DUYET',
     approvedAt,
     approvedBy,
+    note: note ? [admission.note, note].filter(Boolean).join('\n') : admission.note,
     updatedAt: approvedAt
   };
   updateAdmission(approved);
@@ -277,7 +279,7 @@ export const approveAdmission = (
   addStudentLog(
     updatedStudent.id,
     'APPROVE_ADMISSION',
-    `Duyệt ${approved.code} và ghi danh vào lớp ${admission.classId}`,
+    `Duyệt ${approved.code} và ghi danh vào lớp ${admission.classId}${note ? `: ${note}` : ''}`,
     approvedBy,
     'SYSTEM'
   );
@@ -285,7 +287,7 @@ export const approveAdmission = (
   return { ok: true, data: { admission: approved, student: updatedStudent, quotation: updatedQuotation } };
 };
 
-export const rejectAdmission = (admissionId: string, reason?: string): { ok: boolean; admission?: IAdmission } => {
+export const rejectAdmission = (admissionId: string, reason?: string, rejectedBy = 'training'): { ok: boolean; admission?: IAdmission } => {
   // TODO: replace mock store with BE API
   const admission = getAdmissions().find((a) => a.id === admissionId);
   if (!admission || admission.status !== 'CHO_DUYET') return { ok: false };
@@ -301,7 +303,7 @@ export const rejectAdmission = (admissionId: string, reason?: string): { ok: boo
     admission.studentId,
     'REJECT_ADMISSION',
     `Từ chối ${admission.code}${reason ? `: ${reason}` : ''}`,
-    'training',
+    rejectedBy,
     'SYSTEM'
   );
   return { ok: true, admission: rejected };
