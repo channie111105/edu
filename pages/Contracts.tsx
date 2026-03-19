@@ -76,8 +76,7 @@ const TAB_CONFIG: Array<{ key: EnrollmentTabKey; label: string }> = [
   { key: 'waiting_enrollment', label: 'Chá» ghi danh' },
   { key: 'waiting_approval', label: 'Chá» duyá»‡t' },
   { key: 'enrolled', label: 'ÄÃ£ ghi danh' },
-  { key: 'processing', label: 'Cáº§n xá»­ lÃ½' },
-  { key: 'students', label: 'Học viên' }
+  { key: 'students', label: 'Cần xử lý' }
 ];
 
 const GROUP_BY_OPTIONS: Array<{ value: GroupByKey; label: string }> = [
@@ -905,7 +904,7 @@ const Contracts: React.FC = () => {
       <div className="mb-6">
         <div>
           <h1 className="text-3xl font-bold text-slate-900">Học viên</h1>
-          <p className="mt-1 text-sm text-slate-500">6 tab dùng để phân loại hoặc đổi góc nhìn hồ sơ. Bộ lọc và group by phía dưới áp dụng chung cho toàn bộ dữ liệu.</p>
+          <p className="mt-1 text-sm text-slate-500">5 tab dùng để phân loại hoặc đổi góc nhìn hồ sơ. Bộ lọc và group by phía dưới áp dụng chung cho toàn bộ dữ liệu.</p>
         </div>
       </div>
 
