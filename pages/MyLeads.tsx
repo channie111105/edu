@@ -25,6 +25,14 @@ import {
    resolveLeadCampus,
 } from '../utils/leadCreateForm';
 import { FIXED_LEAD_TAGS } from '../utils/storage';
+import { appendLeadLogs, buildLeadActivityLog, buildLeadAuditChange, buildLeadAuditLog } from '../utils/leadLogs';
+import {
+   getLeadStatusLabel,
+   LEAD_STATUS_KEYS,
+   LEAD_STATUS_OPTIONS,
+   normalizeLeadStatusKey,
+   toLeadStatusValue,
+} from '../utils/leadStatus';
 import { decodeMojibakeReactNode } from '../utils/mojibake';
 import {
    Inbox, Search, Phone, Filter, CheckCircle2, Clock,
@@ -180,10 +188,13 @@ const MyLeads: React.FC = () => {
    const statusFilterLabels: Record<string, string> = {
       overdue: 'DS qua han',
       today_care: 'Cham soc hom nay',
-      [LeadStatus.NEW]: 'Cho tiep nhan',
-      [LeadStatus.CONTACTED]: 'Dang lien he',
-      [LeadStatus.QUALIFIED]: 'Dat',
-      [DealStage.LOST]: 'Mat'
+      [LEAD_STATUS_KEYS.ASSIGNED]: 'Da phan bo',
+      [LEAD_STATUS_KEYS.PICKED]: 'Da nhan',
+      [LEAD_STATUS_KEYS.CONTACTED]: 'Dang cham soc',
+      [LEAD_STATUS_KEYS.CONVERTED]: 'Da converted',
+      [LEAD_STATUS_KEYS.NURTURING]: 'Nuoi duong',
+      [LEAD_STATUS_KEYS.UNVERIFIED]: 'Khong xac thuc',
+      [LEAD_STATUS_KEYS.LOST]: 'Mat',
    };
 
    const toggleColumn = (columnId: string) => {
@@ -238,20 +249,14 @@ const MyLeads: React.FC = () => {
          return;
       }
 
-      const statusMap: Record<string, string> = {
-         NEW: LeadStatus.NEW,
-         CONTACTED: LeadStatus.CONTACTED,
-         QUALIFIED: LeadStatus.QUALIFIED,
-         LOST: DealStage.LOST
-      };
-      const mappedStatus = statusMap[newLeadData.status] || LeadStatus.NEW;
+      const mappedStatus = toLeadStatusValue(newLeadData.status);
 
       const program = (newLeadData.product && ['Tiếng Đức', 'Tiếng Trung', 'Du học Đức', 'Du học Trung', 'Du học nghề Úc'].includes(newLeadData.product))
          ? newLeadData.product as ILead['program']
          : newLeadData.program as ILead['program'];
 
       const nowIso = new Date().toISOString();
-      const lead: ILead = {
+      const leadBase: ILead = {
          id: `l-${Date.now()}`,
          ...newLeadData,
          program,
@@ -267,16 +272,33 @@ const MyLeads: React.FC = () => {
          score: 10,
          lastActivityDate: nowIso,
          lastInteraction: nowIso,
-         slaStatus: 'normal',
-         activities: [{
-            id: `act-${Date.now()}`,
-            type: 'system',
-            timestamp: nowIso,
-            title: 'Tạo lead thủ công',
-            description: `Sale ${user.name || 'Tôi'} tạo lead từ My Leads.`,
-            user: user.name || 'System'
-         }]
+         slaStatus: 'normal'
       };
+      const lead = appendLeadLogs(leadBase, {
+         activities: [
+            buildLeadActivityLog({
+               type: 'system',
+               timestamp: nowIso,
+               title: 'Tạo lead',
+               description: `Lead được tạo bởi ${user.name || 'Tôi'} từ My Leads.`,
+               user: user.name || 'System'
+            })
+         ],
+         audits: [
+            buildLeadAuditLog({
+               action: 'lead_created',
+               actor: user.name || 'System',
+               actorType: 'user',
+               timestamp: nowIso,
+               changes: [
+                  buildLeadAuditChange('name', '', newLeadData.name.trim(), 'Tên lead'),
+                  buildLeadAuditChange('phone', '', newLeadData.phone.trim(), 'Số điện thoại'),
+                  buildLeadAuditChange('ownerId', '', newLeadData.salesperson || user.id, 'Sale phụ trách'),
+                  buildLeadAuditChange('status', '', mappedStatus, 'Trạng thái')
+               ]
+            })
+         ]
+      });
 
       saveLead(lead);
       reloadMyLeads();
@@ -304,13 +326,7 @@ const MyLeads: React.FC = () => {
          return;
       }
 
-      const statusMap: Record<string, string> = {
-         NEW: LeadStatus.NEW,
-         CONTACTED: LeadStatus.CONTACTED,
-         QUALIFIED: LeadStatus.QUALIFIED,
-         LOST: DealStage.LOST
-      };
-      const mappedStatus = statusMap[newLeadData.status] || LeadStatus.NEW;
+      const mappedStatus = toLeadStatusValue(newLeadData.status);
       const program = (
          newLeadData.product &&
          ['Tiếng Đức', 'Tiếng Trung', 'Du học Đức', 'Du học Trung', 'Du học nghề Úc'].includes(newLeadData.product)
@@ -322,7 +338,7 @@ const MyLeads: React.FC = () => {
       const campus = resolveLeadCampus(newLeadData);
       const guardianRelation = getLeadGuardianRelation(newLeadData.title);
       const studentInfo = buildLeadStudentInfo(newLeadData);
-      const lead: ILead = {
+      const leadBase: ILead = {
          id: `l-${Date.now()}`,
          ...newLeadData,
          program,
@@ -352,16 +368,33 @@ const MyLeads: React.FC = () => {
          score: 10,
          lastActivityDate: nowIso,
          lastInteraction: nowIso,
-         slaStatus: 'normal',
-         activities: [{
-            id: `act-${Date.now()}`,
-            type: 'system',
-            timestamp: nowIso,
-            title: 'Tạo lead thủ công',
-            description: `Sale ${user.name || 'Tôi'} tạo lead từ My Leads.`,
-            user: user.name || 'System'
-         }]
+         slaStatus: 'normal'
       };
+      const lead = appendLeadLogs(leadBase, {
+         activities: [
+            buildLeadActivityLog({
+               type: 'system',
+               timestamp: nowIso,
+               title: 'Tạo lead',
+               description: `Lead được tạo bởi ${user.name || 'Tôi'} từ My Leads.`,
+               user: user.name || 'System'
+            })
+         ],
+         audits: [
+            buildLeadAuditLog({
+               action: 'lead_created',
+               actor: user.name || 'System',
+               actorType: 'user',
+               timestamp: nowIso,
+               changes: [
+                  buildLeadAuditChange('name', '', newLeadData.name.trim(), 'Tên lead'),
+                  buildLeadAuditChange('phone', '', newLeadData.phone.trim(), 'Số điện thoại'),
+                  buildLeadAuditChange('ownerId', '', newLeadData.salesperson || user.id, 'Sale phụ trách'),
+                  buildLeadAuditChange('status', '', mappedStatus, 'Trạng thái')
+               ]
+            })
+         ]
+      });
 
       saveLead(lead);
       reloadMyLeads();
@@ -569,7 +602,7 @@ const MyLeads: React.FC = () => {
       } else if (statusFilter === 'today_care') {
          result = result.filter(isTodayCareLead);
       } else if (statusFilter !== 'all') {
-         result = result.filter(l => l.status === statusFilter);
+         result = result.filter(l => normalizeLeadStatusKey(String(l.status || '')) === statusFilter);
       }
 
       // --- TIME RANGE FILTERING ---
@@ -609,22 +642,36 @@ const MyLeads: React.FC = () => {
       const diffMins = Math.floor((now.getTime() - createdAt.getTime()) / (1000 * 60));
       const slaMet = diffMins <= 15;
 
-      const pickUpLog: any = {
-         id: `act-${Date.now()}`,
-         type: 'system',
-         timestamp: now.toISOString(),
-         title: 'Tiếp nhận Lead',
-         description: `Sale ${user?.name || 'Tôi'} đã tiếp nhận Lead. SLA Pick-up: ${slaMet ? 'ĐẠT' : 'VI PHẠM'} (Phản hồi sau ${diffMins} phút).`,
-         user: user?.name || 'System'
-      };
-
-      const updated = {
+      const nowIso = now.toISOString();
+      const updated = appendLeadLogs({
          ...lead,
-         status: LeadStatus.ASSIGNED,
+         status: LeadStatus.PICKED,
          ownerId: user?.id,
-         pickUpDate: now.toISOString(),
-         activities: [pickUpLog, ...(lead.activities || [])]
-      };
+         pickUpDate: nowIso
+      }, {
+         activities: [
+            buildLeadActivityLog({
+               type: 'system',
+               timestamp: nowIso,
+               title: 'Tiếp nhận Lead',
+               description: `Sale ${user?.name || 'Tôi'} đã tiếp nhận lead. SLA Pick-up: ${slaMet ? 'ĐẠT' : 'VI PHẠM'} (phản hồi sau ${diffMins} phút).`,
+               user: user?.name || 'System'
+            })
+         ],
+         audits: [
+            buildLeadAuditLog({
+               action: 'lead_picked',
+               actor: user?.name || 'System',
+               actorType: 'user',
+               timestamp: nowIso,
+               changes: [
+                  buildLeadAuditChange('status', lead.status, LeadStatus.PICKED, 'Trạng thái'),
+                  buildLeadAuditChange('ownerId', lead.ownerId, user?.id, 'Sale phụ trách'),
+                  buildLeadAuditChange('pickUpDate', lead.pickUpDate, nowIso, 'Thời gian nhận lead')
+               ]
+            })
+         ]
+      });
 
       handleLeadUpdate(updated);
       alert(`Tiếp nhận Lead: ${lead.name}. SLA: ${slaMet ? 'Đạt' : 'Quá hạn'}`);
@@ -632,25 +679,62 @@ const MyLeads: React.FC = () => {
 
    const handleCall = (e: React.MouseEvent, lead: ILead) => {
       e.stopPropagation();
-      const callLog: any = {
-         id: `act-${Date.now()}`,
-         type: 'system',
-         timestamp: new Date().toISOString(),
-         title: 'Thực hiện gọi điện',
-         description: `Sale ${user?.name || 'Tôi'} đã thực hiện gọi điện cho khách hàng.`,
-         user: user?.name || 'System'
-      };
+      const nowIso = new Date().toISOString();
 
-      if (lead.status === LeadStatus.NEW || lead.status === LeadStatus.ASSIGNED) {
-         const updated = {
+      if ([LEAD_STATUS_KEYS.NEW, LEAD_STATUS_KEYS.ASSIGNED, LEAD_STATUS_KEYS.PICKED].includes(normalizeLeadStatusKey(String(lead.status || '')))) {
+         const updated = appendLeadLogs({
             ...lead,
             status: LeadStatus.CONTACTED,
             ownerId: user?.id,
-            activities: [callLog, ...(lead.activities || [])]
-         };
+            lastInteraction: nowIso
+         }, {
+            activities: [
+               buildLeadActivityLog({
+                  type: 'system',
+                  timestamp: nowIso,
+                  title: 'Đã gọi khách hàng',
+                  description: `Sale ${user?.name || 'Tôi'} đã thực hiện gọi điện cho khách hàng.`,
+                  user: user?.name || 'System'
+               })
+            ],
+            audits: [
+               buildLeadAuditLog({
+                  action: 'lead_called',
+                  actor: user?.name || 'System',
+                  actorType: 'user',
+                  timestamp: nowIso,
+                  changes: [
+                     buildLeadAuditChange('status', lead.status, LeadStatus.CONTACTED, 'Trạng thái'),
+                     buildLeadAuditChange('lastInteraction', lead.lastInteraction, nowIso, 'Lần tương tác cuối')
+                  ]
+               })
+            ]
+         });
          handleLeadUpdate(updated);
       } else {
-         const updated = { ...lead, activities: [callLog, ...(lead.activities || [])] };
+         const updated = appendLeadLogs({
+            ...lead,
+            lastInteraction: nowIso
+         }, {
+            activities: [
+               buildLeadActivityLog({
+                  type: 'system',
+                  timestamp: nowIso,
+                  title: 'Đã gọi khách hàng',
+                  description: `Sale ${user?.name || 'Tôi'} đã thực hiện gọi điện cho khách hàng.`,
+                  user: user?.name || 'System'
+               })
+            ],
+            audits: [
+               buildLeadAuditLog({
+                  action: 'lead_called',
+                  actor: user?.name || 'System',
+                  actorType: 'user',
+                  timestamp: nowIso,
+                  changes: [buildLeadAuditChange('lastInteraction', lead.lastInteraction, nowIso, 'Lần tương tác cuối')]
+               })
+            ]
+         });
          handleLeadUpdate(updated);
       }
       window.location.href = `tel:${lead.phone}`;
@@ -659,14 +743,62 @@ const MyLeads: React.FC = () => {
    const handleMarkLost = (e: React.MouseEvent, lead: ILead) => {
       e.stopPropagation();
       if (confirm("Xác nhận đánh dấu Lead này là Thất bại/Lost?")) {
-         const updated = { ...lead, status: DealStage.LOST };
+         const nowIso = new Date().toISOString();
+         const updated = appendLeadLogs({
+            ...lead,
+            status: LeadStatus.LOST
+         }, {
+            activities: [
+               buildLeadActivityLog({
+                  type: 'system',
+                  timestamp: nowIso,
+                  title: 'Đổi trạng thái',
+                  description: `Trạng thái: ${getLeadStatusLabel(String(lead.status || ''))} → ${getLeadStatusLabel(String(LeadStatus.LOST))}`,
+                  user: user?.name || 'System'
+               })
+            ],
+            audits: [
+               buildLeadAuditLog({
+                  action: 'lead_status_changed',
+                  actor: user?.name || 'System',
+                  actorType: 'user',
+                  timestamp: nowIso,
+                  changes: [buildLeadAuditChange('status', lead.status, LeadStatus.LOST, 'Trạng thái')]
+               })
+            ]
+         });
          handleLeadUpdate(updated);
       }
    };
 
    const handleBulkMarkLost = () => {
       if (confirm(`Đánh dấu ${selectedIds.length} lead là Thất bại?`)) {
-         const updatedLeads = leads.map(l => selectedIds.includes(l.id) ? { ...l, status: DealStage.LOST } : l);
+         const nowIso = new Date().toISOString();
+         const updatedLeads = leads.map(l => selectedIds.includes(l.id)
+            ? appendLeadLogs({
+               ...l,
+               status: LeadStatus.LOST
+            }, {
+               activities: [
+                  buildLeadActivityLog({
+                     type: 'system',
+                     timestamp: nowIso,
+                     title: 'Đổi trạng thái',
+                     description: `Trạng thái: ${getLeadStatusLabel(String(l.status || ''))} → ${getLeadStatusLabel(String(LeadStatus.LOST))}`,
+                     user: user?.name || 'System'
+                  })
+               ],
+               audits: [
+                  buildLeadAuditLog({
+                     action: 'lead_status_changed',
+                     actor: user?.name || 'System',
+                     actorType: 'user',
+                     timestamp: nowIso,
+                     changes: [buildLeadAuditChange('status', l.status, LeadStatus.LOST, 'Trạng thái')]
+                  })
+               ]
+            })
+            : l);
          setLeads(updatedLeads);
          // Simulate save
          import('../utils/storage').then(({ saveLeads }) => saveLeads(updatedLeads));
@@ -678,10 +810,39 @@ const MyLeads: React.FC = () => {
    const handleBulkAssign = () => {
       const target = prompt("Nhập tên người nhận bàn giao:");
       if (target) {
+         const nowIso = new Date().toISOString();
          const allLeads = getLeads();
-         const updatedAllLeads = allLeads.map(l =>
-            selectedIds.includes(l.id) ? { ...l, ownerId: target } : l
-         );
+         const updatedAllLeads = allLeads.map(l => {
+            if (!selectedIds.includes(l.id)) return l;
+            return appendLeadLogs(
+               { ...l, ownerId: target, status: LeadStatus.ASSIGNED },
+               {
+                  activities: [
+                     buildLeadActivityLog({
+                        type: 'system',
+                        timestamp: nowIso,
+                        title: l.ownerId ? 'Chia lại Lead' : 'Phân bổ Lead',
+                        description: l.ownerId
+                           ? `Lead được chia lại từ ${l.ownerId} sang ${target}.`
+                           : `Lead được giao cho ${target}.`,
+                        user: user?.name || 'System'
+                     })
+                  ],
+                  audits: [
+                     buildLeadAuditLog({
+                        action: l.ownerId ? 'lead_reassigned' : 'lead_assigned',
+                        actor: user?.name || 'System',
+                        actorType: 'user',
+                        timestamp: nowIso,
+                        changes: [
+                           buildLeadAuditChange('ownerId', l.ownerId, target, 'Sale phụ trách'),
+                           buildLeadAuditChange('status', l.status, LeadStatus.ASSIGNED, 'Trạng thái')
+                        ]
+                     })
+                  ]
+               }
+            );
+         });
 
          import('../utils/storage').then(({ saveLeads }) => {
             saveLeads(updatedAllLeads);
@@ -886,15 +1047,6 @@ const MyLeads: React.FC = () => {
       }, {} as Record<string, ILead[]>);
    }, [filteredLeads, groupBy]);
 
-   const normalizeLeadStatus = (status: string) => {
-      if (status === LeadStatus.NEW || status === 'NEW') return 'new';
-      if (status === LeadStatus.ASSIGNED || status === 'ASSIGNED') return 'assigned';
-      if (status === LeadStatus.CONTACTED || status === 'CONTACTED') return 'contacted';
-      if (status === LeadStatus.QUALIFIED || status === 'QUALIFIED') return 'qualified';
-      if (status === DealStage.LOST || status === 'LOST') return 'lost';
-      return 'other';
-   };
-
    const kanbanColumns = useMemo(() => {
       const columns: Array<{
          key: string;
@@ -902,15 +1054,18 @@ const MyLeads: React.FC = () => {
          color: string;
          leads: ILead[];
       }> = [
-            { key: 'new', title: 'Chờ tiếp nhận', color: 'bg-blue-50 border-blue-200', leads: [] },
-            { key: 'assigned', title: 'Đã nhận', color: 'bg-amber-50 border-amber-200', leads: [] },
-            { key: 'contacted', title: 'Đang liên hệ', color: 'bg-purple-50 border-purple-200', leads: [] },
-            { key: 'qualified', title: 'Tiềm năng', color: 'bg-cyan-50 border-cyan-200', leads: [] },
-            { key: 'lost', title: 'Thất bại', color: 'bg-red-50 border-red-200', leads: [] },
+            { key: LEAD_STATUS_KEYS.NEW, title: getLeadStatusLabel(LEAD_STATUS_KEYS.NEW), color: 'bg-blue-50 border-blue-200', leads: [] },
+            { key: LEAD_STATUS_KEYS.ASSIGNED, title: getLeadStatusLabel(LEAD_STATUS_KEYS.ASSIGNED), color: 'bg-amber-50 border-amber-200', leads: [] },
+            { key: LEAD_STATUS_KEYS.PICKED, title: getLeadStatusLabel(LEAD_STATUS_KEYS.PICKED), color: 'bg-yellow-50 border-yellow-200', leads: [] },
+            { key: LEAD_STATUS_KEYS.CONTACTED, title: getLeadStatusLabel(LEAD_STATUS_KEYS.CONTACTED), color: 'bg-purple-50 border-purple-200', leads: [] },
+            { key: LEAD_STATUS_KEYS.NURTURING, title: getLeadStatusLabel(LEAD_STATUS_KEYS.NURTURING), color: 'bg-teal-50 border-teal-200', leads: [] },
+            { key: LEAD_STATUS_KEYS.CONVERTED, title: getLeadStatusLabel(LEAD_STATUS_KEYS.CONVERTED), color: 'bg-cyan-50 border-cyan-200', leads: [] },
+            { key: LEAD_STATUS_KEYS.UNVERIFIED, title: getLeadStatusLabel(LEAD_STATUS_KEYS.UNVERIFIED), color: 'bg-slate-100 border-slate-300', leads: [] },
+            { key: LEAD_STATUS_KEYS.LOST, title: getLeadStatusLabel(LEAD_STATUS_KEYS.LOST), color: 'bg-red-50 border-red-200', leads: [] },
          ];
 
       filteredLeads.forEach((lead) => {
-         const normalized = normalizeLeadStatus(String(lead.status || ''));
+         const normalized = normalizeLeadStatusKey(String(lead.status || ''));
          const col = columns.find((item) => item.key === normalized);
          if (col) col.leads.push(lead);
       });
@@ -1090,10 +1245,21 @@ const MyLeads: React.FC = () => {
          // @ts-ignore
          const nextActivity = (lead.activities || []).find(a => a.type === 'activity');
          const deadline = lead.expectedClosingDate ? new Date(lead.expectedClosingDate).toLocaleDateString('vi-VN') : '-';
+         const normalizedStatus = normalizeLeadStatusKey(String(lead.status || ''));
+         const statusClassName =
+            normalizedStatus === LEAD_STATUS_KEYS.NEW ? 'bg-blue-100 text-blue-700' :
+               normalizedStatus === LEAD_STATUS_KEYS.ASSIGNED ? 'bg-amber-100 text-amber-700' :
+                  normalizedStatus === LEAD_STATUS_KEYS.PICKED ? 'bg-yellow-100 text-yellow-700' :
+                     normalizedStatus === LEAD_STATUS_KEYS.CONTACTED ? 'bg-purple-100 text-purple-700' :
+                        normalizedStatus === LEAD_STATUS_KEYS.NURTURING ? 'bg-teal-100 text-teal-700' :
+                           normalizedStatus === LEAD_STATUS_KEYS.CONVERTED ? 'bg-cyan-100 text-cyan-700' :
+                              normalizedStatus === LEAD_STATUS_KEYS.UNVERIFIED ? 'bg-slate-200 text-slate-700' :
+                                 normalizedStatus === LEAD_STATUS_KEYS.LOST ? 'bg-red-100 text-red-700' :
+                                    'bg-slate-100 text-slate-600';
 
          return (
             <tr key={lead.id}
-               className={`hover:bg-blue-50/50 group transition-colors cursor-pointer border-b border-slate-100 last:border-0 ${(!lead.pickUpDate && lead.status === LeadStatus.NEW) ? 'bg-red-50/30' : (!lead.pickUpDate && lead.status === LeadStatus.ASSIGNED) ? 'bg-amber-50/20' : ''}`}
+               className={`hover:bg-blue-50/50 group transition-colors cursor-pointer border-b border-slate-100 last:border-0 ${(!lead.pickUpDate && normalizedStatus === LEAD_STATUS_KEYS.NEW) ? 'bg-red-50/30' : (!lead.pickUpDate && normalizedStatus === LEAD_STATUS_KEYS.ASSIGNED) ? 'bg-amber-50/20' : ''}`}
                onClick={(e) => {
                   if ((e.target as HTMLElement).tagName !== 'INPUT') setSelectedLead(lead);
                }}
@@ -1178,21 +1344,12 @@ const MyLeads: React.FC = () => {
                   <td className="p-3 align-middle text-center whitespace-nowrap">
                      <div className="flex flex-col items-center gap-1">
                         <span
-                           className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase cursor-pointer hover:opacity-80 whitespace-nowrap ${lead.status === LeadStatus.NEW ? 'bg-blue-100 text-blue-700' :
-                              lead.status === LeadStatus.ASSIGNED ? 'bg-amber-100 text-amber-700' :
-                                 lead.status === LeadStatus.QUALIFIED ? 'bg-cyan-100 text-cyan-700' :
-                                    lead.status === LeadStatus.CONTACTED || lead.status === 'CONTACTED' ? 'bg-purple-100 text-purple-700' :
-                                       lead.status === DealStage.LOST ? 'bg-red-100 text-red-700' :
-                                          'bg-slate-100 text-slate-600'
-                              }`}
+                           className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase cursor-pointer hover:opacity-80 whitespace-nowrap ${statusClassName}`}
                            onClick={(e) => handleClickableField(e, 'status', 'Trạng thái', lead.status as string)}
                         >
-                           {lead.status === LeadStatus.NEW ? 'Mới' :
-                              lead.status === LeadStatus.ASSIGNED ? 'Đã nhận' :
-                                 lead.status === LeadStatus.CONTACTED ? 'Đang liên hệ' :
-                                    lead.status === LeadStatus.QUALIFIED ? 'Tiềm năng' : lead.status}
+                           {getLeadStatusLabel(lead.status as string)}
                         </span>
-                        {((lead.status === LeadStatus.NEW || lead.status === LeadStatus.ASSIGNED) && !lead.pickUpDate) && (
+                        {([LEAD_STATUS_KEYS.NEW, LEAD_STATUS_KEYS.ASSIGNED].includes(normalizedStatus) && !lead.pickUpDate) && (
                            <button
                               onClick={(e) => handlePickUp(e, lead)}
                               className="px-2 py-0.5 bg-blue-600 text-white text-[10px] font-bold rounded hover:bg-blue-700 transition-colors shadow-sm animate-pulse"
@@ -1200,7 +1357,7 @@ const MyLeads: React.FC = () => {
                               Tiếp nhận
                            </button>
                         )}
-                        {lead.status === LeadStatus.ASSIGNED && lead.pickUpDate && (
+                        {normalizedStatus === LEAD_STATUS_KEYS.PICKED && lead.pickUpDate && (
                            <div className="flex items-center gap-1 text-[9px] text-green-600 font-bold">
                               <CheckCircle2 size={10} /> Đã nhận
                            </div>
@@ -1307,7 +1464,7 @@ const MyLeads: React.FC = () => {
                         <div className="flex items-center gap-1 min-w-max">
                            {[
                               { id: 'all', label: 'Tất cả', count: leads.length },
-                              { id: LeadStatus.NEW, label: 'Chờ tiếp nhận', count: leads.filter(l => l.status === LeadStatus.NEW).length },
+                              { id: LEAD_STATUS_KEYS.ASSIGNED, label: 'Chờ tiếp nhận', count: leads.filter(l => normalizeLeadStatusKey(String(l.status || '')) === LEAD_STATUS_KEYS.ASSIGNED).length },
                               { id: 'overdue', label: 'DS quá hạn', count: overdueLeadsCount },
                               { id: 'today_care', label: 'Chăm sóc hôm nay', count: todayCareLeadsCount },
                            ].map((tab) => (
@@ -1416,12 +1573,7 @@ const MyLeads: React.FC = () => {
                                              Ngày chốt <ChevronDown size={14} className="text-slate-400 group-hover:text-slate-600" />
                                           </div>
                                           <div className="my-2 border-t border-slate-100"></div>
-                                          {[
-                                             { value: LeadStatus.NEW, label: 'Mới' },
-                                             { value: LeadStatus.CONTACTED, label: 'Đang liên hệ' },
-                                             { value: LeadStatus.QUALIFIED, label: 'Đạt' },
-                                             { value: DealStage.LOST, label: 'Mất' }
-                                          ].map(status => (
+                                          {LEAD_STATUS_OPTIONS.map(status => (
                                              <div key={status.value} className={`px-3 py-2 text-sm rounded cursor-pointer transition-colors ${statusFilter === status.value ? 'bg-blue-600 text-white font-bold' : 'text-slate-700 hover:bg-slate-50'}`} onClick={() => {
                                                 setStatusFilter(status.value);
                                                 setStatusFilterSource('advanced');
@@ -1920,10 +2072,9 @@ const MyLeads: React.FC = () => {
                                  value={newLeadData.status}
                                  onChange={e => setNewLeadData({ ...newLeadData, status: e.target.value })}
                               >
-                                 <option value="NEW">Mới</option>
-                                 <option value="CONTACTED">Đã liên hệ</option>
-                                 <option value="QUALIFIED">Tiềm năng</option>
-                                 <option value="LOST">Thất bại</option>
+                                 {LEAD_STATUS_OPTIONS.map((option) => (
+                                    <option key={option.value} value={option.value}>{option.label}</option>
+                                 ))}
                               </select>
                            </div>
 

@@ -137,7 +137,14 @@ const normalizeStudentClaimRecord = (claim: IStudentClaim): IStudentClaim => {
   return {
     ...normalized,
     reason: normalizeEnrollmentText(normalized.reason),
-    note: normalizeEnrollmentText(normalized.note)
+    note: normalizeEnrollmentText(normalized.note),
+    detail: normalizeEnrollmentText(normalized.detail),
+    currentClassCode: normalizeEnrollmentText(normalized.currentClassCode),
+    proposedClassCode: normalizeEnrollmentText(normalized.proposedClassCode),
+    resolvedClassCode: normalizeEnrollmentText(normalized.resolvedClassCode),
+    levelOrSubject: normalizeEnrollmentText(normalized.levelOrSubject),
+    resultNote: normalizeEnrollmentText(normalized.resultNote),
+    policyNote: normalizeEnrollmentText(normalized.policyNote)
   };
 };
 
@@ -2529,6 +2536,49 @@ const migrateTransactionsData = () => {
     console.error('Failed to migrate transactions data', error);
   }
 };
+
+const migrateLegacyConfirmSaleTransactions = () => {
+  try {
+    const migrationKey = 'educrm_migration_transactions_v2';
+    if (localStorage.getItem(migrationKey) === 'done') return;
+
+    const transactions = getTransactions();
+    const quotations = getQuotations();
+    const legacyAutoTransactions = transactions.filter((transaction) =>
+      String(transaction.note || '').includes('Confirm Sale')
+    );
+
+    if (!legacyAutoTransactions.length) {
+      localStorage.setItem(migrationKey, 'done');
+      return;
+    }
+
+    const legacyIds = new Set(legacyAutoTransactions.map((transaction) => transaction.id));
+    const sanitizedTransactions = transactions.filter((transaction) => !legacyIds.has(transaction.id));
+    const quotationIdsToReset = new Set(legacyAutoTransactions.map((transaction) => transaction.quotationId).filter(Boolean));
+
+    const updatedQuotations = quotations.map((quotation) => {
+      if (!quotationIdsToReset.has(quotation.id)) return quotation;
+
+      const hasRemainingTransactions = sanitizedTransactions.some((transaction) => transaction.quotationId === quotation.id);
+      if (hasRemainingTransactions) return quotation;
+
+      return {
+        ...quotation,
+        transactionStatus: 'NONE',
+        updatedAt: new Date().toISOString()
+      };
+    });
+
+    saveTransactions(sanitizedTransactions);
+    localStorage.setItem(KEYS.QUOTATIONS, JSON.stringify(updatedQuotations));
+    emitClientEvent('educrm:quotations-changed');
+    localStorage.setItem(migrationKey, 'done');
+  } catch (error) {
+    console.error('Failed to remove legacy confirm sale transactions', error);
+  }
+};
+
 const migrateClassStudentsData = () => {
   try {
     const migrationKey = 'educrm_migration_class_students_v2';
@@ -2828,6 +2878,7 @@ export const initializeData = () => {
   migrateEnrollmentData();
   migrateQuotationStudentsData();
   migrateTransactionsData();
+  migrateLegacyConfirmSaleTransactions();
   migrateClassStudentsData();
   migrateTrainingClassesData();
 };
@@ -2874,16 +2925,31 @@ export const deleteLead = (id: string) => {
   return filteredLeads;
 };
 
-// LOST REASONS
-const DEFAULT_LOST_REASONS: string[] = [
-  'Sai sá»‘ Ä‘iá»‡n thoáº¡i / KhÃ´ng liÃªn láº¡c Ä‘Æ°á»£c',
-  'KhÃ¡ch tháº¥y giÃ¡ cao / KhÃ´ng Ä‘á»§ tÃ i chÃ­nh',
-  'ÄÃ£ Ä‘Äƒng kÃ½ bÃªn khÃ¡c',
-  'KhÃ´ng cÃ²n nhu cáº§u',
-  'KhÃ¡ch hÃ ng áº£o / Spam',
-  'KhÃ´ng phÃ¹ há»£p chÆ°Æ¡ng trÃ¬nh',
-  'LÃ½ do khÃ¡c'
+// CLOSED LEAD REASONS
+const DEFAULT_UNVERIFIED_REASONS: string[] = [
+  'Sai số',
+  'Trùng',
+  'Không xác thực',
+  'Rác / bot / test',
+  'Ngoài phạm vi phục vụ',
+  'Không đủ điều kiện tối thiểu đầu vào',
+  'Lý do khác'
 ];
+
+const DEFAULT_LOST_REASONS: string[] = [
+  'Không đủ tài chính',
+  'Không đủ điều kiện hồ sơ',
+  'Khách từ chối',
+  'Chọn đơn vị khác',
+  'Hoãn vô thời hạn',
+  'Không còn nhu cầu',
+  'Lý do khác'
+];
+
+const DEFAULT_CLOSED_REASON_MAP = {
+  lost: DEFAULT_LOST_REASONS,
+  unverified: DEFAULT_UNVERIFIED_REASONS,
+} as const;
 
 const normalizeLostReasonToken = (value: string) =>
   value
@@ -2894,28 +2960,19 @@ const normalizeLostReasonToken = (value: string) =>
     .replace(/[^a-z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '');
 
-const LOST_REASON_TOKEN_MAP: Record<string, string> = {
-  sai_so_dien_thoai_khong_lien_lac_duoc: DEFAULT_LOST_REASONS[0],
-  sai_s_i_n_tho_i_kh_ng_li_n_l_c_c: DEFAULT_LOST_REASONS[0],
-
-  khach_thay_gia_cao_khong_du_tai_chinh: DEFAULT_LOST_REASONS[1],
-  kh_ch_th_y_gi_cao_kh_ng_t_i_ch_nh: DEFAULT_LOST_REASONS[1],
-
-  da_dang_ky_ben_khac: DEFAULT_LOST_REASONS[2],
-  ng_k_b_n_kh_c: DEFAULT_LOST_REASONS[2],
-
-  khong_con_nhu_cau: DEFAULT_LOST_REASONS[3],
-  kh_ng_c_n_nhu_c_u: DEFAULT_LOST_REASONS[3],
-
-  khach_hang_ao_spam: DEFAULT_LOST_REASONS[4],
-  kh_ch_h_ng_o_spam: DEFAULT_LOST_REASONS[4],
-
-  khong_phu_hop_chuong_trinh: DEFAULT_LOST_REASONS[5],
-  kh_ng_ph_h_p_ch_ng_tr_nh: DEFAULT_LOST_REASONS[5],
-
-  ly_do_khac: DEFAULT_LOST_REASONS[6],
-  l_do_kh_c: DEFAULT_LOST_REASONS[6]
-};
+const CLOSED_REASON_TOKEN_MAP: Record<string, string> = [
+  ...DEFAULT_UNVERIFIED_REASONS,
+  ...DEFAULT_LOST_REASONS
+].reduce<Record<string, string>>((acc, reason) => {
+  acc[normalizeLostReasonToken(reason)] = reason;
+  return acc;
+}, {
+  sai_so_dien_thoai_khong_lien_lac_duoc: DEFAULT_UNVERIFIED_REASONS[0],
+  khach_hang_ao_spam: DEFAULT_UNVERIFIED_REASONS[3],
+  khong_phu_hop_chuong_trinh: DEFAULT_UNVERIFIED_REASONS[4],
+  khach_thay_gia_cao_khong_du_tai_chinh: DEFAULT_LOST_REASONS[0],
+  da_dang_ky_ben_khac: DEFAULT_LOST_REASONS[3],
+});
 
 const normalizeLostReason = (value: string): string => {
   const normalizedText = decodeUnicodeEscapeLiterals(
@@ -2923,25 +2980,18 @@ const normalizeLostReason = (value: string): string => {
   ).replace(/\s+/g, ' ').trim();
   if (!normalizedText) return '';
   const token = normalizeLostReasonToken(normalizedText);
-  return LOST_REASON_TOKEN_MAP[token] || normalizedText;
+  return CLOSED_REASON_TOKEN_MAP[token] || normalizedText;
 };
 
-export const getLostReasons = (): string[] => {
-  try {
-    const data = localStorage.getItem(KEYS.LOST_REASONS);
-    const parsed = data ? JSON.parse(data) : DEFAULT_LOST_REASONS;
-    const source = Array.isArray(parsed) ? parsed : DEFAULT_LOST_REASONS;
-
-    const normalized = source
-      .map((item) => normalizeLostReason(String(item)))
-      .filter(Boolean)
-      .filter((item, index, arr) => arr.indexOf(item) === index);
-
-    return normalized.length ? normalized : DEFAULT_LOST_REASONS;
-  } catch {
-    return DEFAULT_LOST_REASONS;
+export const getClosedLeadReasons = (status?: string): string[] => {
+  const normalizedStatus = normalizeLostReasonToken(String(status || ''));
+  if (normalizedStatus === 'unverified' || normalizedStatus === 'disqualified' || normalizedStatus === 'khongxacthuc') {
+    return DEFAULT_CLOSED_REASON_MAP.unverified;
   }
+  return DEFAULT_CLOSED_REASON_MAP.lost;
 };
+
+export const getLostReasons = (): string[] => getClosedLeadReasons('lost');
 
 export const saveLostReasons = (reasons: string[]) => {
   const normalized = (Array.isArray(reasons) ? reasons : DEFAULT_LOST_REASONS)

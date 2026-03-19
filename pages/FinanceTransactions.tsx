@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Calendar, Check, CheckCircle2, ChevronDown, Columns3, FileText, Filter, Paperclip, Plus, RotateCcw, Rows3, XCircle } from 'lucide-react';
+import { useLocation } from 'react-router-dom';
 import { IQuotation, ITransaction, QuotationStatus, UserRole } from '../types';
 import {
   addTransaction,
@@ -24,6 +25,7 @@ type ApprovalFilter = 'ALL' | 'CHO_DUYET' | 'KE_TOAN_DUYET' | 'CEO_DUYET' | 'HOA
 type BusinessGroup = 'THU' | 'CHI' | 'DIEU_CHINH';
 type ApprovalStage = 'CHO_DUYET' | 'KE_TOAN_DUYET' | 'CEO_DUYET' | 'HOAN_TAT' | 'TU_CHOI';
 type TimeRangeType = 'all' | 'today' | 'yesterday' | 'thisWeek' | 'last7Days' | 'last30Days' | 'thisMonth' | 'lastMonth' | 'custom';
+type TimeFieldFilter = 'any' | 'createdAt' | 'paidAt' | 'approvedAt' | 'rejectedAt';
 type FinanceGroupByKey = 'approvalStage' | 'businessGroup' | 'businessType' | 'paymentMethod' | 'proof' | 'creator';
 type CreateTransactionFormState = {
   businessGroup: BusinessGroup;
@@ -36,6 +38,14 @@ type CreateTransactionFormState = {
   method: 'CHUYEN_KHOAN' | 'TIEN_MAT';
   paidDate: string;
   proofFile: File | null;
+};
+
+type FinanceTransactionsLocationState = {
+  createReceiptApproval?: {
+    quotationId?: string;
+    relatedEntity?: string;
+    amount?: number;
+  };
 };
 type ColumnId =
   | 'transactionCode'
@@ -67,6 +77,8 @@ type TransactionRow = {
   proofValue: string;
   paidAtLabel: string;
   createdAtLabel: string;
+  approvedAtValue?: number;
+  rejectedAtValue?: number;
   creatorLabel: string;
   noteLabel: string;
   approvalStage: ApprovalStage;
@@ -114,8 +126,16 @@ const TIME_RANGE_PRESETS: Array<{ id: TimeRangeType; label: string }> = [
   { id: 'custom', label: 'Tùy chỉnh khoảng...' }
 ];
 
+const TIME_FIELD_OPTIONS: Array<{ id: TimeFieldFilter; label: string }> = [
+  { id: 'any', label: 'Tất cả mốc ngày' },
+  { id: 'createdAt', label: 'Ngày tạo' },
+  { id: 'paidAt', label: 'Ngày thanh toán' },
+  { id: 'approvedAt', label: 'Ngày duyệt' },
+  { id: 'rejectedAt', label: 'Ngày từ chối' }
+];
+
 const APPROVAL_FILTER_LABEL_MAP: Record<ApprovalFilter, string> = {
-  ALL: 'Tất cả',
+  ALL: 'Tất cả hành động',
   CHO_DUYET: 'Chờ duyệt',
   KE_TOAN_DUYET: 'Kế toán duyệt',
   CEO_DUYET: 'CEO duyệt',
@@ -153,6 +173,28 @@ const createInitialTransactionForm = (): CreateTransactionFormState => ({
   paidDate: toDateInputValue(new Date()),
   proofFile: null
 });
+
+const getFirstQuotationInstallment = (quotation?: IQuotation) => {
+  const lineItems = Array.isArray(quotation?.lineItems) ? quotation.lineItems : [];
+
+  return lineItems
+    .flatMap((lineItem, lineIndex) => {
+      const schedules = Array.isArray(lineItem.paymentSchedule) && lineItem.paymentSchedule.length > 0
+        ? lineItem.paymentSchedule
+        : [{
+            id: `${lineItem.id || lineIndex}-term-1`,
+            termNo: 1,
+            installmentLabel: 'Lần 1',
+            amount: lineItem.total || lineItem.unitPrice || 0
+          }];
+
+      return schedules.map((term, termIndex) => ({
+        id: `${lineItem.id || `line-${lineIndex + 1}`}-${term.id || termIndex + 1}`,
+        amount: Number(term.amount || 0)
+      }));
+    })
+    .at(0);
+};
 
 const toDateInputValue = (value: Date) => {
   const year = value.getFullYear();
@@ -430,9 +472,11 @@ const ApprovalStageView: React.FC<{ stage: ApprovalStage }> = ({ stage }) => {
 
 const FinanceTransactions: React.FC = () => {
   const { user } = useAuth();
+  const location = useLocation();
   const columnMenuRef = useRef<HTMLDivElement | null>(null);
   const timeMenuRef = useRef<HTMLDivElement | null>(null);
   const filterMenuRef = useRef<HTMLDivElement | null>(null);
+  const createReceiptPrefillKeyRef = useRef<string | null>(null);
   const [transactions, setTransactions] = useState<ITransaction[]>([]);
   const [quotations, setQuotations] = useState<IQuotation[]>([]);
   const [actualTransactions, setActualTransactions] = useState<ReturnType<typeof getActualTransactions>>([]);
@@ -444,7 +488,9 @@ const FinanceTransactions: React.FC = () => {
   const [proofFilter, setProofFilter] = useState('ALL');
   const [creatorFilter, setCreatorFilter] = useState('ALL');
   const [groupBy, setGroupBy] = useState<FinanceGroupByKey[]>([]);
+  const [timeField, setTimeField] = useState<TimeFieldFilter>('any');
   const [timeRangeType, setTimeRangeType] = useState<TimeRangeType>('all');
+  const [draftTimeField, setDraftTimeField] = useState<TimeFieldFilter>('any');
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
   const [draftTimeRangeType, setDraftTimeRangeType] = useState<TimeRangeType>('all');
@@ -519,11 +565,18 @@ const FinanceTransactions: React.FC = () => {
   const rows = useMemo<TransactionRow[]>(() => {
     return transactions.map((transaction, index) => {
       const quotation = quotationMap.get(transaction.quotationId);
+      const actualTransaction = actualTransactionMap.get(transaction.id);
       const isLocked = quotation?.status === QuotationStatus.LOCKED;
       const actualTransactionSynced = actualTransactionMap.has(transaction.id);
       const businessGroup = inferBusinessGroup(transaction);
       const requiresCeoApproval = businessGroup !== 'THU' || transaction.amount >= 100_000_000;
       const approvalStage = getApprovalStage(transaction, actualTransactionSynced, requiresCeoApproval);
+      const approvedAtValue =
+        typeof transaction.approvedAt === 'number'
+          ? transaction.approvedAt
+          : actualTransaction?.createdAt
+            ? new Date(actualTransaction.createdAt).getTime()
+            : undefined;
       const transactionCode =
         transaction.code ||
         (businessGroup === 'THU'
@@ -547,6 +600,8 @@ const FinanceTransactions: React.FC = () => {
         proofValue: transaction.bankRefCode || transaction.proofFiles?.[0]?.name || 'Không có chứng từ',
         paidAtLabel: formatDateTime(transaction.paidAt || transaction.createdAt),
         createdAtLabel: formatDateTime(transaction.createdAt),
+        approvedAtValue,
+        rejectedAtValue: transaction.rejectedAt,
         creatorLabel: creatorDirectory.get(transaction.createdBy) || transaction.createdBy || 'System',
         noteLabel: transaction.note || '-',
         approvalStage,
@@ -622,6 +677,49 @@ const FinanceTransactions: React.FC = () => {
     return options;
   }, [selectedCreateQuotationRecord]);
 
+  const buildReceiptApprovalForm = (payload: NonNullable<FinanceTransactionsLocationState['createReceiptApproval']>) => {
+    const baseForm = createInitialTransactionForm();
+    const quotationRecord = quotations.find((quotation) => quotation.id === payload.quotationId);
+    const quotationOption = quotationOptions.find((quotation) => quotation.id === payload.quotationId);
+    const firstInstallment = getFirstQuotationInstallment(quotationRecord);
+    const nextAmount =
+      firstInstallment?.amount ||
+      (Number(payload.amount) > 0 ? Number(payload.amount) : 0) ||
+      Number(quotationOption?.amount || 0);
+
+    return {
+      ...baseForm,
+      businessGroup: 'THU' as const,
+      businessType: BUSINESS_TYPE_OPTIONS.THU[0],
+      quotationId: payload.quotationId || '',
+      installmentTermId: firstInstallment?.id || '',
+      relatedEntity: payload.relatedEntity || quotationOption?.customerName || quotationRecord?.customerName || '',
+      amount: nextAmount > 0 ? String(nextAmount) : ''
+    };
+  };
+
+  useEffect(() => {
+    const payload = (location.state as FinanceTransactionsLocationState | null)?.createReceiptApproval;
+    if (!payload?.quotationId || quotations.length === 0) return;
+
+    const consumeKey = `${location.key}:${payload.quotationId}`;
+    if (createReceiptPrefillKeyRef.current === consumeKey) return;
+
+    setFiltersOpen(false);
+    setIsTimeMenuOpen(false);
+    setIsColumnMenuOpen(false);
+    setCreateForm(buildReceiptApprovalForm(payload));
+    setIsCreateModalOpen(true);
+    createReceiptPrefillKeyRef.current = consumeKey;
+  }, [buildReceiptApprovalForm, location.key, location.state, quotations.length]);
+
+  const getRowTimeValues = (row: TransactionRow) => ({
+    createdAt: row.transaction.createdAt,
+    paidAt: row.transaction.paidAt,
+    approvedAt: row.approvedAtValue,
+    rejectedAt: row.rejectedAtValue
+  });
+
   const filteredRows = useMemo(() => {
     const timeBounds = getTimeRangeBounds(timeRangeType, customStartDate, customEndDate);
 
@@ -634,10 +732,23 @@ const FinanceTransactions: React.FC = () => {
       if (creatorFilter !== 'ALL' && row.creatorLabel !== creatorFilter) return false;
 
       if (timeBounds) {
-        const rowDate = new Date(row.transaction.paidAt || row.transaction.createdAt);
-        if (Number.isNaN(rowDate.getTime())) return false;
-        if (timeBounds.start && rowDate < timeBounds.start) return false;
-        if (timeBounds.end && rowDate > timeBounds.end) return false;
+        const rowTimeValues = getRowTimeValues(row);
+        const candidateTimestamps =
+          timeField === 'any'
+            ? Object.values(rowTimeValues).filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
+            : [rowTimeValues[timeField]].filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+
+        if (candidateTimestamps.length === 0) return false;
+
+        const matchesTimeRange = candidateTimestamps.some((timestamp) => {
+          const rowDate = new Date(timestamp);
+          if (Number.isNaN(rowDate.getTime())) return false;
+          if (timeBounds.start && rowDate < timeBounds.start) return false;
+          if (timeBounds.end && rowDate > timeBounds.end) return false;
+          return true;
+        });
+
+        if (!matchesTimeRange) return false;
       }
 
       const q = search.trim().toLowerCase();
@@ -672,6 +783,7 @@ const FinanceTransactions: React.FC = () => {
     rows,
     search,
     statusFilter,
+    timeField,
     timeRangeType
   ]);
 
@@ -758,7 +870,7 @@ const FinanceTransactions: React.FC = () => {
     if (timeRangeType !== 'all') {
       chips.push({
         key: 'time',
-        label: `Thời gian: ${
+        label: `${TIME_FIELD_OPTIONS.find((item) => item.id === timeField)?.label || 'Tất cả mốc ngày'}: ${
           timeRangeType === 'custom'
             ? formatCustomDateRangeLabel(customStartDate, customEndDate)
             : TIME_RANGE_PRESETS.find((item) => item.id === timeRangeType)?.label || 'Tất cả thời gian'
@@ -774,7 +886,7 @@ const FinanceTransactions: React.FC = () => {
     }
 
     return chips;
-  }, [businessGroupFilter, businessTypeFilter, creatorFilter, customEndDate, customStartDate, groupBy, paymentMethodFilter, proofFilter, statusFilter, timeRangeType]);
+  }, [businessGroupFilter, businessTypeFilter, creatorFilter, customEndDate, customStartDate, groupBy, paymentMethodFilter, proofFilter, statusFilter, timeField, timeRangeType]);
 
   const removeSearchChip = (chipKey: string) => {
     if (chipKey === 'status') setStatusFilter('ALL');
@@ -784,9 +896,14 @@ const FinanceTransactions: React.FC = () => {
     if (chipKey === 'proof') setProofFilter('ALL');
     if (chipKey === 'creator') setCreatorFilter('ALL');
     if (chipKey === 'time') {
+      setTimeField('any');
       setTimeRangeType('all');
       setCustomStartDate('');
       setCustomEndDate('');
+      setDraftTimeField('any');
+      setDraftTimeRangeType('all');
+      setDraftCustomStartDate('');
+      setDraftCustomEndDate('');
     }
     if (chipKey === 'groupBy') setGroupBy([]);
   };
@@ -800,9 +917,11 @@ const FinanceTransactions: React.FC = () => {
     setProofFilter('ALL');
     setCreatorFilter('ALL');
     setGroupBy([]);
+    setTimeField('any');
     setTimeRangeType('all');
     setCustomStartDate('');
     setCustomEndDate('');
+    setDraftTimeField('any');
     setDraftTimeRangeType('all');
     setDraftCustomStartDate('');
     setDraftCustomEndDate('');
@@ -856,23 +975,7 @@ const FinanceTransactions: React.FC = () => {
   const handleChangeCreateQuotation = (quotationId: string) => {
     const selectedQuotation = quotationOptions.find((quotation) => quotation.id === quotationId);
     const selectedQuotationRecord = quotations.find((quotation) => quotation.id === quotationId);
-    const firstInstallment = selectedQuotationRecord?.lineItems
-      ?.flatMap((lineItem, lineIndex) => {
-        const schedules = Array.isArray(lineItem.paymentSchedule) && lineItem.paymentSchedule.length > 0
-          ? lineItem.paymentSchedule
-          : [{
-              id: `${lineItem.id || lineIndex}-term-1`,
-              termNo: 1,
-              installmentLabel: 'Lần 1',
-              amount: lineItem.total || lineItem.unitPrice || 0
-            }];
-
-        return schedules.map((term, termIndex) => ({
-          id: `${lineItem.id || `line-${lineIndex + 1}`}-${term.id || termIndex + 1}`,
-          amount: Number(term.amount || 0)
-        }));
-      })
-      ?.at(0);
+    const firstInstallment = getFirstQuotationInstallment(selectedQuotationRecord);
 
     setCreateForm((current) => ({
       ...current,
@@ -924,6 +1027,20 @@ const FinanceTransactions: React.FC = () => {
       return;
     }
 
+    if (createForm.businessGroup === 'THU' && createForm.quotationId) {
+      const duplicatedPending = transactions.find(
+        (transaction) =>
+          transaction.quotationId === createForm.quotationId &&
+          transaction.status === 'CHO_DUYET' &&
+          String(transaction.installmentTermId || '') === String(createForm.installmentTermId || '')
+      );
+
+      if (duplicatedPending) {
+        alert('Lần thu này đã có phiếu duyệt thu chờ xử lý.');
+        return;
+      }
+    }
+
     setIsSubmittingCreate(true);
 
     try {
@@ -959,6 +1076,13 @@ const FinanceTransactions: React.FC = () => {
       };
 
       addTransaction(newTransaction);
+      if (createForm.businessGroup === 'THU' && selectedCreateQuotationRecord) {
+        updateQuotation({
+          ...selectedCreateQuotationRecord,
+          transactionStatus: 'CHO_DUYET',
+          updatedAt: new Date().toISOString()
+        });
+      }
       setIsCreateModalOpen(false);
       resetCreateForm();
       loadData();
@@ -973,8 +1097,11 @@ const FinanceTransactions: React.FC = () => {
     timeRangeType === 'custom'
       ? formatCustomDateRangeLabel(customStartDate, customEndDate)
       : TIME_RANGE_PRESETS.find((item) => item.id === timeRangeType)?.label || 'Tất cả thời gian';
+  const timeFieldLabel = TIME_FIELD_OPTIONS.find((item) => item.id === timeField)?.label || 'Tất cả mốc ngày';
+  const timeFilterSummaryLabel = timeRangeType === 'all' ? timeFieldLabel : `${timeFieldLabel} • ${timeRangeLabel}`;
 
   const syncDraftTimeRangeFromApplied = () => {
+    setDraftTimeField(timeField);
     setDraftTimeRangeType(timeRangeType);
     setDraftCustomStartDate(customStartDate);
     setDraftCustomEndDate(customEndDate);
@@ -1003,6 +1130,7 @@ const FinanceTransactions: React.FC = () => {
   };
 
   const handleResetDraftTimeRange = () => {
+    setDraftTimeField('any');
     setDraftTimeRangeType('all');
     setDraftCustomStartDate('');
     setDraftCustomEndDate('');
@@ -1019,9 +1147,11 @@ const FinanceTransactions: React.FC = () => {
     const nextEndDate =
       draftCustomStartDate && draftCustomEndDate && draftCustomEndDate < draftCustomStartDate ? draftCustomStartDate : draftCustomEndDate;
 
+    setTimeField(draftTimeField);
     setTimeRangeType(nextRangeType);
     setCustomStartDate(nextRangeType === 'all' ? '' : draftCustomStartDate);
     setCustomEndDate(nextRangeType === 'all' ? '' : nextEndDate);
+    setDraftTimeField(draftTimeField);
     setDraftTimeRangeType(nextRangeType);
     setDraftCustomEndDate(nextEndDate);
     setIsTimeMenuOpen(false);
@@ -1093,6 +1223,8 @@ const FinanceTransactions: React.FC = () => {
         ? {
             ...item,
             status: 'CHO_DUYET' as const,
+            approvedAt: undefined,
+            rejectedAt: undefined,
             note: `Hủy approve${item.note ? ` | ${item.note}` : ''}`
           }
         : item
@@ -1290,7 +1422,7 @@ const FinanceTransactions: React.FC = () => {
                 }`}
               >
                 <Calendar size={14} className="text-slate-400" />
-                <span className="min-w-[170px] text-left">{timeRangeLabel}</span>
+                <span className="min-w-[220px] text-left">{timeFilterSummaryLabel}</span>
                 <ChevronDown size={14} className={`text-slate-400 transition-transform ${isTimeMenuOpen ? 'rotate-180' : ''}`} />
               </button>
 
@@ -1314,6 +1446,21 @@ const FinanceTransactions: React.FC = () => {
                       </div>
                     </div>
                     <div className="flex min-h-[170px] flex-1 flex-col p-3">
+                      <label className="mb-3 text-sm">
+                        <span className="mb-1 block text-xs font-semibold text-slate-400">Lọc theo ngày</span>
+                        <select
+                          value={draftTimeField}
+                          onChange={(event) => setDraftTimeField(event.target.value as TimeFieldFilter)}
+                          className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold outline-none focus:border-blue-500"
+                        >
+                          {TIME_FIELD_OPTIONS.map((option) => (
+                            <option key={option.id} value={option.id}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
                       <div className="mb-2 text-sm font-bold uppercase tracking-wide text-slate-300">Khoảng thời gian tùy chỉnh</div>
                       <div className="grid grid-cols-2 gap-3">
                         <label className="text-sm">
@@ -1654,8 +1801,14 @@ const FinanceTransactions: React.FC = () => {
           <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-2xl bg-white shadow-2xl">
             <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white px-6 py-4">
               <div>
-                <h2 className="text-xl font-bold text-slate-900">Tạo phiếu duyệt giao dịch</h2>
-                <p className="mt-1 text-sm text-slate-500">Điền thông tin nghiệp vụ, tiền và chứng từ để tạo phiếu duyệt mới.</p>
+                <h2 className="text-xl font-bold text-slate-900">
+                  {createForm.businessGroup === 'THU' ? 'Tạo phiếu duyệt thu' : 'Tạo phiếu duyệt giao dịch'}
+                </h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  {createForm.businessGroup === 'THU'
+                    ? 'Điền thông tin thu, lần thu và chứng từ để gửi kế toán duyệt.'
+                    : 'Điền thông tin nghiệp vụ, tiền và chứng từ để tạo phiếu duyệt mới.'}
+                </p>
               </div>
               <button
                 type="button"

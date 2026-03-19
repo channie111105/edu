@@ -21,6 +21,7 @@ import {
 } from '../types';
 import {
   addClassLog,
+  addStudentToClass,
   createStudentClaim,
   addStudentLog,
   getAdmissions,
@@ -42,8 +43,30 @@ import {
 import { decodeMojibakeText } from '../utils/mojibake';
 import LogAudienceFilterControl from '../components/LogAudienceFilter';
 import { LogAudienceFilter } from '../utils/logAudience';
-type DetailTabKey = 'overview' | 'classroom' | 'finance' | 'claims';
+type DetailTabKey = 'overview' | 'classroom' | 'finance';
 type ClaimModalMode = 'create' | 'process' | 'cancel';
+type ClaimFormState = {
+  claimType: StudentClaimType;
+  claimStatus: StudentClaimStatus;
+  reason: string;
+  note: string;
+  assignedDepartment: string;
+  detail: string;
+  requestedDate: string;
+  expectedReturnDate: string;
+  reserveUntilDate: string;
+  proposedClassId: string;
+  proposedClassCode: string;
+  resolvedClassId: string;
+  resolvedClassCode: string;
+  levelOrSubject: string;
+  effectiveDate: string;
+  resultNote: string;
+  policyNote: string;
+  keepFeeConfirmed: boolean;
+  keepSlot: boolean;
+  affectsStudentStatus: boolean;
+};
 type StudentLifecycleStatus =
   | 'MOI_TAO'
   | 'CHO_GHI_DANH'
@@ -53,23 +76,10 @@ type StudentLifecycleStatus =
   | 'HOAN_THANH'
   | 'DUNG';
 
-const LEGACY_DETAIL_TABS: Array<{ key: DetailTabKey; label: string }> = [
-  { key: 'classroom', label: 'Ghi danh & lớp học' },
-  { key: 'finance', label: 'Tài chính tóm tắt' },
-  { key: 'logs', label: 'Log học vụ' }
-];
-
-const DETAIL_TABS_MOJIBAKE: Array<{ key: DetailTabKey; label: string }> = [
-  { key: 'overview', label: 'Tổng quan' },
-  { key: 'classroom', label: 'Ghi danh & lớp học' },
-  { key: 'finance', label: 'Tài chính' }
-];
-
 const DETAIL_TABS: Array<{ key: DetailTabKey; label: string }> = [
   { key: 'overview', label: '\u0054\u1ed5ng quan' },
   { key: 'classroom', label: '\u0047hi danh \u0026 l\u1edbp h\u1ecdc' },
-  { key: 'finance', label: '\u0054\u00e0i ch\u00ednh' },
-  { key: 'claims', label: '\u0043\u1ea7n x\u1eed l\u00fd' }
+  { key: 'finance', label: '\u0054\u00e0i ch\u00ednh' }
 ];
 
 const LEGACY_STUDENT_STATUS_LABELS: Record<StudentLifecycleStatus, string> = {
@@ -136,6 +146,38 @@ const CLAIM_TYPE_LABELS: Record<StudentClaimType, string> = Object.fromEntries(
 const CLAIM_STATUS_LABELS: Record<StudentClaimStatus, string> = Object.fromEntries(
   CLAIM_STATUS_OPTIONS.map((item) => [item.value, item.label])
 ) as Record<StudentClaimStatus, string>;
+
+const CLAIM_ASSIGNEE_OPTIONS: Record<StudentClaimType, string[]> = {
+  KHONG_CO: [],
+  CHUYEN_LOP: ['Học vụ', 'Đào tạo'],
+  TAM_DUNG: ['Học vụ', 'Đào tạo', 'Quản lý đào tạo'],
+  BAO_LUU: ['Học vụ', 'Quản lý đào tạo', 'Quản lý vận hành'],
+  HOC_LAI: ['Học vụ', 'Đào tạo'],
+  KHAC: ['Học vụ', 'Đào tạo', 'Quản lý']
+};
+
+const EMPTY_CLAIM_FORM: ClaimFormState = {
+  claimType: 'CHUYEN_LOP',
+  claimStatus: 'CHO_XU_LY',
+  reason: '',
+  note: '',
+  assignedDepartment: 'Học vụ',
+  detail: '',
+  requestedDate: '',
+  expectedReturnDate: '',
+  reserveUntilDate: '',
+  proposedClassId: '',
+  proposedClassCode: '',
+  resolvedClassId: '',
+  resolvedClassCode: '',
+  levelOrSubject: '',
+  effectiveDate: '',
+  resultNote: '',
+  policyNote: '',
+  keepFeeConfirmed: false,
+  keepSlot: false,
+  affectsStudentStatus: true
+};
 
 const formatDate = (value?: string) => {
   if (!value) return '--/--/----';
@@ -208,7 +250,7 @@ const CompactFieldRow: React.FC<{ label: string; value?: React.ReactNode; classN
 );
 
 const getDetailTabFromParam = (value: string | null): DetailTabKey =>
-  value === 'classroom' || value === 'finance' || value === 'overview' || value === 'claims' ? value : 'overview';
+  value === 'classroom' || value === 'finance' || value === 'overview' ? value : 'overview';
 
 const ContractStudentDetail: React.FC = () => {
   const { id } = useParams();
@@ -243,12 +285,7 @@ const ContractStudentDetail: React.FC = () => {
   const [enrollForm, setEnrollForm] = useState({ quotationId: '', campusId: 'Hà Nội', classId: '', note: '' });
   const [transferForm, setTransferForm] = useState({ classId: '', note: '' });
   const [editForm, setEditForm] = useState({ name: '', dob: '', phone: '', email: '', campus: '', payerName: '', note: '' });
-  const [claimForm, setClaimForm] = useState<{ claimType: StudentClaimType; claimStatus: StudentClaimStatus; reason: string; note: string }>({
-    claimType: 'CHUYEN_LOP',
-    claimStatus: 'CHO_XU_LY',
-    reason: '',
-    note: ''
-  });
+  const [claimForm, setClaimForm] = useState<ClaimFormState>(EMPTY_CLAIM_FORM);
 
   const loadData = () => {
     setStudents(getStudents());
@@ -344,6 +381,35 @@ const ContractStudentDetail: React.FC = () => {
   );
   const latestClaim = claims[0];
   const latestPendingClaim = claims.find((item) => item.claimStatus === 'CHO_XU_LY');
+  const currentClaim = latestPendingClaim || null;
+  const latestClaimTypeLabel = currentClaim ? CLAIM_TYPE_LABELS[currentClaim.claimType] : CLAIM_TYPE_LABELS.KHONG_CO;
+  const latestClaimStatusLabel = currentClaim ? CLAIM_STATUS_LABELS[currentClaim.claimStatus] : CLAIM_STATUS_LABELS.KHONG_CO;
+
+  const getDefaultAssignedDepartment = (claimType: StudentClaimType) => CLAIM_ASSIGNEE_OPTIONS[claimType][0] || 'Học vụ';
+
+  const buildClaimForm = (claimType: StudentClaimType, source?: Partial<IStudentClaim>): ClaimFormState => ({
+    ...EMPTY_CLAIM_FORM,
+    claimType,
+    claimStatus: source?.claimStatus || 'CHO_XU_LY',
+    reason: source?.reason || '',
+    note: source?.note || '',
+    assignedDepartment: source?.assignedDepartment || getDefaultAssignedDepartment(claimType),
+    detail: source?.detail || '',
+    requestedDate: source?.requestedDate || '',
+    expectedReturnDate: source?.expectedReturnDate || '',
+    reserveUntilDate: source?.reserveUntilDate || '',
+    proposedClassId: source?.proposedClassId || '',
+    proposedClassCode: source?.proposedClassCode || '',
+    resolvedClassId: source?.resolvedClassId || '',
+    resolvedClassCode: source?.resolvedClassCode || '',
+    levelOrSubject: source?.levelOrSubject || '',
+    effectiveDate: source?.effectiveDate || '',
+    resultNote: source?.resultNote || '',
+    policyNote: source?.policyNote || '',
+    keepFeeConfirmed: Boolean(source?.keepFeeConfirmed),
+    keepSlot: Boolean(source?.keepSlot),
+    affectsStudentStatus: source?.affectsStudentStatus ?? true
+  });
 
   useEffect(() => {
     if (!student) return;
@@ -455,23 +521,21 @@ const ContractStudentDetail: React.FC = () => {
   const closeClaimModal = () => {
     setClaimModalMode(null);
     setSelectedClaim(null);
-    setClaimForm({
-      claimType: 'CHUYEN_LOP',
-      claimStatus: 'CHO_XU_LY',
-      reason: '',
-      note: ''
-    });
+    setClaimForm(EMPTY_CLAIM_FORM);
   };
 
   const openCreateClaimModal = () => {
     setSelectedClaim(null);
     setClaimModalMode('create');
-    setClaimForm({
-      claimType: latestPendingClaim?.claimType || latestClaim?.claimType || 'CHUYEN_LOP',
-      claimStatus: latestPendingClaim ? 'CHO_XU_LY' : 'CHO_XU_LY',
-      reason: '',
-      note: ''
-    });
+    const initialType = currentClaim?.claimType || latestClaim?.claimType || 'CHUYEN_LOP';
+    setClaimForm(
+      buildClaimForm(initialType, {
+        claimType: initialType,
+        claimStatus: 'CHO_XU_LY',
+        currentClassId: currentClass?.id || currentClassStudent?.classId,
+        currentClassCode: currentClass?.code || currentClassStudent?.classId
+      })
+    );
   };
 
   const openProcessClaimModal = (claim?: IStudentClaim) => {
@@ -479,12 +543,16 @@ const ContractStudentDetail: React.FC = () => {
     if (!targetClaim) return;
     setSelectedClaim(targetClaim);
     setClaimModalMode('process');
-    setClaimForm({
-      claimType: targetClaim.claimType,
-      claimStatus: targetClaim.claimStatus === 'CHO_XU_LY' ? 'DA_XU_LY' : targetClaim.claimStatus,
-      reason: targetClaim.reason || '',
-      note: targetClaim.note || ''
-    });
+    setClaimForm(
+      buildClaimForm(targetClaim.claimType, {
+        ...targetClaim,
+        claimStatus: targetClaim.claimStatus === 'CHO_XU_LY' ? 'DA_XU_LY' : targetClaim.claimStatus,
+        currentClassId: targetClaim.currentClassId || currentClass?.id || currentClassStudent?.classId,
+        currentClassCode: targetClaim.currentClassCode || currentClass?.code || currentClassStudent?.classId,
+        resolvedClassId: targetClaim.resolvedClassId || targetClaim.proposedClassId || '',
+        resolvedClassCode: targetClaim.resolvedClassCode || targetClaim.proposedClassCode || ''
+      })
+    );
   };
 
   const openCancelClaimModal = (claim?: IStudentClaim) => {
@@ -492,12 +560,12 @@ const ContractStudentDetail: React.FC = () => {
     if (!targetClaim) return;
     setSelectedClaim(targetClaim);
     setClaimModalMode('cancel');
-    setClaimForm({
-      claimType: targetClaim.claimType,
-      claimStatus: 'DA_HUY',
-      reason: targetClaim.reason || '',
-      note: targetClaim.note || ''
-    });
+    setClaimForm(
+      buildClaimForm(targetClaim.claimType, {
+        ...targetClaim,
+        claimStatus: 'DA_HUY'
+      })
+    );
   };
 
   const openEnrollModal = () => {
@@ -599,21 +667,57 @@ const ContractStudentDetail: React.FC = () => {
     loadData();
   };
 
+  const appendStudentNote = (baseNote?: string, nextNote?: string) => [baseNote, nextNote].filter(Boolean).join('\n');
+
   const submitClaim = () => {
     if (!student || !claimModalMode) return;
 
     const actor = user?.name || user?.id || 'system';
     const reason = claimForm.reason.trim();
     const note = claimForm.note.trim();
+    const resultNote = claimForm.resultNote.trim();
+    const policyNote = claimForm.policyNote.trim();
+    const nextStatus = claimModalMode === 'cancel' ? 'DA_HUY' : claimForm.claimStatus;
+    const claimPayload: Partial<IStudentClaim> = {
+      claimType: claimForm.claimType,
+      claimStatus: nextStatus,
+      reason,
+      note,
+      assignedDepartment: claimForm.assignedDepartment,
+      detail: claimForm.detail.trim(),
+      requestedDate: claimForm.requestedDate,
+      expectedReturnDate: claimForm.expectedReturnDate,
+      reserveUntilDate: claimForm.reserveUntilDate,
+      currentClassId: currentClass?.id || currentClassStudent?.classId,
+      currentClassCode: currentClass?.code || currentClassStudent?.classId,
+      proposedClassId: claimForm.proposedClassId,
+      proposedClassCode: claimForm.proposedClassCode,
+      resolvedClassId: claimForm.resolvedClassId,
+      resolvedClassCode: claimForm.resolvedClassCode,
+      levelOrSubject: claimForm.levelOrSubject.trim(),
+      effectiveDate: claimForm.effectiveDate,
+      resultNote,
+      policyNote,
+      keepFeeConfirmed: claimForm.keepFeeConfirmed,
+      keepSlot: claimForm.keepSlot,
+      affectsStudentStatus: claimForm.affectsStudentStatus
+    };
+
+    if (claimForm.claimType !== 'KHONG_CO' && !reason) {
+      alert('Vui lòng nhập lý do claim');
+      return;
+    }
+
+    if (claimModalMode === 'process' && nextStatus === 'DA_XU_LY' && ['CHUYEN_LOP', 'HOC_LAI'].includes(claimForm.claimType) && !claimForm.resolvedClassId) {
+      alert('Vui lòng chọn lớp xử lý');
+      return;
+    }
 
     if (claimModalMode === 'create') {
       createStudentClaim({
         id: `CLM-${Date.now()}`,
         studentId: student.id,
-        claimType: claimForm.claimType,
-        claimStatus: claimForm.claimStatus,
-        reason,
-        note,
+        ...(claimPayload as IStudentClaim),
         createdAt: new Date().toISOString(),
         createdBy: actor
       });
@@ -631,13 +735,74 @@ const ContractStudentDetail: React.FC = () => {
 
     if (!selectedClaim) return;
 
-    const nextStatus = claimModalMode === 'cancel' ? 'DA_HUY' : claimForm.claimStatus;
+    if (claimModalMode === 'process' && nextStatus === 'DA_XU_LY') {
+      if (claimForm.claimType === 'CHUYEN_LOP' && claimForm.resolvedClassId) {
+        const targetClass = classes.find((item) => item.id === claimForm.resolvedClassId || item.code === claimForm.resolvedClassId);
+        if (targetClass) {
+          if (currentClassStudent?.classId) {
+            transferStudentClass(student.id, currentClassStudent.classId, targetClass.id);
+            addClassLog(currentClassStudent.classId, 'CLAIM_TRANSFER_OUT', `Claim chuyển lớp cho ${student.name} sang ${targetClass.code}`, actor);
+          } else {
+            addStudentToClass(targetClass.id, student.id);
+          }
+          updateStudent({
+            ...student,
+            classId: targetClass.id,
+            className: targetClass.code,
+            campus: targetClass.campus || student.campus,
+            status: StudentStatus.ENROLLED,
+            enrollmentStatus: 'DA_GHI_DANH',
+            note: appendStudentNote(student.note, `Claim chuyển lớp đã xử lý${resultNote ? `: ${resultNote}` : ''}`)
+          });
+          addClassLog(targetClass.id, 'CLAIM_TRANSFER_IN', `Tiếp nhận ${student.name} từ claim chuyển lớp`, actor);
+        }
+      }
+
+      if (claimForm.claimType === 'TAM_DUNG' || claimForm.claimType === 'BAO_LUU') {
+        if (currentClassStudent?.classId) {
+          updateClassStudentStatus(currentClassStudent.classId, student.id, 'BAO_LUU');
+          addClassLog(currentClassStudent.classId, 'CLAIM_PAUSE_STUDENT', `${student.name} ${claimForm.claimType === 'BAO_LUU' ? 'bảo lưu' : 'tạm dừng'} từ claim`, actor);
+        }
+        updateStudent({
+          ...student,
+          status: StudentStatus.RESERVED,
+          enrollmentStatus: 'DA_GHI_DANH',
+          note: appendStudentNote(
+            student.note,
+            `${claimForm.claimType === 'BAO_LUU' ? 'Bảo lưu' : 'Tạm dừng'} từ ${claimForm.effectiveDate || claimForm.requestedDate || '--'}${claimForm.reserveUntilDate || claimForm.expectedReturnDate ? ` đến ${claimForm.reserveUntilDate || claimForm.expectedReturnDate}` : ''}`
+          )
+        });
+      }
+
+      if (claimForm.claimType === 'HOC_LAI' && claimForm.resolvedClassId) {
+        const targetClass = classes.find((item) => item.id === claimForm.resolvedClassId || item.code === claimForm.resolvedClassId);
+        if (targetClass) {
+          if (currentClassStudent?.classId) transferStudentClass(student.id, currentClassStudent.classId, targetClass.id);
+          else addStudentToClass(targetClass.id, student.id);
+          updateStudent({
+            ...student,
+            classId: targetClass.id,
+            className: targetClass.code,
+            campus: targetClass.campus || student.campus,
+            status: StudentStatus.ENROLLED,
+            enrollmentStatus: 'DA_GHI_DANH',
+            note: appendStudentNote(student.note, `Học lại lớp ${targetClass.code}${resultNote ? `: ${resultNote}` : ''}`)
+          });
+        }
+      }
+
+      if (claimForm.claimType === 'KHAC' && claimForm.affectsStudentStatus) {
+        updateStudent({
+          ...student,
+          note: appendStudentNote(student.note, `Claim khác đã xử lý${resultNote ? `: ${resultNote}` : policyNote ? `: ${policyNote}` : ''}`)
+        });
+      }
+    }
+
     updateStudentClaim({
       ...selectedClaim,
-      claimType: claimForm.claimType,
+      ...claimPayload,
       claimStatus: nextStatus,
-      reason,
-      note,
       updatedAt: new Date().toISOString(),
       updatedBy: actor
     });
@@ -766,19 +931,17 @@ const ContractStudentDetail: React.FC = () => {
                     <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-[#666666]">YÊU CẦU XỬ LÝ</div>
                     <div className="mt-1 text-[13px] text-slate-500">Claim được tạo và xử lý trực tiếp trong hồ sơ học viên.</div>
                   </div>
-                  {latestClaim ? (
-                    <span className={`inline-flex rounded-md px-2 py-0.5 text-[11px] font-medium ${compactBadgeClassByClaimStatus(latestClaim.claimStatus)}`}>
-                      {CLAIM_STATUS_LABELS[latestClaim.claimStatus]}
-                    </span>
-                  ) : null}
+                  <span className={`inline-flex rounded-md px-2 py-0.5 text-[11px] font-medium ${compactBadgeClassByClaimStatus(currentClaim?.claimStatus)}`}>
+                    {latestClaimStatusLabel}
+                  </span>
                 </div>
                 <div className="space-y-0.5">
-                  <CompactFieldRow label="Loại claim" value={latestClaim ? CLAIM_TYPE_LABELS[latestClaim.claimType] : '--'} valueClassName="whitespace-nowrap" />
-                  <CompactFieldRow label="Trạng thái claim" value={latestClaim ? <span className={`inline-flex rounded-md px-2 py-0.5 text-[11px] font-medium ${compactBadgeClassByClaimStatus(latestClaim.claimStatus)}`}>{CLAIM_STATUS_LABELS[latestClaim.claimStatus]}</span> : '--'} valueClassName="whitespace-nowrap" />
-                  <CompactFieldRow label="Ngày tạo" value={formatDateTime(latestClaim?.createdAt)} valueClassName="whitespace-nowrap" />
-                  <CompactFieldRow label="Người tạo" value={latestClaim?.createdBy || '--'} />
-                  <CompactFieldRow label="Lý do" value={latestClaim?.reason || '--'} />
-                  <CompactFieldRow label="Ghi chú" value={latestClaim?.note || '--'} />
+                  <CompactFieldRow label="Loại claim" value={latestClaimTypeLabel} valueClassName="whitespace-nowrap" />
+                  <CompactFieldRow label="Trạng thái claim" value={<span className={`inline-flex rounded-md px-2 py-0.5 text-[11px] font-medium ${compactBadgeClassByClaimStatus(currentClaim?.claimStatus)}`}>{latestClaimStatusLabel}</span>} valueClassName="whitespace-nowrap" />
+                  <CompactFieldRow label="Ngày tạo" value={formatDateTime(currentClaim?.createdAt)} valueClassName="whitespace-nowrap" />
+                  <CompactFieldRow label="Người tạo" value={currentClaim?.createdBy || '--'} />
+                  <CompactFieldRow label="Lý do" value={currentClaim?.reason || '--'} />
+                  <CompactFieldRow label="Ghi chú" value={currentClaim?.note || '--'} />
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button onClick={openCreateClaimModal} className="rounded-md border border-blue-600 bg-blue-600 px-3 py-1.5 text-[13px] font-medium text-white">
@@ -951,7 +1114,7 @@ const ContractStudentDetail: React.FC = () => {
           </div>
         ) : null}
 
-        {activeTab === 'claims' ? (
+        {false ? (
           <div className="order-2 px-4 py-4">
             <div className="space-y-4">
               <section className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
@@ -1055,7 +1218,220 @@ const ContractStudentDetail: React.FC = () => {
       </div>
 
       {showEditModal ? <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4"><div className="w-full max-w-2xl rounded-2xl bg-white p-5 shadow-2xl"><div className="mb-4 flex items-center justify-between"><h3 className="text-lg font-bold text-slate-900">Chỉnh sửa hồ sơ học viên</h3><button onClick={closeEditModal} className="text-sm font-medium text-slate-500">Đóng</button></div><div className="grid gap-3 md:grid-cols-2"><input value={editForm.name} onChange={(event) => setEditForm((prev) => ({ ...prev, name: event.target.value }))} className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm" placeholder="Họ tên" /><input value={editForm.dob} onChange={(event) => setEditForm((prev) => ({ ...prev, dob: event.target.value }))} className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm" placeholder="Ngày sinh" /><input value={editForm.phone} onChange={(event) => setEditForm((prev) => ({ ...prev, phone: event.target.value }))} className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm" placeholder="SĐT" /><input value={editForm.email} onChange={(event) => setEditForm((prev) => ({ ...prev, email: event.target.value }))} className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm" placeholder="Email" /><input value={editForm.campus} onChange={(event) => setEditForm((prev) => ({ ...prev, campus: event.target.value }))} className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm" placeholder="Cơ sở mong muốn" /><input value={editForm.payerName} onChange={(event) => setEditForm((prev) => ({ ...prev, payerName: event.target.value }))} className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm" placeholder="Người thanh toán" /></div><textarea value={editForm.note} onChange={(event) => setEditForm((prev) => ({ ...prev, note: event.target.value }))} className="mt-3 h-24 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" placeholder="Ghi chú" /><div className="mt-4 flex justify-end gap-2"><button onClick={closeEditModal} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700">Hủy</button><button onClick={saveProfile} className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white">Lưu thay đổi</button></div></div></div> : null}
-      {claimModalMode ? <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4"><div className="w-full max-w-xl rounded-2xl bg-white p-5 shadow-2xl"><div className="mb-4 flex items-center justify-between"><div><h3 className="text-lg font-bold text-slate-900">{claimModalMode === 'create' ? 'Tạo claim' : claimModalMode === 'process' ? 'Xử lý claim' : 'Hủy claim'}</h3><p className="mt-1 text-sm text-slate-500">{student.name} • {student.code}</p></div><button onClick={closeClaimModal} className="text-sm font-medium text-slate-500">Đóng</button></div><div className="space-y-3"><div className="grid gap-3 md:grid-cols-2"><div><label className="mb-1 block text-sm font-semibold text-slate-700">Claim type</label><select value={claimForm.claimType} onChange={(event) => setClaimForm((prev) => ({ ...prev, claimType: event.target.value as StudentClaimType, claimStatus: claimModalMode === 'create' && event.target.value === 'KHONG_CO' ? 'KHONG_CO' : prev.claimStatus === 'KHONG_CO' ? 'CHO_XU_LY' : prev.claimStatus }))} disabled={claimModalMode !== 'create'} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm disabled:bg-slate-50">{CLAIM_TYPE_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div><div><label className="mb-1 block text-sm font-semibold text-slate-700">Claim status</label><select value={claimModalMode === 'cancel' ? 'DA_HUY' : claimForm.claimStatus} onChange={(event) => setClaimForm((prev) => ({ ...prev, claimStatus: event.target.value as StudentClaimStatus }))} disabled={claimModalMode === 'cancel'} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm disabled:bg-slate-50">{(claimModalMode === 'process' ? CLAIM_STATUS_OPTIONS.filter((item) => ['CHO_XU_LY', 'DA_XU_LY', 'TU_CHOI'].includes(item.value)) : CLAIM_STATUS_OPTIONS).map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div></div><div><label className="mb-1 block text-sm font-semibold text-slate-700">Lý do</label><textarea value={claimForm.reason} onChange={(event) => setClaimForm((prev) => ({ ...prev, reason: event.target.value }))} className="h-24 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" placeholder="Nhập lý do claim" /></div><div><label className="mb-1 block text-sm font-semibold text-slate-700">Ghi chú</label><textarea value={claimForm.note} onChange={(event) => setClaimForm((prev) => ({ ...prev, note: event.target.value }))} className="h-24 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" placeholder={claimModalMode === 'cancel' ? 'Nhập ghi chú hủy claim' : 'Nhập ghi chú xử lý'} /></div>{selectedClaim ? <div className="rounded-xl bg-slate-50 px-3 py-2 text-sm text-slate-600">Claim hiện tại: <span className="font-semibold text-slate-900">{CLAIM_TYPE_LABELS[selectedClaim.claimType]}</span> • <span className="font-semibold text-slate-900">{CLAIM_STATUS_LABELS[selectedClaim.claimStatus]}</span></div> : null}</div><div className="mt-4 flex justify-end gap-2"><button onClick={closeClaimModal} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700">Hủy</button><button onClick={submitClaim} className={`rounded-xl px-4 py-2 text-sm font-semibold text-white ${claimModalMode === 'cancel' ? 'bg-rose-600' : 'bg-slate-900'}`}>{claimModalMode === 'create' ? 'Tạo claim' : claimModalMode === 'process' ? 'Lưu xử lý' : 'Xác nhận hủy'}</button></div></div></div> : null}
+      {claimModalMode ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
+          <div className="w-full max-w-3xl rounded-2xl bg-white p-5 shadow-2xl">
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">{claimModalMode === 'create' ? 'Tạo claim' : claimModalMode === 'process' ? 'Xử lý claim' : 'Hủy claim'}</h3>
+                <p className="mt-1 text-sm text-slate-500">{student.name} • {student.code}</p>
+              </div>
+              <button onClick={closeClaimModal} className="text-sm font-medium text-slate-500">Đóng</button>
+            </div>
+            <div className="space-y-4">
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-sm font-semibold text-slate-700">Claim type</label>
+                  <select
+                    value={claimForm.claimType}
+                    onChange={(event) => {
+                      const nextType = event.target.value as StudentClaimType;
+                      setClaimForm((prev) =>
+                        buildClaimForm(nextType, {
+                          reason: prev.reason,
+                          note: prev.note,
+                          claimStatus: nextType === 'KHONG_CO' ? 'KHONG_CO' : 'CHO_XU_LY',
+                          currentClassId: currentClass?.id || currentClassStudent?.classId,
+                          currentClassCode: currentClass?.code || currentClassStudent?.classId
+                        })
+                      );
+                    }}
+                    disabled={claimModalMode !== 'create'}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm disabled:bg-slate-50"
+                  >
+                    {CLAIM_TYPE_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-semibold text-slate-700">Claim status</label>
+                  <select
+                    value={claimModalMode === 'cancel' ? 'DA_HUY' : claimForm.claimStatus}
+                    onChange={(event) => setClaimForm((prev) => ({ ...prev, claimStatus: event.target.value as StudentClaimStatus }))}
+                    disabled={claimModalMode === 'cancel'}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm disabled:bg-slate-50"
+                  >
+                    {(claimModalMode === 'process' ? CLAIM_STATUS_OPTIONS.filter((item) => ['CHO_XU_LY', 'DA_XU_LY', 'TU_CHOI'].includes(item.value)) : CLAIM_STATUS_OPTIONS).map((item) => (
+                      <option key={item.value} value={item.value}>{item.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-sm font-semibold text-slate-700">Ai xử lý</label>
+                  <select
+                    value={claimForm.assignedDepartment}
+                    onChange={(event) => setClaimForm((prev) => ({ ...prev, assignedDepartment: event.target.value }))}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
+                  >
+                    {CLAIM_ASSIGNEE_OPTIONS[claimForm.claimType].map((item) => <option key={item} value={item}>{item}</option>)}
+                  </select>
+                </div>
+                {(claimForm.claimType === 'CHUYEN_LOP' || claimForm.claimType === 'HOC_LAI') && claimModalMode !== 'cancel' ? (
+                  <div>
+                    <label className="mb-1 block text-sm font-semibold text-slate-700">{claimModalMode === 'create' ? 'Lớp đề xuất mới' : 'Lớp mới'}</label>
+                    <select
+                      value={claimModalMode === 'create' ? claimForm.proposedClassId : claimForm.resolvedClassId}
+                      onChange={(event) => {
+                        const selected = classes.find((item) => item.id === event.target.value);
+                        setClaimForm((prev) => ({
+                          ...prev,
+                          ...(claimModalMode === 'create'
+                            ? { proposedClassId: event.target.value, proposedClassCode: selected?.code || '' }
+                            : { resolvedClassId: event.target.value, resolvedClassCode: selected?.code || '' })
+                        }));
+                      }}
+                      className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
+                    >
+                      <option value="">{claimModalMode === 'create' ? '-- Không bắt buộc --' : '-- Chọn lớp --'}</option>
+                      {classes.filter((item) => item.status === 'ACTIVE').map((item) => <option key={item.id} value={item.id}>{item.code} - {item.campus}</option>)}
+                    </select>
+                  </div>
+                ) : null}
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-semibold text-slate-700">Lý do</label>
+                <textarea value={claimForm.reason} onChange={(event) => setClaimForm((prev) => ({ ...prev, reason: event.target.value }))} className="h-20 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" placeholder="Nhập lý do claim" />
+              </div>
+
+              {claimForm.claimType === 'CHUYEN_LOP' ? (
+                <div className="grid gap-3 md:grid-cols-2">
+                  {claimModalMode === 'create' ? (
+                    <div>
+                      <label className="mb-1 block text-sm font-semibold text-slate-700">Ngày mong muốn áp dụng</label>
+                      <input type="date" value={claimForm.requestedDate} onChange={(event) => setClaimForm((prev) => ({ ...prev, requestedDate: event.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" />
+                    </div>
+                  ) : (
+                    <>
+                      <div>
+                        <label className="mb-1 block text-sm font-semibold text-slate-700">Lớp hiện tại</label>
+                        <input value={currentClass?.code || currentClassStudent?.classId || '--'} disabled className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2.5 text-sm" />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-sm font-semibold text-slate-700">Ngày hiệu lực</label>
+                        <input type="date" value={claimForm.effectiveDate} onChange={(event) => setClaimForm((prev) => ({ ...prev, effectiveDate: event.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" />
+                      </div>
+                    </>
+                  )}
+                </div>
+              ) : null}
+
+              {(claimForm.claimType === 'TAM_DUNG' || claimForm.claimType === 'BAO_LUU') ? (
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-sm font-semibold text-slate-700">{claimModalMode === 'create' ? 'Ngày bắt đầu mong muốn' : 'Ngày hiệu lực'}</label>
+                    <input type="date" value={claimModalMode === 'create' ? claimForm.requestedDate : claimForm.effectiveDate} onChange={(event) => setClaimForm((prev) => ({ ...prev, [claimModalMode === 'create' ? 'requestedDate' : 'effectiveDate']: event.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-semibold text-slate-700">{claimForm.claimType === 'BAO_LUU' ? 'Bảo lưu đến ngày' : 'Ngày dự kiến quay lại'}</label>
+                    <input type="date" value={claimForm.claimType === 'BAO_LUU' ? claimForm.reserveUntilDate : claimForm.expectedReturnDate} onChange={(event) => setClaimForm((prev) => ({ ...prev, [claimForm.claimType === 'BAO_LUU' ? 'reserveUntilDate' : 'expectedReturnDate']: event.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" />
+                  </div>
+                </div>
+              ) : null}
+
+              {claimForm.claimType === 'HOC_LAI' ? (
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-sm font-semibold text-slate-700">Level / môn cần học lại</label>
+                    <input value={claimForm.levelOrSubject} onChange={(event) => setClaimForm((prev) => ({ ...prev, levelOrSubject: event.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" placeholder="Ví dụ: A1 hoặc HSK3" />
+                  </div>
+                  {claimModalMode === 'process' ? (
+                    <div>
+                      <label className="mb-1 block text-sm font-semibold text-slate-700">Ngày bắt đầu</label>
+                      <input type="date" value={claimForm.effectiveDate} onChange={(event) => setClaimForm((prev) => ({ ...prev, effectiveDate: event.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" />
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {claimForm.claimType === 'KHAC' ? (
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-sm font-semibold text-slate-700">{claimModalMode === 'create' ? 'Ngày mong muốn xử lý' : 'Kết quả xử lý'}</label>
+                    {claimModalMode === 'create' ? (
+                      <input type="date" value={claimForm.requestedDate} onChange={(event) => setClaimForm((prev) => ({ ...prev, requestedDate: event.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" />
+                    ) : (
+                      <input value={claimForm.resultNote} onChange={(event) => setClaimForm((prev) => ({ ...prev, resultNote: event.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" placeholder="Kết quả xử lý" />
+                    )}
+                  </div>
+                  {claimModalMode === 'process' ? (
+                    <label className="flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-700">
+                      <input type="checkbox" checked={claimForm.affectsStudentStatus} onChange={(event) => setClaimForm((prev) => ({ ...prev, affectsStudentStatus: event.target.checked }))} />
+                      Có ảnh hưởng trạng thái học viên
+                    </label>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {(claimForm.claimType === 'KHAC' || claimModalMode === 'create') ? (
+                <div>
+                  <label className="mb-1 block text-sm font-semibold text-slate-700">Mô tả chi tiết</label>
+                  <textarea value={claimForm.detail} onChange={(event) => setClaimForm((prev) => ({ ...prev, detail: event.target.value }))} className="h-20 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" placeholder="Thông tin bổ sung" />
+                </div>
+              ) : null}
+
+              {claimModalMode === 'process' && (claimForm.claimType === 'CHUYEN_LOP' || claimForm.claimType === 'HOC_LAI' || claimForm.claimType === 'TAM_DUNG' || claimForm.claimType === 'BAO_LUU' || claimForm.claimType === 'KHAC') ? (
+                <div>
+                  <label className="mb-1 block text-sm font-semibold text-slate-700">Lý do xử lý / ghi chú</label>
+                  <textarea value={claimForm.resultNote} onChange={(event) => setClaimForm((prev) => ({ ...prev, resultNote: event.target.value }))} className="h-20 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" placeholder="Nhập ghi chú xử lý" />
+                </div>
+              ) : null}
+
+              {(claimModalMode === 'process' && (claimForm.claimType === 'CHUYEN_LOP' || claimForm.claimType === 'HOC_LAI')) ? (
+                <label className="flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-700">
+                  <input type="checkbox" checked={claimForm.keepFeeConfirmed} onChange={(event) => setClaimForm((prev) => ({ ...prev, keepFeeConfirmed: event.target.checked }))} />
+                  Xác nhận giữ học phí / chênh lệch nếu có
+                </label>
+              ) : null}
+
+              {(claimModalMode === 'process' && (claimForm.claimType === 'TAM_DUNG' || claimForm.claimType === 'BAO_LUU')) ? (
+                <label className="flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-700">
+                  <input type="checkbox" checked={claimForm.keepSlot} onChange={(event) => setClaimForm((prev) => ({ ...prev, keepSlot: event.target.checked }))} />
+                  Có giữ chỗ lớp hay không
+                </label>
+              ) : null}
+
+              {(claimModalMode === 'process' && claimForm.claimType === 'BAO_LUU') ? (
+                <div>
+                  <label className="mb-1 block text-sm font-semibold text-slate-700">Chính sách quay lại học</label>
+                  <textarea value={claimForm.policyNote} onChange={(event) => setClaimForm((prev) => ({ ...prev, policyNote: event.target.value }))} className="h-20 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" placeholder="Ghi chú chính sách quay lại học" />
+                </div>
+              ) : null}
+
+              {claimModalMode === 'cancel' ? (
+                <div>
+                  <label className="mb-1 block text-sm font-semibold text-slate-700">Ghi chú hủy claim</label>
+                  <textarea value={claimForm.note} onChange={(event) => setClaimForm((prev) => ({ ...prev, note: event.target.value }))} className="h-20 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" placeholder="Nhập ghi chú hủy claim" />
+                </div>
+              ) : (
+                <div>
+                  <label className="mb-1 block text-sm font-semibold text-slate-700">Ghi chú</label>
+                  <textarea value={claimForm.note} onChange={(event) => setClaimForm((prev) => ({ ...prev, note: event.target.value }))} className="h-20 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" placeholder="Nhập ghi chú" />
+                </div>
+              )}
+
+              {selectedClaim ? <div className="rounded-xl bg-slate-50 px-3 py-2 text-sm text-slate-600">Claim hiện tại: <span className="font-semibold text-slate-900">{CLAIM_TYPE_LABELS[selectedClaim.claimType]}</span> • <span className="font-semibold text-slate-900">{CLAIM_STATUS_LABELS[selectedClaim.claimStatus]}</span></div> : null}
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={closeClaimModal} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700">Hủy</button>
+              <button onClick={submitClaim} className={`rounded-xl px-4 py-2 text-sm font-semibold text-white ${claimModalMode === 'cancel' ? 'bg-rose-600' : 'bg-slate-900'}`}>{claimModalMode === 'create' ? 'Tạo claim' : claimModalMode === 'process' ? 'Lưu xử lý' : 'Xác nhận hủy'}</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {false ? <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4"><div className="w-full max-w-xl rounded-2xl bg-white p-5 shadow-2xl"><div className="mb-4 flex items-center justify-between"><div><h3 className="text-lg font-bold text-slate-900">{claimModalMode === 'create' ? 'Tạo claim' : claimModalMode === 'process' ? 'Xử lý claim' : 'Hủy claim'}</h3><p className="mt-1 text-sm text-slate-500">{student.name} • {student.code}</p></div><button onClick={closeClaimModal} className="text-sm font-medium text-slate-500">Đóng</button></div><div className="space-y-3"><div className="grid gap-3 md:grid-cols-2"><div><label className="mb-1 block text-sm font-semibold text-slate-700">Claim type</label><select value={claimForm.claimType} onChange={(event) => setClaimForm((prev) => ({ ...prev, claimType: event.target.value as StudentClaimType, claimStatus: claimModalMode === 'create' && event.target.value === 'KHONG_CO' ? 'KHONG_CO' : prev.claimStatus === 'KHONG_CO' ? 'CHO_XU_LY' : prev.claimStatus }))} disabled={claimModalMode !== 'create'} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm disabled:bg-slate-50">{CLAIM_TYPE_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div><div><label className="mb-1 block text-sm font-semibold text-slate-700">Claim status</label><select value={claimModalMode === 'cancel' ? 'DA_HUY' : claimForm.claimStatus} onChange={(event) => setClaimForm((prev) => ({ ...prev, claimStatus: event.target.value as StudentClaimStatus }))} disabled={claimModalMode === 'cancel'} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm disabled:bg-slate-50">{(claimModalMode === 'process' ? CLAIM_STATUS_OPTIONS.filter((item) => ['CHO_XU_LY', 'DA_XU_LY', 'TU_CHOI'].includes(item.value)) : CLAIM_STATUS_OPTIONS).map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div></div><div><label className="mb-1 block text-sm font-semibold text-slate-700">Lý do</label><textarea value={claimForm.reason} onChange={(event) => setClaimForm((prev) => ({ ...prev, reason: event.target.value }))} className="h-24 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" placeholder="Nhập lý do claim" /></div><div><label className="mb-1 block text-sm font-semibold text-slate-700">Ghi chú</label><textarea value={claimForm.note} onChange={(event) => setClaimForm((prev) => ({ ...prev, note: event.target.value }))} className="h-24 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" placeholder={claimModalMode === 'cancel' ? 'Nhập ghi chú hủy claim' : 'Nhập ghi chú xử lý'} /></div>{selectedClaim ? <div className="rounded-xl bg-slate-50 px-3 py-2 text-sm text-slate-600">Claim hiện tại: <span className="font-semibold text-slate-900">{CLAIM_TYPE_LABELS[selectedClaim.claimType]}</span> • <span className="font-semibold text-slate-900">{CLAIM_STATUS_LABELS[selectedClaim.claimStatus]}</span></div> : null}</div><div className="mt-4 flex justify-end gap-2"><button onClick={closeClaimModal} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700">Hủy</button><button onClick={submitClaim} className={`rounded-xl px-4 py-2 text-sm font-semibold text-white ${claimModalMode === 'cancel' ? 'bg-rose-600' : 'bg-slate-900'}`}>{claimModalMode === 'create' ? 'Tạo claim' : claimModalMode === 'process' ? 'Lưu xử lý' : 'Xác nhận hủy'}</button></div></div></div> : null}
       {showEnrollModal ? <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4"><div className="w-full max-w-xl rounded-2xl bg-white p-5 shadow-2xl"><div className="mb-4 flex items-center justify-between"><h3 className="text-lg font-bold text-slate-900">Ghi danh vào lớp</h3><button onClick={() => setShowEnrollModal(false)} className="text-sm font-medium text-slate-500">Đóng</button></div><div className="space-y-3"><select value={enrollForm.quotationId} onChange={(event) => setEnrollForm((prev) => ({ ...prev, quotationId: event.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"><option value="">-- Chọn SO --</option>{availableLockedQuotations.map((quotation) => <option key={quotation.id} value={quotation.id}>{quotation.soCode} - {quotation.customerName}</option>)}</select><div className="grid gap-3 md:grid-cols-2"><select value={enrollForm.campusId} onChange={(event) => setEnrollForm((prev) => ({ ...prev, campusId: event.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm">{['Hà Nội', 'HCM', 'Đà Nẵng'].map((campus) => <option key={campus} value={campus}>{campus}</option>)}</select><select value={enrollForm.classId} onChange={(event) => setEnrollForm((prev) => ({ ...prev, classId: event.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"><option value="">-- Chọn lớp --</option>{classes.filter((item) => item.status === 'ACTIVE').map((item) => <option key={item.id} value={item.id}>{item.code} - {item.campus}</option>)}</select></div><textarea value={enrollForm.note} onChange={(event) => setEnrollForm((prev) => ({ ...prev, note: event.target.value }))} className="h-24 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" placeholder="Ghi chú" /></div><div className="mt-4 flex justify-end gap-2"><button onClick={() => setShowEnrollModal(false)} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700">Hủy</button><button onClick={submitEnroll} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white">Lưu ghi danh</button></div></div></div> : null}
       {showTransferModal ? <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4"><div className="w-full max-w-xl rounded-2xl bg-white p-5 shadow-2xl"><div className="mb-4 flex items-center justify-between"><h3 className="text-lg font-bold text-slate-900">Chuyển lớp</h3><button onClick={() => setShowTransferModal(false)} className="text-sm font-medium text-slate-500">Đóng</button></div><div className="space-y-3"><div className="rounded-xl bg-slate-50 px-3 py-2 text-sm text-slate-600">Lớp hiện tại: <span className="font-semibold text-slate-900">{currentClass?.code || currentClassStudent?.classId || '--'}</span></div><select value={transferForm.classId} onChange={(event) => setTransferForm((prev) => ({ ...prev, classId: event.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"><option value="">-- Chọn lớp đích --</option>{classOptions.map((item) => <option key={item.id} value={item.id}>{item.code} - {item.campus}</option>)}</select><textarea value={transferForm.note} onChange={(event) => setTransferForm((prev) => ({ ...prev, note: event.target.value }))} className="h-24 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" placeholder="Lý do chuyển lớp" /></div><div className="mt-4 flex justify-end gap-2"><button onClick={() => setShowTransferModal(false)} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700">Hủy</button><button onClick={submitTransfer} className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white">Xác nhận chuyển lớp</button></div></div></div> : null}
     </div>

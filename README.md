@@ -1,20 +1,27 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# EduCRM Static Web
 
-# Run and deploy your AI Studio app
+This project builds as a static web app with Vite. The default demo flow runs entirely in the browser and stores data in `localStorage`, so it does not require a backend.
 
-This contains everything you need to run your app locally.
+## Local development
 
-View your app in AI Studio: https://ai.studio/apps/drive/1BBV8T7mCLGqz7EBZnVqP9ZovcznDHCdi
+Prerequisite: Node.js
 
-## Run Locally
+1. Install dependencies with `npm install`
+2. Start the dev server with `npm run dev`
 
-**Prerequisites:**  Node.js
+## Production build
 
+1. Generate the static bundle with `npm run build`
+2. Deploy the `dist/` folder to any static host
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+The build uses relative asset paths, so it can be served from a root domain or a subfolder without changing the router setup.
+
+## Optional Gemini AI
+
+The AI assistant is optional. To enable it for a build, create `.env.local` with:
+
+```bash
+VITE_GEMINI_API_KEY=your_key_here
+```
+
+Any `VITE_` variable is bundled into the client, so do not use a sensitive production key in a public deployment.

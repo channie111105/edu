@@ -1,14 +1,25 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { ILead, AIAnalysisResult } from "../types";
 
-// Initialize Gemini
-// NOTE: In a real production app, ensure API keys are handled via secure backend proxies.
-const apiKey = process.env.API_KEY || ''; 
-const ai = new GoogleGenAI({ apiKey });
+// Optional client-side AI support for static deployments.
+// Do not embed sensitive production keys in a public static build.
+const apiKey = import.meta.env.VITE_GEMINI_API_KEY?.trim() || '';
+let ai: GoogleGenAI | null = null;
+
+export const isGeminiEnabled = Boolean(apiKey);
+
+const getGeminiClient = () => {
+  if (!isGeminiEnabled) return null;
+  if (!ai) {
+    ai = new GoogleGenAI({ apiKey });
+  }
+  return ai;
+};
 
 export const analyzeLeadWithAI = async (lead: ILead): Promise<AIAnalysisResult | null> => {
-  if (!apiKey) {
-    console.warn("Gemini API Key is missing.");
+  const client = getGeminiClient();
+  if (!client) {
+    console.warn("Gemini AI is disabled because VITE_GEMINI_API_KEY is not set.");
     return null;
   }
 
@@ -34,7 +45,7 @@ export const analyzeLeadWithAI = async (lead: ILead): Promise<AIAnalysisResult |
   `;
 
   try {
-    const response = await ai.models.generateContent({
+    const response = await client.models.generateContent({
       model: model,
       contents: prompt,
       config: {

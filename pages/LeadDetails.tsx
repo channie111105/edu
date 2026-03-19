@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getLeadById, saveLead, addDeal, addContact, addMeeting, convertLeadToContact } from '../utils/storage';
 import { useAuth } from '../contexts/AuthContext';
+import { getLeadStatusLabel, LEAD_STATUS_KEYS, LEAD_STATUS_OPTIONS, normalizeLeadStatusKey, toLeadStatusValue } from '../utils/leadStatus';
 import {
    ArrowLeft, Phone, Mail, MessageCircle, Clock,
    User, CheckCircle2,
@@ -80,7 +81,7 @@ const LeadDetails: React.FC = () => {
 
    const handleStatusChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
       if (lead) {
-         const newStatus = e.target.value as LeadStatus;
+         const newStatus = toLeadStatusValue(e.target.value) as LeadStatus;
          const updatedLead = { ...lead, status: newStatus };
          saveLead(updatedLead);
          setLead(updatedLead);
@@ -109,6 +110,12 @@ const LeadDetails: React.FC = () => {
 
       // 1. Logic Create Meeting
       if (activityType === 'meeting' && lead) {
+         const shouldMarkCared = [LEAD_STATUS_KEYS.NEW, LEAD_STATUS_KEYS.ASSIGNED, LEAD_STATUS_KEYS.PICKED].includes(normalizeLeadStatusKey(String(lead.status || '')));
+         const updatedLead = shouldMarkCared ? { ...lead, status: LeadStatus.CONTACTED } : lead;
+         if (shouldMarkCared) {
+            saveLead(updatedLead);
+            setLead(updatedLead);
+         }
          const newMeeting: IMeeting = {
             id: `M-${Date.now()}`,
             title: `Lá»‹ch háº¹n: ${lead.name}`,
@@ -141,6 +148,14 @@ const LeadDetails: React.FC = () => {
          setActivityType('note'); // Reset
          alert('ÄÃ£ táº¡o lá»‹ch háº¹n thÃ nh cÃ´ng!');
       } else {
+         if (lead) {
+            const shouldMarkCared = [LEAD_STATUS_KEYS.NEW, LEAD_STATUS_KEYS.ASSIGNED, LEAD_STATUS_KEYS.PICKED].includes(normalizeLeadStatusKey(String(lead.status || '')));
+            if (shouldMarkCared) {
+               const updatedLead = { ...lead, status: LeadStatus.CONTACTED };
+               saveLead(updatedLead);
+               setLead(updatedLead);
+            }
+         }
          // 2. Logic Normal Note
          const newNote: IActivity = {
             id: `note-${Date.now()}`,
@@ -634,27 +649,26 @@ const LeadDetails: React.FC = () => {
                      <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 block">TRáº NG THÃI HIá»†N Táº I</label>
                      <div className="relative">
                         <select
-                           value={lead.status}
+                           value={normalizeLeadStatusKey(String(lead.status || ''))}
                            onChange={handleStatusChange}
                            className={`w-full appearance-none font-bold text-sm py-3 pl-4 pr-10 rounded-lg border-2 cursor-pointer transition-all focus:outline-none
-                                ${lead.status === LeadStatus.QUALIFIED ? 'bg-green-50 text-green-700 border-green-200' :
-                                 lead.status === LeadStatus.NEW ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                                ${normalizeLeadStatusKey(String(lead.status || '')) === LEAD_STATUS_KEYS.CONVERTED ? 'bg-green-50 text-green-700 border-green-200' :
+                                 normalizeLeadStatusKey(String(lead.status || '')) === LEAD_STATUS_KEYS.NEW ? 'bg-blue-50 text-blue-700 border-blue-200' :
                                     'bg-white text-slate-700 border-slate-200'}
                             `}
                         >
-                           <option value={LeadStatus.NEW}>Má»›i (New)</option>
-                           <option value={LeadStatus.CONTACTED}>Äang liÃªn há»‡</option>
-                           <option value={LeadStatus.QUALIFIED}>Äáº¡t chuáº©n (Qualified)</option>
-                           <option value={LeadStatus.DISQUALIFIED}>KhÃ´ng Ä‘áº¡t (Lost)</option>
+                           {LEAD_STATUS_OPTIONS.map((option) => (
+                              <option key={option.value} value={option.value}>{option.label}</option>
+                           ))}
                         </select>
                         <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none opacity-50" size={16} />
                      </div>
 
                      {/* Helper Text */}
                      <div className="mt-3 p-3 bg-slate-50 text-slate-500 text-xs italic rounded-lg border border-slate-100">
-                        {lead.status === LeadStatus.QUALIFIED
-                           ? "KhÃ¡ch tiá»m nÄƒng. HÃ£y Ä‘iá»n Ä‘á»§ thÃ´ng tin chuyÃªn mÃ´n vÃ  nháº¥n 'Chuyá»ƒn Ä‘á»•i'."
-                           : "Vui lÃ²ng cáº­p nháº­t tráº¡ng thÃ¡i sau má»—i cuá»™c gá»i Ä‘á»ƒ há»‡ thá»‘ng ghi nháº­n KPI."}
+                        {normalizeLeadStatusKey(String(lead.status || '')) === LEAD_STATUS_KEYS.CONVERTED
+                           ? "Lead đã converted. Tiếp tục xử lý ở pipeline/deal nếu cần."
+                           : `Trạng thái hiện tại: ${getLeadStatusLabel(lead.status as string)}.`}
                      </div>
                   </div>
 

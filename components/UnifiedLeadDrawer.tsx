@@ -23,10 +23,17 @@ import {
     formatServicePaymentPlanNote,
     resolveServicePaymentPlan
 } from '../utils/servicePaymentPlans';
+import {
+    getLeadStatusLabel,
+    LEAD_STATUS_KEYS,
+    normalizeLeadStatusKey,
+    toLeadStatusValue,
+} from '../utils/leadStatus';
 import ClassCodeLookupInput from './ClassCodeLookupInput';
 import { buildTrainingClassLookupOptions } from '../utils/trainingClassLookup';
 import LogAudienceFilterControl from './LogAudienceFilter';
 import { LogAudienceFilter } from '../utils/logAudience';
+import { appendLeadLogs, buildLeadActivityLog, buildLeadAuditChange, buildLeadAuditLog } from '../utils/leadLogs';
 
 interface UnifiedLeadDrawerProps {
     lead: ILead;
@@ -615,15 +622,15 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
     };
 
     // --- STAGE HELPERS ---
-    const isLeadStage = !lead.status || lead.status === LeadStatus.NEW || lead.status === LeadStatus.CONTACTED;
-    const isQualified = lead.status === LeadStatus.QUALIFIED || Object.values(DealStage).includes(lead.status as any);
-    const isConverted = lead.status === LeadStatus.CONVERTED || lead.status === DealStage.CONTRACT || lead.status === DealStage.WON;
+    const normalizedLeadStatus = normalizeLeadStatusKey(String(lead.status || ''));
+    const isLeadStage = [LEAD_STATUS_KEYS.NEW, LEAD_STATUS_KEYS.ASSIGNED, LEAD_STATUS_KEYS.PICKED, LEAD_STATUS_KEYS.CONTACTED, LEAD_STATUS_KEYS.NURTURING].includes(normalizedLeadStatus);
+    const isQualified = normalizedLeadStatus === LEAD_STATUS_KEYS.CONVERTED || Object.values(DealStage).includes(lead.status as any);
+    const isConverted = normalizedLeadStatus === LEAD_STATUS_KEYS.CONVERTED || lead.status === DealStage.CONTRACT || lead.status === DealStage.WON;
     const isPipeline = Object.values(DealStage).includes(lead.status as any);
     const isWon = lead.status === DealStage.WON;
     const isContract = lead.status === DealStage.CONTRACT;
-    // @ts-ignore
-    const isLost = lead.status === 'LOST' || lead.status === 'lost';
-    const isNotPickedUp = !lead.pickUpDate && lead.status !== LeadStatus.CONTACTED && lead.status !== LeadStatus.QUALIFIED && !isPipeline;
+    const isLost = normalizedLeadStatus === LEAD_STATUS_KEYS.LOST;
+    const isNotPickedUp = !lead.pickUpDate && ![LEAD_STATUS_KEYS.CONTACTED, LEAD_STATUS_KEYS.NURTURING, LEAD_STATUS_KEYS.CONVERTED].includes(normalizedLeadStatus) && !isPipeline;
     const lockedMsg = "Vui lòng nhấn 'Tiếp nhận Lead' để bắt đầu cập nhật thông tin";
 
     useEffect(() => {
@@ -792,6 +799,22 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
         }
     };
 
+    const commitLeadLogUpdate = (
+        nextLead: ILead,
+        options?: {
+            activities?: any[];
+            audits?: any[];
+        }
+    ) => {
+        const finalLead = appendLeadLogs(nextLead, {
+            activities: options?.activities,
+            audits: options?.audits
+        });
+        setLead(finalLead);
+        onUpdate(finalLead);
+        return finalLead;
+    };
+
     const addLog = (type: 'note' | 'message' | 'system' | 'activity', content: string, extra?: any) => {
         if (!content.trim()) return;
 
@@ -801,30 +824,64 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
         if (lastLoggedValues.current[logKey] === nowMinute) return;
         lastLoggedValues.current[logKey] = nowMinute;
 
+        const nowIso = new Date().toISOString();
         const newActivity: any = {
-            id: `act-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-            type,
-            timestamp: new Date().toISOString(),
-            title: extra?.title || '',
-            description: content,
-            user: user?.name || 'Admin',
-            status: extra?.status,
-            datetime: extra?.datetime,
+            ...buildLeadActivityLog({
+                type,
+                title: extra?.title || '',
+                description: content,
+                user: user?.name || 'Admin',
+                timestamp: nowIso,
+                status: extra?.status,
+                datetime: extra?.datetime
+            }),
             activityType: extra?.activityType
         };
 
         const currentActivities = lead.activities || [];
-        const updatedActivities = [newActivity, ...currentActivities];
 
-        // AUTO STATUS: NEW/ASSIGNED -> CONTACTED
+        // AUTO STATUS: NEW/ASSIGNED/PICKED -> CONTACTED
         let newStatus = lead.status;
-        if (lead.status === LeadStatus.NEW || lead.status === LeadStatus.ASSIGNED || !lead.status) {
+        if ([LEAD_STATUS_KEYS.NEW, LEAD_STATUS_KEYS.ASSIGNED, LEAD_STATUS_KEYS.PICKED].includes(normalizeLeadStatusKey(String(lead.status || ''))) || !lead.status) {
             newStatus = LeadStatus.CONTACTED;
         }
 
-        const updatedLead = { ...lead, activities: updatedActivities, status: newStatus as any };
-        setLead(updatedLead);
-        onUpdate(updatedLead);
+        const audits = [
+            buildLeadAuditLog({
+                action: extra?.activityType === 'meeting'
+                    ? 'lead_schedule_activity'
+                    : type === 'message'
+                        ? 'lead_message_logged'
+                        : type === 'activity'
+                            ? 'lead_activity_logged'
+                            : type === 'note'
+                                ? 'lead_note_logged'
+                                : 'lead_interaction_logged',
+                actor: user?.name || 'Admin',
+                actorType: 'user',
+                timestamp: nowIso,
+                changes: [
+                    buildLeadAuditChange('activities', currentActivities.length, currentActivities.length + 1, 'Số log hiển thị'),
+                    buildLeadAuditChange('lastInteraction', lead.lastInteraction, nowIso, 'Lần tương tác cuối'),
+                    ...(String(newStatus) !== String(lead.status)
+                        ? [buildLeadAuditChange('status', lead.status, newStatus, 'Trạng thái')]
+                        : [])
+                ]
+            })
+        ];
+
+        commitLeadLogUpdate(
+            {
+                ...lead,
+                status: newStatus as any,
+                lastInteraction: nowIso,
+                lastActivityDate: nowIso
+            },
+            {
+                activities: [newActivity],
+                audits
+            }
+        );
     };
 
     // Removed handleSendNote as it is replaced by handleSendLog
@@ -894,23 +951,30 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
             const logMsg = `${user?.name || 'Admin'} cập nhật ${fieldLabel}: ${oldValueText} -> ${newValueText}`;
 
             // Create activity log
-            const newLogEntry: any = {
-                id: `act-${Date.now()}-${field}`,
+            const nowIso = new Date().toISOString();
+            const newLogEntry: any = buildLeadActivityLog({
                 type: 'system',
-                timestamp: new Date().toISOString(),
+                timestamp: nowIso,
                 description: logMsg,
                 user: user?.name || 'Admin',
                 title: 'Cập nhật hệ thống'
-            };
+            });
 
-            const updatedLead = {
+            commitLeadLogUpdate({
                 ...lead,
-                [field]: currentValue,
-                activities: [newLogEntry, ...(lead.activities || [])]
-            };
-
-            setLead(updatedLead);
-            onUpdate(updatedLead);
+                [field]: currentValue
+            }, {
+                activities: [newLogEntry],
+                audits: [
+                    buildLeadAuditLog({
+                        action: 'lead_field_updated',
+                        actor: user?.name || 'Admin',
+                        actorType: 'user',
+                        timestamp: nowIso,
+                        changes: [buildLeadAuditChange(String(field), lead[field], currentValue, fieldLabel)]
+                    })
+                ]
+            });
 
             // Auto-save feedback
             setIsSaving(true);
@@ -941,26 +1005,33 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
         const fieldLabel = INTERNAL_NOTE_LABELS[field] || field;
         const oldValueText = formatAuditValue(currentVal);
         const newValueText = formatAuditValue(value);
-        const newLogEntry: any = {
-            id: `act-${Date.now()}-int-${field}`,
+        const nowIso = new Date().toISOString();
+        const newLogEntry: any = buildLeadActivityLog({
             type: 'system',
-            timestamp: new Date().toISOString(),
+            timestamp: nowIso,
             description: `${user?.name || 'Admin'} cập nhật ${fieldLabel}: ${oldValueText} -> ${newValueText}`,
             user: user?.name || 'Admin',
             title: 'Cập nhật ghi chú nội bộ'
-        };
+        });
 
-        const updatedLead = {
+        commitLeadLogUpdate({
             ...lead,
             internalNotes: {
                 ...(lead.internalNotes || {}),
                 [field]: value
-            },
-            activities: [newLogEntry, ...(lead.activities || [])]
-        };
-
-        setLead(updatedLead);
-        onUpdate(updatedLead);
+            }
+        }, {
+            activities: [newLogEntry],
+            audits: [
+                buildLeadAuditLog({
+                    action: 'lead_internal_note_updated',
+                    actor: user?.name || 'Admin',
+                    actorType: 'user',
+                    timestamp: nowIso,
+                    changes: [buildLeadAuditChange(`internalNotes.${String(field)}`, currentVal, value, fieldLabel)]
+                })
+            ]
+        });
     };
 
     const handleAddFollower = (newFollower: any, isSystem = false) => {
@@ -999,7 +1070,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
         // --- GATEKEEPER LOGIC ---
 
         // 1. GATE: Lead -> Qualified
-        if (newStatus === LeadStatus.QUALIFIED) {
+        if (normalizeLeadStatusKey(newStatus) === LEAD_STATUS_KEYS.CONVERTED) {
             if (!lead.dob || !lead.educationLevel) {
                 showToast("Vui lòng điền 'Ngày sinh' và 'Trình độ học vấn' ở Mục B trước.", 'error');
                 setShowStatusDropdown(false);
@@ -1048,26 +1119,35 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
         }
 
         // Add log
-        const statusLog: any = {
-            id: `act-${Date.now()}`,
+        const isDealStageStatus = Object.values(DealStage).includes(newStatus as DealStage);
+        const nextStatusLabel = isDealStageStatus ? newStatus : getLeadStatusLabel(newStatus);
+        const nowIso = new Date().toISOString();
+        const statusLog: any = buildLeadActivityLog({
             type: 'system',
-            timestamp: new Date().toISOString(),
-            description: `Trạng thái: ${lead.status || 'Mới'} → ${newStatus}`,
+            timestamp: nowIso,
+            description: `Trạng thái: ${getLeadStatusLabel(lead.status as string)} → ${nextStatusLabel}`,
             user: user?.name || 'Admin',
-            title: ''
-        };
+            title: 'Đổi trạng thái'
+        });
 
-        const updatedLead = {
+        commitLeadLogUpdate({
             ...lead,
-            status: newStatus as any,
-            activities: [statusLog, ...(lead.activities || [])],
+            status: (isDealStageStatus ? newStatus : toLeadStatusValue(newStatus)) as any,
             productItems: leadProductItems, // Sync current products
             discount: totalDiscountAmount, // Sync current discount
             paymentRoadmap: lead.paymentRoadmap
-        };
-
-        setLead(updatedLead);
-        onUpdate(updatedLead);
+        }, {
+            activities: [statusLog],
+            audits: [
+                buildLeadAuditLog({
+                    action: 'lead_status_changed',
+                    actor: user?.name || 'Admin',
+                    actorType: 'user',
+                    timestamp: nowIso,
+                    changes: [buildLeadAuditChange('status', lead.status, isDealStageStatus ? newStatus : toLeadStatusValue(newStatus), 'Trạng thái')]
+                })
+            ]
+        });
         setShowStatusDropdown(false);
     };
 
@@ -1083,19 +1163,33 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
             return;
         }
 
-        const statusLog: any = {
-            id: `act-${Date.now()}`,
+        const nowIso = new Date().toISOString();
+        const statusLog: any = buildLeadActivityLog({
             type: 'system',
-            timestamp: new Date().toISOString(),
-            description: `Trạng thái: ${lead.status} → LOST. Lý do: ${finalReason}`,
+            timestamp: nowIso,
+            description: `Trạng thái: ${getLeadStatusLabel(lead.status as string)} → ${getLeadStatusLabel(LEAD_STATUS_KEYS.LOST)}. Lý do: ${finalReason}`,
             user: user?.name || 'Admin',
             title: 'Thất bại'
-        };
+        });
 
-        // @ts-ignore
-        const updatedLead = { ...lead, status: 'LOST', lostReason: finalReason, activities: [statusLog, ...(lead.activities || [])] };
-        setLead(updatedLead);
-        onUpdate(updatedLead);
+        commitLeadLogUpdate(
+            { ...lead, status: LeadStatus.LOST, lostReason: finalReason } as any,
+            {
+                activities: [statusLog],
+                audits: [
+                    buildLeadAuditLog({
+                        action: 'lead_status_changed',
+                        actor: user?.name || 'Admin',
+                        actorType: 'user',
+                        timestamp: nowIso,
+                        changes: [
+                            buildLeadAuditChange('status', lead.status, LeadStatus.LOST, 'Trạng thái'),
+                            buildLeadAuditChange('lostReason', lead.lostReason, finalReason, 'Lý do thất bại')
+                        ]
+                    })
+                ]
+            }
+        );
         setShowLossModal(false);
         setLossReason('');
         setCustomLossReason('');
@@ -1135,20 +1229,20 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
             id: `act-${Date.now()}`,
             type: 'system',
             timestamp: new Date().toISOString(),
-            description: `Trạng thái: ${lead.status || 'Mới'} → KHÔNG ĐẠT (Unqualified)`,
+            description: `Trạng thái: ${getLeadStatusLabel(lead.status as string)} → ${getLeadStatusLabel(LEAD_STATUS_KEYS.UNVERIFIED)}`,
             user: user?.name || 'Admin',
-            title: 'Không đạt'
+            title: getLeadStatusLabel(LEAD_STATUS_KEYS.UNVERIFIED)
         };
 
         const updatedLead = {
             ...lead,
-            status: LeadStatus.DISQUALIFIED as any,
+            status: LeadStatus.UNVERIFIED as any,
             activities: [disqualifiedLog, ...(lead.activities || [])],
         };
 
         setLead(updatedLead);
         onUpdate(updatedLead);
-        showToast("Đã phân loại: KHÔNG ĐẠT", 'info');
+        showToast(`Đã cập nhật: ${getLeadStatusLabel(LEAD_STATUS_KEYS.UNVERIFIED)}`, 'info');
     };
 
     const handlePickUpAction = () => {
@@ -1157,76 +1251,121 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
         const diffMins = Math.floor((now.getTime() - createdAt.getTime()) / (1000 * 60));
         const slaMet = diffMins <= 15;
 
-        const pickUpLog: any = {
-            id: `act-${Date.now()}`,
+        const nowIso = now.toISOString();
+        const pickUpLog: any = buildLeadActivityLog({
             type: 'system',
-            timestamp: now.toISOString(),
+            timestamp: nowIso,
             description: `Sale ${user?.name || 'Admin'} đã tiếp nhận Lead. SLA Pick-up: ${slaMet ? 'ĐẠT' : 'VI PHẠM'} (Phản hồi sau ${diffMins} phút).`,
             user: user?.name || 'Admin',
             title: 'Tiếp nhận Lead'
-        };
+        });
 
-        const updatedLead = {
+        commitLeadLogUpdate({
             ...lead,
-            status: LeadStatus.ASSIGNED as any,
+            status: LeadStatus.PICKED as any,
             ownerId: user?.name || lead.ownerId,
-            pickUpDate: now.toISOString(),
-            activities: [pickUpLog, ...(lead.activities || [])],
-        };
-
-        setLead(updatedLead);
-        onUpdate(updatedLead);
+            pickUpDate: nowIso,
+        }, {
+            activities: [pickUpLog],
+            audits: [
+                buildLeadAuditLog({
+                    action: 'lead_picked',
+                    actor: user?.name || 'Admin',
+                    actorType: 'user',
+                    timestamp: nowIso,
+                    changes: [
+                        buildLeadAuditChange('status', lead.status, LeadStatus.PICKED, 'Trạng thái'),
+                        buildLeadAuditChange('ownerId', lead.ownerId, user?.name || lead.ownerId, 'Sale phụ trách'),
+                        buildLeadAuditChange('pickUpDate', lead.pickUpDate, nowIso, 'Thời gian nhận lead')
+                    ]
+                })
+            ]
+        });
         showToast(`Đã tiếp nhận Lead. SLA: ${slaMet ? 'Đạt' : 'Quá hạn'}`, slaMet ? 'success' : 'info');
     };
 
     const handleCallAction = () => {
-        const callLog: any = {
-            id: `act-${Date.now()}`,
+        const nowIso = new Date().toISOString();
+        const callLog: any = buildLeadActivityLog({
             type: 'system',
-            timestamp: new Date().toISOString(),
+            timestamp: nowIso,
             title: 'Thực hiện gọi điện',
             description: `Sale ${user?.name || 'Tôi'} đã thực hiện gọi điện cho khách hàng.`,
             user: user?.name || 'Admin',
-        };
+        });
 
-        if (lead.status === LeadStatus.NEW || lead.status === LeadStatus.ASSIGNED) {
-            const updatedLead = {
+        if ([LEAD_STATUS_KEYS.NEW, LEAD_STATUS_KEYS.ASSIGNED, LEAD_STATUS_KEYS.PICKED].includes(normalizeLeadStatusKey(String(lead.status || '')))) {
+            commitLeadLogUpdate({
                 ...lead,
                 status: LeadStatus.CONTACTED as any,
-                activities: [callLog, ...(lead.activities || [])],
-            };
-            setLead(updatedLead);
-            onUpdate(updatedLead);
+                lastInteraction: nowIso
+            }, {
+                activities: [callLog],
+                audits: [
+                    buildLeadAuditLog({
+                        action: 'lead_called',
+                        actor: user?.name || 'Admin',
+                        actorType: 'user',
+                        timestamp: nowIso,
+                        changes: [
+                            buildLeadAuditChange('status', lead.status, LeadStatus.CONTACTED, 'Trạng thái'),
+                            buildLeadAuditChange('lastInteraction', lead.lastInteraction, nowIso, 'Lần tương tác cuối')
+                        ]
+                    })
+                ]
+            });
         } else {
-            const updatedLead = {
+            commitLeadLogUpdate({
                 ...lead,
-                activities: [callLog, ...(lead.activities || [])],
-            };
-            setLead(updatedLead);
-            onUpdate(updatedLead);
+                lastInteraction: nowIso
+            }, {
+                activities: [callLog],
+                audits: [
+                    buildLeadAuditLog({
+                        action: 'lead_called',
+                        actor: user?.name || 'Admin',
+                        actorType: 'user',
+                        timestamp: nowIso,
+                        changes: [buildLeadAuditChange('lastInteraction', lead.lastInteraction, nowIso, 'Lần tương tác cuối')]
+                    })
+                ]
+            });
         }
         window.location.href = `tel:${lead.phone}`;
     };
 
     const handleAssignAction = (targetUser: any) => {
-        const assignLog: any = {
-            id: `act-${Date.now()}`,
+        const nowIso = new Date().toISOString();
+        const isReassigned = Boolean(lead.ownerId && lead.ownerId !== targetUser.name);
+        const assignLog: any = buildLeadActivityLog({
             type: 'system',
-            timestamp: new Date().toISOString(),
-            description: `Hệ thống phân bổ Lead cho: ${targetUser.name}`,
+            timestamp: nowIso,
+            description: isReassigned
+                ? `Lead được chia lại từ ${lead.ownerId} sang ${targetUser.name}.`
+                : `Lead được giao cho ${targetUser.name}.`,
             user: user?.name || 'Admin',
-            title: 'Phân bổ'
-        };
+            title: isReassigned ? 'Chia lại Lead' : 'Phân bổ Lead'
+        });
 
-        const updatedLead = {
+        commitLeadLogUpdate({
             ...lead,
             status: LeadStatus.ASSIGNED as any,
             ownerId: targetUser.name,
-            activities: [assignLog, ...(lead.activities || [])],
-        };
-
-        setLead(updatedLead);
-        onUpdate(updatedLead);
+        }, {
+            activities: [assignLog],
+            audits: [
+                buildLeadAuditLog({
+                    action: isReassigned ? 'lead_reassigned' : 'lead_assigned',
+                    actor: user?.name || 'Admin',
+                    actorType: 'user',
+                    timestamp: nowIso,
+                    changes: [
+                        buildLeadAuditChange('ownerId', lead.ownerId, targetUser.name, 'Sale phụ trách'),
+                        buildLeadAuditChange('status', lead.status, LeadStatus.ASSIGNED, 'Trạng thái')
+                    ]
+                })
+            ]
+        });
         setShowAssignModal(false);
         showToast(`Đã chuyển Lead cho ${targetUser.name}`, 'info');
     };
@@ -1772,9 +1911,10 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
 
                     {/* Status Bar Indicator */}
                     <div className="h-10 px-6 flex items-center bg-slate-50 border-b border-slate-200 overflow-x-auto no-scrollbar">
-                        {[LeadStatus.NEW, LeadStatus.ASSIGNED, LeadStatus.CONTACTED, LeadStatus.QUALIFIED, LeadStatus.CONVERTED].map((st, idx, arr) => {
-                            const isCurrent = lead.status === st;
-                            const isPast = arr.indexOf(lead.status as LeadStatus) >= idx;
+                        {[LEAD_STATUS_KEYS.NEW, LEAD_STATUS_KEYS.ASSIGNED, LEAD_STATUS_KEYS.PICKED, LEAD_STATUS_KEYS.CONTACTED, LEAD_STATUS_KEYS.CONVERTED].map((st, idx, arr) => {
+                            const currentIndex = arr.indexOf(normalizedLeadStatus);
+                            const isCurrent = normalizedLeadStatus === st;
+                            const isPast = currentIndex >= idx;
                             return (
                                 <React.Fragment key={st}>
                                     <div className={`flex items-center gap-2 whitespace-nowrap ${isCurrent ? 'opacity-100' : 'opacity-60'}`}>
@@ -1782,7 +1922,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                                             {isPast ? <CheckCircle2 size={12} /> : idx + 1}
                                         </div>
                                         <span className={`text-[11px] font-bold uppercase tracking-tight ${isCurrent ? 'text-blue-700' : isPast ? 'text-slate-700' : 'text-slate-400'}`}>
-                                            {st}
+                                            {getLeadStatusLabel(st)}
                                         </span>
                                     </div>
                                     {idx < arr.length - 1 && <ChevronRight size={14} className="mx-2 text-slate-300 flex-shrink-0" />}
@@ -1802,7 +1942,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
 
                         <div className="flex items-center gap-2">
                             {/* 1. PICK UP BUTTON - Prominent if not yet picked up */}
-                            {((lead.status === LeadStatus.NEW || lead.status === LeadStatus.ASSIGNED) && !lead.pickUpDate) && user?.role !== UserRole.MARKETING && (
+                            {([LEAD_STATUS_KEYS.NEW, LEAD_STATUS_KEYS.ASSIGNED].includes(normalizedLeadStatus) && !lead.pickUpDate) && user?.role !== UserRole.MARKETING && (
                                 <button
                                     onClick={handlePickUpAction}
                                     className="px-6 py-2 text-sm font-black text-white bg-blue-600 border border-blue-700 rounded-lg hover:bg-blue-700 flex items-center gap-2 shadow-lg shadow-blue-200 transition-all animate-pulse"
@@ -1812,7 +1952,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                             )}
 
                             {/* OTHER ACTIONS - ONLY IF PICKED UP OR ADVANCED STATUS */}
-                            {(lead.pickUpDate || (![LeadStatus.NEW, LeadStatus.ASSIGNED].includes(lead.status as LeadStatus))) && (
+                            {(lead.pickUpDate || (![LEAD_STATUS_KEYS.NEW, LEAD_STATUS_KEYS.ASSIGNED].includes(normalizedLeadStatus))) && (
                                 <div className="flex items-center gap-2 bg-blue-50/50 p-1 rounded-lg border border-blue-100/50 mr-2">
                                     {/* 0. CALL BUTTON - Light Blue Theme */}
                                     <button
@@ -1844,7 +1984,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                             )}
 
                             {/* PRIMARY ACTIONS - ONLY IF PICKED UP */}
-                            {(lead.pickUpDate || (![LeadStatus.NEW, LeadStatus.ASSIGNED].includes(lead.status as LeadStatus))) && (
+                            {(lead.pickUpDate || (![LEAD_STATUS_KEYS.NEW, LEAD_STATUS_KEYS.ASSIGNED].includes(normalizedLeadStatus))) && (
                                 <>
                                     {/* 3. CONVERT BUTTON */}
                                     {!isWon && !isContract && !isLost && !isPipeline && user?.role !== UserRole.MARKETING && (
@@ -1868,9 +2008,9 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                                     )}
 
                                     {/* 6. UNQUALIFIED BUTTON */}
-                                    {!isWon && !isContract && !isLost && lead.status !== LeadStatus.DISQUALIFIED && user?.role !== UserRole.MARKETING && (
+                                    {!isWon && !isContract && !isLost && normalizedLeadStatus !== LEAD_STATUS_KEYS.UNVERIFIED && user?.role !== UserRole.MARKETING && (
                                         <button onClick={handleDisqualifiedAction} className="px-3 py-1.5 text-xs font-bold text-slate-400 border border-slate-200 rounded hover:bg-slate-50 flex items-center gap-1">
-                                            <XOctagon size={14} /> KHÔNG ĐẠT
+                                            <XOctagon size={14} /> KHÔNG XÁC THỰC
                                         </button>
                                     )}
                                 </>

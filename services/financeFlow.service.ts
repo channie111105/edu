@@ -1,6 +1,5 @@
 ﻿import { IQuotation, ITransaction, QuotationStatus, UserRole } from '../types';
 import {
-  createTransactionFromQuotation,
   upsertLinkedContractFromQuotation,
   getQuotations,
   getTransactions,
@@ -99,10 +98,6 @@ export const confirmSale = (
   const quotation = getQuotations().find((q) => q.id === quotationId);
   if (!quotation) return { ok: false, error: 'Không tìm thấy báo giá' };
 
-  const existingPending = getTransactions().find(
-    (t) => t.quotationId === quotation.id && t.status === 'CHO_DUYET'
-  );
-
   const updatedQuotation = appendQuotationLog(
     {
       ...quotation,
@@ -111,20 +106,17 @@ export const confirmSale = (
       saleConfirmedAt: new Date().toISOString(),
       confirmDate: new Date().toISOString(),
       saleConfirmedBy: userId,
-      transactionStatus: 'CHO_DUYET',
+      transactionStatus:
+        quotation.transactionStatus === 'DA_DUYET' || quotation.transactionStatus === 'CHO_DUYET'
+          ? quotation.transactionStatus
+          : 'NONE',
       updatedAt: new Date().toISOString()
     },
     'Sale Confirmed',
-    'Đã xác nhận sale và tạo yêu cầu duyệt giao dịch'
+    'Đã xác nhận sale. Chờ kế toán tạo phiếu duyệt thu'
   );
   updateQuotation(updatedQuotation);
-
-  if (existingPending) {
-    return { ok: true, quotation: updatedQuotation, transaction: existingPending };
-  }
-
-  const transaction = createTransactionFromQuotation(quotation.id, userId);
-  return { ok: true, quotation: updatedQuotation, transaction };
+  return { ok: true, quotation: updatedQuotation };
 };
 
 export const approveTransaction = (
@@ -143,6 +135,8 @@ export const approveTransaction = (
   const updatedTransaction: ITransaction = {
     ...transaction,
     status: 'DA_DUYET',
+    approvedAt: Date.now(),
+    rejectedAt: undefined,
     note: transaction.note || `Đã duyệt bởi ${userId}`
   };
   updateTransaction(updatedTransaction);
@@ -203,6 +197,8 @@ export const rejectTransaction = (
   const updatedTransaction: ITransaction = {
     ...transaction,
     status: 'TU_CHOI',
+    approvedAt: undefined,
+    rejectedAt: Date.now(),
     note: reason || `Từ chối bởi ${userId}`
   };
   updateTransaction(updatedTransaction);

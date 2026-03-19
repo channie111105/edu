@@ -553,7 +553,6 @@ const QuotationDetails: React.FC = () => {
     discount: 0,
     finalAmount: 0,
     refundAmount: 0,
-    paymentMethod: 'CK',
     expirationDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
     pricelist: '[Center 11] Base Price (VND)',
     orderMode: DEFAULT_QUOTATION_RECEIPT_TYPE,
@@ -650,7 +649,6 @@ const QuotationDetails: React.FC = () => {
 
     setFormData((prev) => ({
       ...prev,
-      paymentMethod: 'CK',
       createdBy: user?.id || 'system',
       salespersonName: user?.name || 'Tôi'
     }));
@@ -810,6 +808,7 @@ const QuotationDetails: React.FC = () => {
   const canCancelByRole = userRole === UserRole.ACCOUNTANT;
   const canApproveCancelByRole = userRole === UserRole.ADMIN || userRole === UserRole.FOUNDER;
   const canLockByTransaction = formData.transactionStatus === 'DA_DUYET';
+  const hasReceiptApprovalRequest = formData.transactionStatus === 'CHO_DUYET' || formData.transactionStatus === 'DA_DUYET';
   const canConfirmNow = !isLocked && (formData.status === QuotationStatus.DRAFT || formData.status === QuotationStatus.SENT);
   const canLockStage = !isLocked && (formData.status === QuotationStatus.SALE_CONFIRMED || formData.status === QuotationStatus.SALE_ORDER);
   const canCancelNow =
@@ -819,6 +818,7 @@ const QuotationDetails: React.FC = () => {
     cancelRequestStatus !== 'CHO_DUYET';
   const canApproveCancelNow = hasPendingCancelRequest && canApproveCancelByRole;
   const canLockNow = canLockStage && canLockByRole && canLockByTransaction && !hasPendingCancelRequest;
+  const canCreateReceiptApproval = canLockStage && canLockByRole && !hasPendingCancelRequest && !hasReceiptApprovalRequest;
   const lockButtonTitle = !canLockStage
     ? 'Cần Confirm trước khi Lock'
     : hasPendingCancelRequest
@@ -828,6 +828,13 @@ const QuotationDetails: React.FC = () => {
       : !canLockByTransaction
         ? 'Cần kế toán duyệt giao dịch trước'
         : 'Khóa SO';
+  const createReceiptApprovalTitle = hasPendingCancelRequest
+    ? 'SO đang có yêu cầu hủy chờ duyệt'
+    : formData.transactionStatus === 'CHO_DUYET'
+      ? 'SO đã có phiếu duyệt thu chờ kế toán xử lý'
+      : formData.transactionStatus === 'DA_DUYET'
+        ? 'SO đã có phiếu duyệt thu được duyệt'
+        : 'Tạo phiếu duyệt thu cho SO này';
   const normalizedStatus =
     formData.status === QuotationStatus.SALE_ORDER ? QuotationStatus.SALE_CONFIRMED : formData.status;
   const workflowPaymentMetrics = useMemo(() => {
@@ -1232,11 +1239,6 @@ const QuotationDetails: React.FC = () => {
   };
 
   const handleConfirmSale = () => {
-    if (!formData.paymentProof?.trim()) {
-      alert('Vui lòng nhập chứng từ thanh toán');
-      return;
-    }
-
     const savedQuotation = persistQuotation({ syncContract: false });
     const res = confirmSale(savedQuotation.id, user?.id || 'system');
     if (!res.ok || !res.quotation) {
@@ -1246,17 +1248,11 @@ const QuotationDetails: React.FC = () => {
 
     setFormData({
       ...res.quotation,
-      orderMode: normalizeQuotationReceiptType(res.quotation.orderMode),
-      paymentMethod: savedQuotation.paymentMethod,
-      paymentProof: savedQuotation.paymentProof
+      orderMode: normalizeQuotationReceiptType(res.quotation.orderMode)
     });
 
     if (hasContractCustomData || linkedContract) {
-      syncLinkedContract({
-        ...res.quotation,
-        paymentMethod: savedQuotation.paymentMethod,
-        paymentProof: savedQuotation.paymentProof
-      });
+      syncLinkedContract(res.quotation);
     }
 
     if (isNew) {
@@ -1264,7 +1260,21 @@ const QuotationDetails: React.FC = () => {
     }
 
     setShowConfirmModal(false);
-    alert('Đã xác nhận sale, giao dịch đang chờ kế toán duyệt');
+    alert('Đã xác nhận sale. Kế toán tạo phiếu duyệt thu ở bước tiếp theo.');
+  };
+
+  const handleOpenCreateReceiptApproval = () => {
+    if (!formData.id || !canCreateReceiptApproval) return;
+
+    navigate('/finance/transactions', {
+      state: {
+        createReceiptApproval: {
+          quotationId: formData.id,
+          relatedEntity: getPrimaryQuotationStudentName(formData),
+          amount: Number(formData.finalAmount || formData.amount || 0)
+        }
+      }
+    });
   };
 
   const handleLock = () => {
@@ -2913,13 +2923,14 @@ const QuotationDetails: React.FC = () => {
             >
               <Printer size={14} /> In báo giá
             </button>
-            {canLockStage && (
+            {canLockByRole && canLockStage && (
               <button
-                onClick={() => navigate('/finance/transactions')}
-                className="px-3 py-1.5 rounded border border-slate-200 bg-white text-xs font-semibold text-slate-700"
-                title="Mở giao diện giao dịch kế toán để duyệt và khóa"
+                onClick={handleOpenCreateReceiptApproval}
+                disabled={!canCreateReceiptApproval}
+                className="px-3 py-1.5 rounded border border-slate-200 bg-white text-xs font-semibold text-slate-700 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
+                title={createReceiptApprovalTitle}
               >
-                Giao diện kế toán
+                Tạo phiếu duyệt thu
               </button>
             )}
             <span className="px-2 py-1 text-xs font-semibold rounded bg-blue-50 text-blue-700">
@@ -3639,34 +3650,13 @@ const QuotationDetails: React.FC = () => {
           <div className="bg-white rounded-xl shadow-2xl p-6 max-w-md w-full">
             <h3 className="text-xl font-bold mb-4">Xác nhận đơn hàng (Sale Confirmed)</h3>
             <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-bold mb-1">Hình thức thanh toán</label>
-                <div className="flex gap-4">
-                  <label className="flex items-center gap-2 p-2 rounded border flex-1">
-                    <input type="radio" value="CK" checked={(formData.paymentMethod || 'CK') === 'CK'} onChange={() => setFormData((p) => ({ ...p, paymentMethod: 'CK' }))} />
-                    <span>Chuyển khoản</span>
-                  </label>
-                  <label className="flex items-center gap-2 p-2 rounded border flex-1">
-                    <input type="radio" value="CASH" checked={formData.paymentMethod === 'CASH'} onChange={() => setFormData((p) => ({ ...p, paymentMethod: 'CASH' }))} />
-                    <span>Tiền mặt</span>
-                  </label>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-bold mb-1">Mã chứng từ / Bill <span className="text-red-500">*</span></label>
-                <input
-                  type="text"
-                  value={formData.paymentProof || ''}
-                  onChange={(e) => setFormData((p) => ({ ...p, paymentProof: e.target.value }))}
-                  placeholder={(formData.paymentMethod || 'CK') === 'CK' ? 'Nhập mã bill...' : 'Số phiếu thu...'}
-                  className="w-full p-2 border rounded"
-                />
-              </div>
+              <p className="text-sm leading-6 text-slate-600">
+                Xác nhận chuyển báo giá sang trạng thái <span className="font-semibold text-slate-900">Sale Confirmed</span>. Sau đó kế toán sẽ tạo phiếu duyệt thu cho SO này.
+              </p>
 
               <div className="flex justify-end gap-3">
                 <button onClick={() => setShowConfirmModal(false)} className="px-4 py-2 rounded hover:bg-slate-100">Hủy</button>
-                <button onClick={handleConfirmSale} disabled={!formData.paymentProof?.trim()} className="px-4 py-2 rounded bg-blue-600 text-white disabled:opacity-50">Xác nhận</button>
+                <button onClick={handleConfirmSale} className="px-4 py-2 rounded bg-blue-600 text-white">Xác nhận</button>
               </div>
             </div>
           </div>

@@ -115,6 +115,8 @@ const StudentProfile: React.FC = () => {
   const student = useMemo(() => students.find((item) => item.id === id), [id, students]);
   const latestClaim = claims[0];
   const latestPendingClaim = claims.find((item) => item.claimStatus === 'CHO_XU_LY');
+  const latestClaimTypeLabel = latestClaim ? CLAIM_TYPE_LABELS[latestClaim.claimType] : CLAIM_TYPE_LABELS.KHONG_CO;
+  const latestClaimStatusLabel = latestClaim ? CLAIM_STATUS_LABELS[latestClaim.claimStatus] : CLAIM_STATUS_LABELS.KHONG_CO;
 
   const profileStudent = student || {
     id: id || '123456',
@@ -205,7 +207,6 @@ const StudentProfile: React.FC = () => {
       });
       closeClaimModal();
       loadData();
-      setActiveTab('claims');
       return;
     }
 
@@ -222,7 +223,6 @@ const StudentProfile: React.FC = () => {
     });
     closeClaimModal();
     loadData();
-    setActiveTab('claims');
   };
 
   return (
@@ -335,7 +335,64 @@ const StudentProfile: React.FC = () => {
               </div>
 
               {activeTab === 'history' ? (
-                <div className="p-6">
+                <div className="space-y-6 p-6">
+                  <section className="rounded-xl border border-slate-200 bg-slate-50 p-5">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <h3 className="text-lg font-bold text-slate-900">Yêu cầu xử lý</h3>
+                        <p className="mt-1 text-sm text-slate-500">Claim nằm trong hồ sơ học viên và được tạo, xử lý trực tiếp tại đây.</p>
+                      </div>
+                      <span className={`rounded-full px-3 py-1 text-xs font-semibold ${getClaimBadgeClass(latestClaim?.claimStatus)}`}>
+                        {latestClaimStatusLabel}
+                      </span>
+                    </div>
+
+                    <div className="mt-5 grid gap-4 md:grid-cols-2">
+                      <div className="space-y-3">
+                        <div className="flex justify-between gap-4 border-b border-slate-200 pb-2">
+                          <span className="text-sm text-slate-500">Loại claim</span>
+                          <span className="text-right text-sm font-semibold text-slate-900">{latestClaimTypeLabel}</span>
+                        </div>
+                        <div className="flex justify-between gap-4 border-b border-slate-200 pb-2">
+                          <span className="text-sm text-slate-500">Trạng thái claim</span>
+                          <span className="text-right text-sm font-semibold text-slate-900">{latestClaimStatusLabel}</span>
+                        </div>
+                        <div className="flex justify-between gap-4 border-b border-slate-200 pb-2">
+                          <span className="text-sm text-slate-500">Ngày tạo</span>
+                          <span className="text-right text-sm font-semibold text-slate-900">{formatDateTime(latestClaim?.createdAt)}</span>
+                        </div>
+                      </div>
+                      <div className="space-y-3">
+                        <div className="flex justify-between gap-4 border-b border-slate-200 pb-2">
+                          <span className="text-sm text-slate-500">Người tạo</span>
+                          <span className="text-right text-sm font-semibold text-slate-900">{latestClaim?.createdBy || '--'}</span>
+                        </div>
+                        <div className="flex justify-between gap-4 border-b border-slate-200 pb-2">
+                          <span className="text-sm text-slate-500">Lý do</span>
+                          <span className="text-right text-sm font-semibold text-slate-900">{latestClaim?.reason || '--'}</span>
+                        </div>
+                        <div className="flex justify-between gap-4 border-b border-slate-200 pb-2">
+                          <span className="text-sm text-slate-500">Ghi chú</span>
+                          <span className="text-right text-sm font-semibold text-slate-900">{latestClaim?.note || '--'}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {canManageClaims ? (
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <button onClick={openCreateClaimModal} className="rounded-lg bg-[#1380ec] px-4 py-2 text-sm font-bold text-white hover:bg-blue-700">
+                          Tạo claim
+                        </button>
+                        <button onClick={() => openProcessClaimModal()} disabled={!latestPendingClaim} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">
+                          Xử lý claim
+                        </button>
+                        <button onClick={() => openCancelClaimModal()} disabled={!latestPendingClaim} className="rounded-lg border border-rose-200 bg-white px-4 py-2 text-sm font-bold text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40">
+                          Hủy claim
+                        </button>
+                      </div>
+                    ) : null}
+                  </section>
+
                   <div className="grid grid-cols-[40px_1fr] gap-x-2">
                     {timeline.map((event, index) => {
                       const isLast = index === timeline.length - 1;
@@ -390,22 +447,20 @@ const StudentProfile: React.FC = () => {
                         <h3 className="text-lg font-bold text-slate-900">Yêu cầu xử lý</h3>
                         <p className="mt-1 text-sm text-slate-500">Claim nằm trong hồ sơ học viên và được tạo, xử lý trực tiếp tại đây.</p>
                       </div>
-                      {latestClaim ? (
-                        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${getClaimBadgeClass(latestClaim.claimStatus)}`}>
-                          {CLAIM_STATUS_LABELS[latestClaim.claimStatus]}
-                        </span>
-                      ) : null}
+                      <span className={`rounded-full px-3 py-1 text-xs font-semibold ${getClaimBadgeClass(latestClaim?.claimStatus)}`}>
+                        {latestClaimStatusLabel}
+                      </span>
                     </div>
 
                     <div className="mt-5 grid gap-4 md:grid-cols-2">
                       <div className="space-y-3">
                         <div className="flex justify-between gap-4 border-b border-slate-200 pb-2">
                           <span className="text-sm text-slate-500">Loại claim</span>
-                          <span className="text-right text-sm font-semibold text-slate-900">{latestClaim ? CLAIM_TYPE_LABELS[latestClaim.claimType] : '--'}</span>
+                          <span className="text-right text-sm font-semibold text-slate-900">{latestClaimTypeLabel}</span>
                         </div>
                         <div className="flex justify-between gap-4 border-b border-slate-200 pb-2">
                           <span className="text-sm text-slate-500">Trạng thái claim</span>
-                          <span className="text-right text-sm font-semibold text-slate-900">{latestClaim ? CLAIM_STATUS_LABELS[latestClaim.claimStatus] : '--'}</span>
+                          <span className="text-right text-sm font-semibold text-slate-900">{latestClaimStatusLabel}</span>
                         </div>
                         <div className="flex justify-between gap-4 border-b border-slate-200 pb-2">
                           <span className="text-sm text-slate-500">Ngày tạo</span>
@@ -521,7 +576,7 @@ const StudentProfile: React.FC = () => {
               <div className="grid gap-3 md:grid-cols-2">
                 <div>
                   <label className="mb-1 block text-sm font-semibold text-slate-700">Claim type</label>
-                  <select value={claimForm.claimType} onChange={(event) => setClaimForm((prev) => ({ ...prev, claimType: event.target.value as StudentClaimType }))} disabled={claimModalMode !== 'create'} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm disabled:bg-slate-50">
+                  <select value={claimForm.claimType} onChange={(event) => setClaimForm((prev) => ({ ...prev, claimType: event.target.value as StudentClaimType, claimStatus: claimModalMode === 'create' && event.target.value === 'KHONG_CO' ? 'KHONG_CO' : prev.claimStatus === 'KHONG_CO' ? 'CHO_XU_LY' : prev.claimStatus }))} disabled={claimModalMode !== 'create'} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm disabled:bg-slate-50">
                     {CLAIM_TYPE_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
                   </select>
                 </div>

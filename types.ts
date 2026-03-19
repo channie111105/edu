@@ -16,12 +16,15 @@ export enum UserRole {
 export enum LeadStatus {
   NEW = 'Mới',
   ASSIGNED = 'Đã phân bổ',
+  PICKED = 'Đã nhận',
   CONTACTED = 'Đang liên hệ',
+  CONVERTED = 'Đã chuyển đổi',
   QUALIFIED = 'Đạt chuẩn', // Đủ điều kiện chuyển đổi sang Deal
   NURTURING = 'Nuôi dưỡng',
   UNREACHABLE = 'Không nghe máy',
+  UNVERIFIED = 'Không xác thực',
   DISQUALIFIED = 'Không đạt', // Rác / Sai số
-  CONVERTED = 'Đã chuyển đổi' // Đã sang Deal/Hợp đồng
+  LOST = 'Mất'
 }
 
 // 2. TRẠNG THÁI// 2. DEAL/PIPELINE
@@ -283,6 +286,7 @@ export interface ILead {
 
   // 4. Audit Trail / Activities (Persisted)
   activities?: IActivityLog[];
+  auditLogs?: ILeadAuditLog[];
 
   // 5. Followers
   followers?: IFollower[];
@@ -314,6 +318,22 @@ export interface IActivityLog {
   // Extended for SLA tracking
   status?: 'scheduled' | 'completed' | 'cancelled';
   datetime?: string;
+}
+
+export interface ILeadAuditFieldChange {
+  field: string;
+  label?: string;
+  before?: string;
+  after?: string;
+}
+
+export interface ILeadAuditLog {
+  id: string;
+  timestamp: string;
+  action: string;
+  actor: string;
+  actorType: 'user' | 'system';
+  changes: ILeadAuditFieldChange[];
 }
 
 // --- SALES ENTITIES ---
@@ -442,6 +462,8 @@ export interface ITransaction {
   status: 'CHO_DUYET' | 'DA_DUYET' | 'TU_CHOI';
   paidAt?: number;
   createdAt: number;
+  approvedAt?: number;
+  rejectedAt?: number;
   createdBy: string;
   businessGroupHint?: 'THU' | 'CHI' | 'DIEU_CHINH';
   businessTypeHint?: string;
@@ -551,6 +573,24 @@ export interface IStudentClaim {
   claimStatus: StudentClaimStatus;
   reason?: string;
   note?: string;
+  assignedDepartment?: string;
+  detail?: string;
+  requestedDate?: string;
+  expectedReturnDate?: string;
+  reserveUntilDate?: string;
+  currentClassId?: string;
+  currentClassCode?: string;
+  proposedClassId?: string;
+  proposedClassCode?: string;
+  resolvedClassId?: string;
+  resolvedClassCode?: string;
+  levelOrSubject?: string;
+  effectiveDate?: string;
+  resultNote?: string;
+  policyNote?: string;
+  keepFeeConfirmed?: boolean;
+  keepSlot?: boolean;
+  affectsStudentStatus?: boolean;
   createdAt: string;
   createdBy: string;
   updatedAt?: string;

@@ -36,7 +36,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { decodeMojibakeReactNode, decodeMojibakeText } from '../utils/mojibake';
 
-type EnrollmentTabKey = 'waiting_enrollment' | 'waiting_approval' | 'enrolled' | 'processing' | 'all';
+type EnrollmentTabKey = 'waiting_enrollment' | 'waiting_approval' | 'enrolled' | 'processing' | 'students' | 'all';
 type GroupByKey = 'campus' | 'program' | 'currentClass' | 'studentStatus' | 'admissionStatus';
 type AdvancedFilterFieldKey = 'campus' | 'program' | 'currentClass' | 'studentStatus' | 'admissionStatus';
 type StudentLifecycleStatus =
@@ -76,7 +76,8 @@ const TAB_CONFIG: Array<{ key: EnrollmentTabKey; label: string }> = [
   { key: 'waiting_enrollment', label: 'Chá» ghi danh' },
   { key: 'waiting_approval', label: 'Chá» duyá»‡t' },
   { key: 'enrolled', label: 'ÄÃ£ ghi danh' },
-  { key: 'processing', label: 'Cáº§n xá»­ lÃ½' }
+  { key: 'processing', label: 'Cáº§n xá»­ lÃ½' },
+  { key: 'students', label: 'Học viên' }
 ];
 
 const GROUP_BY_OPTIONS: Array<{ value: GroupByKey; label: string }> = [
@@ -311,8 +312,6 @@ const Contracts: React.FC = () => {
         const processingReasons = Array.from(
           new Set([
             ...(activeClaim ? [`Claim: ${CLAIM_TYPE_LABELS[activeClaim.claimType] || activeClaim.claimType}`] : []),
-            ...(studentStatusKey === 'TAM_DUNG' ? ['Tạm dừng / bảo lưu'] : []),
-            ...(studentStatusKey === 'DUNG' ? ['Dừng học'] : []),
             ...PROCESSING_NOTE_RULES.filter(({ keyword }) =>
               normalizeText([student.note, latestAdmission?.note, currentClassStudent?.status].filter(Boolean).join(' ')).includes(keyword)
             ).map(({ label }) => label)
@@ -352,6 +351,7 @@ const Contracts: React.FC = () => {
       waiting_approval: 0,
       enrolled: 0,
       processing: 0,
+      students: studentRows.length,
       all: studentRows.length
     } as Record<EnrollmentTabKey, number>;
 
@@ -370,6 +370,7 @@ const Contracts: React.FC = () => {
 
   const filteredRows = useMemo(() => {
     const byTab = studentRows.filter((row) => {
+      if (activeTab === 'students') return true;
       if (activeTab === 'processing') return row.needsProcessing;
       if (activeTab === 'waiting_approval') return row.admissionStatusKey === 'CHO_DUYET';
       if (activeTab === 'enrolled') return ['DA_GHI_DANH', 'DANG_HOC', 'TAM_DUNG', 'HOAN_THANH'].includes(row.studentStatusKey);
@@ -753,6 +754,8 @@ const Contracts: React.FC = () => {
     () => selectedRows.filter((row) => canAssignClass(row)),
     [selectedRows]
   );
+  const isStudentTab = activeTab === 'students';
+  const isClaimFocusedTab = activeTab === 'processing' || isStudentTab;
   const isBatchEnrollMode = !selectedEnrollRow && selectedStudentIds.length > 0;
   const openActionEnroll = () => {
     if (!canEnrollBySales) {
@@ -809,11 +812,11 @@ const Contracts: React.FC = () => {
   };
 
   const openStudentProfile = (studentId: string) => {
-    navigate(`/students/${studentId}`);
+    navigate(`/contracts/students/${studentId}`);
   };
 
   const openStudentClaims = (studentId: string) => {
-    navigate(`/students/${studentId}?tab=claims`);
+    navigate(`/contracts/students/${studentId}`);
   };
 
   const handleApproveAdmission = (row: StudentEnrollmentRow) => {
@@ -902,7 +905,7 @@ const Contracts: React.FC = () => {
       <div className="mb-6">
         <div>
           <h1 className="text-3xl font-bold text-slate-900">Học viên</h1>
-          <p className="mt-1 text-sm text-slate-500">5 tab chỉ để phân loại hồ sơ. Bộ lọc và group by phía dưới áp dụng chung cho toàn bộ dữ liệu.</p>
+          <p className="mt-1 text-sm text-slate-500">6 tab dùng để phân loại hoặc đổi góc nhìn hồ sơ. Bộ lọc và group by phía dưới áp dụng chung cho toàn bộ dữ liệu.</p>
         </div>
       </div>
 
@@ -1069,29 +1072,31 @@ const Contracts: React.FC = () => {
               </span>
             </button>
           ))}
-          <div ref={actionMenuRef} className="relative mb-2 ml-auto">
-            <button
-              type="button"
-              aria-label={selectedStudentIds.length ? `Action cho ${selectedStudentIds.length} há»c viÃªn` : 'Action'}
-              title={selectedStudentIds.length ? `Action cho ${selectedStudentIds.length} há»c viÃªn` : 'Action'}
-              onClick={() => setShowActionMenu((prev) => !prev)}
-              disabled={!selectedStudentIds.length}
-              className="relative inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-700 transition hover:border-slate-400 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <Settings size={18} className={showActionMenu ? 'rotate-90 transition' : 'transition'} />
-              {selectedStudentIds.length ? (
-                <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-slate-900 px-1.5 py-0.5 text-center text-[10px] font-semibold text-white">
-                  {selectedStudentIds.length}
-                </span>
+          {!isClaimFocusedTab ? (
+            <div ref={actionMenuRef} className="relative mb-2 ml-auto">
+              <button
+                type="button"
+                aria-label={selectedStudentIds.length ? `Action cho ${selectedStudentIds.length} há»c viÃªn` : 'Action'}
+                title={selectedStudentIds.length ? `Action cho ${selectedStudentIds.length} há»c viÃªn` : 'Action'}
+                onClick={() => setShowActionMenu((prev) => !prev)}
+                disabled={!selectedStudentIds.length}
+                className="relative inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-700 transition hover:border-slate-400 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <Settings size={18} className={showActionMenu ? 'rotate-90 transition' : 'transition'} />
+                {selectedStudentIds.length ? (
+                  <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-slate-900 px-1.5 py-0.5 text-center text-[10px] font-semibold text-white">
+                    {selectedStudentIds.length}
+                  </span>
+                ) : null}
+              </button>
+              {showActionMenu ? (
+                <div className="absolute right-0 top-full z-20 mt-2 w-48 rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
+                  <button onClick={openActionEnroll} className="w-full rounded-xl px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-slate-50">Ghi danh</button>
+                  <button onClick={openActionAssign} className="w-full rounded-xl px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-slate-50">GÃ¡n lá»›p</button>
+                </div>
               ) : null}
-            </button>
-            {showActionMenu ? (
-              <div className="absolute right-0 top-full z-20 mt-2 w-48 rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
-                <button onClick={openActionEnroll} className="w-full rounded-xl px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-slate-50">Ghi danh</button>
-                <button onClick={openActionAssign} className="w-full rounded-xl px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-slate-50">GÃ¡n lá»›p</button>
-              </div>
-            ) : null}
-          </div>
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -1100,7 +1105,7 @@ const Contracts: React.FC = () => {
           <section key={group.key} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
             {groupBy.length ? <div className="border-b border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-800">{group.label}</div> : null}
             <div className="overflow-hidden">
-              {activeTab === 'processing' ? (
+              {isClaimFocusedTab ? (
                 <table className="w-full table-fixed text-left text-sm">
                   <thead className="border-b border-slate-200 bg-slate-50 text-xs font-bold uppercase text-slate-500">
                     <tr>
@@ -1126,10 +1131,10 @@ const Contracts: React.FC = () => {
                           {row.processingReasons.length ? <div className="mt-1 text-[11px] font-medium text-amber-700">{row.processingReasons.join(', ')}</div> : null}
                         </td>
                         <td className="px-4 py-3 align-top">{renderStudentStatusBadge(row.studentStatusKey)}</td>
-                        <td className="px-4 py-3 align-top text-[13px] text-slate-700">{CLAIM_TYPE_LABELS[row.activeClaim?.claimType || row.latestClaim?.claimType || 'KHONG_CO'] || 'Không có'}</td>
-                        <td className="px-4 py-3 align-top">{renderClaimStatusBadge(row.activeClaim?.claimStatus || row.latestClaim?.claimStatus)}</td>
-                        <td className="px-4 py-3 align-top text-[13px] text-slate-700">{formatDisplayDate(row.activeClaim?.createdAt || row.latestClaim?.createdAt)}</td>
-                        <td className="px-4 py-3 align-top text-[13px] text-slate-700">{row.activeClaim?.createdBy || row.latestClaim?.createdBy || '--'}</td>
+                        <td className="px-4 py-3 align-top text-[13px] text-slate-700">{CLAIM_TYPE_LABELS[row.activeClaim?.claimType || 'KHONG_CO'] || 'Không có'}</td>
+                        <td className="px-4 py-3 align-top">{renderClaimStatusBadge(row.activeClaim?.claimStatus)}</td>
+                        <td className="px-4 py-3 align-top text-[13px] text-slate-700">{formatDisplayDate(row.activeClaim?.createdAt)}</td>
+                        <td className="px-4 py-3 align-top text-[13px] text-slate-700">{row.activeClaim?.createdBy || '--'}</td>
                         <td className="px-4 py-3 align-top">
                           <div className="flex flex-col items-end gap-2">
                             <button onClick={(event) => { event.stopPropagation(); openStudentClaims(row.student.id); }} className="w-full rounded-lg bg-slate-900 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-slate-800">

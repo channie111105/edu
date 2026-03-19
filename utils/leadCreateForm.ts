@@ -23,6 +23,8 @@ export interface LeadCreateFormData {
   market: string;
   channel: string;
   status: string;
+  lossReason: string;
+  lossReasonCustom: string;
   targetCountry: string;
   studentName: string;
   studentDob: string;
@@ -90,6 +92,8 @@ export const createLeadInitialState = (salesperson = ''): LeadCreateFormData => 
   market: '',
   channel: '',
   status: 'new',
+  lossReason: '',
+  lossReasonCustom: '',
   targetCountry: '',
   studentName: '',
   studentDob: '',

@@ -1,14 +1,16 @@
-
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { getLeadById, saveLead, getTags, saveTags } from '../utils/storage';
+import LeadTagManager from '../components/LeadTagManager';
+import { FIXED_LEAD_TAGS, getLeadById, saveLead, getTags, saveTags } from '../utils/storage';
 import { useAuth } from '../contexts/AuthContext';
+import { LEAD_STATUS_OPTIONS, normalizeLeadStatusKey, toLeadStatusValue } from '../utils/leadStatus';
 import {
     ArrowLeft, Phone, Mail, MessageCircle, Clock,
     Tag, MapPin, TrendingUp, Database, Calendar,
     Send, FileText, Save, ExternalLink, Hash, X, User, Building, AlertTriangle, Plus, CheckCircle
 } from 'lucide-react';
 import { LeadStatus, ILead, UserRole, DealStage } from '../types';
+import { appendLeadLogs, buildLeadAuditChange, buildLeadAuditLog, buildLeadActivityLog } from '../utils/leadLogs';
 
 const MarketingLeadDetails: React.FC = () => {
     const { id } = useParams();
@@ -48,6 +50,7 @@ const MarketingLeadDetails: React.FC = () => {
     // Load Data
     useEffect(() => {
         setAvailableTags(getTags());
+        setIsAddingTag(false);
         if (id) {
             const foundLead = getLeadById(id);
             if (foundLead) {
@@ -76,11 +79,39 @@ const MarketingLeadDetails: React.FC = () => {
                             ? (foundLead.marketingData.tags as string).split(',').map(t => t.trim()).filter(Boolean)
                             : []),
                     referredBy: foundLead.referredBy || '',
-                    status: foundLead.status || 'NEW'
+                    status: normalizeLeadStatusKey(String(foundLead.status || ''))
                 });
             }
         }
     }, [id]);
+
+    useEffect(() => {
+        const syncTags = () => setAvailableTags(getTags());
+        window.addEventListener('educrm:tags-changed', syncTags as EventListener);
+        return () => window.removeEventListener('educrm:tags-changed', syncTags as EventListener);
+    }, []);
+
+    const addTagCatalogEntry = (tag: string) => {
+        const value = tag.trim();
+        if (!value) return;
+        const nextTags = saveTags([...availableTags, value]);
+        setAvailableTags(nextTags);
+    };
+
+    const deleteTagCatalogEntry = (tag: string) => {
+        if (FIXED_LEAD_TAGS.includes(tag as typeof FIXED_LEAD_TAGS[number])) return;
+        const nextTags = saveTags(availableTags.filter((item) => item !== tag));
+        setAvailableTags(nextTags);
+        setEditData((prev) => ({ ...prev, tags: prev.tags.filter((item) => item !== tag) }));
+    };
+
+    const addTagToLead = (tag: string) => {
+        setEditData((prev) => (
+            prev.tags.includes(tag)
+                ? prev
+                : { ...prev, tags: [...prev.tags, tag] }
+        ));
+    };
 
     const handleSave = () => {
         if (lead) {
@@ -100,7 +131,7 @@ const MarketingLeadDetails: React.FC = () => {
                 ownerId: editData.salesperson,
                 campaign: editData.campaign,
                 referredBy: editData.referredBy,
-                status: editData.status,
+                status: toLeadStatusValue(editData.status),
                 marketingData: {
                     ...lead.marketingData,
                     tags: editData.tags,
@@ -110,8 +141,52 @@ const MarketingLeadDetails: React.FC = () => {
                 // @ts-ignore
                 province: editData.province
             };
-            saveLead(updatedLead);
-            setLead(updatedLead);
+            const changes = [
+                lead.name !== updatedLead.name ? buildLeadAuditChange('name', lead.name, updatedLead.name, 'Tên lead') : null,
+                lead.phone !== updatedLead.phone ? buildLeadAuditChange('phone', lead.phone, updatedLead.phone, 'Số điện thoại') : null,
+                lead.email !== updatedLead.email ? buildLeadAuditChange('email', lead.email, updatedLead.email, 'Email') : null,
+                lead.ownerId !== updatedLead.ownerId ? buildLeadAuditChange('ownerId', lead.ownerId, updatedLead.ownerId, 'Sale phụ trách') : null,
+                lead.status !== updatedLead.status ? buildLeadAuditChange('status', lead.status, updatedLead.status, 'Trạng thái') : null,
+                JSON.stringify(lead.marketingData?.tags || []) !== JSON.stringify(updatedLead.marketingData?.tags || [])
+                    ? buildLeadAuditChange('marketingData.tags', lead.marketingData?.tags || [], updatedLead.marketingData?.tags || [], 'Tags')
+                    : null
+            ].filter(Boolean);
+
+            const nextLead = changes.length > 0
+                ? appendLeadLogs(updatedLead, {
+                    activities: [
+                        ...(lead.status !== updatedLead.status
+                            ? [buildLeadActivityLog({
+                                type: 'system',
+                                title: 'Đổi trạng thái',
+                                description: `Trạng thái: ${getLeadStatusLabel(String(lead.status || ''))} → ${getLeadStatusLabel(String(updatedLead.status || ''))}`,
+                                user: user?.name || 'Admin'
+                            })]
+                            : []),
+                        ...(lead.ownerId !== updatedLead.ownerId
+                            ? [buildLeadActivityLog({
+                                type: 'system',
+                                title: lead.ownerId ? 'Chia lại Lead' : 'Phân bổ Lead',
+                                description: lead.ownerId
+                                    ? `Lead được chia lại từ ${lead.ownerId} sang ${updatedLead.ownerId}.`
+                                    : `Lead được giao cho ${updatedLead.ownerId}.`,
+                                user: user?.name || 'Admin'
+                            })]
+                            : [])
+                    ],
+                    audits: [
+                        buildLeadAuditLog({
+                            action: 'lead_updated',
+                            actor: user?.name || 'Admin',
+                            actorType: 'user',
+                            changes: changes as any[]
+                        })
+                    ]
+                })
+                : updatedLead;
+
+            saveLead(nextLead);
+            setLead(nextLead);
             alert('✅ Đã lưu thông tin Lead thành công!');
         }
     };
@@ -305,77 +380,32 @@ const MarketingLeadDetails: React.FC = () => {
                                     value={editData.status}
                                     onChange={e => setEditData({ ...editData, status: e.target.value as any })}
                                 >
-                                    <option value="NEW">Mới</option>
-                                    <option value="CONTACTED">Đã liên hệ</option>
-                                    <option value="QUALIFIED">Tiềm năng</option>
-                                    <option value="LOST">Thất bại</option>
+                                    {LEAD_STATUS_OPTIONS.map((option) => (
+                                        <option key={option.value} value={option.value}>{option.label}</option>
+                                    ))}
                                 </select>
                             </div>
 
-                            {/* Tags Input (Marketing specialized) */}
+                            {/* Tags Input */}
                             <div className="flex items-start gap-6">
                                 <label className="w-28 shrink-0 text-slate-500 text-sm font-medium mt-2">Gắn thẻ (Tags)</label>
-                                <div className="flex-1 flex flex-col gap-2">
-                                    <div className="flex gap-2">
-                                        {!isAddingTag ? (
-                                            <select
-                                                className="flex-1 px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm outline-none focus:border-blue-500"
-                                                onChange={(e) => {
-                                                    if (e.target.value === 'khác') {
-                                                        setIsAddingTag(true);
-                                                    } else if (e.target.value) {
-                                                        if (!editData.tags.includes(e.target.value)) {
-                                                            setEditData({ ...editData, tags: [...editData.tags, e.target.value] });
-                                                        }
-                                                    }
-                                                    e.target.value = "";
-                                                }}
-                                            >
-                                                <option value="">-- Chọn Tag --</option>
-                                                {availableTags.filter(t => !editData.tags.includes(t)).map(t => (
-                                                    <option key={t} value={t}>{t}</option>
-                                                ))}
-                                                <option value="khác" className="font-bold text-blue-600">+ Thêm mới...</option>
-                                            </select>
-                                        ) : (
-                                            <input
-                                                autoFocus
-                                                className="flex-1 px-4 py-2 border border-blue-400 rounded-lg text-sm outline-none ring-2 ring-blue-50"
-                                                placeholder="Tạo tag mới rồi nhấn Enter..."
-                                                onBlur={() => setIsAddingTag(false)}
-                                                onKeyDown={(e) => {
-                                                    if (e.key === 'Enter') {
-                                                        e.preventDefault();
-                                                        const val = (e.target as HTMLInputElement).value.trim();
-                                                        if (val) {
-                                                            if (!editData.tags.includes(val)) {
-                                                                setEditData({ ...editData, tags: [...editData.tags, val] });
-                                                            }
-                                                            if (!availableTags.includes(val)) {
-                                                                const newAvailable = [...availableTags, val];
-                                                                setAvailableTags(newAvailable);
-                                                                saveTags(newAvailable);
-                                                            }
-                                                            setIsAddingTag(false);
-                                                        }
-                                                    } else if (e.key === 'Escape') {
-                                                        setIsAddingTag(false);
-                                                    }
-                                                }}
-                                            />
-                                        )}
-                                    </div>
-                                    <div className="flex flex-wrap gap-1.5">
-                                        {editData.tags.map(tag => (
-                                            <span key={tag} className="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-50 text-blue-700 text-[10px] font-extrabold rounded-full border border-blue-100">
-                                                {tag}
-                                                <button onClick={() => setEditData({ ...editData, tags: editData.tags.filter(t => t !== tag) })} className="hover:text-blue-900 transition-colors">
-                                                    <X size={12} />
-                                                </button>
-                                            </span>
-                                        ))}
-                                    </div>
-                                </div>
+                                <LeadTagManager
+                                    selectedTags={editData.tags}
+                                    availableTags={availableTags}
+                                    fixedTags={FIXED_LEAD_TAGS}
+                                    isAdding={isAddingTag}
+                                    accent="blue"
+                                    mode="dropdown"
+                                    onStartAdding={() => setIsAddingTag(true)}
+                                    onStopAdding={() => setIsAddingTag(false)}
+                                    onAddTag={addTagToLead}
+                                    onCreateTag={(tag) => {
+                                        addTagCatalogEntry(tag);
+                                        addTagToLead(tag);
+                                    }}
+                                    onRemoveSelectedTag={(tag) => setEditData((prev) => ({ ...prev, tags: prev.tags.filter((item) => item !== tag) }))}
+                                    onDeleteTag={deleteTagCatalogEntry}
+                                />
                             </div>
 
                         </div>
