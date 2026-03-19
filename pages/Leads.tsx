@@ -455,7 +455,6 @@ const Leads: React.FC = () => {
 
   const [visibleColumns, setVisibleColumns] = useState<string[]>([
     'opportunity',
-    'contact',
     'company',
     'email',
     'phone',
@@ -467,9 +466,9 @@ const Leads: React.FC = () => {
   ]);
 
   const ALL_COLUMNS = [
-    { id: 'opportunity', label: 'CÆ¡ há»™i' },
+    { id: 'opportunity', label: 'T\u00ean li\u00ean h\u1ec7' },
     { id: 'company', label: 'CÆ¡ sá»Ÿ / CÃ´ng ty' },
-    { id: 'contact', label: 'TÃªn liÃªn há»‡' },
+    { id: 'contact', label: 'T\u00ean li\u00ean h\u1ec7 ph\u1ee5' },
     { id: 'createdAt', label: 'NgÃ y Ä‘á»• lead' },
     { id: 'title', label: 'Danh xÆ°ng' },
     { id: 'email', label: 'Email' },
@@ -2691,8 +2690,8 @@ const Leads: React.FC = () => {
                     <th className={`${compactHeaderCellClass} w-8 text-center`}>
                       <input type="checkbox" className="rounded border-slate-300" onChange={handleSelectAll} checked={selectedLeadIds.length === filteredLeads.length && filteredLeads.length > 0} />
                     </th>
-                    {visibleColumns.includes('opportunity') && <th className={compactHeaderCellClass}>CÆ¡ há»™i</th>}
-                    {visibleColumns.includes('contact') && <th className={compactHeaderCellClass}>TÃªn liÃªn há»‡</th>}
+                    {visibleColumns.includes('opportunity') && <th className={compactHeaderCellClass}>T\u00ean li\u00ean h\u1ec7</th>}
+                    {visibleColumns.includes('contact') && <th className={compactHeaderCellClass}>T\u00ean li\u00ean h\u1ec7 ph\u1ee5</th>}
                     {visibleColumns.includes('company') && <th className={compactHeaderCellClass}>CÆ¡ sá»Ÿ / CÃ´ng ty</th>}
                     {visibleColumns.includes('email') && <th className={compactHeaderCellClass}>Email</th>}
                     {visibleColumns.includes('phone') && <th className={compactHeaderCellClass}>SÄT</th>}
@@ -4215,6 +4214,8 @@ const Leads: React.FC = () => {
 };
 
 export default Leads;
+
+
 
 
 
