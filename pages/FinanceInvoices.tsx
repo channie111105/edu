@@ -30,6 +30,11 @@ const ALL_TAB: InvoiceTab = 'ALL';
 const EMPTY_FORM = (): Partial<IInvoice> => ({
    documentType: ReceiptDocumentType.PAYMENT_RECEIPT,
    customerName: '',
+   customerEmail: '',
+   contractCode: '',
+   ownerName: '',
+   branchName: '',
+   programName: '',
    description: '',
    totalAmount: 0,
    issueDate: new Date().toISOString().slice(0, 10),
@@ -37,7 +42,9 @@ const EMPTY_FORM = (): Partial<IInvoice> => ({
    currency: 'VND',
    paymentMethod: 'Chuyển khoản',
    accountName: '',
-   customerEmail: '',
+   approvedTransactionCode: '',
+   cashFlowCode: '',
+   bankReference: '',
    requiresTaxInvoice: false,
    note: '',
    items: [],
@@ -437,6 +444,7 @@ const FinanceInvoices: React.FC = () => {
       [quotations]
    );
 
+
    const tabLabelMap: Record<InvoiceTab, string> = {
       [ALL_TAB]: 'Tất cả',
       [InvoiceStatus.DRAFT]: STATUS_META[InvoiceStatus.DRAFT].label,
@@ -484,6 +492,9 @@ const FinanceInvoices: React.FC = () => {
 
       return formatDocumentCode(documentType, currentMax + 1);
    };
+
+   const currentFormDocumentType = normalizeDocumentType(newInvoiceData.documentType);
+   const previewDocumentCode = generateDocumentCode(currentFormDocumentType);
 
    const handleCreateInvoice = (options?: { printAfterCreate?: boolean }) => {
       const documentType = normalizeDocumentType(newInvoiceData.documentType);
@@ -656,7 +667,7 @@ const FinanceInvoices: React.FC = () => {
                      className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 font-bold text-white shadow-sm transition-colors hover:bg-indigo-700"
                   >
                      <Plus size={18} />
-                     Tạo chứng từ
+                     Tạo phiếu
                   </button>
                )}
             </div>
@@ -813,7 +824,7 @@ const FinanceInvoices: React.FC = () => {
          {selectedInvoice && (
             <>
                <div className="fixed inset-0 z-40 bg-slate-900/30" onClick={() => setSelectedInvoiceId(null)} />
-               <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+               <div className="fixed inset-0 z-50 flex items-center justify-center p-4 lg:translate-x-32">
                   <aside
                      className="flex max-h-[calc(100vh-32px)] w-full max-w-[980px] flex-col overflow-hidden rounded-sm border border-[#dee2e6] bg-white text-[13px] text-[#333333]"
                      style={{ fontFamily: 'Inter, Roboto, sans-serif' }}
@@ -900,84 +911,88 @@ const FinanceInvoices: React.FC = () => {
                   </div>
 
                   <div className="flex-1 overflow-y-auto bg-white px-4 py-3">
-                     <section>
-                        <div className="mb-2 text-[12px] font-semibold uppercase tracking-[0.08em] text-[#6c757d]">
-                           Thông tin chung
-                        </div>
-                        <div className="grid grid-cols-1 gap-x-5 gap-y-3 border border-[#dee2e6] bg-white px-4 py-3 md:grid-cols-2 xl:grid-cols-4">
-                           <DetailCard label="Mã chứng từ" value={selectedInvoice.code} />
-                           <DetailCard
-                              label="Loại chứng từ"
-                              value={DOCUMENT_TYPE_LABELS[selectedInvoice.documentType || ReceiptDocumentType.PAYMENT_RECEIPT]}
-                           />
-                           <DetailCard label="Ngày lập" value={formatDate(selectedInvoice.issueDate)} />
-                           <DetailCard label="Trạng thái" value={STATUS_META[selectedInvoice.status].label} />
-                           <DetailCard label="Học viên" value={selectedInvoice.customerName} />
-                           <DetailCard label="Email khách hàng" value={selectedInvoice.customerEmail} />
-                           <DetailCard label="Người phụ trách" value={selectedInvoice.ownerName} />
-                           <DetailCard label="Chương trình" value={selectedInvoice.programName} />
-                           <DetailCard label="Chi nhánh" value={selectedInvoice.branchName} />
-                           <DetailCard label="Hợp đồng" value={selectedInvoice.contractCode} />
-                           <DetailCard label="Mã SO liên kết" value={selectedInvoice.soCode} />
-                           <DetailCard label="Xuất hóa đơn" value={selectedInvoice.requiresTaxInvoice ? 'Có' : 'Không'} />
-                        </div>
-                     </section>
+                     <div className="space-y-4">
+                        <section>
+                           <div className="mb-2 text-[12px] font-semibold uppercase tracking-[0.08em] text-[#6c757d]">
+                              1. Thông tin nhận diện chứng từ
+                           </div>
+                           <div className="grid grid-cols-1 gap-x-5 gap-y-3 border border-[#dee2e6] bg-white px-4 py-3 md:grid-cols-2 xl:grid-cols-4">
+                              <DetailCard label="Mã chứng từ" value={selectedInvoice.code} />
+                              <DetailCard
+                                 label="Loại chứng từ"
+                                 value={DOCUMENT_TYPE_LABELS[selectedInvoice.documentType || ReceiptDocumentType.PAYMENT_RECEIPT]}
+                              />
+                              <DetailCard label="Ngày lập" value={formatDate(selectedInvoice.issueDate)} />
+                              <DetailCard label="Trạng thái" value={STATUS_META[selectedInvoice.status].label} />
+                           </div>
+                        </section>
 
-                     <div className="mt-4 border-t border-[#dee2e6] pt-3">
-                        <div className="grid gap-4 xl:grid-cols-2">
-                           <section>
-                              <div className="mb-2 text-[12px] font-semibold uppercase tracking-[0.08em] text-[#6c757d]">
-                                 Thông tin tiền
-                              </div>
-                              <div className="grid grid-cols-1 gap-x-5 gap-y-3 border border-[#dee2e6] bg-white px-4 py-3 md:grid-cols-2">
-                                 <DetailCard
-                                    label="Số tiền"
-                                    value={formatCurrency(selectedInvoice.totalAmount, selectedInvoice.currency)}
-                                 />
-                                 <DetailCard label="Loại tiền" value={selectedInvoice.currency} />
-                                 <DetailCard label="Nội dung thanh toán" value={selectedInvoice.description} />
-                                 <DetailCard label="Hình thức thanh toán" value={selectedInvoice.paymentMethod} />
-                                 <DetailCard label="Ngày thanh toán" value={formatDate(selectedInvoice.paymentDate)} />
-                                 <DetailCard
-                                    label={
-                                       selectedInvoice.documentType === ReceiptDocumentType.PAYMENT_VOUCHER
-                                             ? 'Tài khoản chi'
-                                             : 'Tài khoản nhận'
-                                    }
-                                    value={selectedInvoice.accountName}
-                                 />
-                              </div>
-                           </section>
+                        <section>
+                           <div className="mb-2 text-[12px] font-semibold uppercase tracking-[0.08em] text-[#6c757d]">
+                              2. Đối tượng liên quan
+                           </div>
+                           <div className="grid grid-cols-1 gap-x-5 gap-y-3 border border-[#dee2e6] bg-white px-4 py-3 md:grid-cols-2 xl:grid-cols-3">
+                              <DetailCard label="Học viên / Khách hàng" value={selectedInvoice.customerName} />
+                              <DetailCard label="Hợp đồng" value={selectedInvoice.contractCode} />
+                              <DetailCard label="Người phụ trách" value={selectedInvoice.ownerName} />
+                              <DetailCard label="Chi nhánh" value={selectedInvoice.branchName} />
+                              <DetailCard label="Chương trình / gói dịch vụ" value={selectedInvoice.programName} />
+                              <DetailCard label="Email khách hàng" value={selectedInvoice.customerEmail} />
+                           </div>
+                        </section>
 
-                           <section>
-                              <div className="mb-2 text-[12px] font-semibold uppercase tracking-[0.08em] text-[#6c757d]">
-                                 Liên kết chứng từ gốc
-                              </div>
-                              <div className="grid grid-cols-1 gap-x-5 gap-y-3 border border-[#dee2e6] bg-white px-4 py-3 md:grid-cols-2">
-                                 <DetailCard label="Mã giao dịch duyệt" value={selectedInvoice.approvedTransactionCode} />
-                                 <DetailCard label="Mã thu chi" value={selectedInvoice.cashFlowCode} />
-                                 <DetailCard
-                                    label="Số chứng từ ngân hàng / UNC"
-                                    value={selectedInvoice.bankReference}
-                                    className="md:col-span-2"
-                                 />
-                                 <div className="border-b border-[#dee2e6] pb-2 md:col-span-2">
-                                    <div className="text-[12px] font-medium leading-4 text-[#666666]">File đính kèm</div>
-                                    <div className="mt-1 text-[13px] leading-5 text-[#333333]">
-                                       {selectedInvoice.attachments && selectedInvoice.attachments.length > 0
-                                          ? selectedInvoice.attachments.map((attachment) => attachment.name).join(', ')
-                                          : 'Chưa có file đính kèm'}
-                                    </div>
-                                 </div>
-                                 <div className="border-b border-[#dee2e6] pb-2 md:col-span-2">
-                                    <div className="text-[12px] font-medium leading-4 text-[#666666]">Ghi chú</div>
-                                    <div className="mt-1 whitespace-pre-wrap text-[13px] leading-5 text-[#333333]">
-                                       {selectedInvoice.note || '--'}
-                                    </div>
+                        <section>
+                           <div className="mb-2 text-[12px] font-semibold uppercase tracking-[0.08em] text-[#6c757d]">
+                              3. Thông tin tiền
+                           </div>
+                           <div className="grid grid-cols-1 gap-x-5 gap-y-3 border border-[#dee2e6] bg-white px-4 py-3 md:grid-cols-2 xl:grid-cols-3">
+                              <DetailCard
+                                 label="Số tiền"
+                                 value={formatCurrency(selectedInvoice.totalAmount, selectedInvoice.currency)}
+                              />
+                              <DetailCard label="Loại tiền" value={selectedInvoice.currency} />
+                              <DetailCard label="Ngày thanh toán" value={formatDate(selectedInvoice.paymentDate)} />
+                              <DetailCard label="Nội dung thanh toán" value={selectedInvoice.description} className="xl:col-span-2" />
+                              <DetailCard label="Hình thức thanh toán" value={selectedInvoice.paymentMethod} />
+                              <DetailCard
+                                 label={
+                                    selectedInvoice.documentType === ReceiptDocumentType.PAYMENT_VOUCHER
+                                       ? 'Tài khoản chi'
+                                       : 'Tài khoản nhận'
+                                 }
+                                 value={selectedInvoice.accountName}
+                              />
+                           </div>
+                        </section>
+
+                        <section>
+                           <div className="mb-2 text-[12px] font-semibold uppercase tracking-[0.08em] text-[#6c757d]">
+                              4. Liên kết chứng từ gốc
+                           </div>
+                           <div className="grid grid-cols-1 gap-x-5 gap-y-3 border border-[#dee2e6] bg-white px-4 py-3 md:grid-cols-2">
+                              <DetailCard label="Mã giao dịch duyệt" value={selectedInvoice.approvedTransactionCode} />
+                              <DetailCard label="Mã thu chi" value={selectedInvoice.cashFlowCode} />
+                              <DetailCard
+                                 label="Số chứng từ ngân hàng / UNC"
+                                 value={selectedInvoice.bankReference}
+                                 className="md:col-span-2"
+                              />
+                              <div className="border-b border-[#dee2e6] pb-2 md:col-span-2">
+                                 <div className="text-[12px] font-medium leading-4 text-[#666666]">File đính kèm</div>
+                                 <div className="mt-1 text-[13px] leading-5 text-[#333333]">
+                                    {selectedInvoice.attachments && selectedInvoice.attachments.length > 0
+                                       ? selectedInvoice.attachments.map((attachment) => attachment.name).join(', ')
+                                       : 'Chưa có file đính kèm'}
                                  </div>
                               </div>
-                           </section>
-                        </div>
+                              <div className="border-b border-[#dee2e6] pb-2 md:col-span-2">
+                                 <div className="text-[12px] font-medium leading-4 text-[#666666]">Ghi chú</div>
+                                 <div className="mt-1 whitespace-pre-wrap text-[13px] leading-5 text-[#333333]">
+                                    {selectedInvoice.note || '--'}
+                                 </div>
+                              </div>
+                           </div>
+                        </section>
                      </div>
                   </div>
 
@@ -1133,262 +1148,354 @@ const FinanceInvoices: React.FC = () => {
          )}
 
          {showCreateModal && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm">
-               <div className="w-full max-w-2xl rounded-xl bg-white p-6 shadow-2xl">
-                  <div className="mb-6 flex items-center justify-between">
-                     <h3 className="text-xl font-bold text-slate-900">Tạo chứng từ mới</h3>
-                     <button onClick={resetCreateForm}>
-                        <X className="text-slate-400 transition-colors hover:text-slate-600" />
-                     </button>
-                  </div>
-
-                  <div className="space-y-4">
-                     <div className="rounded-lg border border-indigo-100 bg-indigo-50 p-4">
-                        <label className="mb-2 block text-sm font-bold text-indigo-900">Liên kết đơn hàng (tuỳ chọn)</label>
-                        <select
-                           className="w-full rounded border border-indigo-200 bg-white p-2 text-sm"
-                           value={selectedSO}
-                           onChange={(event) => handleSelectSO(event.target.value)}
-                        >
-                           <option value="">-- Chọn đơn hàng để tự động điền --</option>
-                           {lockedSOs.map((so) => (
-                              <option key={so.id} value={so.id}>
-                                 {so.soCode} - {so.customerName} ({formatCurrency(so.finalAmount || 0)})
-                              </option>
-                           ))}
-                        </select>
+            <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/40 backdrop-blur-sm">
+               <div className="flex min-h-full items-start justify-center p-4 sm:p-6">
+                  <div className="my-4 w-full max-w-4xl overflow-hidden rounded-xl bg-white shadow-2xl">
+                     <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+                        <h3 className="text-xl font-bold text-slate-900">Tạo phiếu mới</h3>
+                        <button onClick={resetCreateForm}>
+                           <X className="text-slate-400 transition-colors hover:text-slate-600" />
+                        </button>
                      </div>
 
-                     <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-                        <div>
-                           <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Loại chứng từ</label>
+                     <div className="max-h-[calc(100vh-8rem)] space-y-5 overflow-y-auto px-6 py-5">
+                        <div className="rounded-lg border border-indigo-100 bg-indigo-50 p-4">
+                           <label className="mb-2 block text-sm font-bold text-indigo-900">Liên kết đơn hàng (tùy chọn)</label>
                            <select
-                              className="w-full rounded border border-slate-300 p-2"
-                              value={newInvoiceData.documentType || ReceiptDocumentType.PAYMENT_RECEIPT}
-                              onChange={(event) =>
-                                 setNewInvoiceData((prev) => ({
-                                    ...prev,
-                                    documentType: event.target.value as ReceiptDocumentType
-                                 }))
-                              }
+                              className="w-full rounded border border-indigo-200 bg-white p-2 text-sm"
+                              value={selectedSO}
+                              onChange={(event) => handleSelectSO(event.target.value)}
                            >
-                              <option value={ReceiptDocumentType.PAYMENT_RECEIPT}>Phiếu thu</option>
-                              <option value={ReceiptDocumentType.PAYMENT_VOUCHER}>Phiếu chi</option>
+                              <option value="">-- Chọn đơn hàng để tự động điền --</option>
+                              {lockedSOs.map((so) => (
+                                 <option key={so.id} value={so.id}>
+                                    {so.soCode} - {so.customerName} ({formatCurrency(so.finalAmount || 0)})
+                                 </option>
+                              ))}
                            </select>
                         </div>
-                        <div>
-                           <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Email khÃ¡ch hÃ ng</label>
-                           <input
-                              type="email"
-                              className="w-full rounded border border-slate-300 p-2"
-                              value={newInvoiceData.customerEmail || ''}
-                              onChange={(event) =>
-                                 setNewInvoiceData((prev) => ({ ...prev, customerEmail: event.target.value }))
-                              }
-                              placeholder="tenkhach@example.com"
-                           />
-                        </div>
-                        <div>
-                           <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Ngày lập</label>
-                           <input
-                              type="date"
-                              className="w-full rounded border border-slate-300 p-2"
-                              value={String(newInvoiceData.issueDate || '').slice(0, 10)}
-                              onChange={(event) =>
-                                 setNewInvoiceData((prev) => ({ ...prev, issueDate: event.target.value }))
-                              }
-                           />
-                        </div>
-                        <div>
-                           <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Ngày thanh toán</label>
-                           <input
-                              type="date"
-                              className="w-full rounded border border-slate-300 p-2"
-                              value={String(newInvoiceData.paymentDate || '').slice(0, 10)}
-                              onChange={(event) =>
-                                 setNewInvoiceData((prev) => ({ ...prev, paymentDate: event.target.value }))
-                              }
-                           />
-                        </div>
-                     </div>
 
-                     {newInvoiceData.documentType === ReceiptDocumentType.PAYMENT_RECEIPT && (
-                        <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-                           <label className="flex items-center gap-3 text-sm font-medium text-slate-700">
-                              <input
-                                 type="checkbox"
-                                 className="h-4 w-4 rounded border-slate-300 text-indigo-600"
-                                 checked={Boolean(newInvoiceData.requiresTaxInvoice)}
-                                 onChange={(event) =>
-                                    setNewInvoiceData((prev) => ({
-                                       ...prev,
-                                       requiresTaxInvoice: event.target.checked
-                                    }))
-                                 }
-                              />
-                              Có xuất hóa đơn kèm phiếu thu
-                           </label>
-                           <p className="mt-2 text-xs text-slate-500">
-                              Bật tùy chọn này nếu phiếu thu cần phát hành hóa đơn và gửi kèm hồ sơ liên quan.
-                           </p>
-                        </div>
-                     )}
-
-                     <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                        <div>
-                           <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Khách hàng / Đối tượng</label>
-                           <input
-                              className="w-full rounded border border-slate-300 p-2 font-medium text-slate-900"
-                              value={newInvoiceData.customerName || ''}
-                              onChange={(event) =>
-                                 setNewInvoiceData((prev) => ({ ...prev, customerName: event.target.value }))
-                              }
-                              placeholder="Nhập tên khách hàng hoặc đối tượng"
-                           />
-                        </div>
-                        <div>
-                           <label className="mb-1 block text-xs font-bold uppercase text-slate-500">
-                              {newInvoiceData.documentType === ReceiptDocumentType.PAYMENT_VOUCHER ? 'Tài khoản chi' : 'Tài khoản nhận'}
-                           </label>
-                           <input
-                              className="w-full rounded border border-slate-300 p-2"
-                              value={newInvoiceData.accountName || ''}
-                              onChange={(event) =>
-                                 setNewInvoiceData((prev) => ({ ...prev, accountName: event.target.value }))
-                              }
-                              placeholder="Ví dụ: VCB - 1900123456"
-                           />
-                        </div>
-                     </div>
-
-                     <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                        <div>
-                           <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Hình thức thanh toán</label>
-                           <select
-                              className="w-full rounded border border-slate-300 p-2"
-                              value={newInvoiceData.paymentMethod || 'Chuyển khoản'}
-                              onChange={(event) =>
-                                 setNewInvoiceData((prev) => ({ ...prev, paymentMethod: event.target.value }))
-                              }
-                           >
-                              <option value="Chuyển khoản">Chuyển khoản</option>
-                              <option value="Tiền mặt">Tiền mặt</option>
-                              <option value="Thẻ">Thẻ</option>
-                              <option value="Khác">Khác</option>
-                           </select>
-                        </div>
-                        <div>
-                           <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Loại tiền</label>
-                           <select
-                              className="w-full rounded border border-slate-300 p-2"
-                              value={newInvoiceData.currency || 'VND'}
-                              onChange={(event) =>
-                                 setNewInvoiceData((prev) => ({ ...prev, currency: event.target.value }))
-                              }
-                           >
-                              <option value="VND">VND</option>
-                              <option value="USD">USD</option>
-                           </select>
-                        </div>
-                        <div>
-                           <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Số tiền</label>
-                           <input
-                              type="number"
-                              min={0}
-                              className="w-full rounded border border-slate-300 p-2 font-bold text-slate-900"
-                              value={newInvoiceData.totalAmount || ''}
-                              onChange={(event) =>
-                                 setNewInvoiceData((prev) => ({
-                                    ...prev,
-                                    totalAmount: Number(event.target.value)
-                                 }))
-                              }
-                              placeholder="0"
-                           />
-                        </div>
-                     </div>
-
-                     <div>
-                        <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Nội dung thanh toán</label>
-                        <textarea
-                           className="min-h-[110px] w-full rounded border border-slate-300 p-3 text-sm text-slate-700"
-                           value={newInvoiceData.description || ''}
-                           onChange={(event) =>
-                              setNewInvoiceData((prev) => ({ ...prev, description: event.target.value }))
-                           }
-                           placeholder="Ví dụ: Thu học phí khóa IELTS Intensive tháng 03/2026"
-                        />
-                     </div>
-
-                     <div>
-                        <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Ghi chú</label>
-                        <textarea
-                           className="min-h-[90px] w-full rounded border border-slate-300 p-3 text-sm text-slate-700"
-                           value={newInvoiceData.note || ''}
-                           onChange={(event) =>
-                              setNewInvoiceData((prev) => ({ ...prev, note: event.target.value }))
-                           }
-                           placeholder="Thông tin thêm về UNC, chứng từ ngân hàng, người liên quan..."
-                        />
-                     </div>
-
-                     <div>
-                        <label className="mb-2 block text-xs font-bold uppercase text-slate-500">
-                           {newInvoiceData.requiresTaxInvoice ? 'File hÃ³a Ä‘Æ¡n / há»“ sÆ¡ Ä‘Ã­nh kÃ¨m' : 'File Ä‘Ã­nh kÃ¨m'}
-                        </label>
-                        <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4">
-                           <input
-                              type="file"
-                              multiple
-                              onChange={(event) => {
-                                 handleAttachmentSelect(event.target.files);
-                                 event.currentTarget.value = '';
-                              }}
-                              className="block w-full text-sm text-slate-600 file:mr-3 file:rounded file:border-0 file:bg-indigo-600 file:px-3 file:py-2 file:font-semibold file:text-white hover:file:bg-indigo-700"
-                           />
-                           {newInvoiceData.attachments && newInvoiceData.attachments.length > 0 && (
-                              <div className="mt-3 flex flex-wrap gap-2">
-                                 {newInvoiceData.attachments.map((attachment) => (
-                                    <span
-                                       key={attachment.id}
-                                       className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700"
-                                    >
-                                       {attachment.name}
-                                       <button
-                                          type="button"
-                                          onClick={() => handleRemoveAttachment(attachment.id)}
-                                          className="text-slate-400 hover:text-slate-600"
-                                       >
-                                          <X size={12} />
-                                       </button>
-                                    </span>
-                                 ))}
+                        <section>
+                           <div className="mb-3 text-[12px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                              1. Nhóm 1 — Thông tin nhận diện chứng từ
+                           </div>
+                           <div className="grid grid-cols-1 gap-4 rounded-xl border border-slate-200 bg-slate-50/50 p-4 md:grid-cols-2 xl:grid-cols-4">
+                              <div className="md:col-span-3">
+                                 <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Mã chứng từ</label>
+                                 <input className="w-full rounded border border-slate-300 bg-slate-100 p-2 text-slate-600" value={previewDocumentCode} disabled />
                               </div>
-                           )}
-                        </div>
-                     </div>
+                              <div className="md:col-span-3">
+                                 <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Loại chứng từ</label>
+                                 <select
+                                    className="w-full rounded border border-slate-300 p-2"
+                                    value={currentFormDocumentType}
+                                    onChange={(event) =>
+                                       setNewInvoiceData((prev) => ({
+                                          ...prev,
+                                          documentType: event.target.value as ReceiptDocumentType
+                                       }))
+                                    }
+                                 >
+                                    <option value={ReceiptDocumentType.PAYMENT_RECEIPT}>Phiếu thu</option>
+                                    <option value={ReceiptDocumentType.PAYMENT_VOUCHER}>Phiếu chi</option>
+                                 </select>
+                              </div>
+                              <div className="md:col-span-2">
+                                 <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Ngày lập</label>
+                                 <input
+                                    type="date"
+                                    className="w-full rounded border border-slate-300 p-2"
+                                    value={String(newInvoiceData.issueDate || '').slice(0, 10)}
+                                    onChange={(event) =>
+                                       setNewInvoiceData((prev) => ({ ...prev, issueDate: event.target.value }))
+                                    }
+                                 />
+                              </div>
+                              <div className="md:col-span-2">
+                                 <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Trạng thái</label>
+                                 <input className="w-full rounded border border-slate-300 bg-slate-100 p-2 text-slate-600" value="Nháp" disabled />
+                              </div>
+                           </div>
+                        </section>
 
-                     <div className="flex justify-end gap-3 pt-2">
-                        <button
-                           onClick={resetCreateForm}
-                           className="rounded px-4 py-2 font-bold text-slate-600 transition-colors hover:bg-slate-100"
-                        >
-                           Huỷ
-                        </button>
-                        {newInvoiceData.documentType === ReceiptDocumentType.PAYMENT_RECEIPT && (
+                        <section>
+                           <div className="mb-3 text-[12px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                              2. Nhóm 2 — Đối tượng liên quan
+                           </div>
+                           <div className="grid grid-cols-1 gap-4 rounded-xl border border-slate-200 bg-slate-50/50 p-4 md:grid-cols-6">
+                              <div className="md:col-span-3">
+                                 <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Học viên / Khách hàng</label>
+                                 <input
+                                    className="w-full rounded border border-slate-300 p-2 font-medium text-slate-900"
+                                    value={newInvoiceData.customerName || ''}
+                                    onChange={(event) =>
+                                       setNewInvoiceData((prev) => ({ ...prev, customerName: event.target.value }))
+                                    }
+                                    placeholder="Nhập tên khách hàng hoặc đối tượng"
+                                 />
+                              </div>
+                              <div className="md:col-span-3">
+                                 <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Hợp đồng</label>
+                                 <input
+                                    className="w-full rounded border border-slate-300 p-2"
+                                    value={newInvoiceData.contractCode || ''}
+                                    onChange={(event) =>
+                                       setNewInvoiceData((prev) => ({ ...prev, contractCode: event.target.value }))
+                                    }
+                                    placeholder="Ví dụ: HD-00001"
+                                 />
+                              </div>
+                              <div className="md:col-span-2">
+                                 <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Người phụ trách</label>
+                                 <input
+                                    className="w-full rounded border border-slate-300 p-2"
+                                    value={newInvoiceData.ownerName || ''}
+                                    onChange={(event) =>
+                                       setNewInvoiceData((prev) => ({ ...prev, ownerName: event.target.value }))
+                                    }
+                                    placeholder="Nhập người phụ trách"
+                                 />
+                              </div>
+                              <div className="md:col-span-2">
+                                 <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Chi nhánh</label>
+                                 <input
+                                    className="w-full rounded border border-slate-300 p-2"
+                                    value={newInvoiceData.branchName || ''}
+                                    onChange={(event) =>
+                                       setNewInvoiceData((prev) => ({ ...prev, branchName: event.target.value }))
+                                    }
+                                    placeholder="Nhập chi nhánh"
+                                 />
+                              </div>
+                              <div className="md:col-span-2">
+                                 <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Chương trình / gói dịch vụ</label>
+                                 <input
+                                    className="w-full rounded border border-slate-300 p-2"
+                                    value={newInvoiceData.programName || ''}
+                                    onChange={(event) =>
+                                       setNewInvoiceData((prev) => ({ ...prev, programName: event.target.value }))
+                                    }
+                                    placeholder="Nhập chương trình hoặc gói dịch vụ"
+                                 />
+                              </div>
+                           </div>
+                        </section>
+
+                        <section>
+                           <div className="mb-3 text-[12px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                              3. Nhóm 3 — Thông tin tiền
+                           </div>
+                           <div className="grid grid-cols-1 gap-4 rounded-xl border border-slate-200 bg-slate-50/50 p-4 md:grid-cols-2 xl:grid-cols-3">
+                              <div>
+                                 <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Số tiền</label>
+                                 <input
+                                    type="number"
+                                    min={0}
+                                    className="w-full rounded border border-slate-300 p-2 font-bold text-slate-900"
+                                    value={newInvoiceData.totalAmount || ''}
+                                    onChange={(event) =>
+                                       setNewInvoiceData((prev) => ({
+                                          ...prev,
+                                          totalAmount: Number(event.target.value)
+                                       }))
+                                    }
+                                    placeholder="0"
+                                 />
+                              </div>
+                              <div>
+                                 <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Loại tiền</label>
+                                 <select
+                                    className="w-full rounded border border-slate-300 p-2"
+                                    value={newInvoiceData.currency || 'VND'}
+                                    onChange={(event) =>
+                                       setNewInvoiceData((prev) => ({ ...prev, currency: event.target.value }))
+                                    }
+                                 >
+                                    <option value="VND">VND</option>
+                                    <option value="USD">USD</option>
+                                 </select>
+                              </div>
+                              <div>
+                                 <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Hình thức thanh toán</label>
+                                 <select
+                                    className="w-full rounded border border-slate-300 p-2"
+                                    value={newInvoiceData.paymentMethod || 'Chuyển khoản'}
+                                    onChange={(event) =>
+                                       setNewInvoiceData((prev) => ({ ...prev, paymentMethod: event.target.value }))
+                                    }
+                                 >
+                                    <option value="Chuyển khoản">Chuyển khoản</option>
+                                    <option value="Tiền mặt">Tiền mặt</option>
+                                    <option value="Thẻ">Thẻ</option>
+                                    <option value="Khác">Khác</option>
+                                 </select>
+                              </div>
+                              <div>
+                                 <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Ngày thanh toán</label>
+                                 <input
+                                    type="date"
+                                    className="w-full rounded border border-slate-300 p-2"
+                                    value={String(newInvoiceData.paymentDate || '').slice(0, 10)}
+                                    onChange={(event) =>
+                                       setNewInvoiceData((prev) => ({ ...prev, paymentDate: event.target.value }))
+                                    }
+                                 />
+                              </div>
+                              <div>
+                                 <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Tài khoản nhận / chi</label>
+                                 <input
+                                    className="w-full rounded border border-slate-300 p-2"
+                                    value={newInvoiceData.accountName || ''}
+                                    onChange={(event) =>
+                                       setNewInvoiceData((prev) => ({ ...prev, accountName: event.target.value }))
+                                    }
+                                    placeholder="Ví dụ: VCB - 1900123456"
+                                 />
+                              </div>
+                              {currentFormDocumentType === ReceiptDocumentType.PAYMENT_RECEIPT && (
+                                 <div className="mt-[22px] flex h-[46px] items-center self-start rounded-lg border border-slate-200 bg-white px-3">
+                                    <label className="flex items-center gap-2 text-[13px] font-medium leading-4 text-slate-700">
+                                       <input
+                                          type="checkbox"
+                                          className="h-4 w-4 rounded border-slate-300 text-indigo-600"
+                                          checked={Boolean(newInvoiceData.requiresTaxInvoice)}
+                                          onChange={(event) =>
+                                             setNewInvoiceData((prev) => ({
+                                                ...prev,
+                                                requiresTaxInvoice: event.target.checked
+                                             }))
+                                          }
+                                       />
+                                       Có xuất hóa đơn kèm phiếu thu
+                                    </label>
+                                 </div>
+                              )}
+                              <div className="xl:col-span-3">
+                                 <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Nội dung thanh toán</label>
+                                 <textarea
+                                    className="min-h-[110px] w-full rounded border border-slate-300 p-3 text-sm text-slate-700"
+                                    value={newInvoiceData.description || ''}
+                                    onChange={(event) =>
+                                       setNewInvoiceData((prev) => ({ ...prev, description: event.target.value }))
+                                    }
+                                    placeholder="Ví dụ: Thu học phí khóa IELTS Intensive tháng 03/2026"
+                                 />
+                              </div>
+                           </div>
+                        </section>
+
+                        <section>
+                           <div className="mb-3 text-[12px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                              4. Nhóm 4 — Liên kết chứng từ gốc
+                           </div>
+                           <div className="grid grid-cols-1 gap-4 rounded-xl border border-slate-200 bg-slate-50/50 p-4 md:grid-cols-2">
+                              <div>
+                                 <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Mã giao dịch duyệt</label>
+                                 <input
+                                    className="w-full rounded border border-slate-300 p-2"
+                                    value={newInvoiceData.approvedTransactionCode || ''}
+                                    onChange={(event) =>
+                                       setNewInvoiceData((prev) => ({
+                                          ...prev,
+                                          approvedTransactionCode: event.target.value
+                                       }))
+                                    }
+                                    placeholder="Ví dụ: GD-00001"
+                                 />
+                              </div>
+                              <div>
+                                 <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Mã thu chi</label>
+                                 <input
+                                    className="w-full rounded border border-slate-300 p-2"
+                                    value={newInvoiceData.cashFlowCode || ''}
+                                    onChange={(event) =>
+                                       setNewInvoiceData((prev) => ({ ...prev, cashFlowCode: event.target.value }))
+                                    }
+                                    placeholder="Ví dụ: THU-00001 / CHI-00001"
+                                 />
+                              </div>
+                              <div>
+                                 <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Số chứng từ ngân hàng / UNC</label>
+                                 <input
+                                    className="w-full rounded border border-slate-300 p-2"
+                                    value={newInvoiceData.bankReference || ''}
+                                    onChange={(event) =>
+                                       setNewInvoiceData((prev) => ({ ...prev, bankReference: event.target.value }))
+                                    }
+                                    placeholder="Nhập số chứng từ ngân hàng hoặc UNC"
+                                 />
+                              </div>
+                              <div className="self-start">
+                                 <label className="mb-1 block text-xs font-bold uppercase text-slate-500">
+                                    {newInvoiceData.requiresTaxInvoice ? 'File hóa đơn / hồ sơ đính kèm' : 'File đính kèm'}
+                                 </label>
+                                 <div className="rounded-lg border border-dashed border-slate-300 bg-white px-3 py-2">
+                                    <input
+                                       type="file"
+                                       multiple
+                                       onChange={(event) => {
+                                          handleAttachmentSelect(event.target.files);
+                                          event.currentTarget.value = '';
+                                       }}
+                                       className="block h-[30px] w-full text-sm text-slate-600 file:mr-3 file:h-[30px] file:rounded file:border-0 file:bg-indigo-600 file:px-3 file:py-0 file:font-semibold file:text-white hover:file:bg-indigo-700"
+                                    />
+                                    {newInvoiceData.attachments && newInvoiceData.attachments.length > 0 && (
+                                       <div className="mt-3 flex flex-wrap gap-2">
+                                          {newInvoiceData.attachments.map((attachment) => (
+                                             <span
+                                                key={attachment.id}
+                                                className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-700"
+                                             >
+                                                {attachment.name}
+                                                <button
+                                                   type="button"
+                                                   onClick={() => handleRemoveAttachment(attachment.id)}
+                                                   className="text-slate-400 hover:text-slate-600"
+                                                >
+                                                   <X size={12} />
+                                                </button>
+                                             </span>
+                                          ))}
+                                       </div>
+                                    )}
+                                 </div>
+                              </div>
+                              <div className="md:col-span-2">
+                                 <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Ghi chú</label>
+                                 <textarea
+                                    className="min-h-[90px] w-full rounded border border-slate-300 p-3 text-sm text-slate-700"
+                                    value={newInvoiceData.note || ''}
+                                    onChange={(event) =>
+                                       setNewInvoiceData((prev) => ({ ...prev, note: event.target.value }))
+                                    }
+                                    placeholder="Thông tin thêm về UNC, chứng từ ngân hàng, người liên quan..."
+                                 />
+                              </div>
+                           </div>
+                        </section>
+
+                        <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
                            <button
-                              onClick={() => handleCreateInvoice({ printAfterCreate: true })}
-                              className="rounded border border-slate-300 bg-white px-4 py-2 font-bold text-slate-700 transition-colors hover:bg-slate-50"
+                              onClick={resetCreateForm}
+                              className="rounded px-4 py-2 font-bold text-slate-600 transition-colors hover:bg-slate-100"
                            >
-                              LÆ°u vÃ  in
+                              Hủy
                            </button>
-                        )}
-                        <button
-                           onClick={() => handleCreateInvoice()}
-                           className="rounded bg-indigo-600 px-4 py-2 font-bold text-white shadow-md transition-colors hover:bg-indigo-700"
-                        >
-                           Lưu chứng từ
-                        </button>
+                           {currentFormDocumentType === ReceiptDocumentType.PAYMENT_RECEIPT && (
+                              <button
+                                 onClick={() => handleCreateInvoice({ printAfterCreate: true })}
+                                 className="rounded border border-slate-300 bg-white px-4 py-2 font-bold text-slate-700 transition-colors hover:bg-slate-50"
+                              >
+                                 Lưu và in
+                              </button>
+                           )}
+                           <button
+                              onClick={() => handleCreateInvoice()}
+                              className="rounded bg-indigo-600 px-4 py-2 font-bold text-white shadow-md transition-colors hover:bg-indigo-700"
+                           >
+                              Lưu phiếu
+                           </button>
+                        </div>
                      </div>
                   </div>
                </div>
