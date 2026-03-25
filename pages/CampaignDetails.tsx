@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
     ArrowLeft,
@@ -39,6 +39,7 @@ import {
 } from 'recharts';
 import * as XLSX from 'xlsx';
 import { decodeMojibakeReactNode, decodeMojibakeText } from '../utils/mojibake';
+import { getLeadPhoneValidationMessage, isValidLeadPhone, normalizeLeadPhone } from '../utils/phone';
 
 // --- MOCK DATA ---
 const CAMPAIGNS_METRICS = {
@@ -65,7 +66,7 @@ const ROI_CHART_DATA = [
     { name: '10/2', revenue: 1100, budget: 420 },
 ];
 
-const LEAD_STATUS_OPTIONS = ['Má»›i', 'ÄÃ£ liÃªn há»‡', 'Äáº¡t chuáº©n', 'Chá»‘t', 'Há»§y'].map((status) =>
+const LEAD_STATUS_OPTIONS = ['MÃ¡Â»â€ºi', 'Ã„ÂÃƒÂ£ liÃƒÂªn hÃ¡Â»â€¡', 'Ã„ÂÃ¡ÂºÂ¡t chuÃ¡ÂºÂ©n', 'ChÃ¡Â»â€˜t', 'HÃ¡Â»Â§y'].map((status) =>
     decodeMojibakeText(status)
 );
 
@@ -92,21 +93,21 @@ type CampaignDetailMeta = {
 
 const CAMPAIGN_DETAIL_META: Record<string, CampaignDetailMeta> = {
     camp_01: {
-        name: 'Trại Hè 2024',
+        name: 'Tráº¡i HÃ¨ 2024',
         channel: 'Facebook Lead Form',
         status: 'Running',
         campaignType: 'auto',
         apiConnected: true
     },
     camp_02: {
-        name: 'Khóa học IELTS Online',
+        name: 'KhÃ³a há»c IELTS Online',
         channel: 'Google Ads',
         status: 'Paused',
         campaignType: 'auto',
         apiConnected: true
     },
     camp_03: {
-        name: 'Hội thảo Du học Đức',
+        name: 'Há»™i tháº£o Du há»c Äá»©c',
         channel: 'Event/Offline',
         status: 'Running',
         campaignType: 'manual',
@@ -120,7 +121,7 @@ const CAMPAIGN_DETAIL_META: Record<string, CampaignDetailMeta> = {
         apiConnected: true
     },
     camp_05: {
-        name: 'Email Marketing - Khách cũ',
+        name: 'Email Marketing - KhÃ¡ch cÅ©',
         channel: 'Email',
         status: 'Running',
         campaignType: 'manual',
@@ -157,22 +158,22 @@ type QrLeadField = {
 };
 
 const QR_LEAD_FIELDS: QrLeadField[] = [
-    { id: 'name', label: 'Mô tả / Tên khách hàng', placeholder: 'Họ và tên *', required: true, fixed: true, group: 'core' },
-    { id: 'phone', label: 'Điện thoại', placeholder: 'Số điện thoại *', required: true, fixed: true, group: 'core' },
-    { id: 'targetCountry', label: 'Quốc gia mục tiêu', placeholder: '-- Chọn quốc gia mục tiêu --', required: true, fixed: true, group: 'core' },
-    { id: 'market', label: 'Cơ sở', placeholder: '-- Chọn cơ sở --', required: false, fixed: false, group: 'core' },
-    { id: 'company', label: 'Đơn vị liên hệ', placeholder: 'Tên đơn vị liên hệ', required: false, fixed: false, group: 'core' },
-    { id: 'address', label: 'Địa chỉ', placeholder: 'Số nhà, đường...', required: false, fixed: false, group: 'core' },
-    { id: 'product', label: 'Sản phẩm', placeholder: '-- Chọn sản phẩm --', required: false, fixed: false, group: 'core' },
+    { id: 'name', label: 'MÃ´ táº£ / TÃªn khÃ¡ch hÃ ng', placeholder: 'Há» vÃ  tÃªn *', required: true, fixed: true, group: 'core' },
+    { id: 'phone', label: 'Äiá»‡n thoáº¡i', placeholder: 'Sá»‘ Ä‘iá»‡n thoáº¡i *', required: true, fixed: true, group: 'core' },
+    { id: 'targetCountry', label: 'Quá»‘c gia má»¥c tiÃªu', placeholder: '-- Chá»n quá»‘c gia má»¥c tiÃªu --', required: true, fixed: true, group: 'core' },
+    { id: 'market', label: 'CÆ¡ sá»Ÿ', placeholder: '-- Chá»n cÆ¡ sá»Ÿ --', required: false, fixed: false, group: 'core' },
+    { id: 'company', label: 'ÄÆ¡n vá»‹ liÃªn há»‡', placeholder: 'TÃªn Ä‘Æ¡n vá»‹ liÃªn há»‡', required: false, fixed: false, group: 'core' },
+    { id: 'address', label: 'Äá»‹a chá»‰', placeholder: 'Sá»‘ nhÃ , Ä‘Æ°á»ng...', required: false, fixed: false, group: 'core' },
+    { id: 'product', label: 'Sáº£n pháº©m', placeholder: '-- Chá»n sáº£n pháº©m --', required: false, fixed: false, group: 'core' },
     { id: 'email', label: 'Email', placeholder: 'email@example.com', required: false, fixed: false, group: 'core' },
-    { id: 'owner', label: 'Phụ trách', placeholder: '-- Sale phụ trách --', required: false, fixed: false, group: 'core' },
-    { id: 'status', label: 'Trạng thái', placeholder: 'Mới', required: false, fixed: false, group: 'core' },
-    { id: 'tags', label: 'Tags', placeholder: '-- Chọn Tag --', required: false, fixed: false, group: 'core' },
-    { id: 'campaign', label: 'Chiến dịch', placeholder: '', required: false, fixed: false, group: 'marketing' },
-    { id: 'source', label: 'Nguồn', placeholder: 'Hotline', required: false, fixed: false, group: 'marketing' },
-    { id: 'channel', label: 'Kênh', placeholder: '-- Chọn kênh --', required: false, fixed: false, group: 'marketing' },
-    { id: 'medium', label: 'Medium', placeholder: '-- Chọn --', required: false, fixed: false, group: 'marketing' },
-    { id: 'referredBy', label: 'Người GT', placeholder: '', required: false, fixed: false, group: 'marketing' }
+    { id: 'owner', label: 'Phá»¥ trÃ¡ch', placeholder: '-- Sale phá»¥ trÃ¡ch --', required: false, fixed: false, group: 'core' },
+    { id: 'status', label: 'Tráº¡ng thÃ¡i', placeholder: 'Má»›i', required: false, fixed: false, group: 'core' },
+    { id: 'tags', label: 'Tags', placeholder: '-- Chá»n Tag --', required: false, fixed: false, group: 'core' },
+    { id: 'campaign', label: 'Chiáº¿n dá»‹ch', placeholder: '', required: false, fixed: false, group: 'marketing' },
+    { id: 'source', label: 'Nguá»“n', placeholder: 'Hotline', required: false, fixed: false, group: 'marketing' },
+    { id: 'channel', label: 'KÃªnh', placeholder: '-- Chá»n kÃªnh --', required: false, fixed: false, group: 'marketing' },
+    { id: 'medium', label: 'Medium', placeholder: '-- Chá»n --', required: false, fixed: false, group: 'marketing' },
+    { id: 'referredBy', label: 'NgÆ°á»i GT', placeholder: '', required: false, fixed: false, group: 'marketing' }
 ];
 
 const FIXED_REQUIRED_QR_FIELDS = QR_LEAD_FIELDS.filter(field => field.fixed && field.required);
@@ -184,7 +185,7 @@ const DEFAULT_SELECTED_OPTIONAL_QR_FIELDS = ['email'];
 // Mock Leads
 const INITIAL_LEADS: LeadRecord[] = Array.from({ length: 20 }, (_, i) => ({
     id: i + 1,
-    name: decodeMojibakeText(`Nguyá»…n VÄƒn Lead ${i + 1}`),
+    name: decodeMojibakeText(`NguyÃ¡Â»â€¦n VÃ„Æ’n Lead ${i + 1}`),
     phone: `090${Math.floor(Math.random() * 10000000)}`,
     email: `lead${i + 1}@example.com`,
     status: LEAD_STATUS_OPTIONS[Math.floor(Math.random() * LEAD_STATUS_OPTIONS.length)],
@@ -296,17 +297,17 @@ const CampaignDetails: React.FC = () => {
         const normalized = raw.toLowerCase();
 
         if (LEAD_STATUS_OPTIONS.includes(raw)) return raw;
-        if (['new', 'moi', 'mới'].includes(normalized)) return LEAD_STATUS_OPTIONS[0];
-        if (['contacted', 'lien he', 'da lien he', 'đã liên hệ'].includes(normalized)) return LEAD_STATUS_OPTIONS[1];
-        if (['qualified', 'dat chuan', 'đạt chuẩn'].includes(normalized)) return LEAD_STATUS_OPTIONS[2];
-        if (['won', 'chot', 'chốt'].includes(normalized)) return LEAD_STATUS_OPTIONS[3];
-        if (['cancelled', 'canceled', 'huy', 'hủy'].includes(normalized)) return LEAD_STATUS_OPTIONS[4];
+        if (['new', 'moi', 'má»›i'].includes(normalized)) return LEAD_STATUS_OPTIONS[0];
+        if (['contacted', 'lien he', 'da lien he', 'Ä‘Ã£ liÃªn há»‡'].includes(normalized)) return LEAD_STATUS_OPTIONS[1];
+        if (['qualified', 'dat chuan', 'Ä‘áº¡t chuáº©n'].includes(normalized)) return LEAD_STATUS_OPTIONS[2];
+        if (['won', 'chot', 'chá»‘t'].includes(normalized)) return LEAD_STATUS_OPTIONS[3];
+        if (['cancelled', 'canceled', 'huy', 'há»§y'].includes(normalized)) return LEAD_STATUS_OPTIONS[4];
         return LEAD_STATUS_OPTIONS[0];
     };
 
     const parseVerified = (value: string) => {
         const normalized = decodeMojibakeText(value).trim().toLowerCase();
-        return ['1', 'true', 'yes', 'y', 'verified', 'co', 'có', 'da', 'đã'].includes(normalized);
+        return ['1', 'true', 'yes', 'y', 'verified', 'co', 'cÃ³', 'da', 'Ä‘Ã£'].includes(normalized);
     };
 
     const getCellValue = (row: Record<string, unknown>, keys: string[]) => {
@@ -350,14 +351,25 @@ const CampaignDetails: React.FC = () => {
     };
 
     const handleAddManualLead = () => {
-        if (!manualLead.name.trim() || !manualLead.phone.trim()) {
-            alert(decodeMojibakeText('Vui lÃ²ng nháº­p Há» tÃªn vÃ  Sá»‘ Ä‘iá»‡n thoáº¡i.'));
+        if (!manualLead.name.trim()) {
+            alert('Vui l\u00f2ng nh\u1eadp h\u1ecd t\u00ean.');
+            return;
+        }
+        if (!manualLead.phone.trim()) {
+            alert('Vui l\u00f2ng nh\u1eadp s\u1ed1 \u0111i\u1ec7n tho\u1ea1i.');
+            return;
+        }
+
+        const normalizedPhone = normalizeLeadPhone(manualLead.phone);
+        const phoneError = getLeadPhoneValidationMessage(manualLead.phone);
+        if (phoneError) {
+            alert(phoneError);
             return;
         }
 
         addLeads([{
             name: manualLead.name.trim(),
-            phone: manualLead.phone.trim(),
+            phone: normalizedPhone,
             email: manualLead.email.trim(),
             status: manualLead.status,
             verified: manualLead.verified,
@@ -378,26 +390,26 @@ const CampaignDetails: React.FC = () => {
             const workbook = XLSX.read(buffer, { type: 'array' });
             const firstSheet = workbook.SheetNames[0];
             if (!firstSheet) {
-                alert(decodeMojibakeText('File import khÃ´ng cÃ³ dá»¯ liá»‡u.'));
+                alert(decodeMojibakeText('File import khÃƒÂ´ng cÃƒÂ³ dÃ¡Â»Â¯ liÃ¡Â»â€¡u.'));
                 return;
             }
 
             const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets[firstSheet], { defval: '' });
             if (!rows.length) {
-                alert(decodeMojibakeText('File import khÃ´ng cÃ³ dÃ²ng dá»¯ liá»‡u.'));
+                alert(decodeMojibakeText('File import khÃƒÂ´ng cÃƒÂ³ dÃƒÂ²ng dÃ¡Â»Â¯ liÃ¡Â»â€¡u.'));
                 return;
             }
 
             const parsedRows = rows
                 .map((row) => {
                     const name = getCellValue(row, ['ho_ten', 'HoTen', 'name', 'Name', 'full_name']);
-                    const phone = getCellValue(row, ['dien_thoai', 'DienThoai', 'phone', 'Phone', 'so_dien_thoai', 'sdt']);
+                    const phone = normalizeLeadPhone(getCellValue(row, ['dien_thoai', 'DienThoai', 'phone', 'Phone', 'so_dien_thoai', 'sdt']));
                     const email = getCellValue(row, ['email', 'Email']);
                     const source = getCellValue(row, ['nguon', 'Nguon', 'source', 'Source']) || 'Import';
                     const status = normalizeLeadStatus(getCellValue(row, ['trang_thai', 'TrangThai', 'status', 'Status']));
                     const verified = parseVerified(getCellValue(row, ['xac_thuc', 'XacThuc', 'verified', 'Verified']));
 
-                    if (!name || !phone) return null;
+                    if (!name || !isValidLeadPhone(phone)) return null;
 
                     return {
                         name,
@@ -410,16 +422,26 @@ const CampaignDetails: React.FC = () => {
                 })
                 .filter((row): row is Omit<LeadRecord, 'id'> => Boolean(row));
 
+            const skippedRows = rows.length - parsedRows.length;
             if (!parsedRows.length) {
-                alert(decodeMojibakeText('KhÃ´ng cÃ³ dÃ²ng há»£p lá»‡. Cáº§n tá»‘i thiá»ƒu há» tÃªn vÃ  sá»‘ Ä‘iá»‡n thoáº¡i.'));
+                alert(decodeMojibakeText('KhÃƒÆ’Ã‚Â´ng cÃƒÆ’Ã‚Â³ dÃƒÆ’Ã‚Â²ng hÃƒÂ¡Ã‚Â»Ã‚Â£p lÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¡. SÃƒÂ¡Ã‚Â»Ã¢â‚¬Ëœ Ã„â€˜iÃ¡Â»â€¡n thoÃ¡ÂºÂ¡i phÃ¡ÂºÂ£i gÃƒÂ¡Ã‚Â»Ã¢â‚¬Å“m Ã„â€˜ÃƒÂºng 10 sÃ¡Â»â€˜ vÃƒÂ  bÃ¡ÂºÂ¯t Ã„â€˜Ã¡ÂºÂ§u bÃ¡ÂºÂ±ng 0.'));
+                return;
+            }
+
+            if (!parsedRows.length) {
+                alert(decodeMojibakeText('KhÃƒÂ´ng cÃƒÂ³ dÃƒÂ²ng hÃ¡Â»Â£p lÃ¡Â»â€¡. CÃ¡ÂºÂ§n tÃ¡Â»â€˜i thiÃ¡Â»Æ’u hÃ¡Â»Â tÃƒÂªn vÃƒÂ  sÃ¡Â»â€˜ Ã„â€˜iÃ¡Â»â€¡n thoÃ¡ÂºÂ¡i.'));
                 return;
             }
 
             addLeads(parsedRows);
-            alert(decodeMojibakeText(`ÄÃ£ import ${parsedRows.length} lead.`));
+            if (skippedRows > 0) {
+                alert(decodeMojibakeText(`Ãƒâ€žÃ‚ÂÃƒÆ’Ã‚Â£ import ${parsedRows.length} lead. BÃ¡Â»Â qua ${skippedRows} dÃƒÂ²ng do thiÃ¡ÂºÂ¿u tÃƒÂªn hoÃ¡ÂºÂ·c SÃ„ÂT khÃƒÂ´ng hÃ¡Â»Â£p lÃ¡Â»â€¡.`));
+                return;
+            }
+            alert(decodeMojibakeText(`Ã„ÂÃƒÂ£ import ${parsedRows.length} lead.`));
         } catch (error) {
             console.error(error);
-            alert(decodeMojibakeText('Import tháº¥t báº¡i. Vui lÃ²ng kiá»ƒm tra file máº«u.'));
+            alert(decodeMojibakeText('Import thÃ¡ÂºÂ¥t bÃ¡ÂºÂ¡i. Vui lÃƒÂ²ng kiÃ¡Â»Æ’m tra file mÃ¡ÂºÂ«u.'));
         } finally {
             setImporting(false);
             event.target.value = '';
@@ -435,10 +457,10 @@ const CampaignDetails: React.FC = () => {
 
     // Tabs Configuration
     const tabs = [
-        { id: 'dashboard', label: 'Tá»•ng quan', icon: LayoutDashboard },
-        { id: 'api', label: 'Cáº¥u hÃ¬nh API', icon: Settings },
+        { id: 'dashboard', label: 'TÃ¡Â»â€¢ng quan', icon: LayoutDashboard },
+        { id: 'api', label: 'CÃ¡ÂºÂ¥u hÃƒÂ¬nh API', icon: Settings },
         { id: 'form', label: 'Form & QR Code', icon: FileText },
-        { id: 'data', label: 'Danh sÃ¡ch Data', icon: Database },
+        { id: 'data', label: 'Danh sÃƒÂ¡ch Data', icon: Database },
     ];
 
     const visibleTabs = isAutoCampaign ? tabs : tabs.filter((tab) => tab.id !== 'api');
@@ -484,11 +506,11 @@ const CampaignDetails: React.FC = () => {
                         <table className="w-full text-left text-sm font-inter">
                             <thead className="bg-white text-slate-400 font-bold border-b border-slate-100">
                                 <tr>
-                                    <th className="px-8 py-5 text-[10px] uppercase tracking-widest">Há» tÃªn</th>
-                                    <th className="px-8 py-5 text-[10px] uppercase tracking-widest">Äiá»‡n thoáº¡i</th>
+                                    <th className="px-8 py-5 text-[10px] uppercase tracking-widest">HÃ¡Â»Â tÃƒÂªn</th>
+                                    <th className="px-8 py-5 text-[10px] uppercase tracking-widest">Ã„ÂiÃ¡Â»â€¡n thoÃ¡ÂºÂ¡i</th>
                                     <th className="px-8 py-5 text-[10px] uppercase tracking-widest">Email</th>
-                                    <th className="px-8 py-5 text-center text-[10px] uppercase tracking-widest">XÃ¡c thá»±c</th>
-                                    <th className="px-8 py-5 text-center text-[10px] uppercase tracking-widest">Tráº¡ng thÃ¡i</th>
+                                    <th className="px-8 py-5 text-center text-[10px] uppercase tracking-widest">XÃƒÂ¡c thÃ¡Â»Â±c</th>
+                                    <th className="px-8 py-5 text-center text-[10px] uppercase tracking-widest">TrÃ¡ÂºÂ¡ng thÃƒÂ¡i</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-50">
@@ -568,7 +590,7 @@ const CampaignDetails: React.FC = () => {
                                     {/* Dropzone Hint */}
                                     <div className={`h-24 border-2 border-dashed border-slate-200 rounded-2xl flex items-center justify-center text-slate-400 text-[10px] font-black uppercase tracking-widest transition-all ${draggedItem !== null ? 'bg-blue-50/50 border-blue-200 text-blue-400 opacity-100' : 'opacity-0 h-0 p-0 border-0'
                                         }`}>
-                                        Tháº£ vÃ o Ä‘Ã¢y
+                                        ThÃ¡ÂºÂ£ vÃƒÂ o Ã„â€˜ÃƒÂ¢y
                                     </div>
                                 </div>
                             </div>
@@ -580,10 +602,10 @@ const CampaignDetails: React.FC = () => {
             // --- FUNNEL VIEW ---
             case 'funnel': {
                 const funnelData = [
-                    { label: 'Tá»•ng Lead (New)', value: 100, color: 'bg-blue-600 shadow-blue-100' },
-                    { label: 'ÄÃ£ liÃªn há»‡ (Contacted)', value: 60, color: 'bg-indigo-600 shadow-indigo-100' },
-                    { label: 'Háº¹n gáº·p/Äáº¡t chuáº©n', value: 30, color: 'bg-purple-600 shadow-purple-100' },
-                    { label: 'Chá»‘t (Won)', value: 12, color: 'bg-emerald-600 shadow-emerald-100' }
+                    { label: 'TÃ¡Â»â€¢ng Lead (New)', value: 100, color: 'bg-blue-600 shadow-blue-100' },
+                    { label: 'Ã„ÂÃƒÂ£ liÃƒÂªn hÃ¡Â»â€¡ (Contacted)', value: 60, color: 'bg-indigo-600 shadow-indigo-100' },
+                    { label: 'HÃ¡ÂºÂ¹n gÃ¡ÂºÂ·p/Ã„ÂÃ¡ÂºÂ¡t chuÃ¡ÂºÂ©n', value: 30, color: 'bg-purple-600 shadow-purple-100' },
+                    { label: 'ChÃ¡Â»â€˜t (Won)', value: 12, color: 'bg-emerald-600 shadow-emerald-100' }
                 ];
                 return (
                     <div className="flex justify-center items-center py-12 bg-white rounded-3xl shadow-sm border border-slate-200 animate-in zoom-in-95 duration-500">
@@ -620,9 +642,9 @@ const CampaignDetails: React.FC = () => {
                         <ArrowLeft size={20} />
                     </button>
                     <div>
-                        <h1 className="text-xl font-bold text-slate-900 tracking-tight">Chiáº¿n dá»‹ch: {campaignMeta.name}</h1>
+                        <h1 className="text-xl font-bold text-slate-900 tracking-tight">ChiÃ¡ÂºÂ¿n dÃ¡Â»â€¹ch: {campaignMeta.name}</h1>
                         <p className="text-xs text-slate-500 font-medium">
-                            {campaignMeta.channel} â€¢ {isAutoCampaign ? 'Chiáº¿n dá»‹ch tá»± Ä‘á»™ng' : 'Chiáº¿n dá»‹ch thÆ°á»ng'} â€¢ <span className={`font-bold ${campaignMeta.status === 'Running' ? 'text-green-600' : 'text-slate-500'}`}>{campaignMeta.status === 'Running' ? 'Äang cháº¡y' : campaignMeta.status}</span>
+                            {campaignMeta.channel} Ã¢â‚¬Â¢ {isAutoCampaign ? 'ChiÃ¡ÂºÂ¿n dÃ¡Â»â€¹ch tÃ¡Â»Â± Ã„â€˜Ã¡Â»â„¢ng' : 'ChiÃ¡ÂºÂ¿n dÃ¡Â»â€¹ch thÃ†Â°Ã¡Â»Âng'} Ã¢â‚¬Â¢ <span className={`font-bold ${campaignMeta.status === 'Running' ? 'text-green-600' : 'text-slate-500'}`}>{campaignMeta.status === 'Running' ? 'Ã„Âang chÃ¡ÂºÂ¡y' : campaignMeta.status}</span>
                         </p>
                     </div>
                 </div>
@@ -657,10 +679,10 @@ const CampaignDetails: React.FC = () => {
                             {/* Quick Stats Grid */}
                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                                 {[
-                                    { label: 'Tá»”NG DATA', value: CAMPAIGNS_METRICS.totalLeads.toLocaleString(), color: 'text-slate-900' },
-                                    { label: '% XÃC THá»°C', value: `${CAMPAIGNS_METRICS.validRate}%`, color: 'text-blue-600' },
+                                    { label: 'TÃ¡Â»â€NG DATA', value: CAMPAIGNS_METRICS.totalLeads.toLocaleString(), color: 'text-slate-900' },
+                                    { label: '% XÃƒÂC THÃ¡Â»Â°C', value: `${CAMPAIGNS_METRICS.validRate}%`, color: 'text-blue-600' },
                                     { label: '% CONTACTED', value: `${CAMPAIGNS_METRICS.contactedRate}%`, color: 'text-indigo-600' },
-                                    { label: 'Tá»¶ Lá»† CHá»T', value: `${CAMPAIGNS_METRICS.conversionRate}%`, color: 'text-green-600' },
+                                    { label: 'TÃ¡Â»Â¶ LÃ¡Â»â€  CHÃ¡Â»ÂT', value: `${CAMPAIGNS_METRICS.conversionRate}%`, color: 'text-green-600' },
                                 ].map((stat, i) => (
                                     <div key={i} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm transition-transform hover:scale-[1.01]">
                                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">{stat.label}</p>
@@ -672,7 +694,7 @@ const CampaignDetails: React.FC = () => {
                             {/* ROI Chart Card */}
                             <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm">
                                 <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2 mb-4">
-                                    <TrendingUp size={20} className="text-slate-500" /> Biá»ƒu Ä‘á»“ hiá»‡u quáº£ ROI
+                                    <TrendingUp size={20} className="text-slate-500" /> BiÃ¡Â»Æ’u Ã„â€˜Ã¡Â»â€œ hiÃ¡Â»â€¡u quÃ¡ÂºÂ£ ROI
                                 </h3>
 
                                 <div className="h-[240px] w-full">
@@ -699,15 +721,15 @@ const CampaignDetails: React.FC = () => {
                                 {/* Footer Stats inside ROI Chart */}
                                 <div className="mt-6 pt-6 border-t border-slate-100 grid grid-cols-1 md:grid-cols-3 gap-8 text-center">
                                     <div>
-                                        <p className="text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-widest">Chi phÃ­ (Budget)</p>
-                                        <p className="text-lg font-black text-slate-900">{CAMPAIGNS_METRICS.budget.toLocaleString()}Ä‘</p>
+                                        <p className="text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-widest">Chi phÃƒÂ­ (Budget)</p>
+                                        <p className="text-lg font-black text-slate-900">{CAMPAIGNS_METRICS.budget.toLocaleString()}Ã„â€˜</p>
                                     </div>
                                     <div>
                                         <p className="text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-widest">Doanh thu (Revenue)</p>
-                                        <p className="text-lg font-black text-green-600">{CAMPAIGNS_METRICS.revenue.toLocaleString()}Ä‘</p>
+                                        <p className="text-lg font-black text-green-600">{CAMPAIGNS_METRICS.revenue.toLocaleString()}Ã„â€˜</p>
                                     </div>
                                     <div>
-                                        <p className="text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-widest">Lá»£i nhuáº­n (ROI)</p>
+                                        <p className="text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-widest">LÃ¡Â»Â£i nhuÃ¡ÂºÂ­n (ROI)</p>
                                         <p className="text-lg font-black text-blue-600">+{CAMPAIGNS_METRICS.roi}%</p>
                                     </div>
                                 </div>
@@ -723,7 +745,7 @@ const CampaignDetails: React.FC = () => {
                                     <Settings className="text-slate-400" size={20} />
                                     <h3 className="text-xl font-bold font-inter text-slate-800">Webhook Integration</h3>
                                 </div>
-                                <p className="text-sm text-slate-500 mb-8 font-medium">Káº¿t ná»‘i tá»± Ä‘á»™ng nháº­n Lead tá»« cÃ¡c ná»n táº£ng bÃªn ngoÃ i (Landing Page, Woocommerce...)</p>
+                                <p className="text-sm text-slate-500 mb-8 font-medium">KÃ¡ÂºÂ¿t nÃ¡Â»â€˜i tÃ¡Â»Â± Ã„â€˜Ã¡Â»â„¢ng nhÃ¡ÂºÂ­n Lead tÃ¡Â»Â« cÃƒÂ¡c nÃ¡Â»Ân tÃ¡ÂºÂ£ng bÃƒÂªn ngoÃƒÂ i (Landing Page, Woocommerce...)</p>
 
                                 <div className="space-y-6">
                                     <div>
@@ -739,11 +761,11 @@ const CampaignDetails: React.FC = () => {
                                                 <Copy size={18} />
                                             </button>
                                         </div>
-                                        <p className="text-[10px] text-slate-400 mt-2 font-medium">PhÆ°Æ¡ng thá»©c: POST. Content-Type: application/json.</p>
+                                        <p className="text-[10px] text-slate-400 mt-2 font-medium">PhÃ†Â°Ã†Â¡ng thÃ¡Â»Â©c: POST. Content-Type: application/json.</p>
                                     </div>
 
                                     <div className="p-6 bg-slate-50 rounded-2xl border border-slate-200">
-                                        <p className="text-[10px] font-black text-slate-700 mb-3 uppercase tracking-widest">Máº«u dá»¯ liá»‡u JSON:</p>
+                                        <p className="text-[10px] font-black text-slate-700 mb-3 uppercase tracking-widest">MÃ¡ÂºÂ«u dÃ¡Â»Â¯ liÃ¡Â»â€¡u JSON:</p>
                                         <pre className="text-xs font-mono text-slate-600 bg-white p-4 rounded-xl border border-slate-100 overflow-x-auto">
                                             {`{
   "name": "Nguyen Van A",
@@ -785,7 +807,7 @@ const CampaignDetails: React.FC = () => {
                                 </div>
                                 <div className="mt-8 flex justify-end">
                                     <button className="px-8 py-3.5 bg-blue-600 text-white rounded-xl font-black text-xs uppercase tracking-widest hover:bg-blue-700 transition-all shadow-lg shadow-blue-100 flex items-center gap-2">
-                                        <Save size={16} /> LÆ°u cáº¥u hÃ¬nh
+                                        <Save size={16} /> LÃ†Â°u cÃ¡ÂºÂ¥u hÃƒÂ¬nh
                                     </button>
                                 </div>
                             </div>
@@ -797,7 +819,7 @@ const CampaignDetails: React.FC = () => {
                         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-in fade-in duration-500 items-start">
                             {/* Builder Sidebar */}
                             <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
-                                <h3 className="text-[10px] font-black text-slate-400 mb-6 uppercase tracking-widest font-inter">TrÆ°á»ng thÃ´ng tin Lead</h3>
+                                <h3 className="text-[10px] font-black text-slate-400 mb-6 uppercase tracking-widest font-inter">TrÃ†Â°Ã¡Â»Âng thÃƒÂ´ng tin Lead</h3>
                                 <div className="space-y-2">
                                     {LEFT_PANEL_CORE_FIELDS.map((field) => (
                                         <div
@@ -817,12 +839,12 @@ const CampaignDetails: React.FC = () => {
                                                 </span>
                                                 {field.fixed && (
                                                     <span className="px-1.5 py-0.5 text-[10px] font-black uppercase tracking-wider rounded-md bg-blue-100 text-blue-700 border border-blue-200">
-                                                        Cá»‘ Ä‘á»‹nh
+                                                        CÃ¡Â»â€˜ Ã„â€˜Ã¡Â»â€¹nh
                                                     </span>
                                                 )}
                                                 {!field.fixed && selectedOptionalQrFieldIds.includes(field.id) && (
                                                     <span className="px-1.5 py-0.5 text-[10px] font-black uppercase tracking-wider rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                                        ÄÃ£ thÃªm
+                                                        Ã„ÂÃƒÂ£ thÃƒÂªm
                                                     </span>
                                                 )}
                                             </div>
@@ -832,7 +854,7 @@ const CampaignDetails: React.FC = () => {
                                 </div>
 
                                 <div className="mt-5 pt-5 border-t border-slate-100">
-                                    <p className="text-[10px] font-black text-slate-400 mb-3 uppercase tracking-widest">ThÃ´ng tin thÃªm (Marketing)</p>
+                                    <p className="text-[10px] font-black text-slate-400 mb-3 uppercase tracking-widest">ThÃƒÂ´ng tin thÃƒÂªm (Marketing)</p>
                                     <div className="space-y-2">
                                         {LEFT_PANEL_MARKETING_FIELDS.map((field) => (
                                             <div
@@ -846,7 +868,7 @@ const CampaignDetails: React.FC = () => {
                                                     <span className="text-sm font-bold text-slate-700">{field.label}</span>
                                                     {selectedOptionalQrFieldIds.includes(field.id) && (
                                                         <span className="px-1.5 py-0.5 text-[10px] font-black uppercase tracking-wider rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                                            ÄÃ£ thÃªm
+                                                            Ã„ÂÃƒÂ£ thÃƒÂªm
                                                         </span>
                                                     )}
                                                 </div>
@@ -857,19 +879,19 @@ const CampaignDetails: React.FC = () => {
                                 </div>
 
                                 <p className="mt-4 text-[11px] leading-5 text-slate-500">
-    Form QR luôn cố định các trường bắt buộc của Cơ hội/Lead: <span className="font-bold text-slate-700">Tên khách hàng</span>, <span className="font-bold text-slate-700">Điện thoại</span> và <span className="font-bold text-slate-700">Quốc gia mục tiêu</span>.
+    Form QR luÃ´n cá»‘ Ä‘á»‹nh cÃ¡c trÆ°á»ng báº¯t buá»™c cá»§a CÆ¡ há»™i/Lead: <span className="font-bold text-slate-700">TÃªn khÃ¡ch hÃ ng</span>, <span className="font-bold text-slate-700">Äiá»‡n thoáº¡i</span> vÃ  <span className="font-bold text-slate-700">Quá»‘c gia má»¥c tiÃªu</span>.
 </p>
 <p className="mt-1 text-[11px] leading-5 text-slate-500">
-    Trường <span className="font-bold text-slate-700">Cơ sở</span> là tùy chọn, không bắt buộc.
+    TrÆ°á»ng <span className="font-bold text-slate-700">CÆ¡ sá»Ÿ</span> lÃ  tÃ¹y chá»n, khÃ´ng báº¯t buá»™c.
 </p>
                             </div>
 
                             {/* Preview Area */}
                             <div className="bg-white p-12 rounded-3xl border border-slate-200 shadow-sm flex flex-col items-center">
-                                <h2 className="text-xl font-black text-slate-800 mb-6 font-inter">ÄÄƒng kÃ½ tham gia</h2>
+                                <h2 className="text-xl font-black text-slate-800 mb-6 font-inter">Ã„ÂÃ„Æ’ng kÃƒÂ½ tham gia</h2>
                                 <div className="w-full space-y-4">
                                     <div className="rounded-xl border border-blue-100 bg-blue-50 p-3">
-                                        <p className="text-[10px] font-black uppercase tracking-widest text-blue-700">TrÆ°á»ng báº¯t buá»™c cá»‘ Ä‘á»‹nh</p>
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-blue-700">TrÃ†Â°Ã¡Â»Âng bÃ¡ÂºÂ¯t buÃ¡Â»â„¢c cÃ¡Â»â€˜ Ã„â€˜Ã¡Â»â€¹nh</p>
                                     </div>
 
                                     {FIXED_REQUIRED_QR_FIELDS.map((field) => (
@@ -888,7 +910,7 @@ const CampaignDetails: React.FC = () => {
                                     >
                                         <div className={`rounded-xl border-2 border-dashed p-3 transition-colors ${draggingQrFieldId ? 'border-blue-300 bg-blue-50' : 'border-slate-200 bg-slate-50'}`}>
                                             <p className="text-xs font-semibold text-slate-600">
-                                                KÃ©o trÆ°á»ng tá»« cá»™t trÃ¡i tháº£ vÃ o Ä‘Ã¢y Ä‘á»ƒ thÃªm vÃ o form QR
+                                                KÃƒÂ©o trÃ†Â°Ã¡Â»Âng tÃ¡Â»Â« cÃ¡Â»â„¢t trÃƒÂ¡i thÃ¡ÂºÂ£ vÃƒÂ o Ã„â€˜ÃƒÂ¢y Ã„â€˜Ã¡Â»Æ’ thÃƒÂªm vÃƒÂ o form QR
                                             </p>
                                         </div>
 
@@ -904,18 +926,18 @@ const CampaignDetails: React.FC = () => {
                                                         type="button"
                                                         onClick={() => removeOptionalQrField(field.id)}
                                                         className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-red-500 transition-colors"
-                                                        title="Bá» trÆ°á»ng khá»i form QR"
+                                                        title="BÃ¡Â»Â trÃ†Â°Ã¡Â»Âng khÃ¡Â»Âi form QR"
                                                     >
                                                         <X size={14} />
                                                     </button>
                                                 </div>
                                             ))
                                         ) : (
-                                            <p className="text-xs text-slate-400 italic">ChÆ°a cÃ³ trÆ°á»ng tÃ¹y chá»n nÃ o Ä‘Æ°á»£c thÃªm.</p>
+                                            <p className="text-xs text-slate-400 italic">ChÃ†Â°a cÃƒÂ³ trÃ†Â°Ã¡Â»Âng tÃƒÂ¹y chÃ¡Â»Ân nÃƒÂ o Ã„â€˜Ã†Â°Ã¡Â»Â£c thÃƒÂªm.</p>
                                         )}
                                     </div>
 
-                                    <button disabled className="w-full py-4 bg-blue-600 text-white rounded-xl font-black uppercase tracking-widest shadow-lg shadow-blue-100 mt-4 opacity-100">Gá»­i Ä‘Äƒng kÃ½</button>
+                                    <button disabled className="w-full py-4 bg-blue-600 text-white rounded-xl font-black uppercase tracking-widest shadow-lg shadow-blue-100 mt-4 opacity-100">GÃ¡Â»Â­i Ã„â€˜Ã„Æ’ng kÃƒÂ½</button>
                                 </div>
                             </div>
 
@@ -927,9 +949,9 @@ const CampaignDetails: React.FC = () => {
                                         <QrCode size={150} className="text-slate-800" strokeWidth={1.5} />
                                     </div>
                                     <button className="w-full py-3.5 bg-white border border-blue-200 text-blue-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-blue-50 transition-all flex items-center justify-center gap-2 mb-4">
-                                        <Download size={16} /> Táº£i xuá»‘ng QR
+                                        <Download size={16} /> TÃ¡ÂºÂ£i xuÃ¡Â»â€˜ng QR
                                     </button>
-                                    <p className="text-[10px] text-slate-400 font-bold tracking-tight">QuÃ©t Ä‘á»ƒ má»Ÿ form Ä‘Äƒng kÃ½</p>
+                                    <p className="text-[10px] text-slate-400 font-bold tracking-tight">QuÃƒÂ©t Ã„â€˜Ã¡Â»Æ’ mÃ¡Â»Å¸ form Ã„â€˜Ã„Æ’ng kÃƒÂ½</p>
                                 </div>
                             </div>
                         </div>
@@ -941,13 +963,13 @@ const CampaignDetails: React.FC = () => {
                             {/* Toolbar */}
                             <div className="bg-white p-4 lg:p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap justify-between items-center gap-4">
                                 <div className="flex items-center gap-4">
-                                    <h3 className="font-bold text-lg text-slate-800 mr-4 font-inter tracking-tight">Danh sÃ¡ch Data</h3>
+                                    <h3 className="font-bold text-lg text-slate-800 mr-4 font-inter tracking-tight">Danh sÃƒÂ¡ch Data</h3>
 
                                     <div className="flex bg-slate-100 p-1 rounded-lg gap-1 border border-slate-200">
                                         {[
-                                            { id: 'table', icon: TableIcon, title: 'Báº£ng (Máº·c Ä‘á»‹nh)' },
-                                            { id: 'kanban', icon: LayoutGrid, title: 'Kanban (Quy trÃ¬nh)' },
-                                            { id: 'funnel', icon: BarChart, title: 'Phá»…u (BÃ¡o cÃ¡o)' },
+                                            { id: 'table', icon: TableIcon, title: 'BÃ¡ÂºÂ£ng (MÃ¡ÂºÂ·c Ã„â€˜Ã¡Â»â€¹nh)' },
+                                            { id: 'kanban', icon: LayoutGrid, title: 'Kanban (Quy trÃƒÂ¬nh)' },
+                                            { id: 'funnel', icon: BarChart, title: 'PhÃ¡Â»â€¦u (BÃƒÂ¡o cÃƒÂ¡o)' },
                                         ].map(v => (
                                             <button
                                                 key={v.id}
@@ -965,7 +987,7 @@ const CampaignDetails: React.FC = () => {
                                         onClick={() => setShowManualModal(true)}
                                         className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 shadow-sm transition-colors"
                                     >
-                                        <Plus size={16} /> Nháº­p tay
+                                        <Plus size={16} /> NhÃ¡ÂºÂ­p tay
                                     </button>
 
                                     <button
@@ -973,14 +995,14 @@ const CampaignDetails: React.FC = () => {
                                         disabled={importing}
                                         className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-xl text-sm text-slate-700 font-bold hover:bg-slate-50 shadow-sm disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
                                     >
-                                        <Upload size={16} /> {importing ? 'Äang import...' : 'Import'}
+                                        <Upload size={16} /> {importing ? 'Ã„Âang import...' : 'Import'}
                                     </button>
 
                                     <button
                                         onClick={handleDownloadTemplate}
                                         className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-xl text-sm text-slate-700 font-bold hover:bg-slate-50 shadow-sm transition-colors"
                                     >
-                                        <FileDown size={16} /> Xuáº¥t file máº«u
+                                        <FileDown size={16} /> XuÃ¡ÂºÂ¥t file mÃ¡ÂºÂ«u
                                     </button>
 
                                     <input
@@ -995,17 +1017,17 @@ const CampaignDetails: React.FC = () => {
                                         <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                                         <input
                                             className="pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-blue-400 w-64 transition-all"
-                                            placeholder="TÃ¬m tÃªn, sá»‘ Ä‘iá»‡n thoáº¡i..."
+                                            placeholder="TÃƒÂ¬m tÃƒÂªn, sÃ¡Â»â€˜ Ã„â€˜iÃ¡Â»â€¡n thoÃ¡ÂºÂ¡i..."
                                             value={searchTerm}
                                             onChange={(e) => setSearchTerm(e.target.value)}
                                         />
                                     </div>
 
                                     <button className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-xl text-sm text-slate-600 font-bold hover:bg-slate-50 shadow-sm">
-                                        <Filter size={16} /> Bá»™ lá»c
+                                        <Filter size={16} /> BÃ¡Â»â„¢ lÃ¡Â»Âc
                                     </button>
                                     <button className="text-sm text-blue-600 font-black uppercase tracking-widest hover:underline px-3 flex items-center gap-2">
-                                        Xuáº¥t Excel
+                                        XuÃ¡ÂºÂ¥t Excel
                                     </button>
                                 </div>
                             </div>
@@ -1016,7 +1038,7 @@ const CampaignDetails: React.FC = () => {
                             </div>
 
                             {viewMode === 'table' && (
-                                <div className="p-4 text-center text-slate-400 text-[10px] font-black uppercase tracking-widest">Hiá»ƒn thá»‹ {filteredLeads.length}/{leads.length} káº¿t quáº£</div>
+                                <div className="p-4 text-center text-slate-400 text-[10px] font-black uppercase tracking-widest">HiÃ¡Â»Æ’n thÃ¡Â»â€¹ {filteredLeads.length}/{leads.length} kÃ¡ÂºÂ¿t quÃ¡ÂºÂ£</div>
                             )}
                         </div>
                     )}
@@ -1035,7 +1057,7 @@ const CampaignDetails: React.FC = () => {
                     ></div>
                     <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
                         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 bg-slate-50">
-                            <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Nháº­p tay lead</h3>
+                            <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">NhÃ¡ÂºÂ­p tay lead</h3>
                             <button
                                 onClick={() => {
                                     setShowManualModal(false);
@@ -1049,7 +1071,7 @@ const CampaignDetails: React.FC = () => {
 
                         <div className="p-5 space-y-4">
                             <div>
-                                <label className="block text-xs font-bold text-slate-600 mb-1.5">Há» tÃªn *</label>
+                                <label className="block text-xs font-bold text-slate-600 mb-1.5">HÃ¡Â»Â tÃƒÂªn *</label>
                                 <input
                                     className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:border-blue-500"
                                     value={manualLead.name}
@@ -1059,7 +1081,7 @@ const CampaignDetails: React.FC = () => {
 
                             <div className="grid grid-cols-2 gap-3">
                                 <div>
-                                    <label className="block text-xs font-bold text-slate-600 mb-1.5">Äiá»‡n thoáº¡i *</label>
+                                    <label className="block text-xs font-bold text-slate-600 mb-1.5">Ã„ÂiÃ¡Â»â€¡n thoÃ¡ÂºÂ¡i *</label>
                                     <input
                                         className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:border-blue-500"
                                         value={manualLead.phone}
@@ -1078,7 +1100,7 @@ const CampaignDetails: React.FC = () => {
 
                             <div className="grid grid-cols-2 gap-3">
                                 <div>
-                                    <label className="block text-xs font-bold text-slate-600 mb-1.5">Tráº¡ng thÃ¡i</label>
+                                    <label className="block text-xs font-bold text-slate-600 mb-1.5">TrÃ¡ÂºÂ¡ng thÃƒÂ¡i</label>
                                     <select
                                         className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:border-blue-500 bg-white"
                                         value={manualLead.status}
@@ -1090,7 +1112,7 @@ const CampaignDetails: React.FC = () => {
                                     </select>
                                 </div>
                                 <div>
-                                    <label className="block text-xs font-bold text-slate-600 mb-1.5">Nguá»“n</label>
+                                    <label className="block text-xs font-bold text-slate-600 mb-1.5">NguÃ¡Â»â€œn</label>
                                     <input
                                         className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:border-blue-500"
                                         value={manualLead.source}
@@ -1106,7 +1128,7 @@ const CampaignDetails: React.FC = () => {
                                     onChange={(e) => setManualLead(prev => ({ ...prev, verified: e.target.checked }))}
                                     className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                                 />
-                                XÃ¡c thá»±c lead
+                                XÃƒÂ¡c thÃ¡Â»Â±c lead
                             </label>
                         </div>
 
@@ -1118,13 +1140,13 @@ const CampaignDetails: React.FC = () => {
                                 }}
                                 className="px-4 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-200 transition-colors"
                             >
-                                Há»§y
+                                HÃ¡Â»Â§y
                             </button>
                             <button
                                 onClick={handleAddManualLead}
                                 className="px-4 py-2 rounded-lg text-sm font-bold bg-blue-600 text-white hover:bg-blue-700 transition-colors"
                             >
-                                LÆ°u lead
+                                LÃ†Â°u lead
                             </button>
                         </div>
                     </div>
@@ -1135,3 +1157,4 @@ const CampaignDetails: React.FC = () => {
 };
 
 export default CampaignDetails;
+

@@ -59,10 +59,10 @@ import {
 export const APP_NAME = "EduCRM";
 
 export const LEAD_CHANNEL_OPTIONS = [
-  { value: 'fb', label: 'FB' },
-  { value: 'zl', label: 'ZL' },
-  { value: 'tik', label: 'TIK' },
-  { value: 'gg', label: 'GG' },
+  { value: 'fb', label: 'Facebook' },
+  { value: 'zl', label: 'Zalo' },
+  { value: 'tik', label: 'Tiktok' },
+  { value: 'gg', label: 'Google' },
   { value: 'hotline', label: 'Hotline' },
   { value: 'vang_lai', label: 'Vãng lai' },
   { value: 'ca_nhan', label: 'Cá nhân' },

@@ -29,9 +29,12 @@ export const LEAD_STATUS_LABELS: Record<LeadStatusKey, string> = {
   [LEAD_STATUS_KEYS.LOST]: 'Mất',
 };
 
+const getLeadStatusDisplayLabel = (status: LeadStatusKey) =>
+  status === LEAD_STATUS_KEYS.CONVERTED ? 'Đã convert' : LEAD_STATUS_LABELS[status];
+
 export const LEAD_STATUS_OPTIONS = (Object.values(LEAD_STATUS_KEYS) as LeadStatusKey[]).map((value) => ({
   value,
-  label: LEAD_STATUS_LABELS[value],
+  label: getLeadStatusDisplayLabel(value),
 }));
 
 const LEAD_STATUS_VALUE_BY_KEY: Record<LeadStatusKey, string> = {
@@ -105,7 +108,7 @@ export const normalizeLeadStatusKey = (status?: string): LeadStatusKey => {
   return STATUS_NORMALIZATION_MAP[token] || LEAD_STATUS_KEYS.NEW;
 };
 
-export const getLeadStatusLabel = (status?: string) => LEAD_STATUS_LABELS[normalizeLeadStatusKey(status)];
+export const getLeadStatusLabel = (status?: string) => getLeadStatusDisplayLabel(normalizeLeadStatusKey(status));
 
 export const toLeadStatusValue = (status?: string): string => {
   const normalized = normalizeLeadStatusKey(status);

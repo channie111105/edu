@@ -3,6 +3,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { NAV_ITEMS, APP_NAME } from '../constants';
 import { ArrowLeft, LogOut, Menu, X, User as UserIcon } from 'lucide-react';
+import NotificationBell from './NotificationBell';
 
 const Layout: React.FC = () => {
   const { user, logout } = useAuth();
@@ -59,11 +60,12 @@ const Layout: React.FC = () => {
           `}
         >
           <div className="flex items-center justify-between p-6 border-b border-slate-100">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
               <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold">
                 U
               </div>
               <span className="text-xl font-bold text-slate-900">{APP_NAME}</span>
+              <NotificationBell />
             </div>
             <button
               onClick={() => setIsMobileMenuOpen(false)}
@@ -137,8 +139,11 @@ const Layout: React.FC = () => {
               </button>
               <span className="font-bold text-slate-900">{APP_NAME}</span>
             </div>
-            <div className="w-8 h-8 rounded-full bg-slate-100 overflow-hidden">
-              {user.avatar && <img src={user.avatar} alt="User" className="w-full h-full object-cover" />}
+            <div className="flex items-center gap-3">
+              <NotificationBell />
+              <div className="w-8 h-8 rounded-full bg-slate-100 overflow-hidden">
+                {user.avatar && <img src={user.avatar} alt="User" className="w-full h-full object-cover" />}
+              </div>
             </div>
           </header>
         )}

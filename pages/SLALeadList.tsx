@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import {
    Phone,
    Clock,
@@ -10,21 +10,25 @@ import {
    Settings,
    X,
    UserCheck,
+   UserPlus,
    CheckCircle2,
    History,
    MessageSquare,
    Filter,
    Check,
-   ChevronDown
+   ChevronDown,
+   Users
 } from 'lucide-react';
-import { getLeads, saveLead } from '../utils/storage';
-import { ILead, LeadStatus } from '../types';
+import { getCollaborators, getLeadById, getLeads, saveLead, saveLeads } from '../utils/storage';
+import { ILead, LeadStatus, UserRole } from '../types';
 import { calculateSLAWarnings, SLAWarning, SLAConfig } from '../utils/slaUtils';
 import UnifiedLeadDrawer from '../components/UnifiedLeadDrawer';
 import { appendLeadLogs, buildLeadActivityLog, buildLeadAuditChange, buildLeadAuditLog } from '../utils/leadLogs';
 import AdvancedDateFilter, { DateRange } from '../components/AdvancedDateFilter';
 import { useAuth } from '../contexts/AuthContext';
 import PinnedSearchInput, { PinnedSearchChip } from '../components/PinnedSearchInput';
+import { decodeMojibakeText } from '../utils/mojibake';
+import { clearLeadReclaimTracking, getPickedLeadFirstActionDeadline, getPickedLeadFirstActionMessage } from '../utils/leadSla';
 
 // Mock Sales Reps
 const SALES_REPS = [
@@ -35,22 +39,82 @@ const SALES_REPS = [
    { id: 'u3', name: 'Nguyễn Văn A', team: 'Team Trung', avatar: 'NA', color: 'bg-orange-100 text-orange-700' },
 ];
 
+const ASSIGNABLE_SALES_REPS: AssignableSalesRep[] = (() => {
+   const seen = new Set<string>();
+   return SALES_REPS.filter((rep) => {
+      if (!rep.id || seen.has(rep.id)) return false;
+      seen.add(rep.id);
+      return true;
+   });
+})();
+
+const buildEmptyAssignmentRatios = () =>
+   ASSIGNABLE_SALES_REPS.reduce<Record<string, string>>((acc, rep) => {
+      acc[rep.id] = '';
+      return acc;
+   }, {});
+
+const parseAssignmentRatio = (value: string) => {
+   const parsed = Number.parseInt(value, 10);
+   return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+};
+
+const buildLeadCountByRatio = (leadCount: number, ratios: Record<string, number>) => {
+   return ASSIGNABLE_SALES_REPS.reduce<Record<string, number>>((acc, rep) => {
+      acc[rep.id] = Math.max(0, ratios[rep.id] || 0);
+      return acc;
+   }, {});
+};
+
 type SlowType = 'slow_accept' | 'slow_appointment' | 'slow_first_call';
-type TabType = SlowType | 'slow_list' | 'reclaim' | 'report';
+type TabType = SlowType | 'slow_collaborator' | 'slow_list' | 'reclaim' | 'report';
+
+interface ICollaboratorSlaItem {
+   id: string;
+   name: string;
+   phone: string;
+   ownerId?: string;
+   ownerName?: string;
+   city?: string;
+   notes?: string;
+   nextAppointment?: string;
+   status?: string;
+   activities?: Array<{ description?: string }>;
+}
+
+interface ISlowCollaboratorRow {
+   collaborator: ICollaboratorSlaItem;
+   appointmentAt: string;
+   overdueMinutes: number;
+   overdueText: string;
+   isPreview?: boolean;
+}
 
 interface ReclaimLeadItem {
    lead: ILead;
-   reclaimType: 'not_picked_up' | 'picked_no_action';
+   reclaimType: 'picked_no_action' | 'slow_care';
    message: string;
    triggerAt: string;
    overdueMinutes: number;
    overdueText: string;
+   currentOwnerId?: string;
+   previousOwnerId?: string;
+   reclaimedAt?: string;
+   isAlreadyReclaimed?: boolean;
+}
+
+interface AssignableSalesRep {
+   id: string;
+   name: string;
+   team: string;
+   avatar: string;
+   color: string;
 }
 
 const SLA_STATUS_LABELS: Record<SlowType, string> = {
-   slow_accept: 'Ch\u1EADm nh\u1EADn',
-   slow_appointment: 'Ch\u1EADm l\u1ECBch h\u1EB9n',
-   slow_first_call: 'Ch\u1EADm g\u1ECDi l\u1EA7n 1'
+   slow_accept: 'Chậm nhận',
+   slow_appointment: 'Chậm lịch hẹn',
+   slow_first_call: 'Chậm gọi lần 1'
 };
 
 interface ISlaSlowHistoryItem {
@@ -73,6 +137,27 @@ interface ISlaSlowHistoryItem {
    resolvedAt?: string;
 }
 
+interface ISlaSlowLeadRow {
+   id: string;
+   leadId: string;
+   leadName: string;
+   phone: string;
+   source: string;
+   branch?: string;
+   ownerId?: string;
+   leadStatus?: string;
+   latestMessage: string;
+   firstDetectedAt: string;
+   latestDetectedAt: string;
+   latestDelayMinutes: number;
+   maxDelayMinutes: number;
+   latestDelayText: string;
+   severity: SLAWarning['severity'];
+   resolvedAt?: string;
+   slowTypes: SlowType[];
+   items: ISlaSlowHistoryItem[];
+}
+
 interface ISlaSlowEvent {
    id: string;
    leadId: string;
@@ -87,6 +172,8 @@ const SLA_SLOW_HISTORY_KEY = 'educrm_sla_slow_history_v1';
 const SLA_SLOW_EVENTS_KEY = 'educrm_sla_slow_events_v1';
 const UNKNOWN_BRANCH = 'Chưa rõ cơ sở';
 
+const COLLABORATOR_FOCUS_KEY = 'educrm_collaborator_focus_id';
+
 const buildSlowHistoryId = (leadId: string, slowType: SlowType) => `${leadId}::${slowType}`;
 
 const getStoredSlowHistory = (): ISlaSlowHistoryItem[] => {
@@ -94,7 +181,18 @@ const getStoredSlowHistory = (): ISlaSlowHistoryItem[] => {
       if (typeof window === 'undefined') return [];
       const raw = localStorage.getItem(SLA_SLOW_HISTORY_KEY);
       const parsed = raw ? JSON.parse(raw) : [];
-      return Array.isArray(parsed) ? parsed : [];
+      if (!Array.isArray(parsed)) return [];
+
+      return parsed.map((item) => ({
+         ...item,
+         leadName: decodeMojibakeText(String(item?.leadName || '')),
+         phone: decodeMojibakeText(String(item?.phone || '')),
+         source: decodeMojibakeText(String(item?.source || '')),
+         branch: decodeMojibakeText(String(item?.branch || '')),
+         leadStatus: decodeMojibakeText(String(item?.leadStatus || '')),
+         latestMessage: decodeMojibakeText(String(item?.latestMessage || '')),
+         latestDelayText: decodeMojibakeText(String(item?.latestDelayText || ''))
+      }));
    } catch {
       return [];
    }
@@ -110,7 +208,13 @@ const getStoredSlowEvents = (): ISlaSlowEvent[] => {
       if (typeof window === 'undefined') return [];
       const raw = localStorage.getItem(SLA_SLOW_EVENTS_KEY);
       const parsed = raw ? JSON.parse(raw) : [];
-      return Array.isArray(parsed) ? parsed : [];
+      if (!Array.isArray(parsed)) return [];
+
+      return parsed.map((item) => ({
+         ...item,
+         branch: decodeMojibakeText(String(item?.branch || '')),
+         source: decodeMojibakeText(String(item?.source || ''))
+      }));
    } catch {
       return [];
    }
@@ -121,7 +225,9 @@ const saveStoredSlowEvents = (items: ISlaSlowEvent[]) => {
    localStorage.setItem(SLA_SLOW_EVENTS_KEY, JSON.stringify(items));
 };
 
-const normalizeText = (value?: string): string => String(value || '').trim();
+const text = (value?: string): string => decodeMojibakeText(value || '');
+
+const normalizeText = (value?: string): string => text(value).trim();
 
 const resolveLeadBranch = (lead?: Partial<ILead> | null): string => {
    const company = normalizeText((lead as any)?.company);
@@ -134,6 +240,12 @@ const resolveLeadBranch = (lead?: Partial<ILead> | null): string => {
 const ensureBranch = (value?: string): string => {
    const branch = normalizeText(value);
    return branch || UNKNOWN_BRANCH;
+};
+
+const getLeadResponsibleOwnerId = (lead?: Partial<ILead> | null): string => {
+   const ownerId = normalizeText((lead as any)?.ownerId);
+   if (ownerId) return ownerId;
+   return normalizeText((lead as any)?.salesperson);
 };
 
 const formatDelayMinutes = (minutes: number): string => {
@@ -170,8 +282,8 @@ const mapWarningToSlaStatus = (warning: SLAWarning): SlowType => {
          return 'slow_first_call';
       case 'manual_sla': {
          const msg = (warning.message || '').toLowerCase();
-         if (msg.includes('l\u1ECBch h\u1EB9n') || msg.includes('h\u1EB9n')) return 'slow_appointment';
-         if (msg.includes('g\u1ECDi') || msg.includes('t\u01B0\u01A1ng t\u00E1c')) return 'slow_first_call';
+         if (msg.includes('lịch hẹn') || msg.includes('hẹn')) return 'slow_appointment';
+         if (msg.includes('gọi') || msg.includes('tương tác')) return 'slow_first_call';
          return 'slow_accept';
       }
       default:
@@ -185,6 +297,14 @@ const parseDateSafe = (value?: string) => {
    return Number.isNaN(date.getTime()) ? null : date;
 };
 
+const parseCollaboratorAppointment = (value?: string) => {
+   if (!value) return null;
+   const normalizedValue = /^\d{4}-\d{2}-\d{2}$/.test(value)
+      ? `${value}T23:59:00`
+      : value;
+   return parseDateSafe(normalizedValue);
+};
+
 const getLeadActivityMoment = (activity: any): Date | null => {
    if (!activity) return null;
    return parseDateSafe(activity.timestamp || activity.datetime || activity.date || activity.createdAt);
@@ -195,44 +315,16 @@ const hasFollowUpAfterPickup = (lead: ILead): boolean => {
    if (!pickUpDate) return false;
 
    const pickUpMs = pickUpDate.getTime();
-   const thresholdMs = pickUpMs + 60 * 1000;
    const lastInteraction = parseDateSafe(lead.lastInteraction);
-   if (lastInteraction && lastInteraction.getTime() > thresholdMs) {
+   if (lastInteraction && lastInteraction.getTime() > pickUpMs) {
       return true;
    }
 
    const activities = Array.isArray(lead.activities) ? lead.activities : [];
    return activities.some((activity) => {
       const when = getLeadActivityMoment(activity);
-      return !!when && when.getTime() > thresholdMs;
+      return !!when && when.getTime() > pickUpMs;
    });
-};
-
-const getFirstActionReclaimDeadline = (pickUpDate?: string): Date | null => {
-   const pickedAt = parseDateSafe(pickUpDate);
-   if (!pickedAt) return null;
-
-   const hour = pickedAt.getHours();
-   const deadline = new Date(pickedAt);
-
-   if (hour < 8) {
-      deadline.setHours(9, 0, 0, 0);
-      return deadline;
-   }
-
-   if (hour < 17) {
-      deadline.setTime(deadline.getTime() + 60 * 60 * 1000);
-      return deadline;
-   }
-
-   if (hour < 22) {
-      deadline.setTime(deadline.getTime() + 2 * 60 * 60 * 1000);
-      return deadline;
-   }
-
-   deadline.setDate(deadline.getDate() + 1);
-   deadline.setHours(9, 0, 0, 0);
-   return deadline;
 };
 
 const getPickedLeadReclaimMessage = (pickUpDate?: string): string => {
@@ -240,10 +332,8 @@ const getPickedLeadReclaimMessage = (pickUpDate?: string): string => {
    if (!pickedAt) return 'Đã nhận lead nhưng chưa có gọi/cập nhật sau khi nhận.';
 
    const hour = pickedAt.getHours();
-   if (hour < 8) return 'Đã nhận lead trước giờ hành chính nhưng đến 09:00 vẫn chưa gọi/cập nhật.';
-   if (hour < 17) return 'Đã nhận lead trong giờ hành chính nhưng quá 1 giờ vẫn chưa gọi/cập nhật.';
-   if (hour < 22) return 'Đã nhận lead từ 17:00-22:00 nhưng quá 2 giờ vẫn chưa gọi/cập nhật.';
-   return 'Đã nhận lead sau 22:00 nhưng đến 09:00 sáng hôm sau vẫn chưa gọi/cập nhật.';
+   if (hour >= 8 && hour < 17) return 'Đã nhận lead trong giờ hành chính nhưng quá 2 giờ vẫn chưa có cập nhật.';
+   return 'Đã nhận lead ngoài giờ hành chính nhưng đến 09:00 sáng hôm sau vẫn chưa có cập nhật.';
 };
 
 const SLALeadList: React.FC = () => {
@@ -278,11 +368,10 @@ const SLALeadList: React.FC = () => {
    // Config State (default updated as requested)
    const [slaConfig, setSlaConfig] = useState<SLAConfig>({
       ackTimeMinutes: 5,  // Updated to 5 minutes as requested
-      firstActionTimeMinutes: 60,
+      firstActionTimeMinutes: 120,
       maxNeglectTimeHours: 72
    });
    const [showSettings, setShowSettings] = useState(false);
-   const [reclaimAfterDays, setReclaimAfterDays] = useState(2);
 
    // Real Data State
    const [leads, setLeads] = useState<ILead[]>([]);
@@ -291,15 +380,69 @@ const SLALeadList: React.FC = () => {
    const [slowEvents, setSlowEvents] = useState<ISlaSlowEvent[]>(() => getStoredSlowEvents());
    const [branchFilter, setBranchFilter] = useState<string>('all');
    const [selectedLead, setSelectedLead] = useState<ILead | null>(null);
+   const [selectedReclaimLeadIds, setSelectedReclaimLeadIds] = useState<string[]>([]);
+   const [showAssignModal, setShowAssignModal] = useState(false);
+   const [assignmentRatios, setAssignmentRatios] = useState<Record<string, string>>(() => buildEmptyAssignmentRatios());
+   const [collaborators, setCollaborators] = useState<ICollaboratorSlaItem[]>([]);
+   const [nowTimestamp, setNowTimestamp] = useState(() => Date.now());
+
+   const reloadLeads = useCallback(() => {
+      const allLeads = getLeads();
+      setLeads(allLeads);
+      setWarnings(calculateSLAWarnings(allLeads, undefined, slaConfig));
+      setSelectedLead((prev) => {
+         if (!prev?.id) return prev;
+         return allLeads.find((lead) => lead.id === prev.id) || null;
+      });
+   }, [slaConfig]);
+
+   const reloadCollaborators = useCallback(() => {
+      const allCollaborators = getCollaborators() as ICollaboratorSlaItem[];
+      setCollaborators(Array.isArray(allCollaborators) ? allCollaborators : []);
+   }, []);
 
    // Load leads and calculate warnings
    useEffect(() => {
-      const allLeads = getLeads();
-      setLeads(allLeads);
+      reloadLeads();
+   }, [reloadLeads]);
 
-      const calculatedWarnings = calculateSLAWarnings(allLeads, undefined, slaConfig);
-      setWarnings(calculatedWarnings);
-   }, [user, slaConfig]);
+   useEffect(() => {
+      reloadCollaborators();
+   }, [reloadCollaborators]);
+
+   useEffect(() => {
+      const handleLeadsChanged = () => {
+         reloadLeads();
+      };
+
+      const handleCollaboratorsChanged = () => {
+         reloadCollaborators();
+      };
+
+      const handleStorageChanged = (event: StorageEvent) => {
+         if (!event.key || event.key === 'educrm_leads_v2') {
+            reloadLeads();
+         }
+         if (!event.key || event.key === 'educrm_collaborators') {
+            reloadCollaborators();
+         }
+      };
+
+      window.addEventListener('educrm:leads-changed', handleLeadsChanged);
+      window.addEventListener('focus', handleCollaboratorsChanged);
+      window.addEventListener('storage', handleStorageChanged);
+
+      return () => {
+         window.removeEventListener('educrm:leads-changed', handleLeadsChanged);
+         window.removeEventListener('focus', handleCollaboratorsChanged);
+         window.removeEventListener('storage', handleStorageChanged);
+      };
+   }, [reloadCollaborators, reloadLeads]);
+
+   useEffect(() => {
+      const intervalId = window.setInterval(() => setNowTimestamp(Date.now()), 60000);
+      return () => window.clearInterval(intervalId);
+   }, []);
 
    // Keep a persistent history of all slow leads (including resolved items)
    useEffect(() => {
@@ -319,6 +462,7 @@ const SLALeadList: React.FC = () => {
             const leadSnapshot = leadMap.get(warning.lead.id) || warning.lead;
             const existing = historyMap.get(key);
             const branch = resolveLeadBranch(leadSnapshot);
+            const responsibleOwnerId = existing?.ownerId || getLeadResponsibleOwnerId(leadSnapshot);
             const wasActive = !!existing && !existing.resolvedAt;
 
             activeKeys.add(key);
@@ -330,7 +474,7 @@ const SLALeadList: React.FC = () => {
                phone: leadSnapshot.phone || existing?.phone || '',
                source: leadSnapshot.source || existing?.source || '',
                branch,
-               ownerId: leadSnapshot.ownerId || existing?.ownerId,
+               ownerId: responsibleOwnerId,
                leadStatus: String(leadSnapshot.status || existing?.leadStatus || ''),
                latestMessage: warning.message || existing?.latestMessage || '',
                firstDetectedAt: existing?.firstDetectedAt || nowIso,
@@ -348,7 +492,7 @@ const SLALeadList: React.FC = () => {
                   id: `${key}::${Date.now()}::${Math.random().toString(36).slice(2, 8)}`,
                   leadId: warning.lead.id,
                   slowType,
-                  ownerId: leadSnapshot.ownerId || existing?.ownerId,
+                  ownerId: responsibleOwnerId,
                   branch,
                   detectedAt: nowIso,
                   source: leadSnapshot.source || existing?.source || ''
@@ -363,7 +507,6 @@ const SLALeadList: React.FC = () => {
             historyMap.set(key, {
                ...item,
                leadStatus: String(leadSnapshot?.status || item.leadStatus || ''),
-               ownerId: leadSnapshot?.ownerId || item.ownerId,
                branch: ensureBranch(leadSnapshot ? resolveLeadBranch(leadSnapshot) : item.branch),
                resolvedAt: nowIso
             });
@@ -442,50 +585,149 @@ const SLALeadList: React.FC = () => {
       return grouped;
    }, [warnings]);
 
+   const visibleCollaborators = useMemo(() => {
+      if (!user || user.role === UserRole.ADMIN || user.role === UserRole.FOUNDER) {
+         return collaborators;
+      }
+
+      return collaborators.filter((item) => item.ownerId === user.id);
+   }, [collaborators, user]);
+
+   const slowCollaboratorList = useMemo<ISlowCollaboratorRow[]>(() => {
+      const overdueRows = visibleCollaborators
+         .map((collaborator) => {
+            const appointmentAt = parseCollaboratorAppointment(collaborator.nextAppointment);
+            if (!appointmentAt) return null;
+
+            const overdueMinutes = Math.floor((nowTimestamp - appointmentAt.getTime()) / (1000 * 60));
+            if (overdueMinutes <= 0) return null;
+
+            return {
+               collaborator,
+               appointmentAt: appointmentAt.toISOString(),
+               overdueMinutes,
+               overdueText: formatDelayMinutes(overdueMinutes)
+            };
+         })
+         .filter((item): item is ISlowCollaboratorRow => Boolean(item))
+         .sort((a, b) => b.overdueMinutes - a.overdueMinutes);
+
+      if (overdueRows.length > 0) {
+         return overdueRows;
+      }
+
+      const previewCollaborator = visibleCollaborators[0];
+      if (!previewCollaborator) {
+         return [];
+      }
+
+      const previewAppointment = new Date(nowTimestamp - 3 * 60 * 60 * 1000);
+
+      return [{
+         collaborator: previewCollaborator,
+         appointmentAt: previewAppointment.toISOString(),
+         overdueMinutes: 180,
+         overdueText: formatDelayMinutes(180),
+         isPreview: true
+      }];
+   }, [nowTimestamp, visibleCollaborators]);
+
+   const slowOwnerByHistoryId = useMemo(() => {
+      const entries = new Map<string, string>();
+      slowHistory.forEach((item) => {
+         if (item.ownerId) {
+            entries.set(item.id, item.ownerId);
+         }
+      });
+      return entries;
+   }, [slowHistory]);
+
+   const getWarningResponsibleOwnerId = (warning: SLAWarning): string => {
+      const slowType = mapWarningToSlaStatus(warning);
+      const historyId = buildSlowHistoryId(warning.lead.id, slowType);
+      return slowOwnerByHistoryId.get(historyId) || getLeadResponsibleOwnerId(warning.lead);
+   };
+
    const reclaimList = useMemo<ReclaimLeadItem[]>(() => {
       const now = new Date();
-      const reclaimAfterMinutes = Math.max(0, reclaimAfterDays) * 24 * 60;
 
       return leads.flatMap((lead) => {
-         if (!lead?.ownerId || lead.ownerId === 'system') return [];
-
+         const currentOwnerId = getLeadResponsibleOwnerId(lead);
+         const previousOwnerId = normalizeText(lead.reclaimedFromOwnerId);
          const normalizedStatus = String(lead.status || '').trim().toLowerCase();
          if (['lost', 'unverified', 'converted', 'won', 'qualified'].includes(normalizedStatus)) return [];
 
-         const createdAt = parseDateSafe(lead.createdAt);
-         if (!createdAt) return [];
+         if (lead.reclaimedAt && !currentOwnerId) {
+            const reclaimedAt = parseDateSafe(lead.reclaimedAt);
+            const triggerAt = parseDateSafe(lead.reclaimTriggerAt) || reclaimedAt || now;
+            const overdueMinutes = reclaimedAt
+               ? Math.max(0, Math.floor((now.getTime() - reclaimedAt.getTime()) / (1000 * 60)))
+               : 0;
 
-         if (!lead.pickUpDate) {
-            const triggerAt = new Date(createdAt.getTime() + (slaConfig.ackTimeMinutes + reclaimAfterMinutes) * 60 * 1000);
-            if (now < triggerAt) return [];
-
-            const overdueMinutes = Math.floor((now.getTime() - triggerAt.getTime()) / (1000 * 60));
             return [{
                lead,
-               reclaimType: 'not_picked_up',
-               message: `Lead đã quá SLA nhận và quá thêm ${reclaimAfterDays} ngày nhưng sale vẫn chưa nhận.`,
+               reclaimType: lead.reclaimReason === 'slow_care' ? 'slow_care' : 'picked_no_action',
+               message: lead.reclaimReason === 'slow_care'
+                  ? 'Lead da bi thu hoi do cham cham soc qua 3 ngay va dang cho phan bo lai.'
+                  : 'Lead da bi thu hoi do da nhan nhung khong co cap nhat theo SLA va dang cho phan bo lai.',
                triggerAt: triggerAt.toISOString(),
                overdueMinutes,
-               overdueText: formatDelayMinutes(overdueMinutes)
+               overdueText: formatDelayMinutes(overdueMinutes),
+               currentOwnerId,
+               previousOwnerId,
+               reclaimedAt: lead.reclaimedAt,
+               isAlreadyReclaimed: true
             }];
          }
 
-         if (hasFollowUpAfterPickup(lead)) return [];
+         if (!currentOwnerId || currentOwnerId === 'system') return [];
 
-         const triggerAt = getFirstActionReclaimDeadline(lead.pickUpDate);
-         if (!triggerAt || now < triggerAt) return [];
+         if (lead.pickUpDate && !hasFollowUpAfterPickup(lead)) {
+            const triggerAt = getPickedLeadFirstActionDeadline(lead.pickUpDate, 120);
+            if (triggerAt && now >= triggerAt) {
+               const overdueMinutes = Math.floor((now.getTime() - triggerAt.getTime()) / (1000 * 60));
+               return [{
+                  lead,
+                  reclaimType: 'picked_no_action',
+                  message: getPickedLeadFirstActionMessage(lead.pickUpDate, 120),
+                  triggerAt: triggerAt.toISOString(),
+                  overdueMinutes,
+                  overdueText: formatDelayMinutes(overdueMinutes),
+                  currentOwnerId,
+                  previousOwnerId,
+                  isAlreadyReclaimed: false
+               }];
+            }
+         }
 
-         const overdueMinutes = Math.floor((now.getTime() - triggerAt.getTime()) / (1000 * 60));
+         const userActivities = (Array.isArray(lead.activities) ? lead.activities : []).filter((activity: any) => activity.type !== 'system');
+         if (userActivities.length === 0) return [];
+
+         const lastInteraction = parseDateSafe(lead.lastInteraction);
+         if (!lastInteraction) return [];
+
+         const slowCareTriggerAt = new Date(lastInteraction.getTime() + 3 * 24 * 60 * 60 * 1000);
+         if (now < slowCareTriggerAt) return [];
+
+         const overdueMinutes = Math.floor((now.getTime() - slowCareTriggerAt.getTime()) / (1000 * 60));
          return [{
             lead,
-            reclaimType: 'picked_no_action',
-            message: getPickedLeadReclaimMessage(lead.pickUpDate),
-            triggerAt: triggerAt.toISOString(),
+            reclaimType: 'slow_care',
+            message: 'Lead đã chậm chăm sóc quá 3 ngày và cần chuyển về tab thu hồi để phân bổ lại.',
+            triggerAt: slowCareTriggerAt.toISOString(),
             overdueMinutes,
-            overdueText: formatDelayMinutes(overdueMinutes)
+            overdueText: formatDelayMinutes(overdueMinutes),
+            currentOwnerId,
+            previousOwnerId,
+            isAlreadyReclaimed: false
          }];
-      }).sort((a, b) => b.overdueMinutes - a.overdueMinutes);
-   }, [leads, reclaimAfterDays, slaConfig.ackTimeMinutes]);
+      }).sort((a, b) => {
+         if (Number(Boolean(b.isAlreadyReclaimed)) !== Number(Boolean(a.isAlreadyReclaimed))) {
+            return Number(Boolean(b.isAlreadyReclaimed)) - Number(Boolean(a.isAlreadyReclaimed));
+         }
+         return b.overdueMinutes - a.overdueMinutes;
+      });
+   }, [leads]);
 
    // Helper: Is Date in Range
    const isDateInRange = (dateStr?: string) => {
@@ -503,11 +745,13 @@ const SLALeadList: React.FC = () => {
    // Filter Logic for Active List
    const filteredList = useMemo(() => {
       const sourceList =
-         activeTab === 'slow_list' || activeTab === 'reclaim' || activeTab === 'report'
+         activeTab === 'slow_list' || activeTab === 'reclaim' || activeTab === 'report' || activeTab === 'slow_collaborator'
             ? []
             : (warningListsByType[activeTab] ?? []);
 
       return sourceList.filter(w => {
+         const responsibleOwnerId = getWarningResponsibleOwnerId(w);
+
          // 1. Text Search
          const matchesSearch = w.lead.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
             w.lead.phone.includes(searchTerm);
@@ -515,23 +759,23 @@ const SLALeadList: React.FC = () => {
 
          // 2. Advanced Filters
          if (advancedFilters.myPipeline && user?.id) {
-            if (w.lead.ownerId !== user.id) return false;
+            if (responsibleOwnerId !== user.id) return false;
          }
 
          if (advancedFilters.unassigned) {
-            if (w.lead.ownerId && w.lead.ownerId !== '') return false;
+            if (responsibleOwnerId && responsibleOwnerId !== '') return false;
          }
 
          if (advancedFilters.status.length > 0) {
-            if (activeTab !== 'slow_accept' && !advancedFilters.status.includes(w.lead.status)) return false;
+            if (activeTab !== 'slow_accept' && !advancedFilters.status.includes(text(w.lead.status))) return false;
          }
 
          if (advancedFilters.source.length > 0) {
-            if (!advancedFilters.source.includes(w.lead.source)) return false;
+            if (!advancedFilters.source.includes(text(w.lead.source))) return false;
          }
 
          if (advancedFilters.ownerId.length > 0) {
-            if (!w.lead.ownerId || !advancedFilters.ownerId.includes(w.lead.ownerId)) return false;
+            if (!responsibleOwnerId || !advancedFilters.ownerId.includes(responsibleOwnerId)) return false;
          }
 
           const leadBranch = resolveLeadBranch(w.lead);
@@ -544,10 +788,56 @@ const SLALeadList: React.FC = () => {
 
          return true;
       });
-   }, [activeTab, warningListsByType, searchTerm, advancedFilters, branchFilter, dateRange, user]);
+   }, [activeTab, warningListsByType, searchTerm, advancedFilters, branchFilter, dateRange, user, slowOwnerByHistoryId]);
+
+   const aggregatedSlowHistoryList = useMemo<ISlaSlowLeadRow[]>(() => {
+      const grouped = new Map<string, ISlaSlowHistoryItem[]>();
+
+      slowHistory.forEach((item) => {
+         const current = grouped.get(item.leadId) || [];
+         current.push(item);
+         grouped.set(item.leadId, current);
+      });
+
+      return Array.from(grouped.entries()).map(([leadId, items]) => {
+         const sorted = [...items].sort((a, b) => {
+            return new Date(b.latestDetectedAt).getTime() - new Date(a.latestDetectedAt).getTime();
+         });
+         const latest = sorted[0];
+         const activeItems = sorted.filter((item) => !item.resolvedAt);
+         const primaryItems = activeItems.length > 0 ? activeItems : sorted;
+         const latestResolvedAt = sorted
+            .map((item) => item.resolvedAt)
+            .filter(Boolean)
+            .sort((a, b) => new Date(b!).getTime() - new Date(a!).getTime())[0];
+
+         return {
+            id: leadId,
+            leadId,
+            leadName: latest.leadName,
+            phone: latest.phone,
+            source: latest.source,
+            branch: latest.branch,
+            ownerId: latest.ownerId,
+            leadStatus: latest.leadStatus,
+            latestMessage: primaryItems.map((item) => item.latestMessage).filter(Boolean).join(' | '),
+            firstDetectedAt: sorted
+               .map((item) => item.firstDetectedAt)
+               .sort((a, b) => new Date(a).getTime() - new Date(b).getTime())[0] || latest.firstDetectedAt,
+            latestDetectedAt: latest.latestDetectedAt,
+            latestDelayMinutes: Math.max(...primaryItems.map((item) => item.latestDelayMinutes)),
+            maxDelayMinutes: Math.max(...sorted.map((item) => item.maxDelayMinutes)),
+            latestDelayText: latest.latestDelayText,
+            severity: primaryItems.some((item) => item.severity === 'danger') ? 'danger' : latest.severity,
+            resolvedAt: activeItems.length === 0 ? latestResolvedAt : undefined,
+            slowTypes: Array.from(new Set(primaryItems.map((item) => item.slowType))),
+            items: sorted
+         };
+      }).sort((a, b) => new Date(b.latestDetectedAt).getTime() - new Date(a.latestDetectedAt).getTime());
+   }, [slowHistory]);
 
    const filteredSlowHistoryList = useMemo(() => {
-      return slowHistory.filter(item => {
+      return aggregatedSlowHistoryList.filter(item => {
          const linkedLead = leads.find(lead => lead.id === item.leadId);
          const branch = ensureBranch(item.branch || resolveLeadBranch(linkedLead));
          const matchesSearch =
@@ -557,28 +847,30 @@ const SLALeadList: React.FC = () => {
 
          if (advancedFilters.myPipeline && user?.id && item.ownerId !== user.id) return false;
          if (advancedFilters.unassigned && item.ownerId && item.ownerId !== '') return false;
-         if (advancedFilters.source.length > 0 && !advancedFilters.source.includes(item.source)) return false;
+         if (advancedFilters.source.length > 0 && !advancedFilters.source.includes(text(item.source))) return false;
          if (advancedFilters.ownerId.length > 0 && (!item.ownerId || !advancedFilters.ownerId.includes(item.ownerId))) return false;
          if (branchFilter !== 'all' && branch !== branchFilter) return false;
 
          if (dateRange.startDate && !isDateInRange(item.firstDetectedAt)) return false;
          return true;
       });
-   }, [slowHistory, leads, searchTerm, advancedFilters, branchFilter, dateRange, user]);
+   }, [aggregatedSlowHistoryList, leads, searchTerm, advancedFilters, branchFilter, dateRange, user]);
 
    const filteredReclaimList = useMemo(() => {
       return reclaimList.filter(item => {
          const lead = item.lead;
+         const currentOwnerId = item.currentOwnerId || getLeadResponsibleOwnerId(lead);
+         const displayOwnerId = item.previousOwnerId || currentOwnerId;
          const matchesSearch =
             lead.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
             lead.phone.includes(searchTerm);
          if (!matchesSearch) return false;
 
-         if (advancedFilters.myPipeline && user?.id && lead.ownerId !== user.id) return false;
-         if (advancedFilters.unassigned && lead.ownerId) return false;
-         if (advancedFilters.status.length > 0 && !advancedFilters.status.includes(lead.status)) return false;
-         if (advancedFilters.source.length > 0 && !advancedFilters.source.includes(lead.source)) return false;
-         if (advancedFilters.ownerId.length > 0 && (!lead.ownerId || !advancedFilters.ownerId.includes(lead.ownerId))) return false;
+         if (advancedFilters.myPipeline && user?.id && displayOwnerId !== user.id) return false;
+         if (advancedFilters.unassigned && currentOwnerId) return false;
+         if (advancedFilters.status.length > 0 && !advancedFilters.status.includes(text(lead.status))) return false;
+         if (advancedFilters.source.length > 0 && !advancedFilters.source.includes(text(lead.source))) return false;
+         if (advancedFilters.ownerId.length > 0 && (!displayOwnerId || !advancedFilters.ownerId.includes(displayOwnerId))) return false;
 
          const leadBranch = resolveLeadBranch(lead);
          if (branchFilter !== 'all' && leadBranch !== branchFilter) return false;
@@ -588,13 +880,65 @@ const SLALeadList: React.FC = () => {
       });
    }, [reclaimList, searchTerm, advancedFilters, branchFilter, dateRange, user]);
 
+   const filteredSlowCollaboratorList = useMemo(() => {
+      return slowCollaboratorList.filter((item) => {
+         const collaborator = item.collaborator;
+         const ownerId = normalizeText(collaborator.ownerId);
+         const collaboratorBranch = normalizeText(collaborator.city) || UNKNOWN_BRANCH;
+         const matchesSearch =
+            normalizeText(collaborator.name).toLowerCase().includes(searchTerm.toLowerCase()) ||
+            normalizeText(collaborator.phone).includes(searchTerm);
+
+         if (!matchesSearch) return false;
+         if (advancedFilters.myPipeline && user?.id && ownerId !== user.id) return false;
+         if (advancedFilters.unassigned && ownerId) return false;
+         if (advancedFilters.ownerId.length > 0 && (!ownerId || !advancedFilters.ownerId.includes(ownerId))) return false;
+         if (branchFilter !== 'all' && collaboratorBranch !== branchFilter) return false;
+         if (dateRange.startDate && !isDateInRange(item.appointmentAt)) return false;
+
+         return true;
+      });
+   }, [slowCollaboratorList, searchTerm, advancedFilters, branchFilter, dateRange, user]);
+
+   const selectedReclaimLeadSet = useMemo(() => new Set(selectedReclaimLeadIds), [selectedReclaimLeadIds]);
+   const selectedReclaimItems = useMemo(
+      () => reclaimList.filter((item) => selectedReclaimLeadSet.has(item.lead.id)),
+      [reclaimList, selectedReclaimLeadSet]
+   );
+   const selectedReclaimCount = selectedReclaimItems.length;
+   const allFilteredReclaimSelected = useMemo(() => {
+      const filteredSelectableIds = filteredReclaimList.map((item) => item.lead.id);
+      return filteredSelectableIds.length > 0 && filteredSelectableIds.every((id) => selectedReclaimLeadSet.has(id));
+   }, [filteredReclaimList, selectedReclaimLeadSet]);
+   const assignmentRatioValues = useMemo(
+      () =>
+         ASSIGNABLE_SALES_REPS.reduce<Record<string, number>>((acc, rep) => {
+            acc[rep.id] = parseAssignmentRatio(assignmentRatios[rep.id] || '');
+            return acc;
+         }, {}),
+      [assignmentRatios]
+   );
+   const assignmentRatioTotal = useMemo(
+      () => ASSIGNABLE_SALES_REPS.reduce((sum, rep) => sum + (assignmentRatioValues[rep.id] || 0), 0),
+      [assignmentRatioValues]
+   );
+   const assignmentLeadCounts = useMemo(
+      () => buildLeadCountByRatio(selectedReclaimCount, assignmentRatioValues),
+      [assignmentRatioValues, selectedReclaimCount]
+   );
+
+   useEffect(() => {
+      const selectableIds = new Set(reclaimList.map((item) => item.lead.id));
+      setSelectedReclaimLeadIds((prev) => prev.filter((id) => selectableIds.has(id)));
+   }, [reclaimList]);
+
    const filteredSlowEvents = useMemo(() => {
       const leadMap = new Map(leads.map(lead => [lead.id, lead]));
-      const historyMap = new Map(slowHistory.map(item => [item.leadId, item]));
+      const historyMap = new Map(slowHistory.map(item => [`${item.leadId}::${item.slowType}`, item]));
 
       return slowEvents.filter(event => {
          const leadSnapshot = leadMap.get(event.leadId);
-         const historySnapshot = historyMap.get(event.leadId);
+         const historySnapshot = historyMap.get(`${event.leadId}::${event.slowType}`);
          const leadName = leadSnapshot?.name || historySnapshot?.leadName || '';
          const phone = leadSnapshot?.phone || historySnapshot?.phone || '';
          const ownerId = event.ownerId || leadSnapshot?.ownerId || historySnapshot?.ownerId || '';
@@ -608,7 +952,7 @@ const SLALeadList: React.FC = () => {
 
          if (advancedFilters.myPipeline && user?.id && ownerId !== user.id) return false;
          if (advancedFilters.unassigned && ownerId) return false;
-         if (advancedFilters.source.length > 0 && !advancedFilters.source.includes(source)) return false;
+         if (advancedFilters.source.length > 0 && !advancedFilters.source.includes(text(source))) return false;
          if (advancedFilters.ownerId.length > 0 && (!ownerId || !advancedFilters.ownerId.includes(ownerId))) return false;
          if (branchFilter !== 'all' && branch !== branchFilter) return false;
          if (dateRange.startDate && !isDateInRange(event.detectedAt)) return false;
@@ -653,6 +997,104 @@ const SLALeadList: React.FC = () => {
       setSelectedLead(null);
    };
 
+   const openLeadDetails = (leadOrId?: ILead | string | null) => {
+      if (!leadOrId) return;
+      const leadId = typeof leadOrId === 'string' ? leadOrId : leadOrId.id;
+      if (!leadId) return;
+
+      const latestLead = getLeadById(leadId) || leads.find((item) => item.id === leadId);
+      if (latestLead) {
+         setSelectedLead(latestLead);
+         return;
+      }
+
+      if (typeof leadOrId !== 'string') {
+         setSelectedLead(leadOrId);
+      }
+   };
+
+   const openCollaboratorDetails = (collaboratorId?: string) => {
+      if (!collaboratorId || typeof window === 'undefined') return;
+      localStorage.setItem(COLLABORATOR_FOCUS_KEY, collaboratorId);
+      window.location.hash = '/marketing/collaborators';
+   };
+
+   const resetAssignModal = () => {
+      setAssignmentRatios(buildEmptyAssignmentRatios());
+   };
+
+   const openAssignModal = (item?: ReclaimLeadItem) => {
+      if (item?.lead?.id) {
+         setSelectedReclaimLeadIds((prev) => prev.includes(item.lead.id) ? prev : [item.lead.id]);
+      }
+      setShowAssignModal(true);
+   };
+
+   const closeAssignModal = () => {
+      setShowAssignModal(false);
+      resetAssignModal();
+   };
+
+   const updateAssignmentRatio = (repId: string, value: string) => {
+      if (value === '') {
+         setAssignmentRatios((prev) => ({ ...prev, [repId]: '' }));
+         return;
+      }
+
+      const normalizedValue = String(Math.min(selectedReclaimCount, parseAssignmentRatio(value)));
+      setAssignmentRatios((prev) => ({ ...prev, [repId]: normalizedValue }));
+   };
+
+   const fillAssignmentRatiosEvenly = () => {
+      const activeRepIds = ASSIGNABLE_SALES_REPS
+         .filter((rep) => assignmentRatioValues[rep.id] > 0)
+         .map((rep) => rep.id);
+      const targetRepIds = activeRepIds.length > 0 ? activeRepIds : ASSIGNABLE_SALES_REPS.map((rep) => rep.id);
+      const baseCount = Math.floor(selectedReclaimCount / targetRepIds.length);
+      let remaining = selectedReclaimCount - (baseCount * targetRepIds.length);
+
+      setAssignmentRatios(
+         ASSIGNABLE_SALES_REPS.reduce<Record<string, string>>((acc, rep) => {
+            if (!targetRepIds.includes(rep.id)) {
+               acc[rep.id] = '';
+               return acc;
+            }
+
+            const nextCount = baseCount + (remaining > 0 ? 1 : 0);
+            acc[rep.id] = String(nextCount);
+            if (remaining > 0) remaining -= 1;
+            return acc;
+         }, {})
+      );
+   };
+
+   const setSingleRepAssignment = (repId: string) => {
+      setAssignmentRatios(
+         ASSIGNABLE_SALES_REPS.reduce<Record<string, string>>((acc, rep) => {
+            acc[rep.id] = rep.id === repId ? String(selectedReclaimCount) : '';
+            return acc;
+         }, {})
+      );
+   };
+
+   const toggleReclaimLeadSelection = (leadId: string) => {
+      setSelectedReclaimLeadIds((prev) =>
+         prev.includes(leadId) ? prev.filter((id) => id !== leadId) : [...prev, leadId]
+      );
+   };
+
+   const handleSelectAllReclaim = () => {
+      const filteredSelectableIds = filteredReclaimList.map((item) => item.lead.id);
+
+      if (filteredSelectableIds.length === 0) return;
+
+      const allSelected = filteredSelectableIds.every((id) => selectedReclaimLeadSet.has(id));
+      setSelectedReclaimLeadIds((prev) => {
+         const remaining = prev.filter((id) => !filteredSelectableIds.includes(id));
+         return allSelected ? remaining : [...remaining, ...filteredSelectableIds];
+      });
+   };
+
    // Toggle Filter Helper
    const toggleAdvancedFilter = (key: keyof typeof advancedFilters, value?: string) => {
       setAdvancedFilters(prev => {
@@ -687,7 +1129,7 @@ const SLALeadList: React.FC = () => {
    const handleQuickAccept = (lead: ILead) => {
       const nowIso = new Date().toISOString();
       const updatedLead: ILead = appendLeadLogs({
-         ...lead,
+         ...clearLeadReclaimTracking(lead),
          status: LeadStatus.PICKED,
          ownerId: (!lead.ownerId || lead.ownerId === 'system') ? (user?.id || 'u1') : lead.ownerId,
          pickUpDate: nowIso,
@@ -718,14 +1160,25 @@ const SLALeadList: React.FC = () => {
       handleUpdate(updatedLead);
    };
 
-   const handleReclaimLead = (lead: ILead) => {
-      const previousOwnerName = getRepDisplayName(lead.ownerId);
+   const handleReclaimLead = (item: ReclaimLeadItem) => {
+      const lead = item.lead;
+      if (item.isAlreadyReclaimed) {
+         openAssignModal(item);
+         return;
+      }
+      const previousOwnerId = getLeadResponsibleOwnerId(lead);
+      const previousOwnerName = getRepDisplayName(previousOwnerId);
       const nowIso = new Date().toISOString();
+      const reclaimTriggerAt = item.triggerAt || lead.reclaimTriggerAt || nowIso;
       const updatedLead: ILead = appendLeadLogs({
          ...lead,
          status: LeadStatus.NEW,
          ownerId: '',
-         pickUpDate: undefined
+         pickUpDate: undefined,
+         reclaimedAt: nowIso,
+         reclaimReason: item.reclaimType,
+         reclaimTriggerAt,
+         reclaimedFromOwnerId: previousOwnerId
       }, {
          activities: [
             buildLeadActivityLog({
@@ -754,15 +1207,89 @@ const SLALeadList: React.FC = () => {
       handleUpdate(updatedLead);
    };
 
-   const getRepInfo = (id?: string) => {
-      if (!id) return { name: '-', color: '', avatar: '?', team: '' };
-      return SALES_REPS.find(r => r.id === id) || { name: 'Unknown', color: 'bg-gray-100', avatar: '?', team: '' };
+   const handleAssignReclaimedLead = () => {
+      const repsWithLeads = ASSIGNABLE_SALES_REPS.filter((rep) => (assignmentLeadCounts[rep.id] || 0) > 0);
+      if (selectedReclaimCount === 0) return;
+
+      if (repsWithLeads.length === 0) {
+         window.alert('Vui lòng nhập số lượng lead cho ít nhất 1 sale.');
+         return;
+      }
+
+      if (assignmentRatioTotal !== selectedReclaimCount) {
+         window.alert('Tổng số lead phân bổ phải bằng số lead đã chọn.');
+         return;
+      }
+
+      const selectedIds = new Set(selectedReclaimLeadIds);
+      const ownerAssignments = repsWithLeads.flatMap((rep) =>
+         Array.from({ length: assignmentLeadCounts[rep.id] || 0 }, () => rep.id)
+      );
+      let assignmentIndex = 0;
+      const nowIso = new Date().toISOString();
+      const updatedLeads = leads.map((lead) => {
+         if (!selectedIds.has(lead.id)) return lead;
+
+         const ownerId = ownerAssignments[assignmentIndex] || repsWithLeads[repsWithLeads.length - 1].id;
+         assignmentIndex += 1;
+         const targetRep = ASSIGNABLE_SALES_REPS.find((rep) => rep.id === ownerId);
+         const previousOwnerId = lead.reclaimedFromOwnerId || getLeadResponsibleOwnerId(lead) || lead.ownerId || '';
+         const previousOwnerName = getRepDisplayName(previousOwnerId);
+
+         return appendLeadLogs({
+            ...clearLeadReclaimTracking(lead),
+            status: LeadStatus.ASSIGNED,
+            ownerId,
+            pickUpDate: undefined
+         }, {
+            activities: [
+               buildLeadActivityLog({
+                  type: 'system',
+                  timestamp: nowIso,
+                  title: previousOwnerId ? 'Phân bổ lại Lead' : 'Phân bổ Lead',
+                  description: previousOwnerId
+                     ? `Lead được phân bổ lại từ ${previousOwnerName} sang ${targetRep?.name || ownerId} tại tab lead thu hồi.`
+                     : `Lead được phân bổ cho ${targetRep?.name || ownerId} tại tab lead thu hồi.`,
+                  user: user?.name || 'Marketing'
+               })
+            ],
+            audits: [
+               buildLeadAuditLog({
+                  action: previousOwnerId ? 'lead_reassigned' : 'lead_assigned',
+                  actor: user?.name || 'Marketing',
+                  actorType: 'user',
+                  timestamp: nowIso,
+                  changes: [
+                     buildLeadAuditChange('ownerId', lead.ownerId, ownerId, 'Sale phụ trách'),
+                     buildLeadAuditChange('status', lead.status, LeadStatus.ASSIGNED, 'Trạng thái')
+                  ]
+               })
+            ]
+         });
+      });
+
+      saveLeads(updatedLeads);
+      setLeads(updatedLeads);
+      setWarnings(calculateSLAWarnings(updatedLeads, undefined, slaConfig));
+      setSelectedReclaimLeadIds([]);
+      closeAssignModal();
+      window.alert(`Đã phân bổ thành công ${selectedReclaimCount} lead!`);
    };
 
-    const getRepDisplayName = (id?: string) => {
-      if (!id) return 'Chưa phân công';
+   const getRepInfo = (id?: string) => {
+      if (!id) return { name: '-', color: '', avatar: '?', team: '' };
+      const rep = SALES_REPS.find(r => r.id === id) || { name: 'Unknown', color: 'bg-gray-100', avatar: '?', team: '' };
+      return {
+         ...rep,
+         name: text(rep.name),
+         team: text(rep.team)
+      };
+   };
+
+   const getRepDisplayName = (id?: string) => {
+      if (!id) return 'Ch\u01B0a ph\u00E2n c\u00F4ng';
       const rep = getRepInfo(id);
-      if (rep.name === 'Unknown' || rep.name === '-') return id;
+      if (rep.name === 'Unknown' || rep.name === '-') return text(id);
       return rep.name;
    };
 
@@ -775,7 +1302,7 @@ const SLALeadList: React.FC = () => {
          case 'slow_first_call':
             return <span className="bg-amber-100 text-amber-700 px-2 py-1 rounded text-xs font-bold whitespace-nowrap">{SLA_STATUS_LABELS.slow_first_call}</span>;
          default:
-            return <span className="bg-slate-100 text-slate-700 px-2 py-1 rounded text-xs font-bold whitespace-nowrap">Khác</span>;
+            return <span className="bg-slate-100 text-slate-700 px-2 py-1 rounded text-xs font-bold whitespace-nowrap">{"Kh\u00E1c"}</span>;
       }
    };
 
@@ -784,18 +1311,21 @@ const SLALeadList: React.FC = () => {
    };
 
    const getReclaimBadge = (item: ReclaimLeadItem) => {
-      if (item.reclaimType === 'not_picked_up') {
-         return <span className="bg-violet-100 text-violet-700 px-2 py-1 rounded text-xs font-bold whitespace-nowrap">Quá hạn chưa nhận</span>;
+      if (item.isAlreadyReclaimed) {
+         return <span className="bg-violet-100 text-violet-700 px-2 py-1 rounded text-xs font-bold whitespace-nowrap">{"Chờ phân bổ lại"}</span>;
       }
-      return <span className="bg-fuchsia-100 text-fuchsia-700 px-2 py-1 rounded text-xs font-bold whitespace-nowrap">Đã nhận chưa gọi</span>;
+      if (item.reclaimType === 'slow_care') {
+         return <span className="bg-orange-100 text-orange-700 px-2 py-1 rounded text-xs font-bold whitespace-nowrap">{"Ch\u1EADm ch\u0103m s\u00F3c"}</span>;
+      }
+      return <span className="bg-fuchsia-100 text-fuchsia-700 px-2 py-1 rounded text-xs font-bold whitespace-nowrap">{"\u0110\u00E3 nh\u1EADn ch\u01B0a c\u1EADp nh\u1EADt"}</span>;
    };
 
    // Unique Values for Filters
    const uniqueSources = useMemo(() => {
       const sourceSet = new Set<string>();
-      leads.forEach((lead) => { if (lead.source) sourceSet.add(lead.source); });
-      slowHistory.forEach((item) => { if (item.source) sourceSet.add(item.source); });
-      slowEvents.forEach((event) => { if (event.source) sourceSet.add(event.source); });
+      leads.forEach((lead) => { if (lead.source) sourceSet.add(text(lead.source)); });
+      slowHistory.forEach((item) => { if (item.source) sourceSet.add(text(item.source)); });
+      slowEvents.forEach((event) => { if (event.source) sourceSet.add(text(event.source)); });
       return Array.from(sourceSet);
    }, [leads, slowHistory, slowEvents]);
    const uniqueBranches = useMemo(() => {
@@ -803,9 +1333,13 @@ const SLALeadList: React.FC = () => {
       leads.forEach((lead) => branchSet.add(resolveLeadBranch(lead)));
       slowHistory.forEach((item) => branchSet.add(ensureBranch(item.branch)));
       slowEvents.forEach((event) => branchSet.add(ensureBranch(event.branch)));
+      collaborators.forEach((collaborator) => {
+         const collaboratorBranch = normalizeText(collaborator.city);
+         if (collaboratorBranch) branchSet.add(collaboratorBranch);
+      });
       return Array.from(branchSet).sort((a, b) => a.localeCompare(b, 'vi'));
-   }, [leads, slowHistory, slowEvents]);
-   const uniqueStatuses = useMemo(() => Array.from(new Set(leads.map(l => l.status).filter(Boolean))), [leads]);
+   }, [collaborators, leads, slowHistory, slowEvents]);
+   const uniqueStatuses = useMemo(() => Array.from(new Set(leads.map(l => text(l.status)).filter(Boolean))), [leads]);
 
    const formatChipDate = (value?: string | null) => {
       if (!value) return '';
@@ -836,7 +1370,7 @@ const SLALeadList: React.FC = () => {
       }
 
       advancedFilters.status.forEach((statusValue) => {
-         chips.push({ key: `status:${statusValue}`, label: `Trang thai: ${statusValue}` });
+         chips.push({ key: `status:${statusValue}`, label: `Trạng thái: ${statusValue}` });
       });
 
       advancedFilters.source.forEach((sourceValue) => {
@@ -954,119 +1488,31 @@ const SLALeadList: React.FC = () => {
                         </div>
                      </div>
                      <div>
-                        <label className="block text-sm font-bold text-slate-700 mb-2">Thu hồi sau quá SLA (Ngày)</label>
-                        <div className="flex items-center gap-3">
-                           <input
-                              type="number"
-                              min="0"
-                              className="w-24 px-3 py-2 border border-slate-300 rounded-lg text-center font-bold"
-                              value={reclaimAfterDays}
-                              onChange={(e) => setReclaimAfterDays(Math.max(0, parseInt(e.target.value) || 0))}
-                           />
-                           <span className="text-slate-500 text-xs">Mặc định <span className="text-blue-600 font-bold">2 ngày</span> sau khi quá SLA nhận</span>
+                        <label className="block text-sm font-bold text-slate-700 mb-2">{"Quy t\u1EAFc thu h\u1ED3i"}</label>
+                        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">
+                           <div>{"Lead \u0111\u00E3 nh\u1EADn: qu\u00E1 2 gi\u1EDD trong gi\u1EDD h\u00E0nh ch\u00EDnh, ho\u1EB7c qu\u00E1 09:00 s\u00E1ng h\u00F4m sau n\u1EBFu nh\u1EADn ngo\u00E0i gi\u1EDD."}</div>
+                           <div>{"Lead ch\u1EADm ch\u0103m s\u00F3c: qu\u00E1 3 ng\u00E0y kh\u00F4ng c\u1EADp nh\u1EADt s\u1EBD v\u00E0o tab thu h\u1ED3i \u0111\u1EC3 ph\u00E2n b\u1ED5 l\u1EA1i."}</div>
                         </div>
                      </div>
                   </div>
                </div>
             )}
 
-            {/* TAB NAVIGATION */}
-            <div className="flex gap-6 border-b border-slate-200">
-               <button
-                  onClick={() => setActiveTab('slow_accept')}
-                  className={`pb-3 text-sm font-bold flex items-center gap-2 border-b-2 transition-all ${activeTab === 'slow_accept'
-                     ? 'border-red-600 text-red-600'
-                     : 'border-transparent text-slate-500 hover:text-slate-700'
-                     }`}
-               >
-                  <AlertCircle size={18} />
-                  Chậm nhận
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${activeTab === 'slow_accept' ? 'bg-red-100 text-red-700' : 'bg-slate-100'}`}>
-                     {warningListsByType.slow_accept.length}
-                  </span>
-               </button>
-               <button
-                  onClick={() => setActiveTab('slow_appointment')}
-                  className={`pb-3 text-sm font-bold flex items-center gap-2 border-b-2 transition-all ${activeTab === 'slow_appointment'
-                     ? 'border-pink-600 text-pink-600'
-                     : 'border-transparent text-slate-500 hover:text-slate-700'
-                     }`}
-               >
-                  <History size={18} />
-                  Chậm lịch hẹn
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${activeTab === 'slow_appointment' ? 'bg-pink-100 text-pink-700' : 'bg-slate-100'}`}>
-                     {warningListsByType.slow_appointment.length}
-                  </span>
-               </button>
-               <button
-                  onClick={() => setActiveTab('slow_first_call')}
-                  className={`pb-3 text-sm font-bold flex items-center gap-2 border-b-2 transition-all ${activeTab === 'slow_first_call'
-                     ? 'border-amber-600 text-amber-600'
-                     : 'border-transparent text-slate-500 hover:text-slate-700'
-                     }`}
-               >
-                  <MessageSquare size={18} />
-                  Chậm gọi lần 1
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${activeTab === 'slow_first_call' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100'}`}>
-                     {warningListsByType.slow_first_call.length}
-                  </span>
-               </button>
-               <button
-                  onClick={() => setActiveTab('slow_list')}
-                  className={`pb-3 text-sm font-bold flex items-center gap-2 border-b-2 transition-all ${activeTab === 'slow_list'
-                     ? 'border-slate-700 text-slate-700'
-                     : 'border-transparent text-slate-500 hover:text-slate-700'
-                     }`}
-               >
-                  <ListTodo size={18} />
-                  Danh sách chậm
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${activeTab === 'slow_list' ? 'bg-slate-200 text-slate-800' : 'bg-slate-100'}`}>
-                     {slowHistory.length}
-                  </span>
-               </button>
-               <button
-                  onClick={() => setActiveTab('reclaim')}
-                  className={`pb-3 text-sm font-bold flex items-center gap-2 border-b-2 transition-all ${activeTab === 'reclaim'
-                     ? 'border-violet-700 text-violet-700'
-                     : 'border-transparent text-slate-500 hover:text-slate-700'
-                     }`}
-               >
-                  <RotateCcw size={18} />
-                  Lead thu hồi
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${activeTab === 'reclaim' ? 'bg-violet-100 text-violet-700' : 'bg-slate-100'}`}>
-                     {reclaimList.length}
-                  </span>
-               </button>
-               <button
-                  onClick={() => setActiveTab('report')}
-                  className={`pb-3 text-sm font-bold flex items-center gap-2 border-b-2 transition-all ${activeTab === 'report'
-                     ? 'border-blue-700 text-blue-700'
-                     : 'border-transparent text-slate-500 hover:text-slate-700'
-                     }`}
-               >
-                  <BarChart3 size={18} />
-                  Báo cáo
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${activeTab === 'report' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100'}`}>
-                     {slowEvents.length}
-                  </span>
-               </button>
-            </div>
-
             {/* TOOLBAR: Search & Filters */}
             <div className="flex flex-wrap items-center justify-between gap-3">
                {/* Search */}
-               <div className="flex-1 min-w-[240px] max-w-xl">
+               <div className="min-w-[240px] flex-1">
                   <PinnedSearchInput
                      value={searchTerm}
                      onChange={setSearchTerm}
-                     placeholder="Tim ten, so dien thoai..."
+                     placeholder="Tìm tên, số điện thoại..."
                      chips={activeSearchChips}
                      onRemoveChip={removeSearchChip}
                      inputClassName="text-sm h-7"
                   />
                </div>
 
-               <div className="flex items-center gap-2">
+               <div className="flex shrink-0 items-center gap-2">
                   {/* Date Filter */}
                   <AdvancedDateFilter onChange={setDateRange} label="Thời gian" />
 
@@ -1079,7 +1525,7 @@ const SLALeadList: React.FC = () => {
                      >
                         <option value="all">Tất cả cơ sở</option>
                         {uniqueBranches.map((branch) => (
-                           <option key={branch} value={branch}>{branch}</option>
+                           <option key={branch} value={branch}>{text(branch)}</option>
                         ))}
                      </select>
                   </div>
@@ -1163,10 +1609,126 @@ const SLALeadList: React.FC = () => {
 
             {/* Lead List Table */}
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden min-h-[400px]">
+               <div className="flex gap-6 overflow-x-auto border-b border-slate-100 bg-white px-4 pt-4 pb-1">
+                  <button
+                     onClick={() => setActiveTab('slow_accept')}
+                     className={`pb-3 text-sm font-bold flex items-center gap-2 border-b-2 transition-all whitespace-nowrap ${activeTab === 'slow_accept'
+                        ? 'border-red-600 text-red-600'
+                        : 'border-transparent text-slate-500 hover:text-slate-700'
+                        }`}
+                  >
+                     <AlertCircle size={18} />
+                     Chậm nhận
+                     <span className={`text-xs px-2 py-0.5 rounded-full ${activeTab === 'slow_accept' ? 'bg-red-100 text-red-700' : 'bg-slate-100'}`}>
+                        {warningListsByType.slow_accept.length}
+                     </span>
+                  </button>
+                  <button
+                     onClick={() => setActiveTab('slow_appointment')}
+                     className={`pb-3 text-sm font-bold flex items-center gap-2 border-b-2 transition-all whitespace-nowrap ${activeTab === 'slow_appointment'
+                        ? 'border-pink-600 text-pink-600'
+                        : 'border-transparent text-slate-500 hover:text-slate-700'
+                        }`}
+                  >
+                     <History size={18} />
+                     Chậm lịch hẹn
+                     <span className={`text-xs px-2 py-0.5 rounded-full ${activeTab === 'slow_appointment' ? 'bg-pink-100 text-pink-700' : 'bg-slate-100'}`}>
+                        {warningListsByType.slow_appointment.length}
+                     </span>
+                  </button>
+                  <button
+                     onClick={() => setActiveTab('slow_collaborator')}
+                     className={`pb-3 text-sm font-bold flex items-center gap-2 border-b-2 transition-all whitespace-nowrap ${activeTab === 'slow_collaborator'
+                        ? 'border-rose-600 text-rose-600'
+                        : 'border-transparent text-slate-500 hover:text-slate-700'
+                        }`}
+                  >
+                     <Users size={18} />
+                     Chậm CTV
+                     <span className={`text-xs px-2 py-0.5 rounded-full ${activeTab === 'slow_collaborator' ? 'bg-rose-100 text-rose-700' : 'bg-slate-100'}`}>
+                        {slowCollaboratorList.length}
+                     </span>
+                  </button>
+                  <button
+                     onClick={() => setActiveTab('slow_first_call')}
+                     className={`pb-3 text-sm font-bold flex items-center gap-2 border-b-2 transition-all whitespace-nowrap ${activeTab === 'slow_first_call'
+                        ? 'border-amber-600 text-amber-600'
+                        : 'border-transparent text-slate-500 hover:text-slate-700'
+                        }`}
+                  >
+                     <MessageSquare size={18} />
+                     Chậm gọi lần 1
+                     <span className={`text-xs px-2 py-0.5 rounded-full ${activeTab === 'slow_first_call' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100'}`}>
+                        {warningListsByType.slow_first_call.length}
+                     </span>
+                  </button>
+                  <button
+                     onClick={() => setActiveTab('slow_list')}
+                     className={`pb-3 text-sm font-bold flex items-center gap-2 border-b-2 transition-all whitespace-nowrap ${activeTab === 'slow_list'
+                        ? 'border-slate-700 text-slate-700'
+                        : 'border-transparent text-slate-500 hover:text-slate-700'
+                        }`}
+                  >
+                     <ListTodo size={18} />
+                     Danh sách chậm
+                     <span className={`text-xs px-2 py-0.5 rounded-full ${activeTab === 'slow_list' ? 'bg-slate-200 text-slate-800' : 'bg-slate-100'}`}>
+                        {aggregatedSlowHistoryList.length}
+                     </span>
+                  </button>
+                  <button
+                     onClick={() => setActiveTab('reclaim')}
+                     className={`pb-3 text-sm font-bold flex items-center gap-2 border-b-2 transition-all whitespace-nowrap ${activeTab === 'reclaim'
+                        ? 'border-violet-700 text-violet-700'
+                        : 'border-transparent text-slate-500 hover:text-slate-700'
+                        }`}
+                  >
+                     <RotateCcw size={18} />
+                     Lead thu hồi
+                     <span className={`text-xs px-2 py-0.5 rounded-full ${activeTab === 'reclaim' ? 'bg-violet-100 text-violet-700' : 'bg-slate-100'}`}>
+                        {reclaimList.length}
+                     </span>
+                  </button>
+                  <button
+                     onClick={() => setActiveTab('report')}
+                     className={`pb-3 text-sm font-bold flex items-center gap-2 border-b-2 transition-all whitespace-nowrap ${activeTab === 'report'
+                        ? 'border-blue-700 text-blue-700'
+                        : 'border-transparent text-slate-500 hover:text-slate-700'
+                        }`}
+                  >
+                     <BarChart3 size={18} />
+                     Báo cáo
+                     <span className={`text-xs px-2 py-0.5 rounded-full ${activeTab === 'report' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100'}`}>
+                        {slowEvents.length}
+                     </span>
+                  </button>
+               </div>
+               {activeTab === 'reclaim' && selectedReclaimCount > 0 && (
+                  <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
+                     <div className="text-sm text-slate-600">
+                        <span className="font-bold text-slate-900">{selectedReclaimCount}</span> lead thu hồi đang được chọn
+                     </div>
+                     <button
+                        onClick={() => openAssignModal()}
+                        className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white transition-all hover:bg-blue-700"
+                     >
+                        <UserPlus size={16} /> Phân bổ
+                     </button>
+                  </div>
+               )}
                {activeTab === 'report' ? (
                   <table className="w-full text-left border-collapse">
                      <thead className="bg-slate-50 border-b border-slate-200">
                         <tr>
+                           {activeTab === 'reclaim' && (
+                              <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider w-12">
+                                 <input
+                                    type="checkbox"
+                                    className="rounded border-slate-300"
+                                    checked={allFilteredReclaimSelected}
+                                    onChange={handleSelectAllReclaim}
+                                 />
+                              </th>
+                           )}
                            <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Sale</th>
                            <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Chậm nhận</th>
                            <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Chậm lịch hẹn</th>
@@ -1185,7 +1747,7 @@ const SLALeadList: React.FC = () => {
                                        {row.ownerId && rep.name !== 'Unknown' && rep.name !== '-' && (
                                           <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold ${rep.color}`}>{rep.avatar}</div>
                                        )}
-                                       <span className="text-sm font-semibold text-slate-800">{repName}</span>
+                                       <span className="text-sm font-semibold text-slate-800">{text(repName)}</span>
                                     </div>
                                  </td>
                                  <td className="px-6 py-4 text-center text-sm font-bold text-red-600">{row.slow_accept}</td>
@@ -1212,16 +1774,110 @@ const SLALeadList: React.FC = () => {
                   <table className="w-full text-left border-collapse">
                      <thead className="bg-slate-50 border-b border-slate-200">
                         <tr>
+                           {activeTab === 'reclaim' && (
+                              <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider w-12">
+                                 <input
+                                    type="checkbox"
+                                    className="rounded border-slate-300"
+                                    checked={allFilteredReclaimSelected}
+                                    onChange={handleSelectAllReclaim}
+                                 />
+                              </th>
+                           )}
                            <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Họ tên & Nguồn</th>
                            <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Sale phụ trách</th>
                            <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Vấn đề (Issue)</th>
                            <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Trạng thái</th>
                            <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Thời gian trễ</th>
-                           <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Hành động</th>
+                           {activeTab !== 'reclaim' && <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Hành động</th>}
                         </tr>
                      </thead>
                      <tbody className="divide-y divide-slate-100">
-                        {activeTab === 'slow_list' ? (
+                        {activeTab === 'slow_collaborator' ? (
+                           <>
+                              {filteredSlowCollaboratorList.map((item, idx) => {
+                                 const collaborator = item.collaborator;
+                                 const ownerId = normalizeText(collaborator.ownerId);
+                                 const rep = getRepInfo(ownerId);
+                                 const ownerLabel = text(collaborator.ownerName || getRepDisplayName(ownerId));
+                                 const latestNote =
+                                    Array.isArray(collaborator.activities) && collaborator.activities.length > 0
+                                       ? text(collaborator.activities[0]?.description)
+                                       : text(collaborator.notes || '');
+
+                                 return (
+                                    <tr key={`${collaborator.id}-collaborator-${idx}`} className="hover:bg-rose-50/40 transition-colors">
+                                       <td className="px-6 py-4">
+                                          <div className="flex flex-col">
+                                             <span className="text-sm font-bold text-slate-900">{text(collaborator.name)}</span>
+                                             <div className="mt-1 flex items-center gap-2">
+                                                <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded border border-slate-200">CTV</span>
+                                                <span className="text-xs bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded border border-indigo-200">
+                                                   {text(collaborator.city || UNKNOWN_BRANCH)}
+                                                </span>
+                                                <span className="text-xs text-slate-400">{text(collaborator.phone)}</span>
+                                             </div>
+                                          </div>
+                                       </td>
+                                       <td className="px-6 py-4">
+                                          <div className="flex items-center gap-2">
+                                             {ownerId && rep.name !== 'Unknown' && (
+                                                <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold ${rep.color}`}>{rep.avatar}</div>
+                                             )}
+                                             <span className="text-sm font-medium text-slate-700">{ownerLabel || 'Chưa phân công'}</span>
+                                          </div>
+                                       </td>
+                                       <td className="px-6 py-4 w-[30%]">
+                                          <div className="flex flex-col gap-1 items-start">
+                                             {item.isPreview && (
+                                                <span className="bg-blue-100 text-blue-700 px-2 py-1 rounded text-xs font-bold whitespace-nowrap">Xem trước</span>
+                                             )}
+                                             <span className="bg-rose-100 text-rose-700 px-2 py-1 rounded text-xs font-bold whitespace-nowrap">Chậm lịch hẹn CTV</span>
+                                             <span className="text-xs text-slate-500 mt-1">
+                                                Đã quá lịch hẹn chăm sóc cộng tác viên. {latestNote ? latestNote : 'Cần xử lý lại lịch hẹn tiếp theo.'}
+                                             </span>
+                                             {(collaborator.nextAppointment || item.isPreview) && (
+                                                <span className="text-[11px] text-slate-400">
+                                                   Lịch hẹn: {new Date(item.appointmentAt).toLocaleString('vi-VN')}
+                                                </span>
+                                             )}
+                                          </div>
+                                       </td>
+                                       <td className="px-6 py-4">
+                                          <span className="text-sm font-medium text-slate-700">{text(collaborator.status || 'New')}</span>
+                                       </td>
+                                       <td className="px-6 py-4">
+                                          <span className="text-sm font-bold flex items-center gap-1 text-rose-700">
+                                             <Clock size={16} /> {item.overdueText}
+                                          </span>
+                                       </td>
+                                       <td className="px-6 py-4 text-right">
+                                          <div className="flex items-center justify-end gap-2">
+                                             <button
+                                                onClick={() => openCollaboratorDetails(collaborator.id)}
+                                                className="inline-flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded text-sm font-bold shadow-sm transition-all whitespace-nowrap"
+                                                title="Mở cộng tác viên để xử lý"
+                                             >
+                                                <Users size={14} /> Xử lý
+                                             </button>
+                                          </div>
+                                       </td>
+                                    </tr>
+                                 );
+                              })}
+
+                              {filteredSlowCollaboratorList.length === 0 && (
+                                 <tr>
+                                    <td colSpan={6} className="px-6 py-12 text-center text-slate-400">
+                                       <div className="flex flex-col items-center gap-3">
+                                          <CheckCircle2 size={48} className="text-green-500 opacity-50" />
+                                          <p>Chưa có cộng tác viên nào đang chậm lịch hẹn theo SLA.</p>
+                                       </div>
+                                    </td>
+                                 </tr>
+                              )}
+                           </>
+                        ) : activeTab === 'slow_list' ? (
                            <>
                               {filteredSlowHistoryList.map((item, idx) => {
                                  const rep = getRepInfo(item.ownerId);
@@ -1231,28 +1887,34 @@ const SLALeadList: React.FC = () => {
                                     <tr
                                        key={`${item.id}-${idx}`}
                                        className={`hover:bg-slate-50 transition-colors ${linkedLead ? 'cursor-pointer' : ''}`}
-                                       onClick={() => linkedLead && setSelectedLead(linkedLead)}
+                                       onClick={() => linkedLead && openLeadDetails(linkedLead.id)}
                                     >
                                        <td className="px-6 py-4">
                                           <div className="flex flex-col">
-                                             <span className="text-sm font-bold text-slate-900">{item.leadName}</span>
+                                             <span className="text-sm font-bold text-slate-900">{text(item.leadName)}</span>
                                              <div className="flex items-center gap-2 mt-1">
-                                                <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded border border-slate-200">{item.source || '-'}</span>
-                                                <span className="text-xs bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded border border-indigo-200">{ensureBranch(item.branch)}</span>
-                                                <span className="text-xs text-slate-400">{item.phone}</span>
+                                                <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded border border-slate-200">{text(item.source || '-')}</span>
+                                                <span className="text-xs bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded border border-indigo-200">{text(ensureBranch(item.branch))}</span>
+                                                <span className="text-xs text-slate-400">{text(item.phone)}</span>
                                              </div>
                                           </div>
                                        </td>
                                        <td className="px-6 py-4">
                                           <div className="flex items-center gap-2">
                                              {rep.name !== 'Unknown' && <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold ${rep.color}`}>{rep.avatar}</div>}
-                                             <span className="text-sm font-medium text-slate-700">{getRepDisplayName(item.ownerId)}</span>
+                                             <span className="text-sm font-medium text-slate-700">{text(getRepDisplayName(item.ownerId))}</span>
                                           </div>
                                        </td>
                                        <td className="px-6 py-4 w-[30%]">
                                           <div className="flex flex-col gap-1 items-start">
-                                             {getSlowTypeBadge(item.slowType)}
-                                             <span className="text-xs text-slate-500 mt-1">{item.latestMessage}</span>
+                                             <div className="flex flex-wrap gap-1">
+                                                {item.slowTypes.map((slowType) => (
+                                                   <React.Fragment key={`${item.leadId}-${slowType}`}>
+                                                      {getSlowTypeBadge(slowType)}
+                                                   </React.Fragment>
+                                                ))}
+                                             </div>
+                                             <span className="text-xs text-slate-500 mt-1">{text(item.latestMessage)}</span>
                                              <span className="text-[11px] text-slate-400">
                                                 Lần đầu: {new Date(item.firstDetectedAt).toLocaleString('vi-VN')}
                                              </span>
@@ -1263,7 +1925,7 @@ const SLALeadList: React.FC = () => {
                                              <span className={`inline-flex items-center w-fit px-2 py-0.5 rounded text-xs font-bold ${isResolved ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
                                                 {isResolved ? 'Đã xử lý' : 'Đang chậm'}
                                              </span>
-                                             <span className="text-xs text-slate-500">{item.leadStatus || '-'}</span>
+                                             <span className="text-xs text-slate-500">{text(item.leadStatus || '-')}</span>
                                              {item.resolvedAt && (
                                                 <span className="text-[11px] text-slate-400">
                                                    Xử lý lúc: {new Date(item.resolvedAt).toLocaleString('vi-VN')}
@@ -1284,7 +1946,7 @@ const SLALeadList: React.FC = () => {
                                              <button
                                                 onClick={(e) => {
                                                    e.stopPropagation();
-                                                   if (linkedLead) setSelectedLead(linkedLead);
+                                                   if (linkedLead) openLeadDetails(linkedLead.id);
                                                 }}
                                                 disabled={!linkedLead}
                                                 className={`inline-flex items-center gap-1 px-3 py-1.5 rounded text-sm font-bold shadow-sm transition-all whitespace-nowrap ${linkedLead ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}
@@ -1312,51 +1974,58 @@ const SLALeadList: React.FC = () => {
                         ) : activeTab === 'reclaim' ? (
                            <>
                               {filteredReclaimList.map((item, idx) => {
-                                 const rep = getRepInfo(item.lead.ownerId);
+                                 const ownerDisplayId = item.previousOwnerId || item.currentOwnerId || item.lead.ownerId;
+                                 const rep = getRepInfo(ownerDisplayId);
                                  const leadBranch = resolveLeadBranch(item.lead);
                                  return (
-                                    <tr key={`${item.lead.id}-reclaim-${idx}`} className="hover:bg-slate-50 transition-colors cursor-pointer" onClick={() => setSelectedLead(item.lead)}>
+                                    <tr key={`${item.lead.id}-reclaim-${idx}`} className={`hover:bg-slate-50 transition-colors cursor-pointer ${selectedReclaimLeadSet.has(item.lead.id) ? 'bg-slate-50' : ''}`} onClick={() => openLeadDetails(item.lead.id)}>
+                                       <td className="px-4 py-4" onClick={(e) => e.stopPropagation()}>
+                                          <input
+                                             type="checkbox"
+                                             className="rounded border-slate-300 w-4 h-4"
+                                             checked={selectedReclaimLeadSet.has(item.lead.id)}
+                                             onChange={() => toggleReclaimLeadSelection(item.lead.id)}
+                                          />
+                                       </td>
                                        <td className="px-6 py-4">
                                           <div className="flex flex-col">
-                                             <span className="text-sm font-bold text-slate-900">{item.lead.name}</span>
+                                             <span className="text-sm font-bold text-slate-900">{text(item.lead.name)}</span>
                                              <div className="flex items-center gap-2 mt-1">
-                                                <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded border border-slate-200">{item.lead.source}</span>
-                                                <span className="text-xs bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded border border-indigo-200">{leadBranch}</span>
-                                                <span className="text-xs text-slate-400">{item.lead.phone}</span>
+                                                <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded border border-slate-200">{text(item.lead.source)}</span>
+                                                <span className="text-xs bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded border border-indigo-200">{text(leadBranch)}</span>
+                                                <span className="text-xs text-slate-400">{text(item.lead.phone)}</span>
                                              </div>
                                           </div>
                                        </td>
                                        <td className="px-6 py-4">
                                           <div className="flex items-center gap-2">
                                              {rep.name !== 'Unknown' && <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold ${rep.color}`}>{rep.avatar}</div>}
-                                             <span className="text-sm font-medium text-slate-700">{getRepDisplayName(item.lead.ownerId)}</span>
+                                             <div className="flex flex-col">
+                                                <span className="text-sm font-medium text-slate-700">{text(getRepDisplayName(ownerDisplayId))}</span>
+                                                {item.isAlreadyReclaimed && (
+                                                   <span className="text-[11px] text-slate-400">Đã thu hồi, hiện chưa phân công</span>
+                                                )}
+                                             </div>
                                           </div>
                                        </td>
                                        <td className="px-6 py-4 w-[30%]">
                                           <div className="flex flex-col gap-1 items-start">
                                              {getReclaimBadge(item)}
-                                             <span className="text-xs text-slate-500 mt-1">{item.message}</span>
-                                             <span className="text-[11px] text-slate-400">Mốc thu hồi: {new Date(item.triggerAt).toLocaleString('vi-VN')}</span>
+                                             <span className="text-xs text-slate-500 mt-1">{text(item.message)}</span>
+                                             <span className="text-[11px] text-slate-400">
+                                                {item.isAlreadyReclaimed ? 'Thu hồi lúc' : 'Mốc thu hồi'}: {new Date(item.isAlreadyReclaimed ? (item.reclaimedAt || item.triggerAt) : item.triggerAt).toLocaleString('vi-VN')}
+                                             </span>
                                           </div>
                                        </td>
                                        <td className="px-6 py-4">
-                                          <span className="text-sm font-medium text-slate-700 capitalize">{item.lead.status}</span>
+                                          <span className="text-sm font-medium text-slate-700 capitalize">
+                                             {item.isAlreadyReclaimed ? 'Chờ phân bổ lại' : text(item.lead.status)}
+                                          </span>
                                        </td>
                                        <td className="px-6 py-4">
                                           <span className="text-sm font-bold flex items-center gap-1 text-violet-700">
                                              <Clock size={16} /> {item.overdueText}
                                           </span>
-                                       </td>
-                                       <td className="px-6 py-4 text-right">
-                                          <div className="flex items-center justify-end gap-2">
-                                             <button
-                                                onClick={(e) => { e.stopPropagation(); handleReclaimLead(item.lead); }}
-                                                className="inline-flex items-center gap-1 bg-violet-600 hover:bg-violet-700 text-white px-3 py-1.5 rounded text-sm font-bold shadow-sm transition-all whitespace-nowrap"
-                                                title="Thu hồi lead"
-                                             >
-                                                <RotateCcw size={14} /> Thu hồi
-                                             </button>
-                                          </div>
                                        </td>
                                     </tr>
                                  );
@@ -1376,34 +2045,35 @@ const SLALeadList: React.FC = () => {
                         ) : (
                            <>
                               {filteredList.map((warning, idx) => {
-                                 const rep = getRepInfo((warning.lead as any).salesperson || warning.lead.ownerId);
+                                 const responsibleOwnerId = getWarningResponsibleOwnerId(warning);
+                                 const rep = getRepInfo(responsibleOwnerId);
                                  const leadBranch = resolveLeadBranch(warning.lead);
                                  return (
-                                    <tr key={`${warning.lead.id}-${idx}`} className="hover:bg-slate-50 transition-colors cursor-pointer" onClick={() => setSelectedLead(warning.lead)}>
+                                    <tr key={`${warning.lead.id}-${idx}`} className="hover:bg-slate-50 transition-colors cursor-pointer" onClick={() => openLeadDetails(warning.lead.id)}>
                                        <td className="px-6 py-4">
                                           <div className="flex flex-col">
-                                             <span className="text-sm font-bold text-slate-900">{warning.lead.name}</span>
+                                             <span className="text-sm font-bold text-slate-900">{text(warning.lead.name)}</span>
                                              <div className="flex items-center gap-2 mt-1">
-                                                <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded border border-slate-200">{warning.lead.source}</span>
-                                                <span className="text-xs bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded border border-indigo-200">{leadBranch}</span>
-                                                <span className="text-xs text-slate-400">{warning.lead.phone}</span>
+                                                <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded border border-slate-200">{text(warning.lead.source)}</span>
+                                                <span className="text-xs bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded border border-indigo-200">{text(leadBranch)}</span>
+                                                <span className="text-xs text-slate-400">{text(warning.lead.phone)}</span>
                                              </div>
                                           </div>
                                        </td>
                                        <td className="px-6 py-4">
                                           <div className="flex items-center gap-2">
                                              {rep.name !== 'Unknown' && <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold ${rep.color}`}>{rep.avatar}</div>}
-                                             <span className="text-sm font-medium text-slate-700">{getRepDisplayName((warning.lead as any).salesperson || warning.lead.ownerId)}</span>
+                                             <span className="text-sm font-medium text-slate-700">{text(getRepDisplayName(responsibleOwnerId))}</span>
                                           </div>
                                        </td>
                                        <td className="px-6 py-4 w-[30%]">
                                           <div className="flex flex-col gap-1 items-start">
                                              {getWarningBadge(warning)}
-                                             <span className="text-xs text-slate-500 mt-1">{warning.message}</span>
+                                             <span className="text-xs text-slate-500 mt-1">{text(warning.message)}</span>
                                           </div>
                                        </td>
                                        <td className="px-6 py-4">
-                                          <span className="text-sm font-medium text-slate-700 capitalize">{warning.lead.status}</span>
+                                          <span className="text-sm font-medium text-slate-700 capitalize">{text(warning.lead.status)}</span>
                                        </td>
                                        <td className="px-6 py-4">
                                           <span className={`text-sm font-bold flex items-center gap-1 ${warning.severity === 'danger' ? 'text-red-600' :
@@ -1433,7 +2103,7 @@ const SLALeadList: React.FC = () => {
                                              )}
                                              {(activeTab === 'slow_appointment' || activeTab === 'slow_first_call') && (
                                                 <button
-                                                   onClick={(e) => { e.stopPropagation(); setSelectedLead(warning.lead); }}
+                                                   onClick={(e) => { e.stopPropagation(); openLeadDetails(warning.lead.id); }}
                                                    className="inline-flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded text-sm font-bold shadow-sm transition-all whitespace-nowrap"
                                                    title="Xử lý / Tương tác"
                                                 >
@@ -1464,7 +2134,124 @@ const SLALeadList: React.FC = () => {
             </div>
          </div>
 
-         {/* Drawer */}
+         {showAssignModal && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+               <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={closeAssignModal}></div>
+               <div className="relative w-full max-w-2xl overflow-hidden rounded-lg bg-white shadow-2xl">
+                  <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-4 py-3">
+                     <h3 className="flex items-center gap-2 text-[15px] font-bold text-slate-900">
+                        <UserPlus size={18} className="text-blue-600" />
+                        Phân bổ Lead thu hồi
+                     </h3>
+                     <button onClick={closeAssignModal} className="rounded-sm p-1 text-slate-400 hover:bg-white hover:text-slate-600">
+                        <X size={18} />
+                     </button>
+                  </div>
+
+                  <div className="space-y-4 p-4">
+                     <div className="flex items-start gap-2 rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-[12px] text-blue-800">
+                        <Users size={16} className="mt-0.5 shrink-0" />
+                        <p>Bạn đang phân bổ <span className="font-bold">{selectedReclaimCount}</span> lead thu hồi cho nhân viên kinh doanh.</p>
+                     </div>
+
+                     <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                           <div>
+                              <p className="text-[13px] font-bold text-slate-800">Phân bổ theo số lượng</p>
+                              <p className="mt-0.5 text-[11px] text-slate-500">Nhập số lead cho từng sale. Tổng phải bằng số lead đã chọn.</p>
+                           </div>
+                           <div className="flex items-center gap-2">
+                              <button type="button" onClick={fillAssignmentRatiosEvenly} className="rounded-sm border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-bold text-slate-700 hover:bg-slate-100">
+                                 Chia đều số lượng
+                              </button>
+                              <button type="button" onClick={resetAssignModal} className="rounded-sm border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-bold text-slate-700 hover:bg-slate-100">
+                                 Reset
+                              </button>
+                           </div>
+                        </div>
+
+                        <div className="mt-3 flex flex-wrap items-end gap-x-6 gap-y-2">
+                           <div>
+                              <div className="text-[11px] text-slate-500">Tổng phân bổ</div>
+                              <div className={`text-[15px] font-bold ${assignmentRatioTotal === selectedReclaimCount ? 'text-emerald-600' : 'text-amber-600'}`}>{assignmentRatioTotal}</div>
+                           </div>
+                           <div>
+                              <div className="text-[11px] text-slate-500">Tổng lead</div>
+                              <div className="text-[15px] font-bold text-slate-900">{selectedReclaimCount}</div>
+                           </div>
+                           <div>
+                              <div className="text-[11px] text-slate-500">Số sale tham gia</div>
+                              <div className="text-[15px] font-bold text-slate-900">{Object.values(assignmentRatioValues).filter((value) => value > 0).length}</div>
+                           </div>
+                        </div>
+                     </div>
+
+                     <div>
+                        <label className="mb-2 block text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">Số lượng theo nhân viên</label>
+                        <div className="max-h-[340px] overflow-y-auto">
+                           {ASSIGNABLE_SALES_REPS.map((rep) => {
+                              const ratioValue = assignmentRatios[rep.id] || '';
+                              const ratio = assignmentRatioValues[rep.id] || 0;
+                              const leadCount = assignmentLeadCounts[rep.id] || 0;
+                              const isActive = ratio > 0 || ratioValue !== '';
+
+                              return (
+                                 <div key={rep.id} className={`border-b border-slate-100 py-2 transition-colors ${isActive ? 'bg-blue-50/40' : 'bg-white'}`}>
+                                    <div className="flex items-center gap-3">
+                                       <div className={`flex h-8 w-8 items-center justify-center rounded-full text-[11px] font-bold ${rep.color}`}>
+                                          {rep.avatar}
+                                       </div>
+                                       <div className="min-w-0 flex-1">
+                                          <p className="text-[13px] font-semibold text-slate-900">{text(rep.name)}</p>
+                                          <p className="text-[11px] text-slate-500">{text(rep.team)}</p>
+                                       </div>
+                                       <div className="flex items-center gap-2">
+                                          <input
+                                             type="number"
+                                             min={0}
+                                             max={selectedReclaimCount}
+                                             value={ratioValue}
+                                             onChange={(e) => updateAssignmentRatio(rep.id, e.target.value)}
+                                             placeholder="0"
+                                             className="w-16 rounded-sm border border-slate-300 bg-white px-2 py-1 text-[13px] font-semibold text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                                          />
+                                          <span className="text-[13px] font-bold text-slate-500">lead</span>
+                                       </div>
+                                    </div>
+
+                                    <div className="mt-1 flex items-center justify-between gap-3 pl-10">
+                                       <p className="text-[11px] text-slate-600">
+                                          {ratio > 0 ? `Dự kiến nhận ${leadCount} lead` : 'Chưa tham gia phân bổ'}
+                                       </p>
+                                       <button
+                                          type="button"
+                                          onClick={() => setSingleRepAssignment(rep.id)}
+                                          className="rounded-sm border border-slate-200 bg-white px-2 py-1 text-[10px] font-bold text-slate-700 hover:bg-slate-100"
+                                       >
+                                          Giao hết cho sale này
+                                       </button>
+                                    </div>
+                                 </div>
+                              );
+                           })}
+                        </div>
+                     </div>
+                  </div>
+
+                  <div className="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 px-4 py-3">
+                     <button onClick={closeAssignModal} className="rounded-sm px-3 py-1.5 text-[12px] font-bold text-slate-600 hover:bg-slate-200">Huy</button>
+                     <button
+                        onClick={handleAssignReclaimedLead}
+                        className={`rounded-sm px-4 py-1.5 text-[12px] font-bold text-white transition-colors ${assignmentRatioTotal === selectedReclaimCount && selectedReclaimCount > 0 ? 'bg-blue-600 hover:bg-blue-700' : 'cursor-not-allowed bg-slate-400'}`}
+                        disabled={assignmentRatioTotal !== selectedReclaimCount || selectedReclaimCount === 0}
+                     >
+                        Xác nhận Phân bổ
+                     </button>
+                  </div>
+               </div>
+            </div>
+         )}
+
          <UnifiedLeadDrawer
             isOpen={!!selectedLead}
             onClose={() => setSelectedLead(null)}

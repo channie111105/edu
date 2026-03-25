@@ -1,5 +1,5 @@
-
 import { ILead } from '../types';
+import { getPickedLeadFirstActionDeadline, getPickedLeadFirstActionMessage } from './leadSla';
 
 export interface SLAWarning {
     type: 'new_lead' | 'overdue_appointment' | 'manual_sla' | 'not_acknowledged' | 'slow_interaction' | 'neglected_interaction';
@@ -13,30 +13,24 @@ export interface SLAWarning {
 export interface SLAConfig {
     ackTimeMinutes: number;
     firstActionTimeMinutes: number;
-    maxNeglectTimeHours: number; // New config for follow-up gap
+    maxNeglectTimeHours: number;
 }
 
-/**
- * Calculate SLA warnings for leads
- * Updated to support configurable thresholds and improved sorting.
- */
 export function calculateSLAWarnings(
     leads: ILead[],
     currentUserId?: string,
-    config: SLAConfig = { ackTimeMinutes: 15, firstActionTimeMinutes: 60, maxNeglectTimeHours: 72 }
+    config: SLAConfig = { ackTimeMinutes: 15, firstActionTimeMinutes: 120, maxNeglectTimeHours: 72 }
 ): SLAWarning[] {
     const warnings: SLAWarning[] = [];
     const now = new Date();
 
-    leads.forEach(lead => {
+    leads.forEach((lead) => {
         if (!lead) return;
 
-        // Only check leads assigned to current user (unless viewing all)
         if (currentUserId && lead.ownerId !== currentUserId) {
             return;
         }
 
-        // PRIORITY 1: Check for manual SLA status (from mock data or admin override)
         if ((lead as any).slaStatus && (lead as any).slaStatus !== 'normal') {
             const slaStatus = (lead as any).slaStatus;
             const slaReason = (lead as any).slaReason || 'Cần xử lý';
@@ -45,7 +39,7 @@ export function calculateSLAWarnings(
             let minutesOverdue = 999999;
             if (lead.createdAt) {
                 const created = new Date(lead.createdAt);
-                if (!isNaN(created.getTime())) {
+                if (!Number.isNaN(created.getTime())) {
                     minutesOverdue = Math.floor((now.getTime() - created.getTime()) / (1000 * 60));
                 }
             }
@@ -56,28 +50,20 @@ export function calculateSLAWarnings(
                 message: slaReason,
                 severity: slaStatus === 'danger' ? 'danger' : slaStatus === 'warning' ? 'warning' : 'info',
                 timeLeft: detailedTime,
-                minutesOverdue: minutesOverdue
+                minutesOverdue
             });
-            // Continue checking other conditions? Usually manual overrides everything.
-            // But let's check strict time-based ones too if we want comprehensive tabs.
-            // For now, return to mimic previous behavior.
             return;
         }
 
-        // PRIORITY 2: Automatic SLA calculation
         if (!lead.createdAt) return;
         const createdAt = new Date(lead.createdAt);
-        if (isNaN(createdAt.getTime())) return;
+        if (Number.isNaN(createdAt.getTime())) return;
 
         const totalMinutes = Math.floor((now.getTime() - createdAt.getTime()) / (1000 * 60));
-
-        // Check for interactions
-        const userActivities = (Array.isArray(lead.activities) ? lead.activities : []).filter((a: any) => a.type !== 'system');
+        const userActivities = (Array.isArray(lead.activities) ? lead.activities : []).filter((activity: any) => activity.type !== 'system');
         const hasInteractions = userActivities.length > 0;
         const isNew = lead.status === 'NEW' || lead.status === 'new' || lead.status === 'Mới';
 
-        // CRITERIA 1: Not Acknowledged (Quá hạn nhận)
-        // Applies to NEW leads
         if (isNew) {
             if (totalMinutes > config.ackTimeMinutes) {
                 warnings.push({
@@ -89,27 +75,25 @@ export function calculateSLAWarnings(
                     minutesOverdue: totalMinutes
                 });
             }
-        }
-        // CRITERIA 2: Slow Interaction (Chậm chăm sóc)
-        // Case A: No interactions at all (and not New/or passed New phase but ignored)
-        else if (!hasInteractions) {
-            const timerStart = lead.pickUpDate ? new Date(lead.pickUpDate) : createdAt;
-            const minsSinceStart = Math.floor((now.getTime() - timerStart.getTime()) / (1000 * 60));
+        } else if (!hasInteractions) {
+            const deadline = lead.pickUpDate
+                ? getPickedLeadFirstActionDeadline(lead.pickUpDate, config.firstActionTimeMinutes)
+                : new Date(createdAt.getTime() + config.firstActionTimeMinutes * 60 * 1000);
 
-            if (minsSinceStart > config.firstActionTimeMinutes) {
-                const hoursWait = Math.floor(minsSinceStart / 60);
+            if (deadline && now > deadline) {
+                const minutesOverdue = Math.floor((now.getTime() - deadline.getTime()) / (1000 * 60));
                 warnings.push({
                     type: 'slow_interaction',
                     lead,
-                    message: `Quá hạn ${hoursWait} giờ - Chưa có tương tác đầu tiên kể từ lúc nhận`,
+                    message: lead.pickUpDate
+                        ? getPickedLeadFirstActionMessage(lead.pickUpDate, config.firstActionTimeMinutes)
+                        : `Quá hạn tương tác đầu tiên sau ${config.firstActionTimeMinutes} phút kể từ lúc tạo lead.`,
                     severity: 'warning',
-                    timeLeft: formatOverdueTime(minsSinceStart),
-                    minutesOverdue: minsSinceStart
+                    timeLeft: formatOverdueTime(minutesOverdue),
+                    minutesOverdue
                 });
             }
-        }
-        // Case B: Has interactions, but neglected recently (Chăm sóc gián đoạn)
-        else if (hasInteractions) {
+        } else {
             const lastInteractionDate = lead.lastInteraction ? new Date(lead.lastInteraction) : createdAt;
             const minutesSinceLast = Math.floor((now.getTime() - lastInteractionDate.getTime()) / (1000 * 60));
 
@@ -127,43 +111,33 @@ export function calculateSLAWarnings(
             }
         }
 
-        // Check for overdue appointments
         if (lead.activities && lead.activities.length > 0) {
-            const scheduledActivities = lead.activities.filter((a: any) =>
-                a.type === 'activity' &&
-                a.datetime &&
-                (!a.status || a.status === 'scheduled')
+            const scheduledActivities = lead.activities.filter(
+                (activity: any) => activity.type === 'activity' && activity.datetime && (!activity.status || activity.status === 'scheduled')
             );
 
             scheduledActivities.forEach((activity: any) => {
                 const activityDate = new Date(activity.datetime);
-                const isOverdue = activityDate < now;
+                if (!(activityDate < now)) return;
 
-                if (isOverdue) {
-                    const minutesLate = Math.floor((now.getTime() - activityDate.getTime()) / (1000 * 60));
-                    const hoursLate = Math.floor(minutesLate / 60);
+                const minutesLate = Math.floor((now.getTime() - activityDate.getTime()) / (1000 * 60));
+                const hoursLate = Math.floor(minutesLate / 60);
 
-                    // Add warning (potentially multiple per lead, but normally one critical)
-                    warnings.push({
-                        type: 'overdue_appointment',
-                        lead,
-                        message: `Quá hạn lịch hẹn ${hoursLate > 0 ? hoursLate + ' giờ' : minutesLate + ' phút'} - ${activity.description || activity.title || 'Chưa gọi lại'}`,
-                        severity: minutesLate > 60 ? 'danger' : 'warning',
-                        timeLeft: hoursLate > 0 ? `${hoursLate}h ${minutesLate % 60}p` : `${minutesLate}p`,
-                        minutesOverdue: minutesLate
-                    });
-                }
+                warnings.push({
+                    type: 'overdue_appointment',
+                    lead,
+                    message: `Quá hạn lịch hẹn ${hoursLate > 0 ? `${hoursLate} giờ` : `${minutesLate} phút`} - ${activity.description || activity.title || 'Chưa gọi lại'}`,
+                    severity: minutesLate > 60 ? 'danger' : 'warning',
+                    timeLeft: hoursLate > 0 ? `${hoursLate}h ${minutesLate % 60}p` : `${minutesLate}p`,
+                    minutesOverdue: minutesLate
+                });
             });
         }
     });
 
-    // Sort by minutesOverdue DESC (longest delay first)
-    return warnings.sort((a, b) => {
-        return (b.minutesOverdue || 0) - (a.minutesOverdue || 0);
-    });
+    return warnings.sort((a, b) => (b.minutesOverdue || 0) - (a.minutesOverdue || 0));
 }
 
-// Helper function to format overdue time
 function formatOverdueTime(totalMinutes: number): string {
     const hours = Math.floor(totalMinutes / 60);
     const minutes = totalMinutes % 60;
@@ -174,7 +148,6 @@ function formatOverdueTime(totalMinutes: number): string {
     return `${minutes}p`;
 }
 
-// Helper to calculate detailed time left from lead creation
 function calculateDetailedTimeLeft(lead: ILead): string {
     if (!lead.createdAt) return '-';
     const now = new Date();
@@ -183,16 +156,10 @@ function calculateDetailedTimeLeft(lead: ILead): string {
     return formatOverdueTime(totalMinutes);
 }
 
-/**
- * Get count of urgent warnings (danger severity)
- */
 export function getUrgentWarningCount(warnings: SLAWarning[]): number {
-    return warnings.filter(w => w.severity === 'danger').length;
+    return warnings.filter((warning) => warning.severity === 'danger').length;
 }
 
-/**
- * Format time remaining for SLA
- */
 export function formatSLATime(createdAt: string): { text: string; color: string } {
     const now = new Date();
     const created = new Date(createdAt);
@@ -203,17 +170,18 @@ export function formatSLATime(createdAt: string): { text: string; color: string 
             text: `${Math.floor(hoursAgo)}h trễ`,
             color: 'text-red-600 bg-red-50'
         };
-    } else if (hoursAgo > 4) {
+    }
+
+    if (hoursAgo > 4) {
         return {
             text: `${Math.floor(hoursAgo)}h`,
             color: 'text-yellow-600 bg-yellow-50'
         };
-    } else {
-        const minutes = Math.floor(hoursAgo * 60);
-        return {
-            text: `${minutes}p`,
-            color: 'text-green-600 bg-green-50'
-        };
     }
-}
 
+    const minutes = Math.floor(hoursAgo * 60);
+    return {
+        text: `${minutes}p`,
+        color: 'text-green-600 bg-green-50'
+    };
+}

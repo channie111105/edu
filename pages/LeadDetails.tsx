@@ -1,7 +1,7 @@
 ﻿
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { getLeadById, saveLead, addDeal, addContact, addMeeting, convertLeadToContact } from '../utils/storage';
+import { getLeadById, saveLead, addDeal, addContact, addMeeting, convertLeadToContact, getLeadActivitiesForConversion } from '../utils/storage';
 import { useAuth } from '../contexts/AuthContext';
 import { getLeadStatusLabel, LEAD_STATUS_KEYS, LEAD_STATUS_OPTIONS, normalizeLeadStatusKey, toLeadStatusValue } from '../utils/leadStatus';
 import {
@@ -222,20 +222,10 @@ const LeadDetails: React.FC = () => {
             createdAt: new Date().toISOString(),
             leadCreatedAt: lead.createdAt,
             assignedAt: lead.pickUpDate,
-            activities: [
-               {
-                  id: `act-${Date.now()}`,
-                  type: 'call' as any,
-                  content: 'Gá»i Ä‘iá»‡n tÆ° váº¥n láº§n Ä‘áº§u',
-                  timestamp: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-                  status: 'scheduled',
-                  userId: 'admin' // Or current user if available
-               },
-               ...(Array.isArray(lead.activities) ? lead.activities : []).map(a => ({
-                  ...a,
-                  type: a.type === 'message' ? 'chat' : a.type === 'system' ? 'note' : a.type as any
-               }))
-            ] as any
+            activities: getLeadActivitiesForConversion(lead).map(a => ({
+               ...a,
+               type: a.type === 'message' ? 'chat' : a.type === 'system' ? 'note' : a.type as any
+            })) as any
          };
          addDeal(deal);
 

@@ -1,12 +1,13 @@
 ﻿import React, { useState, useEffect, useRef } from 'react';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 import { DealStage, IDeal, ILead, LeadStatus, IContact, Activity, ActivityType } from '../types';
-import { getDeals, saveDeals, getContacts, addContact, updateDeal, saveContact } from '../utils/storage';
+import { getDeals, saveDeals, getContacts, addContact, updateDeal, saveContact, getLeadById, getLeads, saveLead } from '../utils/storage';
 import { useAuth } from '../contexts/AuthContext';
 import { useLocation, useNavigate, Link } from 'react-router-dom';
 import UnifiedLeadDrawer from '../components/UnifiedLeadDrawer';
 import DealPivotTable from '../components/DealPivotTable';
 import AdvancedDateFilter, { DateRange } from '../components/AdvancedDateFilter';
+import { isClosedLeadStatusKey } from '../utils/leadStatus';
 import {
   Phone, Mail, MessageCircle, Calendar, DollarSign, User,
   FileText, CheckCircle, XCircle, AlertCircle, Clock, Plus,
@@ -64,6 +65,30 @@ const NEXT_ACTIVITY_TYPES: { id: ActivityType; label: string }[] = [
   { id: 'meeting', label: 'Hẹn gặp' },
   { id: 'email', label: 'Email' }
 ];
+
+const normalizePhone = (value?: string) => String(value || '').replace(/\D/g, '');
+
+const getActivityTimestamp = (activity: any) => {
+  const raw = activity?.datetime || activity?.timestamp || activity?.date || activity?.createdAt || '';
+  const parsed = Date.parse(raw);
+  return Number.isNaN(parsed) ? 0 : parsed;
+};
+
+const mergeActivities = (primary: any[] = [], secondary: any[] = []) => {
+  const seen = new Set<string>();
+  return [...primary, ...secondary]
+    .filter(Boolean)
+    .filter((activity) => {
+      const key = String(
+        activity?.id ||
+        `${activity?.type || ''}|${activity?.title || ''}|${activity?.description || activity?.content || ''}|${activity?.timestamp || activity?.datetime || ''}`
+      );
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((a, b) => getActivityTimestamp(b) - getActivityTimestamp(a));
+};
 
 interface IConvertLeadDraft {
   dealId: string;
@@ -148,14 +173,6 @@ const Pipeline: React.FC = () => {
     const newDealId = params.get('newDeal');
     if (newDealId) {
       setHighlightDealId(newDealId);
-      const opened = openConvertLeadModal(newDealId, loadedDeals, loadedContacts);
-      if (!opened) {
-        setNextActivityDealId(newDealId);
-        setNextActivityType('call');
-        setNextActivityDate(getDefaultActivityDate('call'));
-        setNextActivitySummary('');
-        setShowNextActivityModal(true);
-      }
       params.delete('newDeal');
       navigate({
         pathname: location.pathname,
@@ -421,15 +438,12 @@ const Pipeline: React.FC = () => {
 
     setShowConvertLeadModal(false);
     setConvertLeadDraft(null);
-    openNextActivityModal(updatedDeal.id);
   };
 
   const handleSkipConvertedLeadInfo = () => {
     if (!convertLeadDraft) return;
-    const dealId = convertLeadDraft.dealId;
     setShowConvertLeadModal(false);
     setConvertLeadDraft(null);
-    openNextActivityModal(dealId);
   };
 
   const filteredDeals = deals.filter(deal => {
@@ -468,6 +482,24 @@ const Pipeline: React.FC = () => {
     return new Date(now.getTime() - (now.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
   }
 
+  const resolveLinkedLead = (contact?: IContact | null, deal?: IDeal | null) => {
+    if (contact?.leadId) {
+      const directLead = getLeadById(contact.leadId);
+      if (directLead) return directLead;
+    }
+
+    const normalizedPhone = normalizePhone(contact?.phone);
+    if (normalizedPhone) {
+      const byPhone = getLeads().find((lead) => normalizePhone(lead.phone) === normalizedPhone);
+      if (byPhone) return byPhone;
+    }
+
+    const potentialName = String(contact?.name || deal?.title.split(' - ')[0] || '').trim().toLowerCase();
+    if (!potentialName) return undefined;
+
+    return getLeads().find((lead) => String(lead.name || '').trim().toLowerCase() === potentialName);
+  };
+
   // Handle Deal Click -> Open Drawer (Unified Form)
   const handleDealClick = (deal: IDeal) => {
     const contacts = getContacts();
@@ -480,59 +512,68 @@ const Pipeline: React.FC = () => {
     }
 
     if (contact) {
+      const linkedLead = resolveLinkedLead(contact, deal);
       const leadCreatedDate = getLeadCreatedDate(deal);
       const assignedDate = getAssignedDate(deal, contact);
       // Construct ILead from Contact + Deal
       // This allows using the UnifiedLeadDrawer seamlessly
       const unifiedLead: ILead = {
-        id: contact.id, // Use contact ID as lead ID to sync updates
-        name: contact.name,
-        phone: contact.phone,
-        email: contact.email || '',
+        id: linkedLead?.id || contact.leadId || contact.id,
+        name: linkedLead?.name || contact.name,
+        phone: linkedLead?.phone || contact.phone,
+        email: linkedLead?.email || contact.email || '',
         program: (deal.title.split('-')[1] || '').trim() as any, // Try to parse program or default
-        source: contact.source || 'Unknown',
-        status: deal.stage as unknown as LeadStatus, // Map Deal Stage to Status
-        ownerId: deal.ownerId,
-        createdAt: leadCreatedDate || deal.createdAt,
-        pickUpDate: assignedDate || undefined,
-        value: deal.value,
+        source: linkedLead?.source || contact.source || 'Unknown',
+        status: (linkedLead?.status || deal.stage) as unknown as LeadStatus,
+        ownerId: linkedLead?.ownerId || deal.ownerId,
+        createdAt: linkedLead?.createdAt || leadCreatedDate || deal.createdAt,
+        pickUpDate: linkedLead?.pickUpDate || assignedDate || undefined,
+        value: linkedLead?.value || deal.value,
 
         // Sync Extended Info
         studentInfo: {
-          studentName: contact.studentName,
-          studentPhone: contact.studentPhone,
-          school: contact.school,
-          educationLevel: contact.educationLevel,
-          parentName: contact.guardianName,
-          parentPhone: contact.guardianPhone,
-          languageLevel: contact.languageLevel,
-          financialStatus: contact.financialStatus,
-          socialLink: contact.socialLink,
-          targetCountry: contact.targetCountry,
+          ...(linkedLead?.studentInfo || {}),
+          studentName: linkedLead?.studentInfo?.studentName || contact.studentName,
+          studentPhone: linkedLead?.studentInfo?.studentPhone || contact.studentPhone,
+          school: linkedLead?.studentInfo?.school || contact.school,
+          educationLevel: linkedLead?.studentInfo?.educationLevel || contact.educationLevel,
+          parentName: linkedLead?.studentInfo?.parentName || contact.guardianName,
+          parentPhone: linkedLead?.studentInfo?.parentPhone || contact.guardianPhone,
+          languageLevel: linkedLead?.studentInfo?.languageLevel || contact.languageLevel,
+          financialStatus: linkedLead?.studentInfo?.financialStatus || contact.financialStatus,
+          socialLink: linkedLead?.studentInfo?.socialLink || contact.socialLink,
+          targetCountry: linkedLead?.studentInfo?.targetCountry || contact.targetCountry,
         },
-        targetCountry: contact.targetCountry,
-        educationLevel: contact.educationLevel || contact.school,
-        address: contact.address,
-        city: contact.city,
-        dob: contact.dob,
-        identityCard: contact.identityCard,
-        identityDate: contact.identityDate,
-        identityPlace: contact.identityPlace,
-        gender: contact.gender,
-        guardianName: contact.guardianName,
-        guardianPhone: contact.guardianPhone,
-        guardianRelation: contact.guardianRelation,
-        company: contact.company,
-        title: contact.title,
+        targetCountry: linkedLead?.targetCountry || contact.targetCountry,
+        educationLevel: linkedLead?.educationLevel || contact.educationLevel || contact.school,
+        address: linkedLead?.address || contact.address,
+        city: linkedLead?.city || contact.city,
+        dob: linkedLead?.dob || contact.dob,
+        identityCard: linkedLead?.identityCard || contact.identityCard,
+        identityDate: linkedLead?.identityDate || contact.identityDate,
+        identityPlace: linkedLead?.identityPlace || contact.identityPlace,
+        gender: linkedLead?.gender || contact.gender,
+        guardianName: linkedLead?.guardianName || contact.guardianName,
+        guardianPhone: linkedLead?.guardianPhone || contact.guardianPhone,
+        guardianRelation: linkedLead?.guardianRelation || contact.guardianRelation,
+        company: linkedLead?.company || contact.company,
+        title: linkedLead?.title || contact.title,
+        notes: linkedLead?.notes || contact.notes,
+        marketingData: {
+          ...(contact.marketingData || {}),
+          ...(linkedLead?.marketingData || {})
+        },
+        lastInteraction: linkedLead?.lastInteraction || deal.createdAt,
+        lastActivityDate: linkedLead?.lastActivityDate,
+        lostReason: linkedLead?.lostReason,
+        referredBy: linkedLead?.referredBy,
 
         // Deal specific
-        expectedClosingDate: deal.expectedCloseDate,
-        productItems: deal.productItems || [], // Fetch detailed products
-        discount: deal.discount || 0,
-        paymentRoadmap: deal.paymentRoadmap || '',
-        notes: contact.notes,
-        activities: contact.activities || [], // Fetch activities from Contact
-        lastInteraction: deal.createdAt,
+        expectedClosingDate: linkedLead?.expectedClosingDate || deal.expectedCloseDate,
+        productItems: linkedLead?.productItems || deal.productItems || [],
+        discount: linkedLead?.discount || deal.discount || 0,
+        paymentRoadmap: linkedLead?.paymentRoadmap || deal.paymentRoadmap || '',
+        activities: mergeActivities(linkedLead?.activities || [], contact.activities || []),
       };
 
       skipNextDrawerAutoCloseRef.current = true;
@@ -547,10 +588,16 @@ const Pipeline: React.FC = () => {
   const handleDrawerUpdate = (updatedLead: ILead) => {
     // 1. Update Contact
     if (drawerLead && selectedDeal) {
-      const existingContact = getContacts().find(contact => contact.id === drawerLead.id);
+      const existingContact = getContacts().find(contact =>
+        contact.id === drawerLead.id ||
+        contact.leadId === drawerLead.id ||
+        normalizePhone(contact.phone) === normalizePhone(updatedLead.phone)
+      );
+      const linkedLead = resolveLinkedLead(existingContact || null, selectedDeal);
       const studentInfo = updatedLead.studentInfo || {};
       const contactUpdate = {
-        id: drawerLead.id,
+        id: existingContact?.id || drawerLead.id,
+        leadId: existingContact?.leadId || linkedLead?.id || updatedLead.id,
         name: updatedLead.name,
         phone: updatedLead.phone,
         email: updatedLead.email,
@@ -572,10 +619,16 @@ const Pipeline: React.FC = () => {
         guardianPhone: updatedLead.guardianPhone || studentInfo.parentPhone || existingContact?.guardianPhone,
         guardianRelation: updatedLead.guardianRelation || existingContact?.guardianRelation,
         notes: updatedLead.notes,
-        activities: updatedLead.activities,
+        activities: mergeActivities(updatedLead.activities, existingContact?.activities || []),
         languageLevel: studentInfo.languageLevel || existingContact?.languageLevel,
         financialStatus: studentInfo.financialStatus || existingContact?.financialStatus,
         socialLink: studentInfo.socialLink || existingContact?.socialLink,
+        source: updatedLead.source || existingContact?.source,
+        ownerId: updatedLead.ownerId || existingContact?.ownerId,
+        marketingData: {
+          ...(existingContact?.marketingData || {}),
+          ...(updatedLead.marketingData || {})
+        }
       };
       // Update contact in storage
       if (existingContact) {
@@ -587,12 +640,42 @@ const Pipeline: React.FC = () => {
         addContact(contactUpdate as any);
       }
 
+      const persistedLead: ILead = {
+        ...(linkedLead || {}),
+        ...updatedLead,
+        id: linkedLead?.id || existingContact?.leadId || updatedLead.id,
+        name: updatedLead.name || linkedLead?.name || existingContact?.name || drawerLead.name,
+        phone: updatedLead.phone || linkedLead?.phone || existingContact?.phone || drawerLead.phone,
+        email: updatedLead.email || linkedLead?.email || existingContact?.email || drawerLead.email || '',
+        source: updatedLead.source || linkedLead?.source || existingContact?.source || drawerLead.source || 'Unknown',
+        program: (updatedLead.program || linkedLead?.program || drawerLead.program) as ILead['program'],
+        ownerId: updatedLead.ownerId || linkedLead?.ownerId || selectedDeal.ownerId || drawerLead.ownerId,
+        createdAt: linkedLead?.createdAt || updatedLead.createdAt || drawerLead.createdAt || selectedDeal.createdAt,
+        lastInteraction: updatedLead.lastInteraction || linkedLead?.lastInteraction || drawerLead.lastInteraction || selectedDeal.createdAt,
+        notes: updatedLead.notes || linkedLead?.notes || existingContact?.notes || drawerLead.notes || '',
+        activities: mergeActivities(
+          updatedLead.activities,
+          mergeActivities(linkedLead?.activities || [], existingContact?.activities || [])
+        ),
+        lastActivityDate: updatedLead.lastActivityDate || linkedLead?.lastActivityDate,
+        marketingData: {
+          ...(existingContact?.marketingData || {}),
+          ...(linkedLead?.marketingData || {}),
+          ...(updatedLead.marketingData || {})
+        }
+      };
+
+      saveLead(persistedLead);
+
       // 2. Update Deal status/stage if changed
       const newStage = updatedLead.status as unknown as DealStage;
+      const shouldMoveDealToLost = isClosedLeadStatusKey(updatedLead.status as string);
       const updatedDeal = {
         ...selectedDeal,
         value: updatedLead.value || selectedDeal.value,
-        stage: Object.values(DealStage).includes(newStage) ? newStage : selectedDeal.stage,
+        stage: shouldMoveDealToLost
+          ? DealStage.LOST
+          : (Object.values(DealStage).includes(newStage) ? newStage : selectedDeal.stage),
         expectedCloseDate: updatedLead.expectedClosingDate || selectedDeal.expectedCloseDate,
         leadCreatedAt: selectedDeal.leadCreatedAt || updatedLead.createdAt || selectedDeal.createdAt,
         assignedAt: updatedLead.pickUpDate || selectedDeal.assignedAt,
@@ -606,7 +689,8 @@ const Pipeline: React.FC = () => {
       // 3. Update UI State
       setDeals(prev => prev.map(d => d.id === updatedDeal.id ? updatedDeal : d));
       setContacts(getContacts());
-      setDrawerLead(updatedLead);
+      setSelectedDeal(updatedDeal);
+      setDrawerLead(persistedLead);
     }
   };
 

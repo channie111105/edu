@@ -2,6 +2,7 @@
 import type { IStudentClaim } from '../types';
 
 import { decodeMojibakeText } from './mojibake';
+import { createLeadAssignmentNotification } from './notifications';
 
 export const KEYS = {
   LEADS: 'educrm_leads_v2', // Changed key to force fresh load
@@ -39,6 +40,10 @@ export const KEYS = {
 export const FIXED_LEAD_TAGS = [
   'Gọi lần 1',
   'Gọi lần 2',
+  'Gọi lần 3'
+] as const;
+
+const LEGACY_SYSTEM_LEAD_TAGS = [
   'Zalo',
   'Hotline',
   'Facebook',
@@ -274,7 +279,28 @@ export const addRefundLog = (log: IRefundLog) => {
 };
 
 // TAGS
-const normalizeLeadTag = (tag: unknown): string => decodeMojibakeText(String(tag ?? '')).trim();
+const normalizeLeadTagToken = (value: string) =>
+  value
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '');
+
+const LEAD_TAG_LABEL_ALIASES: Record<string, string> = {
+  goilan1: 'Gọi lần 1',
+  dagoilan1: 'Gọi lần 1',
+  goilan2: 'Gọi lần 2',
+  dagoilan2: 'Gọi lần 2',
+  goilan3: 'Gọi lần 3',
+  dagoilan3: 'Gọi lần 3',
+};
+
+const normalizeLeadTag = (tag: unknown): string => {
+  const normalized = decodeMojibakeText(String(tag ?? '')).trim();
+  if (!normalized) return '';
+  return LEAD_TAG_LABEL_ALIASES[normalizeLeadTagToken(normalized)] || normalized;
+};
 
 const normalizeLeadTagList = (tags: unknown): string[] => {
   const rawTags = Array.isArray(tags) ? tags : [];
@@ -293,17 +319,67 @@ const normalizeLeadTagList = (tags: unknown): string[] => {
   return [...fixedTags, ...customTags];
 };
 
+const normalizeLeadTagCatalog = (tags: unknown): string[] => {
+  const rawTags = Array.isArray(tags) ? tags : [];
+  const uniqueTags = new Set<string>();
+
+  rawTags.forEach((tag) => {
+    const normalized = normalizeLeadTag(tag);
+    if (!normalized) return;
+    if (LEGACY_SYSTEM_LEAD_TAGS.includes(normalized as typeof LEGACY_SYSTEM_LEAD_TAGS[number])) return;
+    uniqueTags.add(normalized);
+  });
+
+  FIXED_LEAD_TAGS.forEach((tag) => uniqueTags.add(tag));
+
+  const fixedTags = FIXED_LEAD_TAGS.filter((tag) => uniqueTags.has(tag));
+  const customTags = Array.from(uniqueTags).filter(
+    (tag) => !FIXED_LEAD_TAGS.includes(tag as typeof FIXED_LEAD_TAGS[number])
+  );
+
+  return [...fixedTags, ...customTags];
+};
+
+const normalizeLeadRecord = (lead: ILead): ILead => {
+  const normalized = decodeStorageValue(lead) as ILead;
+  const rawTags = Array.isArray(normalized.marketingData?.tags) ? normalized.marketingData.tags : [];
+
+  if (rawTags.length === 0) return normalized;
+
+  return {
+    ...normalized,
+    marketingData: {
+      ...normalized.marketingData,
+      tags: normalizeLeadTagList(rawTags),
+    },
+  };
+};
+
+const maybeNotifyLeadAssignment = (previousLead: ILead | undefined, nextLead: ILead) => {
+  const previousOwnerId = String(previousLead?.ownerId || '').trim();
+  const nextOwnerId = String(nextLead.ownerId || '').trim();
+
+  if (!nextOwnerId || previousOwnerId === nextOwnerId) return;
+
+  createLeadAssignmentNotification({
+    recipientUserId: nextOwnerId,
+    leadId: nextLead.id,
+    leadName: nextLead.name || 'Lead',
+    isReassigned: Boolean(previousOwnerId),
+  });
+};
+
 export const getTags = (): string[] => {
   try {
     const data = localStorage.getItem(KEYS.TAGS);
-    return normalizeLeadTagList(data ? JSON.parse(data) : []);
+    return normalizeLeadTagCatalog(data ? JSON.parse(data) : []);
   } catch {
     return [...FIXED_LEAD_TAGS];
   }
 };
 
 export const saveTags = (tags: string[]) => {
-  const normalizedTags = normalizeLeadTagList(tags);
+  const normalizedTags = normalizeLeadTagCatalog(tags);
   localStorage.setItem(KEYS.TAGS, JSON.stringify(normalizedTags));
   emitClientEvent('educrm:tags-changed');
   return normalizedTags;
@@ -1716,6 +1792,83 @@ const INITIAL_LEADS: ILead[] = [
   }
 ];
 
+const DEMO_RECLAIM_LEAD_ID = 'DEMO-RECLAIM-001';
+const DEMO_TODAY_CARE_LEAD_ID = 'DEMO-TODAY-CARE-001';
+
+const buildDemoReclaimLead = (): ILead => {
+  const now = new Date();
+  const triggerAt = new Date(now.getTime() - 5 * 60 * 60 * 1000);
+  const reclaimedAt = new Date(now.getTime() - 2 * 60 * 60 * 1000);
+
+  return {
+    id: DEMO_RECLAIM_LEAD_ID,
+    name: 'Demo Lead Thu Hoi',
+    phone: '0909990001',
+    email: 'demo.thuhoi@example.com',
+    source: 'Demo SLA',
+    status: LeadStatus.NEW as LeadStatus,
+    createdAt: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+    ownerId: '',
+    activities: [],
+    program: 'Tiếng Đức',
+    city: 'Hà Nội',
+    lastInteraction: new Date(now.getTime() - 6 * 24 * 60 * 60 * 1000).toISOString(),
+    notes: 'Lead demo da bi thu hoi va dang cho phan bo lai.',
+    slaStatus: 'normal',
+    reclaimedAt: reclaimedAt.toISOString(),
+    reclaimReason: 'slow_care',
+    reclaimTriggerAt: triggerAt.toISOString(),
+    reclaimedFromOwnerId: 'u2'
+  };
+};
+
+const buildDemoTodayCareLead = (): ILead => {
+  const now = new Date();
+  const scheduledAt = new Date(now);
+  scheduledAt.setHours(Math.max(now.getHours() + 1, 15), 30, 0, 0);
+
+  if (scheduledAt.getTime() <= now.getTime()) {
+    scheduledAt.setHours(now.getHours() + 1, 30, 0, 0);
+  }
+
+  const createdAt = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000).toISOString();
+  const lastInteraction = new Date(now.getTime() - 5 * 60 * 60 * 1000).toISOString();
+
+  return {
+    id: DEMO_TODAY_CARE_LEAD_ID,
+    name: 'Demo Chăm Sóc Hôm Nay',
+    phone: '0909990002',
+    email: 'demo.todaycare@example.com',
+    source: 'Demo My Leads',
+    status: LeadStatus.CONTACTED as LeadStatus,
+    createdAt,
+    ownerId: 'u2',
+    pickUpDate: new Date(now.getTime() - 30 * 60 * 1000).toISOString(),
+    program: 'Du học Đức',
+    company: 'Hà Nội',
+    city: 'Hà Nội',
+    lastInteraction,
+    notes: 'Lead demo để kiểm tra tab Chăm sóc hôm nay.',
+    slaStatus: 'normal',
+    internalNotes: {
+      potential: 'Tiềm năng'
+    },
+    activities: [
+      {
+        id: `demo-activity-${now.getTime()}`,
+        type: 'activity',
+        activityType: 'call',
+        title: 'Gọi điện',
+        description: 'Nhắc khách xác nhận lịch test đầu vào và hồ sơ còn thiếu.',
+        timestamp: scheduledAt.toISOString(),
+        datetime: scheduledAt.toISOString(),
+        status: 'scheduled',
+        user: 'Sarah Miller'
+      }
+    ] as any
+  };
+};
+
 const INITIAL_DEALS: IDeal[] = [];
 const INITIAL_CONTRACTS: IContract[] = [];
 const INITIAL_QUOTATIONS: IQuotation[] = [
@@ -2803,6 +2956,43 @@ const migrateMojibakeTextData = () => {
   }
 };
 export const initializeData = () => {
+  const ensureDemoReclaimLead = () => {
+    try {
+      const raw = localStorage.getItem(KEYS.LEADS);
+      const leads = raw ? (JSON.parse(raw) as ILead[]) : [];
+      if (!Array.isArray(leads)) return;
+      if (leads.some((lead) => lead?.id === DEMO_RECLAIM_LEAD_ID)) return;
+
+      leads.unshift(buildDemoReclaimLead());
+      localStorage.setItem(KEYS.LEADS, JSON.stringify(leads));
+    } catch {
+      // Ignore malformed storage payloads during demo seed.
+    }
+  };
+
+  const ensureDemoTodayCareLead = () => {
+    try {
+      const raw = localStorage.getItem(KEYS.LEADS);
+      const leads = raw ? (JSON.parse(raw) as ILead[]) : [];
+      if (!Array.isArray(leads)) return;
+      const demoLead = buildDemoTodayCareLead();
+      const existingIndex = leads.findIndex((lead) => lead?.id === DEMO_TODAY_CARE_LEAD_ID);
+
+      if (existingIndex >= 0) {
+        leads[existingIndex] = {
+          ...leads[existingIndex],
+          ...demoLead
+        };
+      } else {
+        leads.unshift(demoLead);
+      }
+
+      localStorage.setItem(KEYS.LEADS, JSON.stringify(leads));
+    } catch {
+      // Ignore malformed storage payloads during demo seed.
+    }
+  };
+
   const CURRENT_VERSION = 'v15';
   if (localStorage.getItem(KEYS.INIT) !== CURRENT_VERSION) {
     console.log('Initializing Data if needed...');
@@ -2826,6 +3016,8 @@ export const initializeData = () => {
     localStorage.setItem(KEYS.SALES_KPIS, JSON.stringify(INITIAL_SALES_KPIS));
     localStorage.setItem(KEYS.INIT, CURRENT_VERSION);
   }
+  ensureDemoReclaimLead();
+  ensureDemoTodayCareLead();
   if (!localStorage.getItem(KEYS.STUDENTS)) {
     localStorage.setItem(KEYS.STUDENTS, JSON.stringify(INITIAL_STUDENTS));
   }
@@ -2887,27 +3079,37 @@ export const initializeData = () => {
 export const getLeads = (): ILead[] => {
   try {
     const data = localStorage.getItem(KEYS.LEADS);
-    return data ? JSON.parse(data) : [];
+    return data ? (JSON.parse(data) as ILead[]).map(normalizeLeadRecord) : [];
   } catch (e) { return []; }
 };
 
 export const saveLead = (lead: ILead) => {
   const leads = getLeads();
   const existingIndex = leads.findIndex(l => l.id === lead.id);
+  const normalizedLead = normalizeLeadRecord(lead);
+  const previousLead = existingIndex >= 0 ? leads[existingIndex] : undefined;
 
   if (existingIndex >= 0) {
-    leads[existingIndex] = lead;
+    leads[existingIndex] = normalizedLead;
   } else {
-    leads.unshift(lead);
+    leads.unshift(normalizedLead);
   }
 
   localStorage.setItem(KEYS.LEADS, JSON.stringify(leads));
+  maybeNotifyLeadAssignment(previousLead, normalizedLead);
   emitClientEvent('educrm:leads-changed');
   return leads;
 };
 
 export const saveLeads = (leads: ILead[]) => {
-  localStorage.setItem(KEYS.LEADS, JSON.stringify(leads));
+  const previousLeads = getLeads();
+  const previousById = new Map(previousLeads.map((lead) => [lead.id, lead]));
+  const normalizedLeads = leads.map(normalizeLeadRecord);
+
+  localStorage.setItem(KEYS.LEADS, JSON.stringify(normalizedLeads));
+  normalizedLeads.forEach((lead) => {
+    maybeNotifyLeadAssignment(previousById.get(lead.id), lead);
+  });
   emitClientEvent('educrm:leads-changed');
   return leads;
 };
@@ -3086,11 +3288,20 @@ export const getContactById = (id: string): IContact | undefined => {
   return contacts.find(c => c.id === id);
 };
 
+export const getLeadActivitiesForConversion = (lead: Pick<ILead, 'activities'>): any[] => {
+  return (Array.isArray(lead.activities) ? lead.activities : []).filter((activity: any) => {
+    const rawType = String(activity?.type || '').toLowerCase();
+    const rawStatus = String(activity?.status || '').toLowerCase();
+    return rawType !== 'activity' && rawStatus !== 'scheduled';
+  });
+};
+
 // Helper:// CONVERT LEAD TO CONTACT OBJECT
 export const convertLeadToContact = (lead: ILead): IContact => {
   const studentInfo = lead.studentInfo || {};
   return {
     id: `C-${Date.now()}`, // Temporary ID, will be handled in addContact
+    leadId: lead.id,
     name: lead.name,
     phone: lead.phone,
     targetCountry: lead.targetCountry || studentInfo.targetCountry || lead.program || 'Khác',
@@ -3120,7 +3331,7 @@ export const convertLeadToContact = (lead: ILead): IContact => {
     source: lead.source,
     createdAt: new Date().toISOString(),
     notes: lead.notes,
-    activities: lead.activities || [],
+    activities: getLeadActivitiesForConversion(lead),
     dealIds: [],
     marketingData: lead.marketingData // Preserve tags, campaign, etc.
   };
@@ -3135,8 +3346,63 @@ export const getDeals = (): IDeal[] => {
   } catch (e) { return []; }
 };
 
+const normalizeStoragePhone = (value?: string) => String(value || '').replace(/\D/g, '');
+
+const resolveLeadForDealStatusSync = (deal: IDeal, contacts: IContact[], leads: ILead[]) => {
+  const linkedContact = contacts.find((contact) => contact.id === deal.leadId);
+
+  if (linkedContact?.leadId) {
+    const directLead = leads.find((lead) => lead.id === linkedContact.leadId);
+    if (directLead) return directLead;
+  }
+
+  const normalizedPhone = normalizeStoragePhone(linkedContact?.phone);
+  if (normalizedPhone) {
+    const leadByPhone = leads.find((lead) => normalizeStoragePhone(lead.phone) === normalizedPhone);
+    if (leadByPhone) return leadByPhone;
+  }
+
+  const contactName = String(linkedContact?.name || deal.title.split(' - ')[0] || '').trim().toLowerCase();
+  if (!contactName) return undefined;
+
+  return leads.find((lead) => String(lead.name || '').trim().toLowerCase() === contactName);
+};
+
+const syncLostLeadStatusesFromDeals = (deals: IDeal[]) => {
+  const lostDeals = deals.filter((deal) => deal.stage === DealStage.LOST);
+  if (lostDeals.length === 0) return;
+
+  const contacts = getContacts();
+  const leads = getLeads();
+  const nextLeads = [...leads];
+  let hasChanges = false;
+
+  lostDeals.forEach((deal) => {
+    const linkedLead = resolveLeadForDealStatusSync(deal, contacts, nextLeads);
+    if (!linkedLead) return;
+
+    const leadIndex = nextLeads.findIndex((lead) => lead.id === linkedLead.id);
+    if (leadIndex === -1) return;
+
+    const currentLead = nextLeads[leadIndex];
+    if (currentLead.status === LeadStatus.LOST || currentLead.status === DealStage.LOST) return;
+
+    nextLeads[leadIndex] = {
+      ...currentLead,
+      status: LeadStatus.LOST,
+      updatedAt: new Date().toISOString()
+    };
+    hasChanges = true;
+  });
+
+  if (hasChanges) {
+    saveLeads(nextLeads);
+  }
+};
+
 export const saveDeals = (deals: IDeal[]) => {
   localStorage.setItem(KEYS.DEALS, JSON.stringify(deals));
+  syncLostLeadStatusesFromDeals(deals);
 };
 
 export const addDeal = (deal: IDeal) => {
@@ -3145,6 +3411,7 @@ export const addDeal = (deal: IDeal) => {
     console.log('[Storage] Adding new Deal:', deal.title);
     deals.unshift(deal);
     localStorage.setItem(KEYS.DEALS, JSON.stringify(deals));
+    syncLostLeadStatusesFromDeals(deals);
     return deals;
   } catch (error) {
     console.error('Error in addDeal:', error);
@@ -3164,6 +3431,7 @@ export const updateDeal = (updatedDeal: IDeal): boolean => {
     if (index !== -1) {
       deals[index] = updatedDeal;
       localStorage.setItem(KEYS.DEALS, JSON.stringify(deals));
+      syncLostLeadStatusesFromDeals(deals);
       return true;
     }
     return false;

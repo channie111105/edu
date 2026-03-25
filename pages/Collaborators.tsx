@@ -22,7 +22,8 @@ import {
     Mail,
     User,
     CheckCircle2,
-    Pencil
+    Pencil,
+    AlertTriangle
 } from 'lucide-react';
 import { getLeads, getCollaborators, saveCollaborators } from '../utils/storage';
 import { LeadStatus, IActivityLog, UserRole } from '../types';
@@ -45,6 +46,15 @@ interface ICollaborator {
     nextAppointment?: string; // Lịch hẹn
     status?: 'Active' | 'Need Support' | 'Stopped' | 'New';
     activities?: IActivityLog[];
+    followers?: ICollaboratorFollower[];
+}
+
+interface ICollaboratorFollower {
+    id: string;
+    name: string;
+    avatar?: string;
+    role?: string;
+    addedAt?: string;
 }
 
 const MOCK_COLLABORATORS: ICollaborator[] = [
@@ -95,6 +105,66 @@ const SALE_OWNER_OPTIONS = [
     { id: 'u4', name: 'Alex Rivera' }
 ];
 
+const COLLABORATOR_ACTIVITY_TYPES = [
+    { id: 'Call', label: 'Gọi điện', icon: Phone },
+    { id: 'Document', label: 'Gửi tài liệu', icon: FileText },
+    { id: 'Complaint', label: 'Xử lý khiếu nại', icon: AlertTriangle },
+    { id: 'Visit', label: 'Thăm hỏi', icon: Users },
+    { id: 'Zalo', label: 'Zalo', icon: MessageSquare }
+] as const;
+
+const COLLABORATOR_FOCUS_KEY = 'educrm_collaborator_focus_id';
+
+const getInitials = (name?: string) =>
+    (name || '')
+        .split(' ')
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((part) => part.charAt(0).toUpperCase())
+        .join('') || 'NV';
+
+const buildCollaboratorFollower = (
+    id: string,
+    name: string,
+    role = 'Nhân viên kinh doanh'
+): ICollaboratorFollower => ({
+    id,
+    name,
+    role,
+    avatar: getInitials(name),
+    addedAt: new Date().toISOString()
+});
+
+const formatCollaboratorDateTime = (value?: string) => {
+    if (!value) return '';
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return value;
+    return parsed.toLocaleString('vi-VN');
+};
+
+const parseCollaboratorAppointment = (value?: string) => {
+    if (!value) return null;
+    const normalizedValue = /^\d{4}-\d{2}-\d{2}$/.test(value)
+        ? `${value}T23:59:00`
+        : value;
+    const parsed = new Date(normalizedValue);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const formatDelayMinutes = (minutes: number): string => {
+    const safeMinutes = Math.max(0, Math.floor(minutes));
+    const days = Math.floor(safeMinutes / (60 * 24));
+    const hours = Math.floor((safeMinutes % (60 * 24)) / 60);
+    const mins = safeMinutes % 60;
+    const parts: string[] = [];
+
+    if (days > 0) parts.push(`${days} ngày`);
+    if (hours > 0) parts.push(`${hours} giờ`);
+    if (mins > 0 || parts.length === 0) parts.push(`${mins} phút`);
+
+    return parts.join(' ');
+};
+
 // Column Defs
 const ALL_COLUMNS = [
     { id: 'index', label: '#', visible: true },
@@ -119,20 +189,114 @@ const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, is
     const { user } = useAuth();
     const [noteContent, setNoteContent] = useState('');
     const [interactionType, setInteractionType] = useState('Call');
-    const [nextFollowUp, setNextFollowUp] = useState('');
+    const [scheduleNext, setScheduleNext] = useState(true);
+    const [showNextActivityModal, setShowNextActivityModal] = useState(false);
+    const [nextActivityType, setNextActivityType] = useState<(typeof COLLABORATOR_ACTIVITY_TYPES)[number]['id']>('Call');
+    const [nextActivityDate, setNextActivityDate] = useState('');
+    const [nextActivitySummary, setNextActivitySummary] = useState('');
+    const [showFollowersModal, setShowFollowersModal] = useState(false);
+    const [toast, setToast] = useState<{ message: string; type: 'success' | 'error'; visible: boolean } | null>(null);
     const [activeTab, setActiveTab] = useState<'info' | 'care'>('care');
+
+    const salesFollowerOptions = useMemo(() => {
+        const options = new Map<string, ICollaboratorFollower>();
+
+        SALE_OWNER_OPTIONS.forEach((item) => {
+            options.set(item.id, buildCollaboratorFollower(item.id, item.name));
+        });
+
+        if (user?.id && user?.name) {
+            options.set(
+                user.id,
+                buildCollaboratorFollower(
+                    user.id,
+                    user.name,
+                    user.role || 'Nhân viên kinh doanh'
+                )
+            );
+        }
+
+        return Array.from(options.values());
+    }, [user?.id, user?.name, user?.role]);
+
+    const currentFollowers = useMemo(() => {
+        const merged = new Map<string, ICollaboratorFollower>();
+
+        if (ctv.ownerId) {
+            const ownerLabel =
+                ctv.ownerName ||
+                salesFollowerOptions.find((item) => item.id === ctv.ownerId)?.name ||
+                ctv.ownerId;
+            merged.set(
+                ctv.ownerId,
+                buildCollaboratorFollower(ctv.ownerId, ownerLabel, 'Sale phụ trách')
+            );
+        }
+
+        (ctv.followers || []).forEach((item) => {
+            merged.set(item.id, {
+                ...item,
+                avatar: item.avatar || getInitials(item.name)
+            });
+        });
+
+        return Array.from(merged.values());
+    }, [ctv.followers, ctv.ownerId, ctv.ownerName, salesFollowerOptions]);
+
+    const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+        setToast({ message, type, visible: true });
+        window.setTimeout(() => {
+            setToast((current) => (current?.message === message ? null : current));
+        }, 2400);
+    };
+
+    const getDefaultNextActivityDate = () => {
+        const now = new Date();
+        const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
+        return local.toISOString().slice(0, 16);
+    };
+
+    const openNextActivityModal = (summary?: string) => {
+        setNextActivityType(interactionType as (typeof COLLABORATOR_ACTIVITY_TYPES)[number]['id']);
+        setNextActivityDate(getDefaultNextActivityDate());
+        setNextActivitySummary(summary || '');
+        setShowNextActivityModal(true);
+    };
+
+    const closeNextActivityModal = () => {
+        setShowNextActivityModal(false);
+        setNextActivityType('Call');
+        setNextActivityDate('');
+        setNextActivitySummary('');
+    };
+
+    useEffect(() => {
+        if (!isOpen) return;
+        setNoteContent('');
+        setInteractionType('Call');
+        setScheduleNext(true);
+        setShowNextActivityModal(false);
+        setShowFollowersModal(false);
+        setNextActivityType('Call');
+        setNextActivityDate('');
+        setNextActivitySummary('');
+        setToast(null);
+    }, [ctv.id, isOpen]);
 
     if (!isOpen) return null;
 
     const handleAddNote = () => {
-        if (!noteContent.trim()) return;
+        if (!noteContent.trim()) {
+            showToast('Vui lòng nhập nội dung chăm sóc CTV.', 'error');
+            return;
+        }
 
         const typeLabels: Record<string, string> = {
-            'Call': 'Gọi điện tư vấn',
-            'Document': 'Gửi tài liệu',
-            'Complaint': 'Xử lý khiếu nại',
-            'Visit': 'Thăm hỏi định kỳ',
-            'Zalo': 'Nhắn tin Zalo'
+            Call: 'Gọi điện tư vấn',
+            Document: 'Gửi tài liệu',
+            Complaint: 'Xử lý khiếu nại',
+            Visit: 'Thăm hỏi định kỳ',
+            Zalo: 'Nhắn tin Zalo'
         };
 
         const newActivity: IActivityLog = {
@@ -141,19 +305,92 @@ const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, is
             timestamp: new Date().toISOString(),
             title: `[${typeLabels[interactionType] || interactionType}] Chăm sóc CTV`,
             description: noteContent,
-            user: user?.name || 'Admin',
-            datetime: nextFollowUp || undefined
+            user: user?.name || 'Admin'
         };
 
         const updatedCtv: ICollaborator = {
             ...ctv,
-            activities: [newActivity, ...(ctv.activities || [])],
-            nextAppointment: nextFollowUp || ctv.nextAppointment
+            activities: [newActivity, ...(ctv.activities || [])]
         };
 
         onUpdate(updatedCtv);
         setNoteContent('');
-        setNextFollowUp('');
+        showToast('Đã lưu nhật ký chăm sóc CTV.');
+        if (scheduleNext) {
+            openNextActivityModal('Tạo lịch tiếp theo sau khi lưu chăm sóc CTV');
+        }
+    };
+
+    const handleAddFollower = (follower: ICollaboratorFollower) => {
+        if (currentFollowers.some((item) => item.id === follower.id)) {
+            showToast('Sale này đang theo dõi CTV rồi.', 'error');
+            return;
+        }
+
+        const normalizedFollower: ICollaboratorFollower = {
+            ...follower,
+            avatar: follower.avatar || getInitials(follower.name),
+            addedAt: new Date().toISOString()
+        };
+
+        const systemLog: IActivityLog = {
+            id: `follow-${Date.now()}`,
+            type: 'system',
+            timestamp: new Date().toISOString(),
+            title: 'Hệ thống',
+            description: `Đã thêm ${normalizedFollower.name} vào danh sách sale theo dõi CTV`,
+            user: user?.name || 'Admin'
+        };
+
+        onUpdate({
+            ...ctv,
+            followers: [...currentFollowers, normalizedFollower],
+            activities: [systemLog, ...(ctv.activities || [])]
+        });
+
+        setShowFollowersModal(false);
+        showToast('Đã thêm sale theo dõi CTV.');
+    };
+
+    const handleCreateNextActivity = () => {
+        const trimmedSummary = nextActivitySummary.trim();
+        if (!trimmedSummary) {
+            showToast('Vui lòng nhập nội dung lịch tiếp theo.', 'error');
+            return;
+        }
+
+        if (!nextActivityDate) {
+            showToast('Vui lòng chọn thời gian cho lịch tiếp theo.', 'error');
+            return;
+        }
+
+        const activityLabel =
+            COLLABORATOR_ACTIVITY_TYPES.find((item) => item.id === nextActivityType)?.label || nextActivityType;
+
+        const scheduledDate = new Date(nextActivityDate);
+        const scheduledAt = Number.isNaN(scheduledDate.getTime())
+            ? nextActivityDate
+            : scheduledDate.toISOString();
+
+        const newActivity: IActivityLog = {
+            id: `next-act-${Date.now()}`,
+            type: 'activity',
+            status: 'scheduled',
+            timestamp: new Date().toISOString(),
+            title: `[${activityLabel}] Lịch chăm sóc tiếp theo`,
+            description: trimmedSummary,
+            user: user?.name || 'Admin',
+            datetime: scheduledAt
+        };
+
+        onUpdate({
+            ...ctv,
+            nextAppointment: scheduledAt,
+            activities: [newActivity, ...(ctv.activities || [])]
+        });
+
+        closeNextActivityModal();
+        showToast('Đã tạo lịch tiếp theo cho CTV.');
     };
 
     const handleStatusUpdate = (newStatus: any) => {
@@ -171,6 +408,7 @@ const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, is
             status: newStatus,
             activities: [systemLog, ...(ctv.activities || [])]
         });
+        showToast('Đã cập nhật trạng thái CTV.');
     };
 
     const groupedLogs = (ctv.activities || []).sort((a, b) =>
@@ -186,6 +424,12 @@ const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, is
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={onClose} />
             <div className="relative w-full max-w-6xl bg-white h-[90vh] rounded shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200 border border-slate-300">
+                {toast?.visible && (
+                    <div className={`absolute top-5 left-1/2 z-[120] -translate-x-1/2 flex items-center gap-2 rounded-lg border px-4 py-2.5 shadow-xl ${toast.type === 'error' ? 'border-red-200 bg-red-50 text-red-700' : 'border-green-200 bg-green-50 text-green-700'}`}>
+                        {toast.type === 'error' ? <AlertTriangle size={16} /> : <CheckCircle2 size={16} />}
+                        <span className="text-sm font-bold">{toast.message}</span>
+                    </div>
+                )}
                 {/* Header */}
                 <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
                     <div className="flex items-center gap-3">
@@ -234,32 +478,48 @@ const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, is
                                 {/* Odoo Chatter Header - Activity Buttons (Categories) */}
                                 <div className="border-b border-slate-200 p-2 bg-slate-50/50 sticky top-0 z-10 backdrop-blur-md">
                                     <div className="max-w-4xl mx-auto flex flex-wrap gap-2">
-                                        {[
-                                            { id: 'Call', label: '📞 Gọi điện tư vấn', color: 'bg-amber-100 border-amber-300 text-amber-900' },
-                                            { id: 'Document', label: '📄 Gửi tài liệu', color: 'bg-white border-slate-200 text-slate-600' },
-                                            { id: 'Complaint', label: '⚠️ Xử lý khiếu nại', color: 'bg-white border-slate-200 text-slate-600' },
-                                            { id: 'Visit', label: '🤝 Thăm hỏi định kỳ', color: 'bg-white border-slate-200 text-slate-600' },
-                                            { id: 'Zalo', label: '💬 Zalo', color: 'bg-white border-slate-200 text-slate-600' }
-                                        ].map(btn => (
+                                        {COLLABORATOR_ACTIVITY_TYPES.map(btn => {
+                                            const Icon = btn.icon;
+                                            return (
                                             <button
                                                 key={btn.id}
                                                 onClick={() => setInteractionType(btn.id)}
-                                                className={`px-4 py-1.5 rounded border text-xs font-bold transition-all ${interactionType === btn.id ? btn.color : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+                                                className={`px-4 py-1.5 rounded border text-xs font-bold transition-all flex items-center gap-1.5 ${interactionType === btn.id ? 'bg-amber-100 border-amber-300 text-amber-900' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}
                                             >
-                                                {btn.label}
+                                                <Icon size={13} />
+                                                <span>{btn.label}</span>
                                             </button>
-                                        ))}
+                                            );
+                                        })}
                                     </div>
                                 </div>
 
                                 <div className="max-w-4xl mx-auto w-full py-4 px-6 space-y-4">
                                     {/* Followers Row */}
                                     <div className="flex items-center justify-between text-slate-500 border-b border-slate-100 pb-2">
-                                        <div className="flex items-center gap-2 text-sm">
-                                            <User size={16} />
-                                            <span className="font-medium">0 Followers</span>
+                                        <div className="flex items-center gap-3 text-sm">
+                                            <div className="flex items-center gap-2">
+                                                <User size={16} />
+                                                <span className="font-medium">{currentFollowers.length} Followers</span>
+                                            </div>
+                                            {currentFollowers.length > 0 && (
+                                                <div className="flex -space-x-2">
+                                                    {currentFollowers.slice(0, 4).map((follower) => (
+                                                        <div
+                                                            key={follower.id}
+                                                            title={follower.name}
+                                                            className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-white bg-blue-100 text-[10px] font-bold text-blue-700 shadow-sm"
+                                                        >
+                                                            {follower.avatar || getInitials(follower.name)}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
                                         </div>
-                                        <button className="text-blue-600 text-sm font-bold flex items-center gap-1 hover:underline">
+                                        <button
+                                            onClick={() => setShowFollowersModal(true)}
+                                            className="text-blue-600 text-sm font-bold flex items-center gap-1 hover:underline"
+                                        >
                                             <Plus size={14} /> Add
                                         </button>
                                     </div>
@@ -280,18 +540,17 @@ const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, is
                                                 <label className="flex items-center gap-2 cursor-pointer group">
                                                     <input
                                                         type="checkbox"
-                                                        checked={!!nextFollowUp}
-                                                        onChange={(e) => !e.target.checked && setNextFollowUp('')}
+                                                        checked={scheduleNext}
+                                                        onChange={(e) => setScheduleNext(e.target.checked)}
                                                         className="w-4 h-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500"
                                                     />
-                                                    <span className="text-sm font-bold text-slate-600 group-hover:text-slate-900 transition-colors uppercase tracking-tight">Hẹn lịch tiếp?</span>
+                                                    <span className="text-sm font-bold text-slate-600 group-hover:text-slate-900 transition-colors uppercase tracking-tight">Lên lịch tiếp theo?</span>
                                                 </label>
-                                                <input
-                                                    type="datetime-local"
-                                                    value={nextFollowUp}
-                                                    onChange={(e) => setNextFollowUp(e.target.value)}
-                                                    className={`text-xs font-bold text-slate-500 border border-slate-200 rounded px-2 py-1.5 focus:border-amber-400 outline-none transition-all shadow-sm ${!nextFollowUp && 'opacity-30'}`}
-                                                />
+                                                {ctv.nextAppointment && (
+                                                    <span className="text-xs font-semibold text-slate-500">
+                                                        Lịch gần nhất: {formatCollaboratorDateTime(ctv.nextAppointment)}
+                                                    </span>
+                                                )}
                                             </div>
 
                                             <div className="flex items-center gap-2">
@@ -357,7 +616,7 @@ const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, is
                                                         </div>
                                                         {log.datetime && (
                                                             <div className="mt-2 pt-2 border-t border-slate-50 flex items-center gap-1.5 text-[8px] font-black text-amber-600">
-                                                                <Calendar size={10} /> HẸN: {new Date(log.datetime).toLocaleString('vi-VN')}
+                                                                <Calendar size={10} /> HẸN: {formatCollaboratorDateTime(log.datetime)}
                                                             </div>
                                                         )}
                                                     </div>
@@ -421,6 +680,146 @@ const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, is
                             {/* End info */}
                         </div>
                     )}
+
+                    {showNextActivityModal && (
+                        <div className="absolute inset-0 z-[110] flex items-center justify-center bg-slate-900/35 backdrop-blur-sm p-4">
+                            <div className="w-full max-w-[540px] rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl animate-in zoom-in-95 duration-200">
+                                <div className="mb-5 flex items-start justify-between gap-4">
+                                    <div>
+                                        <h3 className="text-2xl font-bold text-slate-900">Tạo hoạt động tiếp theo</h3>
+                                        <p className="mt-2 text-base text-slate-500">Hãy tạo hoạt động tiếp theo để tiếp tục chăm sóc cộng tác viên.</p>
+                                    </div>
+                                    <button
+                                        onClick={closeNextActivityModal}
+                                        className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+                                    >
+                                        <X size={18} />
+                                    </button>
+                                </div>
+
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="mb-2 block text-xs font-bold uppercase tracking-widest text-slate-500">
+                                            Loại hoạt động
+                                        </label>
+                                        <div className="grid w-full grid-cols-6 gap-1.5">
+                                            {COLLABORATOR_ACTIVITY_TYPES.map((item, index) => {
+                                                const Icon = item.icon;
+                                                const isActive = nextActivityType === item.id;
+                                                const spanClass = index < 3 ? 'col-span-2' : 'col-span-3';
+                                                return (
+                                                    <button
+                                                        key={item.id}
+                                                        onClick={() => setNextActivityType(item.id)}
+                                                        className={`${spanClass} rounded-md border px-1.5 py-1 text-[8px] font-bold uppercase transition-all ${isActive ? 'border-violet-400 bg-violet-50 text-violet-700' : 'border-slate-200 text-slate-500 hover:border-slate-300 hover:bg-slate-50'}`}
+                                                    >
+                                                        <div className={`mx-auto mb-0.5 flex h-5 w-5 items-center justify-center rounded-full ${isActive ? 'bg-violet-100' : 'bg-slate-100'}`}>
+                                                            <Icon size={10} />
+                                                        </div>
+                                                        <span className="leading-tight">{item.label}</span>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-3">
+                                        <input
+                                            type="datetime-local"
+                                            value={nextActivityDate}
+                                            onChange={(e) => setNextActivityDate(e.target.value)}
+                                            className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 outline-none transition-colors focus:border-violet-400"
+                                        />
+                                        <input
+                                            value={nextActivitySummary}
+                                            onChange={(e) => setNextActivitySummary(e.target.value)}
+                                            placeholder="Ví dụ: Gọi lại để chốt lịch gặp, gửi thêm tài liệu, hỏi tình hình cộng tác..."
+                                            className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm text-slate-700 outline-none transition-colors focus:border-violet-400"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="mt-6 flex items-center justify-end gap-3">
+                                    <button
+                                        onClick={closeNextActivityModal}
+                                        className="rounded-lg px-4 py-2 text-sm font-bold text-slate-600 transition-colors hover:bg-slate-100"
+                                    >
+                                        Bỏ qua
+                                    </button>
+                                    <button
+                                        onClick={handleCreateNextActivity}
+                                        className="rounded-lg bg-violet-600 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-violet-700"
+                                    >
+                                        Tạo hoạt động
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {showFollowersModal && (
+                        <div className="absolute inset-0 z-[115] flex items-center justify-center bg-slate-900/35 backdrop-blur-sm p-4">
+                            <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-2xl animate-in zoom-in-95 duration-200">
+                                <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+                                    <div>
+                                        <h3 className="text-lg font-bold text-slate-900">Thêm sale theo dõi</h3>
+                                        <p className="mt-1 text-sm text-slate-500">Chọn sale để cùng theo dõi và chăm sóc cộng tác viên này.</p>
+                                    </div>
+                                    <button
+                                        onClick={() => setShowFollowersModal(false)}
+                                        className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+                                    >
+                                        <X size={18} />
+                                    </button>
+                                </div>
+
+                                <div className="max-h-[380px] space-y-2 overflow-y-auto px-4 py-4">
+                                    {salesFollowerOptions.map((item) => {
+                                        const isFollowing = currentFollowers.some((follower) => follower.id === item.id);
+
+                                        return (
+                                            <div
+                                                key={item.id}
+                                                className="flex items-center justify-between rounded-xl border border-slate-200 px-3 py-3"
+                                            >
+                                                <div className="flex items-center gap-3">
+                                                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-700">
+                                                        {item.avatar || getInitials(item.name)}
+                                                    </div>
+                                                    <div>
+                                                        <div className="text-sm font-bold text-slate-800">{item.name}</div>
+                                                        <div className="text-xs text-slate-500">{item.role || 'Nhân viên kinh doanh'}</div>
+                                                    </div>
+                                                </div>
+
+                                                {isFollowing ? (
+                                                    <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-600">
+                                                        <CheckCircle2 size={14} /> Đang theo dõi
+                                                    </span>
+                                                ) : (
+                                                    <button
+                                                        onClick={() => handleAddFollower(item)}
+                                                        className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-bold text-white transition-colors hover:bg-blue-700"
+                                                    >
+                                                        Thêm
+                                                    </button>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+
+                                <div className="flex justify-end border-t border-slate-200 bg-slate-50 px-5 py-4">
+                                    <button
+                                        onClick={() => setShowFollowersModal(false)}
+                                        className="rounded-lg px-4 py-2 text-sm font-bold text-slate-600 transition-colors hover:bg-slate-200"
+                                    >
+                                        Đóng
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
             </div>
         </div>
@@ -432,7 +831,7 @@ const Collaborators: React.FC = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [filterCity, setFilterCity] = useState('All');
     const [filterIndustry, setFilterIndustry] = useState('All');
-
+    const [activeTab, setActiveTab] = useState<'all' | 'slow_ctv'>('all');
     const [collaborators, setCollaborators] = useState<ICollaborator[]>([]);
     const [selectedCtv, setSelectedCtv] = useState<ICollaborator | null>(null);
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -498,6 +897,20 @@ const Collaborators: React.FC = () => {
         return collaborators.filter(c => c.ownerId === user?.id);
     }, [collaborators, canViewAllCollaborators, user?.id]);
 
+    const slowCollaboratorRows = useMemo<Array<{
+        ctv: ICollaborator;
+        appointmentAt: string;
+        overdueMinutes: number;
+        overdueText: string;
+    }>>(() => [], []);
+
+    const slowCollaboratorMap = useMemo(
+        () => new Map<string, { ctv: ICollaborator; appointmentAt: string; overdueMinutes: number; overdueText: string }>(),
+        []
+    );
+
+    const scopedCollaborators = visibleCollaborators;
+
     // Derived Options for Filters
     const cityOptions = useMemo(() => ['All', ...Array.from(new Set(visibleCollaborators.map(c => c.city)))], [visibleCollaborators]);
     const industryOptions = useMemo(() => ['All', ...Array.from(new Set(visibleCollaborators.map(c => c.industry)))], [visibleCollaborators]);
@@ -515,6 +928,10 @@ const Collaborators: React.FC = () => {
     const activeSearchChips = useMemo<PinnedSearchChip[]>(() => {
         const chips: PinnedSearchChip[] = [];
 
+        if (activeTab === 'slow_ctv') {
+            chips.push({ key: 'sla', label: 'SLA: Chậm lịch hẹn' });
+        }
+
         if (filterCity !== 'All') {
             chips.push({ key: 'city', label: `Khu vuc: ${filterCity}` });
         }
@@ -524,9 +941,10 @@ const Collaborators: React.FC = () => {
         }
 
         return chips;
-    }, [filterCity, filterIndustry]);
+    }, [activeTab, filterCity, filterIndustry]);
 
     const removeSearchChip = (chipKey: string) => {
+        if (chipKey === 'sla') setActiveTab('all');
         if (chipKey === 'city') setFilterCity('All');
         if (chipKey === 'industry') setFilterIndustry('All');
     };
@@ -555,6 +973,7 @@ const Collaborators: React.FC = () => {
             phone: newCtv.phone.trim(),
             ownerId,
             ownerName: getOwnerName(ownerId),
+            followers: ownerId ? [buildCollaboratorFollower(ownerId, getOwnerName(ownerId), 'Sale phụ trách')] : [],
             city: newCtv.city || 'Hà Nội',
             industry: newCtv.industry || '',
             segment: newCtv.segment || '',
@@ -632,6 +1051,21 @@ const Collaborators: React.FC = () => {
 
     const isColVisible = (id: string) => columns.find(c => c.id === id)?.visible;
 
+    useEffect(() => {
+        if (typeof window === 'undefined' || collaborators.length === 0) return;
+
+        const collaboratorId = localStorage.getItem(COLLABORATOR_FOCUS_KEY);
+        if (!collaboratorId) return;
+
+        const target = collaborators.find(item => item.id === collaboratorId);
+        localStorage.removeItem(COLLABORATOR_FOCUS_KEY);
+
+        if (!target) return;
+        if (!canViewAllCollaborators && target.ownerId !== user?.id) return;
+
+        setSelectedCtv(target);
+    }, [collaborators, canViewAllCollaborators, user?.id]);
+
     return (
         <div className="flex flex-col h-full bg-[#f8fafc] text-[#111418] font-sans">
             <div className="flex flex-col flex-1 p-6 lg:p-8 max-w-[1600px] mx-auto w-full gap-6">
@@ -653,6 +1087,28 @@ const Collaborators: React.FC = () => {
                         className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg font-bold flex items-center gap-2 shadow-sm transition-all"
                     >
                         <Plus size={20} /> Thêm CTV
+                    </button>
+                </div>
+
+                <div className="hidden">
+                    <button
+                        onClick={() => setActiveTab('all')}
+                        className={`px-4 py-2 rounded-md text-sm font-bold inline-flex items-center gap-2 transition-colors ${activeTab === 'all' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                    >
+                        Tất cả
+                        <span className={`rounded-full px-2 py-0.5 text-xs ${activeTab === 'all' ? 'bg-slate-100 text-slate-700' : 'bg-white text-slate-500'}`}>
+                            {visibleCollaborators.length}
+                        </span>
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('slow_ctv')}
+                        className={`px-4 py-2 rounded-md text-sm font-bold inline-flex items-center gap-2 transition-colors ${activeTab === 'slow_ctv' ? 'bg-white text-rose-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                    >
+                        <Clock size={14} />
+                        Chậm CTV
+                        <span className={`rounded-full px-2 py-0.5 text-xs ${activeTab === 'slow_ctv' ? 'bg-rose-100 text-rose-700' : 'bg-white text-slate-500'}`}>
+                            {slowCollaboratorRows.length}
+                        </span>
                     </button>
                 </div>
 
@@ -753,17 +1209,19 @@ const Collaborators: React.FC = () => {
                                     {isColVisible('segment') && <th className="p-3 border-r border-slate-200">Mảng hợp tác</th>}
                                     {isColVisible('stats') && <th className="p-3 border-r border-slate-200 text-center bg-blue-50/50">HVGT / HĐ</th>}
                                     {isColVisible('notes') && <th className="p-3 border-r border-slate-200 min-w-[200px]">Ghi chú & Note</th>}
+                                    {activeTab === 'slow_ctv' && <th className="p-3 border-r border-slate-200 min-w-[180px] text-rose-700">SLA chậm lịch hẹn</th>}
 
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-200">
                                 {filteredList.map((ctv, index) => {
                                     const stats = getStats(ctv.name);
+                                    const overdueInfo = slowCollaboratorMap.get(ctv.id);
                                     return (
                                         <tr
                                             key={ctv.id}
                                             onClick={() => setSelectedCtv(ctv)}
-                                            className="hover:bg-blue-50/50 transition-colors group text-slate-800 cursor-pointer"
+                                            className={`transition-colors group text-slate-800 cursor-pointer ${overdueInfo ? 'bg-rose-50/40 hover:bg-rose-50/70' : 'hover:bg-blue-50/50'}`}
                                         >
                                             {isColVisible('index') && (
                                                 <td className="p-3 border-r border-slate-200 text-center text-slate-500 bg-slate-50/30">{index + 1}</td>
@@ -835,10 +1293,16 @@ const Collaborators: React.FC = () => {
                                             {isColVisible('notes') && (
                                                 <td className="p-3 border-r border-slate-200">
                                                     <div className="flex flex-col gap-1.5">
+                                                        {overdueInfo && (
+                                                            <div className="flex items-center gap-1.5 text-[11px] font-bold text-rose-700 bg-rose-50 w-fit px-1.5 py-0.5 rounded border border-rose-100">
+                                                                <AlertTriangle size={10} />
+                                                                Chậm lịch hẹn
+                                                            </div>
+                                                        )}
                                                         {ctv.nextAppointment && (
                                                             <div className="flex items-center gap-1.5 text-[11px] font-bold text-blue-700 bg-blue-50 w-fit px-1.5 py-0.5 rounded border border-blue-100">
                                                                 <Calendar size={10} />
-                                                                {ctv.nextAppointment}
+                                                                {formatCollaboratorDateTime(ctv.nextAppointment)}
                                                             </div>
                                                         )}
                                                         <p className="text-xs text-slate-500 italic line-clamp-2">
@@ -850,6 +1314,23 @@ const Collaborators: React.FC = () => {
                                                 </td>
                                             )}
 
+                                            {activeTab === 'slow_ctv' && (
+                                                <td className="p-3 border-r border-slate-200">
+                                                    {overdueInfo ? (
+                                                        <div className="flex flex-col gap-1">
+                                                            <span className="inline-flex items-center gap-1.5 text-sm font-bold text-rose-700">
+                                                                <Clock size={14} /> {overdueInfo.overdueText}
+                                                            </span>
+                                                            <span className="text-xs text-slate-500">
+                                                                Quá lịch hẹn đã lên cho CTV
+                                                            </span>
+                                                        </div>
+                                                    ) : (
+                                                        <span className="text-xs text-slate-400">-</span>
+                                                    )}
+                                                </td>
+                                            )}
+
 
                                         </tr>
                                     );
@@ -857,9 +1338,12 @@ const Collaborators: React.FC = () => {
 
                                 {filteredList.length === 0 && (
                                     <tr>
-                                        <td colSpan={ALL_COLUMNS.length} className="p-12 text-center text-slate-400 flex flex-col items-center justify-center">
+                                        <td colSpan={ALL_COLUMNS.length + (activeTab === 'slow_ctv' ? 1 : 0)} className="p-12 text-center text-slate-400">
                                             <Filter size={48} className="mb-4 text-slate-200" />
-                                            <p>Không tìm thấy cộng tác viên phù hợp với bộ lọc hiện tại.</p>
+                                            {activeTab === 'slow_ctv' ? (
+                                                <p>Chưa có cộng tác viên nào đang chậm lịch hẹn theo SLA.</p>
+                                            ) : null}
+                                            {activeTab !== 'slow_ctv' ? <p>Không tìm thấy cộng tác viên phù hợp với bộ lọc hiện tại.</p> : null}
                                         </td>
                                     </tr>
                                 )}
@@ -867,7 +1351,7 @@ const Collaborators: React.FC = () => {
                         </table>
                     </div>
                     <div className="p-3 border-t border-slate-200 bg-slate-50 text-xs text-slate-500 flex justify-between items-center">
-                        <span>Hiển thị {filteredList.length} / {visibleCollaborators.length} kết quả</span>
+                        <span>Hiển thị {filteredList.length} / {scopedCollaborators.length} kết quả</span>
                         <button className="flex items-center gap-1 hover:text-blue-600 font-medium transition-colors">
                             <Download size={14} /> Xuất Excel
                         </button>

@@ -1,7 +1,7 @@
 ﻿
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { getLeadById, saveLead, convertLeadToContact, addContact, addDeal, deleteLead } from '../utils/storage';
+import { getLeadById, saveLead, convertLeadToContact, addContact, addDeal, deleteLead, getLeadActivitiesForConversion } from '../utils/storage';
 import { useAuth } from '../contexts/AuthContext';
 import {
     ArrowLeft, Phone, Mail, MessageCircle, Clock, AlertCircle,
@@ -747,7 +747,7 @@ const SalesLeadQuickProcess: React.FC = () => {
                                             createdAt: new Date().toISOString(),
                                             leadCreatedAt: lead.createdAt,
                                             assignedAt: lead.pickUpDate,
-                                            activities: (Array.isArray(lead.activities) ? lead.activities : []).map(a => ({ ...a, type: a.type === 'message' ? 'chat' : a.type === 'system' ? 'note' : a.type as any })) as any
+                                            activities: getLeadActivitiesForConversion(lead).map(a => ({ ...a, type: a.type === 'message' ? 'chat' : a.type === 'system' ? 'note' : a.type as any })) as any
                                         };
 
                                         addDeal(newDeal);

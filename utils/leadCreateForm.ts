@@ -29,9 +29,18 @@ export interface LeadCreateFormData {
   studentName: string;
   studentDob: string;
   studentIdentityCard: string;
+  studentLanguageLevel: string;
   studentPhone: string;
   studentSchool: string;
   studentEducationLevel: string;
+  identityDate: string;
+  identityPlace: string;
+  expectedStart: string;
+  parentOpinion: string;
+  financial: string;
+  potential: string;
+  createdAtDisplay: string;
+  assignedAtDisplay: string;
 }
 
 export const LEAD_RELATION_OPTIONS = [
@@ -98,9 +107,18 @@ export const createLeadInitialState = (salesperson = ''): LeadCreateFormData => 
   studentName: '',
   studentDob: '',
   studentIdentityCard: '',
+  studentLanguageLevel: '',
   studentPhone: '',
   studentSchool: '',
   studentEducationLevel: '',
+  identityDate: '',
+  identityPlace: '',
+  expectedStart: '',
+  parentOpinion: '',
+  financial: '',
+  potential: '',
+  createdAtDisplay: '',
+  assignedAtDisplay: '',
 });
 
 export const getLeadGuardianRelation = (title: string): string | undefined => {
@@ -125,9 +143,11 @@ export const buildLeadStudentInfo = (formData: LeadCreateFormData): IStudentInfo
     studentName: normalizedStudentName || undefined,
     dob: formData.studentDob || undefined,
     identityCard: formData.studentIdentityCard.trim() || undefined,
+    languageLevel: formData.studentLanguageLevel.trim() || undefined,
     studentPhone: normalizedStudentPhone || undefined,
     school: formData.studentSchool.trim() || undefined,
     educationLevel: formData.studentEducationLevel || undefined,
+    financialStatus: formData.financial.trim() || undefined,
     parentName: guardianRelation ? formData.name.trim() || undefined : undefined,
     parentPhone: guardianRelation ? formData.phone.trim() || undefined : undefined,
   };

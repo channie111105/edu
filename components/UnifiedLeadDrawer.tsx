@@ -1,6 +1,5 @@
 ﻿import React, { useState, useEffect, useMemo } from 'react';
 import { useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { ILead, LeadStatus, UserRole, Activity, DealStage, IContract, ContractStatus, IMeeting, MeetingStatus, MeetingType, IQuotation, IQuotationLineItem, IQuotationLogNote, ITeacher, ITrainingClass, QuotationStatus } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import {
@@ -10,11 +9,12 @@ import {
     DollarSign, CreditCard, MessageSquare, Bell, Star,
     MoreHorizontal, CalendarDays, Flag, CheckSquare, Plus, Trash2, Trophy,
     ShieldCheck, FileSignature, Wallet, Lock, Activity as ActivityIcon, Ban, ArrowUpRight, Users, XOctagon, Tag, Handshake, ChevronRight,
-    Save, Printer, RotateCcw, Monitor
+    Printer, RotateCcw, Monitor
 } from 'lucide-react';
-import { addContract, addMeeting, addQuotation, getLeadById, getLostReasons, getQuotations, getTags, getTeachers, getTrainingClasses, saveTags, updateQuotation } from '../utils/storage';
+import { FIXED_LEAD_TAGS, addContract, addMeeting, addQuotation, getClosedLeadReasons, getLeadById, getLostReasons, getQuotations, getTags, getTeachers, getTrainingClasses, saveTags, updateQuotation } from '../utils/storage';
 import CreateMeetingModal from './CreateMeetingModal';
 import { MeetingCustomerOption } from '../utils/meetingHelpers';
+import { LEAD_CHANNEL_OPTIONS } from '../constants';
 import {
     DEFAULT_QUOTATION_RECEIPT_TYPE,
     normalizeQuotationReceiptType
@@ -25,7 +25,9 @@ import {
 } from '../utils/servicePaymentPlans';
 import {
     getLeadStatusLabel,
+    isClosedLeadStatusKey,
     LEAD_STATUS_KEYS,
+    LEAD_STATUS_OPTIONS,
     normalizeLeadStatusKey,
     toLeadStatusValue,
 } from '../utils/leadStatus';
@@ -34,6 +36,17 @@ import { buildTrainingClassLookupOptions } from '../utils/trainingClassLookup';
 import LogAudienceFilterControl from './LogAudienceFilter';
 import { LogAudienceFilter } from '../utils/logAudience';
 import { appendLeadLogs, buildLeadActivityLog, buildLeadAuditChange, buildLeadAuditLog } from '../utils/leadLogs';
+import LeadDrawerProfileForm from './LeadDrawerProfileForm';
+import {
+    buildLeadStudentInfo,
+    createLeadInitialState,
+    getLeadGuardianRelation,
+    LeadCreateFormData,
+    LeadCreateModalTab,
+    resolveLeadCampus,
+} from '../utils/leadCreateForm';
+import { getLeadPhoneValidationMessage, normalizeLeadPhone } from '../utils/phone';
+import { clearLeadReclaimTracking } from '../utils/leadSla';
 
 interface UnifiedLeadDrawerProps {
     lead: ILead;
@@ -227,6 +240,21 @@ const formatDisplayDate = (value?: string) => {
     return date.toLocaleDateString('vi-VN');
 };
 
+const formatDisplayDateTime = (value?: string) => {
+    if (!value) return '';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toLocaleString('vi-VN');
+};
+
+const normalizeCallLogToken = (value?: string) =>
+    String(value || '')
+        .trim()
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]+/g, ' ');
+
 const calculateOrderLineTotal = (unitPrice: number, quantity: number, discountPercent: number) =>
     Math.max(0, unitPrice * quantity * (1 - discountPercent / 100));
 
@@ -341,12 +369,116 @@ const STAGE_LABELS: Record<string, string> = {
     [DealStage.AFTER_SALE]: 'After sale'
 };
 
+const STANDARD_LEAD_STATUS_OPTIONS = LEAD_STATUS_OPTIONS;
+const CUSTOM_CLOSE_REASON = 'Lý do khác';
+
+const normalizeLeadFormStatus = (status?: string) => normalizeLeadStatusKey(status);
+
+const isClosedLeadFormStatus = (status?: string) => isClosedLeadStatusKey(status);
+
+const resolveCloseReason = (reason: string, customReason?: string) =>
+    reason === CUSTOM_CLOSE_REASON ? customReason?.trim() || '' : reason;
+
+const getCloseReasonOptions = (status?: string) =>
+    getClosedLeadReasons(normalizeLeadFormStatus(status));
+
+const getCloseReasonFormState = (status?: string, reason?: string) => {
+    const normalizedReason = String(reason || '').trim();
+    if (!normalizedReason) {
+        return { lossReason: '', lossReasonCustom: '' };
+    }
+
+    const reasonOptions = getCloseReasonOptions(status);
+    if (reasonOptions.includes(normalizedReason)) {
+        return { lossReason: normalizedReason, lossReasonCustom: '' };
+    }
+
+    return { lossReason: CUSTOM_CLOSE_REASON, lossReasonCustom: normalizedReason };
+};
+
+const getCloseReasonStateForStatusChange = (status: string, reason: string, customReason?: string) => {
+    if (!isClosedLeadFormStatus(status)) {
+        return { lossReason: '', lossReasonCustom: '' };
+    }
+
+    const resolvedReason = resolveCloseReason(reason, customReason);
+    if (!resolvedReason) {
+        return { lossReason: '', lossReasonCustom: '' };
+    }
+
+    const reasonOptions = getCloseReasonOptions(status);
+    if (reasonOptions.includes(resolvedReason)) {
+        return { lossReason: resolvedReason, lossReasonCustom: '' };
+    }
+
+    return { lossReason: '', lossReasonCustom: '' };
+};
+
+const validateCloseReason = (status: string, reason: string, customReason?: string) => {
+    if (!isClosedLeadFormStatus(status)) return null;
+    if (!reason) return 'Vui lòng chọn lý do.';
+    if (reason === CUSTOM_CLOSE_REASON && !customReason?.trim()) {
+        return 'Vui lòng nhập lý do cụ thể.';
+    }
+    return null;
+};
+
+const mapLeadToFormData = (lead: ILead): LeadCreateFormData => {
+    const studentInfo = lead.studentInfo || {};
+
+    return {
+        ...createLeadInitialState(lead.ownerId || ''),
+        name: lead.name || '',
+        phone: lead.phone || '',
+        email: lead.email || '',
+        source: lead.source || 'hotline',
+        program: lead.program || 'Tiếng Đức',
+        notes: lead.notes || '',
+        title: (lead as any).title || '',
+        company: lead.company || lead.marketingData?.region || '',
+        province: (lead as any).province || lead.city || '',
+        city: (lead as any).city || lead.district || '',
+        ward: (lead as any).ward || lead.ward || '',
+        street: (lead as any).street || lead.address || '',
+        salesperson: lead.ownerId || '',
+        campaign: lead.marketingData?.campaign || (lead as any).campaign || '',
+        tags: Array.isArray(lead.marketingData?.tags)
+            ? lead.marketingData.tags
+            : (typeof lead.marketingData?.tags === 'string'
+                ? lead.marketingData.tags.split(',').map((item: string) => item.trim()).filter(Boolean)
+                : []),
+        referredBy: (lead as any).referredBy || '',
+        product: lead.product || lead.program || '',
+        market: lead.marketingData?.market || '',
+        channel: lead.marketingData?.channel || lead.marketingData?.medium || '',
+        status: normalizeLeadFormStatus(lead.status as string),
+        ...getCloseReasonFormState(lead.status as string, lead.lostReason),
+        targetCountry: lead.targetCountry || studentInfo.targetCountry || '',
+        studentName: studentInfo.studentName || '',
+        studentDob: toInputDate(studentInfo.dob || lead.dob),
+        studentIdentityCard: studentInfo.identityCard || (lead as any).identityCard || '',
+        studentLanguageLevel: studentInfo.languageLevel || (lead as any).languageLevel || '',
+        studentPhone: studentInfo.studentPhone || '',
+        studentSchool: studentInfo.school || '',
+        studentEducationLevel: studentInfo.educationLevel || lead.educationLevel || '',
+        identityDate: toInputDate(lead.identityDate),
+        identityPlace: lead.identityPlace || '',
+        expectedStart: lead.internalNotes?.expectedStart || '',
+        parentOpinion: lead.internalNotes?.parentOpinion || '',
+        financial: lead.internalNotes?.financial || studentInfo.financialStatus || '',
+        potential: lead.internalNotes?.potential || '',
+        createdAtDisplay: formatDisplayDateTime(lead.createdAt),
+        assignedAtDisplay: formatDisplayDateTime(lead.pickUpDate),
+    };
+};
+
 const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead, isOpen, onClose, onUpdate, onConvert }) => {
     if (!isOpen) return null;
 
     const { user } = useAuth();
-    const navigate = useNavigate();
     const [lead, setLead] = useState<ILead>(initialLead || {} as ILead);
+    const [leadFormData, setLeadFormData] = useState<LeadCreateFormData>(() => mapLeadToFormData(initialLead || {} as ILead));
+    const [leadFormActiveTab, setLeadFormActiveTab] = useState<LeadCreateModalTab>('notes');
     const quotationSalesOptions = useMemo(() => {
         const options = new Map<string, { id: string; name: string; avatar: string; role: string }>();
 
@@ -365,6 +497,30 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
 
         return Array.from(options.values());
     }, [user?.id, user?.name, user?.role]);
+    const leadSalesOptions = useMemo(
+        () => quotationSalesOptions
+            .filter((item) => item.role !== 'Contract Manager')
+            .map((item) => ({ id: item.id, value: item.name, label: item.name })),
+        [quotationSalesOptions]
+    );
+    const leadFormCloseReasonOptions = useMemo(
+        () => getCloseReasonOptions(leadFormData.status),
+        [leadFormData.status]
+    );
+    const patchLeadFormData = (patch: Partial<LeadCreateFormData>) => {
+        setLeadFormData((prev) => ({ ...prev, ...patch }));
+    };
+    const callCount = useMemo(() => {
+        const auditCount = (lead.auditLogs || []).filter((log) => log.action === 'lead_called').length;
+        if (auditCount > 0) return auditCount;
+
+        return (lead.activities || []).filter((activity: any) => {
+            if (activity?.type === 'call') return true;
+            const titleToken = normalizeCallLogToken(activity?.title);
+            const descriptionToken = normalizeCallLogToken(activity?.description);
+            return titleToken.includes('goi dien') || titleToken.includes('goi khach hang') || descriptionToken.includes('goi dien');
+        }).length;
+    }, [lead.activities, lead.auditLogs]);
 
     // UI States
     const [chatterTab, setChatterTab] = useState<'message' | 'note' | 'activity' | 'meeting'>('note');
@@ -404,11 +560,9 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
     const [nextActivityType, setNextActivityType] = useState('call');
     const [nextActivityDate, setNextActivityDate] = useState('');
     const [nextActivitySummary, setNextActivitySummary] = useState('');
-    const [pendingConvertLead, setPendingConvertLead] = useState<ILead | null>(null);
     const [completingActivityId, setCompletingActivityId] = useState<string | null>(null);
     const [completionNote, setCompletionNote] = useState('');
     const [logAudienceFilter, setLogAudienceFilter] = useState<LogAudienceFilter>('ALL');
-    const [scheduleNext, setScheduleNext] = useState(true); // Default to true to suggest next activity
     const [showAssignModal, setShowAssignModal] = useState(false);
     const [showQuotationCreator, setShowQuotationCreator] = useState(false);
     const [quotationCreatorTab, setQuotationCreatorTab] = useState<'order_lines' | 'other_info'>('order_lines');
@@ -416,6 +570,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
     const [activeQuotationId, setActiveQuotationId] = useState<string | null>(null);
     const [isSaving, setIsSaving] = useState(false); // Global saving indicator state
     const lastLoggedValues = useRef<Record<string, any>>({}); // To prevent duplicate logs in rapid succession
+    const previousInitialLeadIdRef = useRef(initialLead?.id || '');
 
     // Mapping for logging internal notes
     const INTERNAL_NOTE_LABELS: any = {
@@ -572,7 +727,6 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
     // --- TAG MANAGEMENT ---
     const [allAvailableTags, setAllAvailableTags] = useState<string[]>([]);
     const [isAddingTag, setIsAddingTag] = useState(false);
-    const [newTagInput, setNewTagInput] = useState('');
 
     useEffect(() => {
         setAllAvailableTags(getTags());
@@ -581,44 +735,26 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
     useEffect(() => {
         syncLeadHistoryToQuotationLogs(lead);
     }, [lead.id, lead.activities]);
-
-    const handleAddTag = (tag: string) => {
-        if (!tag.trim()) return;
-        const currentTags = lead.marketingData?.tags || [];
-        if (currentTags.includes(tag)) return;
-
-        const updatedTags = [...currentTags, tag];
-        const updatedLead = {
-            ...lead,
-            marketingData: {
-                ...lead.marketingData,
-                tags: updatedTags
-            }
-        };
-        setLead(updatedLead);
-        onUpdate(updatedLead);
-
-        if (!allAvailableTags.includes(tag)) {
-            const nextAll = [...allAvailableTags, tag];
-            setAllAvailableTags(nextAll);
-            saveTags(nextAll);
-        }
-        setNewTagInput('');
-        setIsAddingTag(false);
+    const addTagCatalogEntry = (tag: string) => {
+        const value = tag.trim();
+        if (!value) return;
+        const nextTags = saveTags([...allAvailableTags, value]);
+        setAllAvailableTags(nextTags);
     };
 
-    const handleRemoveTag = (tag: string) => {
-        const currentTags = lead.marketingData?.tags || [];
-        const updatedTags = currentTags.filter(t => t !== tag);
-        const updatedLead = {
-            ...lead,
-            marketingData: {
-                ...lead.marketingData,
-                tags: updatedTags
-            }
-        };
-        setLead(updatedLead);
-        onUpdate(updatedLead);
+    const deleteTagCatalogEntry = (tag: string) => {
+        if (FIXED_LEAD_TAGS.includes(tag as typeof FIXED_LEAD_TAGS[number])) return;
+        const nextTags = saveTags(allAvailableTags.filter((item) => item !== tag));
+        setAllAvailableTags(nextTags);
+        setLeadFormData((prev) => ({ ...prev, tags: prev.tags.filter((item) => item !== tag) }));
+    };
+
+    const addTagToLeadForm = (tag: string) => {
+        setLeadFormData((prev) => (
+            prev.tags.includes(tag)
+                ? prev
+                : { ...prev, tags: [...prev.tags, tag] }
+        ));
     };
 
     // --- STAGE HELPERS ---
@@ -630,24 +766,29 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
     const isWon = lead.status === DealStage.WON;
     const isContract = lead.status === DealStage.CONTRACT;
     const isLost = normalizedLeadStatus === LEAD_STATUS_KEYS.LOST;
-    const isNotPickedUp = !lead.pickUpDate && ![LEAD_STATUS_KEYS.CONTACTED, LEAD_STATUS_KEYS.NURTURING, LEAD_STATUS_KEYS.CONVERTED].includes(normalizedLeadStatus) && !isPipeline;
-    const lockedMsg = "Vui lòng nhấn 'Tiếp nhận Lead' để bắt đầu cập nhật thông tin";
 
     useEffect(() => {
         if (!initialLead) return;
-        // Only sync if ID changed or we're not in the middle of a local update sync
-        if (initialLead.id !== lead.id) {
-            const mappedLineItems = mapStoredItemsToQuotationLineItems(Array.isArray(initialLead.productItems) ? initialLead.productItems : [], initialLead);
-            setLead(initialLead);
-            setQuotationLineItems(mappedLineItems);
-            setDiscountAdjustment(deriveDiscountAdjustment(initialLead.discount, mappedLineItems));
-            setOrderLineDraft(createOrderDraft(initialLead));
-            setFollowers(Array.isArray(initialLead.followers) ? initialLead.followers : []);
-        } else if ((initialLead.activities?.length || 0) > (lead.activities?.length || 0)) {
-            // Keep activities in sync if updated from outside (e.g. system)
-            setLead(prev => ({ ...prev, activities: initialLead.activities }));
+        const mappedLineItems = mapStoredItemsToQuotationLineItems(Array.isArray(initialLead.productItems) ? initialLead.productItems : [], initialLead);
+        const isDifferentLead = initialLead.id !== previousInitialLeadIdRef.current;
+
+        setLead(initialLead);
+        setLeadFormData(mapLeadToFormData(initialLead));
+        setQuotationLineItems(mappedLineItems);
+        setDiscountAdjustment(deriveDiscountAdjustment(initialLead.discount, mappedLineItems));
+        setOrderLineDraft(createOrderDraft(initialLead));
+        setFollowers(Array.isArray(initialLead.followers) ? initialLead.followers : []);
+
+        if (isDifferentLead) {
+            setLeadFormActiveTab('notes');
         }
+
+        previousInitialLeadIdRef.current = initialLead.id;
     }, [initialLead]);
+
+    useEffect(() => {
+        setLeadFormData(mapLeadToFormData(lead));
+    }, [lead]);
 
     useEffect(() => {
         if (!programDropdownOpen) return;
@@ -792,10 +933,6 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
             // Normal Note
             addLog('note', noteContent);
             setNoteContent('');
-
-            if (scheduleNext) {
-                openNextActivityModal('Tạo lịch tiếp theo sau khi lưu note');
-            }
         }
     };
 
@@ -903,13 +1040,6 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
         setNextActivityDate(getDefaultActivityDate(defaultType));
         setNextActivitySummary(presetSummary || '');
         setShowNextActivityModal(true);
-    };
-
-    const finalizePendingConvert = () => {
-        if (pendingConvertLead && typeof onConvert === 'function') {
-            onConvert(pendingConvertLead);
-        }
-        setPendingConvertLead(null);
     };
 
     const completeActivity = () => {
@@ -1034,6 +1164,180 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
         });
     };
 
+    const handleLeadFormSubmit = () => {
+        if (!leadFormData.name.trim()) {
+            showToast('Vui lòng nhập tên khách hàng.', 'error');
+            return;
+        }
+        if (!leadFormData.phone.trim()) {
+            showToast('Vui lòng nhập số điện thoại.', 'error');
+            return;
+        }
+        const normalizedPhone = normalizeLeadPhone(leadFormData.phone);
+        const phoneError = getLeadPhoneValidationMessage(leadFormData.phone);
+        if (phoneError) {
+            showToast(phoneError, 'error');
+            return;
+        }
+        if (!leadFormData.targetCountry) {
+            showToast('Vui lòng chọn quốc gia mục tiêu.', 'error');
+            return;
+        }
+
+        const closeReasonError = validateCloseReason(leadFormData.status, leadFormData.lossReason, leadFormData.lossReasonCustom);
+        if (closeReasonError) {
+            showToast(closeReasonError, 'error');
+            return;
+        }
+
+        const guardianRelation = getLeadGuardianRelation(leadFormData.title);
+        const studentInfo = buildLeadStudentInfo(leadFormData);
+        const campus = resolveLeadCampus(leadFormData);
+        const resolvedCloseReason = resolveCloseReason(leadFormData.lossReason, leadFormData.lossReasonCustom);
+        const normalizedProgram =
+            leadFormData.product &&
+            ['Tiếng Đức', 'Tiếng Trung', 'Du học Đức', 'Du học Trung', 'Du học nghề Úc'].includes(leadFormData.product)
+                ? leadFormData.product as ILead['program']
+                : leadFormData.program as ILead['program'];
+
+        const updatedLead: ILead = {
+            ...lead,
+            name: leadFormData.name,
+            phone: normalizedPhone,
+            email: leadFormData.email,
+            source: leadFormData.source,
+            program: normalizedProgram,
+            notes: leadFormData.notes,
+            company: campus || undefined,
+            ownerId: leadFormData.salesperson,
+            targetCountry: leadFormData.targetCountry || lead.targetCountry,
+            educationLevel: leadFormData.studentEducationLevel || undefined,
+            dob: leadFormData.studentDob || undefined,
+            identityCard: leadFormData.studentIdentityCard || undefined,
+            identityDate: leadFormData.identityDate || undefined,
+            identityPlace: leadFormData.identityPlace || undefined,
+            address: leadFormData.street.trim() || undefined,
+            city: leadFormData.province.trim() || undefined,
+            district: leadFormData.city.trim() || undefined,
+            ward: leadFormData.ward.trim() || undefined,
+            guardianName: guardianRelation ? leadFormData.name.trim() || undefined : undefined,
+            guardianPhone: guardianRelation ? normalizedPhone || undefined : undefined,
+            guardianRelation,
+            lostReason: isClosedLeadFormStatus(leadFormData.status) ? resolvedCloseReason : undefined,
+            studentInfo,
+            internalNotes: {
+                ...(lead.internalNotes || {}),
+                expectedStart: leadFormData.expectedStart.trim() || undefined,
+                parentOpinion: leadFormData.parentOpinion.trim() || undefined,
+                financial: leadFormData.financial.trim() || undefined,
+                potential: leadFormData.potential.trim() || undefined,
+            },
+            status: toLeadStatusValue(leadFormData.status as string) as any,
+            marketingData: {
+                ...lead.marketingData,
+                campaign: leadFormData.campaign,
+                tags: leadFormData.tags,
+                market: leadFormData.market,
+                channel: leadFormData.channel,
+                medium: leadFormData.channel,
+                region: campus || undefined
+            }
+        };
+
+        (updatedLead as any).title = leadFormData.title;
+        (updatedLead as any).street = leadFormData.street;
+        (updatedLead as any).province = leadFormData.province;
+        (updatedLead as any).city = leadFormData.city;
+        (updatedLead as any).ward = leadFormData.ward;
+        (updatedLead as any).referredBy = leadFormData.referredBy;
+
+        const changedFields: any[] = [];
+        const pushChange = (field: string, oldValue: any, newValue: any, label: string) => {
+            if (JSON.stringify(oldValue) === JSON.stringify(newValue)) return;
+            changedFields.push(buildLeadAuditChange(field, oldValue, newValue, label));
+        };
+
+        pushChange('name', lead.name, updatedLead.name, 'Tên lead');
+        pushChange('phone', lead.phone, updatedLead.phone, 'Số điện thoại');
+        pushChange('email', lead.email, updatedLead.email, 'Email');
+        pushChange('source', lead.source, updatedLead.source, 'Nguồn');
+        pushChange('ownerId', lead.ownerId, updatedLead.ownerId, 'Sale phụ trách');
+        pushChange('status', lead.status, updatedLead.status, 'Trạng thái');
+        pushChange('targetCountry', lead.targetCountry, updatedLead.targetCountry, 'Quốc gia mục tiêu');
+        pushChange('educationLevel', lead.educationLevel, updatedLead.educationLevel, 'Trình độ học vấn');
+        pushChange('dob', lead.dob, updatedLead.dob, 'Ngày sinh');
+        pushChange('identityCard', lead.identityCard, updatedLead.identityCard, 'CCCD');
+        pushChange('identityDate', lead.identityDate, updatedLead.identityDate, 'Ngày cấp');
+        pushChange('identityPlace', lead.identityPlace, updatedLead.identityPlace, 'Nơi cấp');
+        pushChange('address', lead.address, updatedLead.address, 'Địa chỉ');
+        pushChange('city', lead.city, updatedLead.city, 'Tỉnh/TP');
+        pushChange('district', lead.district, updatedLead.district, 'Quận/Huyện');
+        pushChange('ward', lead.ward, updatedLead.ward, 'Phường/Xã');
+        pushChange('notes', lead.notes, updatedLead.notes, 'Ghi chú nội bộ');
+        pushChange('studentInfo.languageLevel', lead.studentInfo?.languageLevel, updatedLead.studentInfo?.languageLevel, 'GPA / Điểm ngoại ngữ');
+        pushChange('studentInfo.financialStatus', lead.studentInfo?.financialStatus, updatedLead.studentInfo?.financialStatus, 'Tài chính');
+        pushChange('internalNotes.expectedStart', lead.internalNotes?.expectedStart, updatedLead.internalNotes?.expectedStart, 'Thời gian dự kiến tham gia');
+        pushChange('internalNotes.parentOpinion', lead.internalNotes?.parentOpinion, updatedLead.internalNotes?.parentOpinion, 'Ý kiến bố mẹ');
+        pushChange('internalNotes.financial', lead.internalNotes?.financial, updatedLead.internalNotes?.financial, 'Tài chính');
+        pushChange('internalNotes.potential', lead.internalNotes?.potential, updatedLead.internalNotes?.potential, 'Mức độ tiềm năng');
+        pushChange('marketingData.campaign', lead.marketingData?.campaign, updatedLead.marketingData?.campaign, 'Chiến dịch');
+        pushChange('marketingData.channel', lead.marketingData?.channel, updatedLead.marketingData?.channel, 'Kênh');
+        pushChange('marketingData.market', lead.marketingData?.market, updatedLead.marketingData?.market, 'Cơ sở');
+        pushChange('marketingData.tags', lead.marketingData?.tags || [], updatedLead.marketingData?.tags || [], 'Tags');
+        pushChange('referredBy', (lead as any).referredBy, (updatedLead as any).referredBy, 'Người giới thiệu');
+        pushChange('lostReason', lead.lostReason, updatedLead.lostReason, 'Lý do đóng lead');
+
+        if (changedFields.length === 0) {
+            showToast('Không có thay đổi để lưu.', 'info');
+            return;
+        }
+
+        const activities = [
+            ...(lead.status !== updatedLead.status
+                ? [buildLeadActivityLog({
+                    type: 'system',
+                    title: 'Đổi trạng thái',
+                    description: `Trạng thái: ${getLeadStatusLabel(String(lead.status || ''))} → ${getLeadStatusLabel(String(updatedLead.status || ''))}`,
+                    user: user?.name || 'Admin'
+                })]
+                : []),
+            ...(lead.ownerId !== updatedLead.ownerId
+                ? [buildLeadActivityLog({
+                    type: 'system',
+                    title: lead.ownerId ? 'Phân bổ lại Lead' : 'Phân bổ Lead',
+                    description: lead.ownerId
+                        ? `Lead được phân bổ lại từ ${lead.ownerId} sang ${updatedLead.ownerId}.`
+                        : `Lead được giao cho ${updatedLead.ownerId}.`,
+                    user: user?.name || 'Admin'
+                })]
+                : []),
+            buildLeadActivityLog({
+                type: 'system',
+                title: 'Cập nhật lead',
+                description: `${user?.name || 'Admin'} đã cập nhật form chi tiết lead.`,
+                user: user?.name || 'Admin'
+            })
+        ];
+
+        const finalLead = appendLeadLogs(updatedLead, {
+            activities,
+            audits: [
+                buildLeadAuditLog({
+                    action: 'lead_updated',
+                    actor: user?.name || 'Admin',
+                    actorType: 'user',
+                    changes: changedFields
+                })
+            ]
+        });
+
+        setLead(finalLead);
+        onUpdate(finalLead);
+        setIsSaving(true);
+        setTimeout(() => setIsSaving(false), 1500);
+        showToast('Đã cập nhật thông tin lead.', 'success');
+    };
+
     const handleAddFollower = (newFollower: any, isSystem = false) => {
         if (followers?.some(f => f.id === newFollower.id)) return;
 
@@ -1153,7 +1457,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
 
     const handleLossAction = () => {
         if (!lossReason) {
-            showToast("Vui lòng chọn lý do thất bại!", 'error');
+            showToast("Vui lòng chọn lý do!", 'error');
             return;
         }
 
@@ -1169,7 +1473,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
             timestamp: nowIso,
             description: `Trạng thái: ${getLeadStatusLabel(lead.status as string)} → ${getLeadStatusLabel(LEAD_STATUS_KEYS.LOST)}. Lý do: ${finalReason}`,
             user: user?.name || 'Admin',
-            title: 'Thất bại'
+            title: 'Mất'
         });
 
         commitLeadLogUpdate(
@@ -1193,7 +1497,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
         setShowLossModal(false);
         setLossReason('');
         setCustomLossReason('');
-    }
+    };
 
     const handleWonAction = () => {
         // 1. Basic Check for Won
@@ -1261,7 +1565,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
         });
 
         commitLeadLogUpdate({
-            ...lead,
+            ...clearLeadReclaimTracking(lead),
             status: LeadStatus.PICKED as any,
             ownerId: user?.name || lead.ownerId,
             pickUpDate: nowIso,
@@ -1348,7 +1652,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
         });
 
         commitLeadLogUpdate({
-            ...lead,
+            ...clearLeadReclaimTracking(lead),
             status: LeadStatus.ASSIGNED as any,
             ownerId: targetUser.name,
         }, {
@@ -1450,12 +1754,11 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
 
     const handleConvertAction = () => {
         if (typeof onConvert === 'function') {
-            setPendingConvertLead(lead);
-            openNextActivityModal('Tạo hoạt động tiếp theo sau Convert');
+            onConvert(lead);
         } else {
             console.error("onConvert param is not a function", onConvert);
         }
-    }
+    };
 
     const handleScheduleActivity = () => {
         if (!activitySummary) return;
@@ -1937,7 +2240,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                             <span className="text-slate-300">/</span>
                             <span className="text-slate-800 font-bold">{lead.name}</span>
                             {isWon && <span className="ml-2 bg-green-100 text-green-700 text-[10px] font-bold px-2 py-0.5 rounded border border-green-200 uppercase">Đã chốt hợp đồng</span>}
-                            {isLost && <span className="ml-2 bg-red-100 text-red-700 text-[10px] font-bold px-2 py-0.5 rounded border border-red-200 uppercase">Đã thất bại</span>}
+                            {isLost && <span className="ml-2 bg-red-100 text-red-700 text-[10px] font-bold px-2 py-0.5 rounded border border-red-200 uppercase">Đã mất</span>}
                         </div>
 
                         <div className="flex items-center gap-2">
@@ -1957,9 +2260,14 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                                     {/* 0. CALL BUTTON - Light Blue Theme */}
                                     <button
                                         onClick={handleCallAction}
-                                        className="px-4 py-1.5 text-[11px] font-black text-blue-700 bg-white border border-blue-200 rounded hover:bg-blue-50 flex items-center gap-2 shadow-sm transition-all active:scale-95"
+                                        className="px-3 py-1.5 text-blue-700 bg-white border border-blue-200 rounded hover:bg-blue-50 flex flex-col items-start shadow-sm transition-all active:scale-95"
                                     >
-                                        <Phone size={13} className="fill-blue-100" /> GỌI ĐIỆN
+                                        <span className="text-[9px] font-bold uppercase tracking-wide text-blue-400 leading-none">
+                                            {callCount} call
+                                        </span>
+                                        <span className="mt-1 flex items-center gap-2 text-[11px] font-black leading-none">
+                                            <Phone size={13} className="fill-blue-100" /> GỌI ĐIỆN
+                                        </span>
                                     </button>
 
                                     {!isWon && !isContract && !isLost && (
@@ -1987,7 +2295,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                             {(lead.pickUpDate || (![LEAD_STATUS_KEYS.NEW, LEAD_STATUS_KEYS.ASSIGNED].includes(normalizedLeadStatus))) && (
                                 <>
                                     {/* 3. CONVERT BUTTON */}
-                                    {!isWon && !isContract && !isLost && !isPipeline && user?.role !== UserRole.MARKETING && (
+                                    {typeof onConvert === 'function' && !isWon && !isContract && !isLost && !isConverted && !isPipeline && user?.role !== UserRole.MARKETING && (
                                         <button onClick={handleConvertAction} className="px-3 py-1.5 text-xs font-bold text-blue-600 border border-blue-600 rounded hover:bg-blue-50 flex items-center gap-1 transition-all">
                                             <ArrowUpRight size={14} /> CONVERT
                                         </button>
@@ -2003,7 +2311,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                                     {/* 5. LOSS BUTTON */}
                                     {!isContract && !isLost && user?.role !== UserRole.MARKETING && (
                                         <button onClick={() => setShowLossModal(true)} className="px-3 py-1.5 text-xs font-bold text-red-600 border border-red-200 rounded hover:bg-red-50 flex items-center gap-1">
-                                            <Ban size={14} /> THẤT BẠI
+                                            <Ban size={14} /> MẤT
                                         </button>
                                     )}
 
@@ -2028,198 +2336,31 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                     {/* --- LEFT: MASTER FORM (2/3) --- */}
                     <div className="w-[66%] h-full overflow-y-auto bg-white border-r border-slate-200 p-8 shadow-[inset_-10px_0_15px_-10px_rgba(0,0,0,0.05)] custom-scrollbar relative">
 
-                        {(isWon || isLost) && <div className="absolute top-0 left-0 w-full h-full bg-slate-50/50 z-20 pointer-events-none" />}
-
-                        {/* VISUAL GUIDE FOR STAGES */}
-                        <style>{`
-                    .field-label { font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase; margin-bottom: 4px; display: block; letter-spacing: 0.02em; }
-                    .field-input { width: 100%; padding: 8px 10px; font-size: 13px; color: #1e293b; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; outline: none; transition: all 0.2s; }
-                    .field-input:focus { background-color: #fff; border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1); }
-                    .field-input:disabled { background-color: #e2e8f0; color: #94a3b8; cursor: not-allowed; }
-                    .field-input.locked { background-color: #f0fdf4; border-color: #bbf7d0; color: #166534; pointer-events: none; }
-                    .section-title { display: none; }
-                    .badge-section { background: #dbeafe; color: #1e40af; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; }
-                    .dimmed-section { opacity: 0.5; pointer-events: none; filter: grayscale(100%); transition: all 0.3s; }
-                    .active-section { opacity: 1; pointer-events: auto; filter: none; }
-                    @keyframes bounce-subtle {
-                        0%, 100% { transform: translateY(0); }
-                        50% { transform: translateY(-3px); }
-                    }
-                    .animate-bounce-subtle {
-                        animation: bounce-subtle 2s infinite ease-in-out;
-                    }
-                `}</style>
-
-                        <div className="mb-4 pb-2 border-b border-blue-100 flex items-center gap-2">
-                            <h3 className="text-[14px] font-extrabold text-blue-800 uppercase tracking-wide">THÔNG TIN LEAD</h3>
-                            {isQualified && <Lock size={12} className="text-green-600" />}
-                            {isNotPickedUp && <span className="text-[10px] text-red-500 font-bold animate-pulse inline-flex items-center gap-1"><Lock size={10} /> {lockedMsg}</span>}
-                        </div>
-
-                        {/* CORE LEAD INFO */}
-                        <div className="mb-10">
-                            <h3 className="section-title">Thông tin lead</h3>
-                            <div className="grid grid-cols-2 gap-x-6 gap-y-4">
-                                <div>
-                                    <label className="field-label">Họ và tên <span className="text-red-500">*</span></label>
-                                    <input className={`field-input font-bold ${isQualified ? 'locked' : ''}`} defaultValue={lead.name} onBlur={e => handleFieldBlur('name', e.target.value)} disabled={isQualified || isContract || isLost} />
-                                </div>
-                                <div>
-                                    <label className="field-label">Số điện thoại <span className="text-red-500">*</span></label>
-                                    <input className={`field-input font-bold ${isQualified ? 'locked' : ''}`} defaultValue={lead.phone} onBlur={e => handleFieldBlur('phone', e.target.value)} disabled={isQualified || isContract || isLost} />
-                                </div>
-                                <div>
-                                    <label className="field-label">Nguồn Data</label>
-                                    <select className={`field-input ${isQualified ? 'locked' : ''}`} defaultValue={lead.source} onChange={e => handleFieldBlur('source', e.target.value)} disabled={isQualified || isContract || isLost}>
-                                        <option value="Facebook">Facebook</option><option value="TikTok">TikTok</option><option value="Google">Google Search</option><option value="Hotline">Hotline</option><option value="Referral">Giới thiệu</option>
-                                    </select>
-                                </div>
-                                <div><label className="field-label">Email</label><input className={`field-input ${isQualified ? 'locked' : ''}`} defaultValue={lead.email} onBlur={e => handleFieldBlur('email', e.target.value)} disabled={isQualified || isContract || isLost} /></div>
-                            </div>
-                        </div>
-
-                        {/* PROFILING */}
-                        <div className={`mb-10 p-4 border rounded-lg ${!isLeadStage ? 'bg-white border-blue-100 active-section' : 'bg-slate-50 border-slate-200'}`}>
-                            <h3 className="section-title">Hồ sơ năng lực</h3>
-                            <div className="grid grid-cols-2 gap-x-6 gap-y-4">
-                                <div>
-                                    <label className="field-label">Thị trường mục tiêu</label>
-                                    <select className="field-input" defaultValue={lead.targetCountry} onChange={e => handleFieldBlur('targetCountry', e.target.value)} disabled={isContract || isLost}>
-                                        <option value="">-- Chọn --</option><option value="Đức">Đức</option><option value="Úc">Úc</option><option value="Nhật Bản">Nhật Bản</option><option value="Hàn Quốc">Hàn Quốc</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="field-label">Trình độ học vấn <span className="text-red-500">*</span></label>
-                                    <select className="field-input" defaultValue={lead.educationLevel} onChange={e => handleFieldBlur('educationLevel', e.target.value)} disabled={isContract || isLost} >
-                                        <option value="">-- Chọn --</option><option value="THPT">Tốt nghiệp THPT</option><option value="Cao đẳng">Cao đẳng</option><option value="Đại học">Đại học</option><option value="Thạc sĩ">Thạc sĩ</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="field-label">Ngày sinh <span className="text-red-500">* (Bắt buộc Qualified)</span></label>
-                                    <input type="date" className="field-input" defaultValue={lead.dob} onBlur={e => handleFieldBlur('dob', e.target.value)} disabled={isContract || isLost} />
-                                </div>
-                                <div><label className="field-label">GPA / Điểm ngoại ngữ</label><input className="field-input" placeholder="VD: GPA 7.5 - IELTS 6.0" defaultValue={lead.studentInfo?.languageLevel} onBlur={e => handleFieldBlur('studentInfo', { ...lead.studentInfo, languageLevel: e.target.value })} disabled={isContract || isLost} /></div>
-                            </div>
-                        </div>
-
-                        {/* INTERNAL NOTES */}
-                        <div className="mb-10 p-4 border rounded-lg bg-slate-50 border-slate-200">
-                            <h3 className="section-title">Ghi chú nội bộ</h3>
-                            <div className="grid grid-cols-2 gap-x-6 gap-y-4">
-                                <div title={isNotPickedUp ? lockedMsg : ""}>
-                                    <label className="field-label">Mức độ tiềm năng</label>
-                                    <select className="field-input" value={lead.internalNotes?.potential || ''} onChange={e => handleInternalNoteBlur('potential', e.target.value as any)} disabled={isNotPickedUp || isConverted || isLost}>
-                                        <option value="">-- Chọn --</option>
-                                        <option value="Nóng">Nóng</option>
-                                        <option value="Tiềm năng">Tiềm năng</option>
-                                        <option value="Tham khảo">Tham khảo</option>
-                                    </select>
-                                </div>
-                                <div title={isNotPickedUp ? lockedMsg : ""}>
-                                    <label className="field-label">Thời gian dự kiến tham gia</label>
-                                    <input className="field-input" placeholder="VD: 06/2026" defaultValue={lead.internalNotes?.expectedStart || ''} onBlur={e => handleInternalNoteBlur('expectedStart', e.target.value)} disabled={isNotPickedUp || isConverted || isLost} />
-                                </div>
-                                <div title={isNotPickedUp ? lockedMsg : ""}>
-                                    <label className="field-label">Tài chính</label>
-                                    <input className="field-input" placeholder="Đủ / Thiếu / Cần hỗ trợ" defaultValue={lead.internalNotes?.financial || ''} onBlur={e => handleInternalNoteBlur('financial', e.target.value)} disabled={isNotPickedUp || isConverted || isLost} />
-                                </div>
-                                <div title={isNotPickedUp ? lockedMsg : ""}>
-                                    <label className="field-label">Ý kiến bố mẹ</label>
-                                    <input className="field-input" placeholder="Đồng ý / Cần cân nhắc..." defaultValue={lead.internalNotes?.parentOpinion || ''} onBlur={e => handleInternalNoteBlur('parentOpinion', e.target.value)} disabled={isNotPickedUp || isConverted || isLost} />
-                                </div>
-                                <div className="col-span-2" title={isNotPickedUp ? lockedMsg : ""}>
-                                    <label className="field-label">Ghi chú khác</label>
-                                    <textarea className={`field-input h-20 resize-none ${isConverted ? 'locked' : ''}`} defaultValue={lead.notes || ''} onBlur={e => handleFieldBlur('notes', e.target.value)} disabled={isNotPickedUp || isConverted || isLost} />
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* LEGAL INFO */}
-                        <div className={`mb-20 ${isPipeline || isContract ? 'active-section' : 'dimmed-section'}`}>
-                            <h3 className="section-title text-red-700 border-red-100 bg-red-50 pl-2 py-1 rounded-sm"><ShieldCheck size={16} /> Thông tin pháp lý</h3>
-
-                            <div className="grid grid-cols-3 gap-x-4 gap-y-4 border border-red-100 rounded p-4 bg-white relative">
-                                <div className="col-span-1">
-                                    <label className="field-label text-red-800">Số CCCD / Hộ chiếu <span className="text-red-500">*</span></label>
-                                    <input className="field-input font-bold border-red-200" placeholder="Số giấy tờ" defaultValue={lead.identityCard} onBlur={e => handleFieldBlur('identityCard', e.target.value)} disabled={isWon || isContract || isLost} />
-                                </div>
-                                <div className="col-span-1">
-                                    <label className="field-label text-red-800">Ngày cấp <span className="text-red-500">*</span></label>
-                                    <input type="date" className="field-input border-red-200" defaultValue={lead.identityDate} onBlur={e => handleFieldBlur('identityDate', e.target.value)} disabled={isWon || isContract || isLost} />
-                                </div>
-                                <div className="col-span-1">
-                                    <label className="field-label text-red-800">Nơi cấp <span className="text-red-500">*</span></label>
-                                    <input className="field-input border-red-200" placeholder="Cục CS QLHC..." defaultValue={lead.identityPlace} onBlur={e => handleFieldBlur('identityPlace', e.target.value)} disabled={isWon || isContract || isLost} />
-                                </div>
-                                <div className="col-span-3">
-                                    <label className="field-label text-red-800">Địa chỉ thường trú (Full) <span className="text-red-500">*</span></label>
-                                    <input className="field-input border-red-200" placeholder="Số nhà, Đường, Phường/Xã, Quận/Huyện, Tỉnh/TP" defaultValue={lead.address} onBlur={e => handleFieldBlur('address', e.target.value)} disabled={isWon || isContract || isLost} />
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* MARKETING META */}
-                        <div className="mb-10 p-4 border rounded-lg bg-slate-50 border-slate-200">
-                            <div className="grid grid-cols-2 gap-x-6 gap-y-4">
-                                <div>
-                                    <label className="field-label">Ngày tạo lead</label>
-                                    <input className="field-input" value={formatMetaDateTime(lead.createdAt)} readOnly disabled />
-                                </div>
-                                <div>
-                                    <label className="field-label">Ngày assign</label>
-                                    <input className="field-input" value={formatMetaDateTime(lead.pickUpDate)} readOnly disabled />
-                                </div>
-                                <div className="col-span-2">
-                                    <label className="field-label flex items-center justify-between">
-                                        <span>Tags (Phân loại)</span>
-                                        <button onClick={() => setIsAddingTag(!isAddingTag)} className="text-blue-600 hover:text-blue-800 flex items-center gap-1 normal-case">
-                                            <Plus size={12} /> {isAddingTag ? 'Đóng' : 'Thêm Tag'}
-                                        </button>
-                                    </label>
-
-                                    <div className="flex flex-wrap gap-2 mb-2 p-3 bg-white border border-dashed border-slate-300 rounded-lg min-h-[40px]">
-                                        {(lead.marketingData?.tags || []).length > 0 ? (
-                                            (lead.marketingData?.tags || []).map((t, idx) => (
-                                                <span key={idx} className="flex items-center gap-1 bg-white border border-blue-200 text-blue-700 px-2 py-1 rounded text-[11px] font-bold shadow-sm group">
-                                                    {t}
-                                                    <button onClick={() => handleRemoveTag(t)} className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 ml-1">
-                                                        <X size={10} />
-                                                    </button>
-                                                </span>
-                                            ))
-                                        ) : (
-                                            <span className="text-slate-400 text-xs italic">Chưa có tag nào...</span>
-                                        )}
-                                    </div>
-
-                                    {isAddingTag && (
-                                        <div className="p-3 bg-white border border-slate-200 rounded-lg shadow-lg mb-4 animate-in fade-in zoom-in-95">
-                                            <div className="flex gap-2 mb-3">
-                                                <input
-                                                    className="flex-1 field-input"
-                                                    placeholder="Tạo tag mới..."
-                                                    value={newTagInput}
-                                                    onChange={e => setNewTagInput(e.target.value)}
-                                                    onKeyDown={e => e.key === 'Enter' && handleAddTag(newTagInput)}
-                                                />
-                                                <button onClick={() => handleAddTag(newTagInput)} className="bg-blue-600 text-white px-3 py-1 rounded text-xs font-bold hover:bg-blue-700">Tạo</button>
-                                            </div>
-                                            <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto pr-1">
-                                                {allAvailableTags.filter(t => !(lead.marketingData?.tags || []).includes(t)).map((t, idx) => (
-                                                    <button
-                                                        key={idx}
-                                                        onClick={() => handleAddTag(t)}
-                                                        className="text-[10px] px-2 py-1 rounded bg-slate-100 text-slate-600 hover:bg-blue-50 hover:text-blue-600 border border-slate-200 transition-colors"
-                                                    >
-                                                        + {t}
-                                                    </button>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        </div>
+                        <LeadDrawerProfileForm
+                            leadFormData={leadFormData}
+                            leadFormActiveTab={leadFormActiveTab}
+                            closeReasonOptions={isClosedLeadFormStatus(leadFormData.status) ? leadFormCloseReasonOptions : []}
+                            salesOptions={leadSalesOptions}
+                            availableTags={allAvailableTags}
+                            fixedTags={FIXED_LEAD_TAGS}
+                            isAddingTag={isAddingTag}
+                            customCloseReason={CUSTOM_CLOSE_REASON}
+                            onPatch={patchLeadFormData}
+                            onTabChange={setLeadFormActiveTab}
+                            onStatusChange={(status) => patchLeadFormData({
+                                status,
+                                ...getCloseReasonStateForStatusChange(status, leadFormData.lossReason, leadFormData.lossReasonCustom)
+                            })}
+                            onStartAddingTag={() => setIsAddingTag(true)}
+                            onStopAddingTag={() => setIsAddingTag(false)}
+                            onAddTag={addTagToLeadForm}
+                            onCreateTag={(tag) => {
+                                addTagCatalogEntry(tag);
+                                addTagToLeadForm(tag);
+                            }}
+                            onRemoveSelectedTag={(tag) => setLeadFormData((prev) => ({ ...prev, tags: prev.tags.filter((item) => item !== tag) }))}
+                            onDeleteTag={deleteTagCatalogEntry}
+                        />
 
                         {/* ACTION BUTTON */}
                         <div className="sticky bottom-0 bg-white pt-4 pb-2 border-t border-slate-100 flex justify-between gap-3 shadow-[0_-5px_15px_rgba(0,0,0,0.05)] z-20">
@@ -2233,22 +2374,18 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                                         <FileSignature size={16} /> XEM HỢP ĐỒNG
                                     </button>
                                 </div>
-                            ) : isLost ? (
-                                <div className="w-full flex justify-center items-center bg-red-50 px-4 py-2 rounded-lg border border-red-200 text-red-700 font-bold">
-                                    <Ban size={16} className="mr-2" /> Lead đã thất bại.
-                                </div>
                             ) : (
-                                <>
-                                    <span className="text-xs text-slate-400 italic flex items-center">Cập nhật đầy đủ thông tin lead.</span>
-                                    <div className="flex gap-2">
-                                        <button
-                                            onClick={() => { addLog('system', 'Lưu thủ công'); showToast('Đã lưu dữ liệu!', 'success'); }}
-                                            className="flex items-center gap-2 bg-slate-800 text-white px-6 py-2 rounded-lg font-bold shadow-md hover:bg-slate-900 active:scale-95 transition-all text-sm"
-                                        >
-                                            <CheckCircle2 size={16} /> LƯU THÔNG TIN
-                                        </button>
-                                    </div>
-                                </>
+                                <div className="w-full flex items-center justify-between gap-3">
+                                    <span className="flex items-center text-xs italic text-slate-400">
+                                        Cập nhật đầy đủ thông tin lead.
+                                    </span>
+                                    <button
+                                        onClick={handleLeadFormSubmit}
+                                        className="flex items-center gap-2 rounded-lg bg-slate-800 px-6 py-2 text-sm font-bold text-white shadow-md transition-all hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+                                    >
+                                        <CheckCircle2 size={18} /> LƯU THÔNG TIN
+                                    </button>
+                                </div>
                             )}
                         </div>
 
@@ -2354,17 +2491,6 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                                         onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendLog(); } }}
                                     ></textarea>
                                     <div className="flex justify-between items-center">
-                                        {chatterTab === 'note' && (
-                                            <label className="flex items-center gap-2 cursor-pointer select-none">
-                                                <input
-                                                    type="checkbox"
-                                                    className="rounded border-slate-300 text-purple-600 focus:ring-purple-500"
-                                                    checked={scheduleNext}
-                                                    onChange={e => setScheduleNext(e.target.checked)}
-                                                />
-                                                <span className="text-xs font-bold text-slate-600">Lên lịch tiếp theo? (Arrange time)</span>
-                                            </label>
-                                        )}
                                         <div className="ml-auto">
                                             <button
                                                 onClick={handleSendLog}
@@ -2469,7 +2595,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
 
                                 <div className="flex justify-end gap-2">
                                     <button
-                                        onClick={() => { setShowNextActivityModal(false); finalizePendingConvert(); }}
+                                        onClick={() => { setShowNextActivityModal(false); }}
                                         className="px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-100 rounded"
                                     >
                                         Bỏ qua
@@ -2480,7 +2606,6 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                                             addScheduledActivity(nextActivityType, nextActivitySummary, nextActivityDate);
                                             setNextActivitySummary('');
                                             setShowNextActivityModal(false);
-                                            finalizePendingConvert();
                                         }}
                                         className="px-4 py-2 text-sm font-bold text-white bg-purple-600 hover:bg-purple-700 rounded"
                                     >
@@ -3006,8 +3131,8 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                     showLossModal && (
                         <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm">
                             <div className="bg-white p-6 rounded-lg shadow-2xl w-96 animate-in zoom-in-95">
-                                <h3 className="text-lg font-bold text-red-600 mb-4 flex items-center gap-2"><Ban /> Xác nhận thất bại Lead?</h3>
-                                <p className="text-sm text-slate-600 mb-4">Vui lòng chọn lý do để hệ thống ghi nhận:</p>
+                                <h3 className="text-lg font-bold text-red-600 mb-4 flex items-center gap-2"><Ban /> Xác nhận chuyển lead sang Mất?</h3>
+                                <p className="text-sm text-slate-600 mb-4">Vui lòng chọn lý do để hệ thống ghi nhận lead đóng:</p>
 
                                 <select
                                     className="w-full p-2 border border-slate-300 rounded text-sm mb-4 bg-white font-bold"
@@ -3031,7 +3156,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
 
                                 <div className="flex justify-end gap-2 text-sm">
                                     <button onClick={() => { setShowLossModal(false); setLossReason(''); setCustomLossReason(''); }} className="px-4 py-2 font-bold text-slate-600 hover:bg-slate-100 rounded">Hủy</button>
-                                    <button onClick={handleLossAction} className="px-4 py-2 font-bold text-white bg-red-600 hover:bg-red-700 rounded shadow-lg shadow-red-200">Xác nhận LOST</button>
+                                    <button onClick={handleLossAction} className="px-4 py-2 font-bold text-white bg-red-600 hover:bg-red-700 rounded shadow-lg shadow-red-200">Xác nhận MẤT</button>
                                 </div>
                             </div>
                         </div>

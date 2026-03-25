@@ -1,15 +1,16 @@
-
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+﻿
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { ILead, LeadStatus, UserRole, IDeal, DealStage } from '../types';
 import SLABadge from '../components/SLABadge';
 import UnifiedLeadDrawer from '../components/UnifiedLeadDrawer';
+import LeadDrawerProfileForm from '../components/LeadDrawerProfileForm';
 import LeadPivotTable from '../components/LeadPivotTable'; // Import Pivot Component
 import LeadStudentInfoTab from '../components/LeadStudentInfoTab';
 import LeadTagManager from '../components/LeadTagManager';
 import SmartSearchBar, { SearchFilter } from '../components/SmartSearchBar';
 import { useAuth } from '../contexts/AuthContext';
-import { FIXED_LEAD_TAGS, getLeads, saveLead, saveLeads, addDeal, addContact, deleteLead, convertLeadToContact, getTags, saveTags, getClosedLeadReasons } from '../utils/storage';
+import { FIXED_LEAD_TAGS, KEYS, getLeads, saveLead, saveLeads, addDeal, addContact, deleteLead, convertLeadToContact, getTags, saveTags, getClosedLeadReasons, getLeadActivitiesForConversion } from '../utils/storage';
 import { LEAD_CHANNEL_OPTIONS } from '../constants';
 import {
   buildLeadStudentInfo,
@@ -33,6 +34,7 @@ import {
 } from '../utils/leadStatus';
 import { appendLeadLogs, buildLeadActivityLog, buildLeadAuditChange, buildLeadAuditLog } from '../utils/leadLogs';
 import { decodeMojibakeReactNode } from '../utils/mojibake';
+import { getLeadPhoneValidationMessage, isValidLeadPhone, normalizeLeadPhone } from '../utils/phone';
 import {
   Plus,
   Phone,
@@ -73,9 +75,9 @@ import {
 import { read, utils, write } from 'xlsx';
 
 const SALES_REPS = [
-  { id: 'u2', name: 'Sarah Miller', team: 'Team Äá»©c', avatar: 'SM', color: 'bg-purple-100 text-purple-700' },
+  { id: 'u2', name: 'Sarah Miller', team: 'Team Ã„ÂÃ¡Â»Â©c', avatar: 'SM', color: 'bg-purple-100 text-purple-700' },
   { id: 'u3', name: 'David Clark', team: 'Team Trung', avatar: 'DC', color: 'bg-blue-100 text-blue-700' },
-  { id: 'u4', name: 'Alex Rivera', team: 'Team Du há»c', avatar: 'AR', color: 'bg-green-100 text-green-700' },
+  { id: 'u4', name: 'Alex Rivera', team: 'Team Du hÃ¡Â»Âc', avatar: 'AR', color: 'bg-green-100 text-green-700' },
 ];
 
 const buildEmptyAssignmentRatios = () =>
@@ -86,50 +88,14 @@ const buildEmptyAssignmentRatios = () =>
 
 const parseAssignmentRatio = (value: string) => {
   const parsed = Number.parseInt(value, 10);
-  return Number.isFinite(parsed) ? Math.max(0, Math.min(100, parsed)) : 0;
+  return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
 };
 
 const buildLeadCountByRatio = (leadCount: number, ratios: Record<string, number>) => {
-  const counts = SALES_REPS.reduce<Record<string, number>>((acc, rep) => {
-    acc[rep.id] = 0;
+  return SALES_REPS.reduce<Record<string, number>>((acc, rep) => {
+    acc[rep.id] = Math.max(0, ratios[rep.id] || 0);
     return acc;
   }, {});
-
-  const activeAllocations = SALES_REPS
-    .map((rep, index) => ({
-      repId: rep.id,
-      ratio: ratios[rep.id] || 0,
-      index,
-    }))
-    .filter((item) => item.ratio > 0);
-
-  const totalRatio = activeAllocations.reduce((sum, item) => sum + item.ratio, 0);
-  if (leadCount <= 0 || totalRatio !== 100 || activeAllocations.length === 0) {
-    return counts;
-  }
-
-  const allocations = activeAllocations.map((item) => {
-    const exactCount = (leadCount * item.ratio) / 100;
-    const baseCount = Math.floor(exactCount);
-    return {
-      ...item,
-      baseCount,
-      remainder: exactCount - baseCount,
-    };
-  });
-
-  let remaining = leadCount - allocations.reduce((sum, item) => sum + item.baseCount, 0);
-  allocations
-    .sort((left, right) => {
-      if (right.remainder !== left.remainder) return right.remainder - left.remainder;
-      return left.index - right.index;
-    })
-    .forEach((item) => {
-      counts[item.repId] = item.baseCount + (remaining > 0 ? 1 : 0);
-      if (remaining > 0) remaining -= 1;
-    });
-
-  return counts;
 };
 
 const Leads: React.FC = () => {
@@ -162,7 +128,7 @@ const Leads: React.FC = () => {
   const STANDARD_LEAD_STATUS = LEAD_STATUS_KEYS;
 
   const CLOSED_LEAD_STATUSES = CLOSED_LEAD_STATUS_KEYS;
-  const CUSTOM_CLOSE_REASON = 'Lý do khác';
+  const CUSTOM_CLOSE_REASON = 'LÃ½ do khÃ¡c';
   const STANDARD_LEAD_STATUS_OPTIONS = LEAD_STATUS_OPTIONS;
   const normalizeLeadStatus = normalizeLeadStatusKey;
   const isClosedLeadStatus = isClosedLeadStatusKey;
@@ -172,9 +138,9 @@ const Leads: React.FC = () => {
 
   const validateCloseReason = (status: string, reason: string, customReason?: string) => {
     if (!isClosedLeadStatus(status)) return null;
-    if (!reason) return 'Vui lòng chọn lý do.';
+    if (!reason) return 'Vui lÃ²ng chá»n lÃ½ do.';
     if (reason === CUSTOM_CLOSE_REASON && !customReason?.trim()) {
-      return 'Vui lòng nhập lý do cụ thể.';
+      return 'Vui lÃ²ng nháº­p lÃ½ do cá»¥ thá»ƒ.';
     }
     return null;
   };
@@ -220,11 +186,11 @@ const Leads: React.FC = () => {
   const getLeadListTabLabel = (tab: typeof LEAD_LIST_TABS[number]) => {
     switch (tab) {
       case 'new':
-        return 'Lead Mới';
+        return 'Lead Má»›i';
       case 'closed':
-        return 'Lead đã đóng';
+        return 'Lead Ä‘Ã£ Ä‘Ã³ng';
       default:
-        return 'Tất cả';
+        return 'Táº¥t cáº£';
     }
   };
 
@@ -262,7 +228,7 @@ const Leads: React.FC = () => {
       return;
     }
 
-    const normalizedValue = String(parseAssignmentRatio(value));
+    const normalizedValue = String(Math.min(selectedLeadIds.length, parseAssignmentRatio(value)));
     setAssignmentRatios((prev) => ({ ...prev, [repId]: normalizedValue }));
   };
 
@@ -271,8 +237,8 @@ const Leads: React.FC = () => {
       .filter((rep) => assignmentRatioValues[rep.id] > 0)
       .map((rep) => rep.id);
     const targetRepIds = activeRepIds.length > 0 ? activeRepIds : SALES_REPS.map((rep) => rep.id);
-    const baseRatio = Math.floor(100 / targetRepIds.length);
-    let remaining = 100 - (baseRatio * targetRepIds.length);
+    const baseCount = Math.floor(selectedLeadIds.length / targetRepIds.length);
+    let remaining = selectedLeadIds.length - (baseCount * targetRepIds.length);
 
     setAssignmentRatios(
       SALES_REPS.reduce<Record<string, string>>((acc, rep) => {
@@ -281,8 +247,8 @@ const Leads: React.FC = () => {
           return acc;
         }
 
-        const nextRatio = baseRatio + (remaining > 0 ? 1 : 0);
-        acc[rep.id] = String(nextRatio);
+        const nextCount = baseCount + (remaining > 0 ? 1 : 0);
+        acc[rep.id] = String(nextCount);
         if (remaining > 0) remaining -= 1;
         return acc;
       }, {})
@@ -292,7 +258,7 @@ const Leads: React.FC = () => {
   const setSingleRepAssignment = (repId: string) => {
     setAssignmentRatios(
       SALES_REPS.reduce<Record<string, string>>((acc, rep) => {
-        acc[rep.id] = rep.id === repId ? '100' : '';
+        acc[rep.id] = rep.id === repId ? String(selectedLeadIds.length) : '';
         return acc;
       }, {})
     );
@@ -307,20 +273,28 @@ const Leads: React.FC = () => {
 
 
 
-  // Load data
-  useEffect(() => {
+  const reloadLeads = useCallback(() => {
     const rawLeads = getLeads();
     const normalizedLeads = rawLeads.map((lead) => ({
       ...lead,
       status: normalizeLeadStatus(lead.status as string) as any
     }));
     setLeads(normalizedLeads);
+    setSelectedLead((prev) => {
+      if (!prev) return null;
+      return normalizedLeads.find((lead) => lead.id === prev.id) || null;
+    });
     const hasNormalizedDiff = rawLeads.some((lead, idx) => lead.status !== normalizedLeads[idx].status);
     if (hasNormalizedDiff) {
       saveLeads(normalizedLeads);
     }
-    setAvailableTags(getTags());
   }, []);
+
+  // Load data
+  useEffect(() => {
+    reloadLeads();
+    setAvailableTags(getTags());
+  }, [reloadLeads]);
 
   useEffect(() => {
     const syncTags = () => setAvailableTags(getTags());
@@ -328,16 +302,40 @@ const Leads: React.FC = () => {
     return () => window.removeEventListener('educrm:tags-changed', syncTags as EventListener);
   }, []);
 
+  useEffect(() => {
+    const handleLeadsChanged = () => {
+      reloadLeads();
+    };
+
+    const handleStorageChanged = (event: StorageEvent) => {
+      if (!event.key || event.key === KEYS.LEADS) {
+        reloadLeads();
+      }
+    };
+
+    window.addEventListener('educrm:leads-changed', handleLeadsChanged);
+    window.addEventListener('storage', handleStorageChanged);
+
+    return () => {
+      window.removeEventListener('educrm:leads-changed', handleLeadsChanged);
+      window.removeEventListener('storage', handleStorageChanged);
+    };
+  }, [reloadLeads]);
+
   // Create Modal State
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newLeadData, setNewLeadData] = useState<LeadCreateFormData>(() => createLeadInitialState()); /*
-    name: '', phone: '', email: '', source: 'hotline', program: 'Tiáº¿ng Äá»©c', notes: '',
+    name: '', phone: '', email: '', source: 'hotline', program: 'TiÃ¡ÂºÂ¿ng Ã„ÂÃ¡Â»Â©c', notes: '',
     title: '', company: '', province: '', city: '', ward: '', street: '', salesperson: '', campaign: '', tags: [] as string[], referredBy: '',
     product: '', market: '', channel: '', status: STANDARD_LEAD_STATUS.NEW
   }); */
   const [availableTags, setAvailableTags] = useState<string[]>([]);
   const [isAddingTag, setIsAddingTag] = useState(false);
   const [isAddingEditTag, setIsAddingEditTag] = useState(false);
+  const leadSalesOptions = useMemo(
+    () => SALES_REPS.map((rep) => ({ id: rep.id, value: rep.id, label: rep.name })),
+    []
+  );
   const patchNewLeadData = (patch: Partial<LeadCreateFormData>) => {
     setNewLeadData((prev) => ({ ...prev, ...patch }));
   };
@@ -376,8 +374,8 @@ const Leads: React.FC = () => {
   const duplicateGroups = useMemo(() => {
     const groups: { [key: string]: ILead[] } = {};
     leads.forEach(lead => {
-      const phone = (lead.phone || '').replace(/[\s\.\-]/g, '');
-      if (phone && phone.length >= 9) {
+      const phone = normalizeLeadPhone(lead.phone);
+      if (isValidLeadPhone(phone)) {
         if (!groups[phone]) groups[phone] = [];
         groups[phone].push(lead);
       }
@@ -409,7 +407,7 @@ const Leads: React.FC = () => {
         phone: selectedLead.phone,
         email: selectedLead.email || '',
         source: selectedLead.source || 'hotline',
-        program: selectedLead.program || 'Tiáº¿ng Äá»©c',
+        program: selectedLead.program || 'TiÃ¡ÂºÂ¿ng Ã„ÂÃ¡Â»Â©c',
         notes: selectedLead.notes || '',
         title: (selectedLead as any).title || '',
         company: selectedLead.company || selectedLead.marketingData?.region || '',
@@ -434,6 +432,8 @@ const Leads: React.FC = () => {
         studentSchool: studentInfo.school || '',
         studentEducationLevel: studentInfo.educationLevel || selectedLead.educationLevel || ''
       });
+      setEditModalActiveTab('notes');
+      setIsAddingEditTag(false);
     }
   }, [selectedLead]);
   useEffect(() => {
@@ -467,26 +467,27 @@ const Leads: React.FC = () => {
 
   const ALL_COLUMNS = [
     { id: 'opportunity', label: 'T\u00ean li\u00ean h\u1ec7' },
-    { id: 'company', label: 'CÆ¡ sá»Ÿ / CÃ´ng ty' },
+    { id: 'company', label: 'CÃ†Â¡ sÃ¡Â»Å¸ / CÃƒÂ´ng ty' },
     { id: 'contact', label: 'T\u00ean li\u00ean h\u1ec7 ph\u1ee5' },
-    { id: 'createdAt', label: 'NgÃ y Ä‘á»• lead' },
-    { id: 'title', label: 'Danh xÆ°ng' },
+    { id: 'createdAt', label: 'NgÃƒÂ y Ã„â€˜Ã¡Â»â€¢ lead' },
+    { id: 'title', label: 'Danh xÃ†Â°ng' },
     { id: 'email', label: 'Email' },
-    { id: 'phone', label: 'SÄT' },
-    { id: 'address', label: 'Äá»‹a chá»‰' },
-    { id: 'salesperson', label: 'NhÃ¢n viÃªn Sale' },
-    { id: 'campaign', label: 'Chiáº¿n dá»‹ch' },
-    { id: 'source', label: 'Nguá»“n kÃªnh' },
+    { id: 'phone', label: 'SÃ„ÂT' },
+    { id: 'address', label: 'Ã„ÂÃ¡Â»â€¹a chÃ¡Â»â€°' },
+    { id: 'salesperson', label: 'NhÃƒÂ¢n viÃƒÂªn Sale' },
+    { id: 'campaign', label: 'ChiÃ¡ÂºÂ¿n dÃ¡Â»â€¹ch' },
+    { id: 'source', label: 'NguÃ¡Â»â€œn kÃƒÂªnh' },
+    { id: 'potential', label: 'Mức độ tiềm năng' },
     { id: 'tags', label: 'Tags' },
-    { id: 'referredBy', label: 'NgÆ°á»i giá»›i thiá»‡u' },
-    { id: 'market', label: 'THá»Š TRÆ¯á»œNG' },
-    { id: 'product', label: 'Sáº¢N PHáº¨M QUAN TÃ‚M' },
-    { id: 'notes', label: 'Ghi chÃº' },
-    { id: 'nextActivity', label: 'Hoáº¡t Ä‘á»™ng tiáº¿p theo' },
-    { id: 'deadline', label: 'Háº¡n chÃ³t' },
+    { id: 'referredBy', label: 'NgÃ†Â°Ã¡Â»Âi giÃ¡Â»â€ºi thiÃ¡Â»â€¡u' },
+    { id: 'market', label: 'THÃ¡Â»Å  TRÃ†Â¯Ã¡Â»Å“NG' },
+    { id: 'product', label: 'SÃ¡ÂºÂ¢N PHÃ¡ÂºÂ¨M QUAN TÃƒâ€šM' },
+    { id: 'notes', label: 'Ghi chÃƒÂº' },
+    { id: 'nextActivity', label: 'HoÃ¡ÂºÂ¡t Ã„â€˜Ã¡Â»â„¢ng tiÃ¡ÂºÂ¿p theo' },
+    { id: 'deadline', label: 'HÃ¡ÂºÂ¡n chÃƒÂ³t' },
     { id: 'value', label: 'Doanh thu' },
-    { id: 'status', label: 'Tráº¡ng thÃ¡i' },
-    { id: 'sla', label: 'Cáº£nh bÃ¡o SLA' },
+    { id: 'status', label: 'TrÃ¡ÂºÂ¡ng thÃƒÂ¡i' },
+    { id: 'sla', label: 'CÃ¡ÂºÂ£nh bÃƒÂ¡o SLA' },
   ];
 
   const [selectedAdvancedFilterFields, setSelectedAdvancedFilterFields] = useState<string[]>([]);
@@ -528,7 +529,7 @@ const Leads: React.FC = () => {
   }>({
     myPipeline: false,
     unassigned: false,
-    openOps: false, // "Má»Ÿ cÆ¡ há»™i"
+    openOps: false, // "MÃ¡Â»Å¸ cÃ†Â¡ hÃ¡Â»â„¢i"
     createdDate: null,
     closedDate: null,
     status: []
@@ -541,25 +542,40 @@ const Leads: React.FC = () => {
   const [customRange, setCustomRange] = useState<{ start: string; end: string } | null>(null);
 
   const timePresets = [
-    { id: 'all', label: 'Táº¥t cáº£ thá»i gian' },
-    { id: 'today', label: 'HÃ´m nay' },
-    { id: 'yesterday', label: 'HÃ´m qua' },
-    { id: 'thisWeek', label: 'Tuáº§n nÃ y' },
-    { id: 'last7Days', label: '7 ngÃ y qua' },
-    { id: 'last30Days', label: '30 ngÃ y qua' },
-    { id: 'thisMonth', label: 'ThÃ¡ng nÃ y' },
-    { id: 'lastMonth', label: 'ThÃ¡ng trÆ°á»›c' },
-    { id: 'custom', label: 'TÃ¹y chá»‰nh khoáº£ng...' },
+    { id: 'all', label: 'TÃ¡ÂºÂ¥t cÃ¡ÂºÂ£ thÃ¡Â»Âi gian' },
+    { id: 'today', label: 'HÃƒÂ´m nay' },
+    { id: 'yesterday', label: 'HÃƒÂ´m qua' },
+    { id: 'thisWeek', label: 'TuÃ¡ÂºÂ§n nÃƒÂ y' },
+    { id: 'last7Days', label: '7 ngÃƒÂ y qua' },
+    { id: 'last30Days', label: '30 ngÃƒÂ y qua' },
+    { id: 'thisMonth', label: 'ThÃƒÂ¡ng nÃƒÂ y' },
+    { id: 'lastMonth', label: 'ThÃƒÂ¡ng trÃ†Â°Ã¡Â»â€ºc' },
+    { id: 'custom', label: 'TÃƒÂ¹y chÃ¡Â»â€°nh khoÃ¡ÂºÂ£ng...' },
   ];
 
   const fieldLabels = {
-    createdAt: 'NgÃ y táº¡o',
-    deadline: 'Háº¡n chÃ³t',
-    lastInteraction: 'TÆ°Æ¡ng tÃ¡c cuá»‘i'
+    createdAt: 'NgÃƒÂ y tÃ¡ÂºÂ¡o',
+    deadline: 'HÃ¡ÂºÂ¡n chÃƒÂ³t',
+    lastInteraction: 'TÃ†Â°Ã†Â¡ng tÃƒÂ¡c cuÃ¡Â»â€˜i'
   };
 
   const handleUpdateSelectedLead = () => {
     if (!selectedLead) return;
+    const normalizedPhone = normalizeLeadPhone(editLeadData.phone);
+    const phoneError = getLeadPhoneValidationMessage(editLeadData.phone);
+
+    if (!editLeadData.name.trim()) {
+      alert('Vui lÃ²ng nháº­p tÃªn khÃ¡ch hÃ ng.');
+      return;
+    }
+    if (!editLeadData.phone.trim()) {
+      alert('Vui lÃ²ng nháº­p sá»‘ Ä‘iá»‡n thoáº¡i.');
+      return;
+    }
+    if (phoneError) {
+      alert(phoneError);
+      return;
+    }
 
     const closeReasonError = validateCloseReason(editLeadData.status, editLeadData.lossReason, editLeadData.lossReasonCustom);
     if (closeReasonError) {
@@ -580,7 +596,7 @@ const Leads: React.FC = () => {
     const updatedLead: ILead = {
       ...selectedLead,
       name: editLeadData.name,
-      phone: editLeadData.phone,
+      phone: normalizedPhone,
       email: editLeadData.email,
       source: editLeadData.source,
       program: normalizedProgram,
@@ -596,7 +612,7 @@ const Leads: React.FC = () => {
       district: editLeadData.city.trim() || undefined,
       ward: editLeadData.ward.trim() || undefined,
       guardianName: guardianRelation ? editLeadData.name.trim() || undefined : undefined,
-      guardianPhone: guardianRelation ? editLeadData.phone.trim() || undefined : undefined,
+      guardianPhone: guardianRelation ? normalizedPhone || undefined : undefined,
       lostReason: isClosedLeadStatus(editLeadData.status) ? resolvedCloseReason : undefined,
       studentInfo,
       status: toLeadStatusValue(editLeadData.status as string) as any,
@@ -619,10 +635,10 @@ const Leads: React.FC = () => {
     (updatedLead as any).referredBy = editLeadData.referredBy;
 
     const changedFields = [
-      selectedLead.name !== updatedLead.name ? buildLeadAuditChange('name', selectedLead.name, updatedLead.name, 'Tên lead') : null,
-      selectedLead.phone !== updatedLead.phone ? buildLeadAuditChange('phone', selectedLead.phone, updatedLead.phone, 'Số điện thoại') : null,
-      selectedLead.status !== updatedLead.status ? buildLeadAuditChange('status', selectedLead.status, updatedLead.status, 'Trạng thái') : null,
-      selectedLead.ownerId !== updatedLead.ownerId ? buildLeadAuditChange('ownerId', selectedLead.ownerId, updatedLead.ownerId, 'Sale phụ trách') : null,
+      selectedLead.name !== updatedLead.name ? buildLeadAuditChange('name', selectedLead.name, updatedLead.name, 'TÃªn lead') : null,
+      selectedLead.phone !== updatedLead.phone ? buildLeadAuditChange('phone', selectedLead.phone, updatedLead.phone, 'Sá»‘ Ä‘iá»‡n thoáº¡i') : null,
+      selectedLead.status !== updatedLead.status ? buildLeadAuditChange('status', selectedLead.status, updatedLead.status, 'Tráº¡ng thÃ¡i') : null,
+      selectedLead.ownerId !== updatedLead.ownerId ? buildLeadAuditChange('ownerId', selectedLead.ownerId, updatedLead.ownerId, 'Sale phá»¥ trÃ¡ch') : null,
       JSON.stringify(selectedLead.marketingData?.tags || []) !== JSON.stringify(updatedLead.marketingData?.tags || [])
         ? buildLeadAuditChange('marketingData.tags', selectedLead.marketingData?.tags || [], updatedLead.marketingData?.tags || [], 'Tags')
         : null
@@ -634,18 +650,18 @@ const Leads: React.FC = () => {
           ...(selectedLead.status !== updatedLead.status
             ? [buildLeadActivityLog({
               type: 'system',
-              title: 'Đổi trạng thái',
-              description: `Trạng thái: ${getLeadStatusLabel(String(selectedLead.status || ''))} → ${getLeadStatusLabel(String(updatedLead.status || ''))}`,
+              title: 'Äá»•i tráº¡ng thÃ¡i',
+              description: `Tráº¡ng thÃ¡i: ${getLeadStatusLabel(String(selectedLead.status || ''))} â†’ ${getLeadStatusLabel(String(updatedLead.status || ''))}`,
               user: user?.name || 'Admin'
             })]
             : []),
           ...(selectedLead.ownerId !== updatedLead.ownerId
             ? [buildLeadActivityLog({
               type: 'system',
-              title: selectedLead.ownerId ? 'Chia lại Lead' : 'Phân bổ Lead',
+              title: selectedLead.ownerId ? 'Chia láº¡i Lead' : 'PhÃ¢n bá»• Lead',
               description: selectedLead.ownerId
-                ? `Lead được chia lại từ ${SALES_REPS.find((rep) => rep.id === selectedLead.ownerId)?.name || selectedLead.ownerId} sang ${SALES_REPS.find((rep) => rep.id === updatedLead.ownerId)?.name || updatedLead.ownerId}.`
-                : `Lead được giao cho ${SALES_REPS.find((rep) => rep.id === updatedLead.ownerId)?.name || updatedLead.ownerId}.`,
+                ? `Lead Ä‘Æ°á»£c chia láº¡i tá»« ${SALES_REPS.find((rep) => rep.id === selectedLead.ownerId)?.name || selectedLead.ownerId} sang ${SALES_REPS.find((rep) => rep.id === updatedLead.ownerId)?.name || updatedLead.ownerId}.`
+                : `Lead Ä‘Æ°á»£c giao cho ${SALES_REPS.find((rep) => rep.id === updatedLead.ownerId)?.name || updatedLead.ownerId}.`,
               user: user?.name || 'Admin'
             })]
             : [])
@@ -673,37 +689,37 @@ const Leads: React.FC = () => {
 
   const DATA_EVALUATIONS = [
     {
-      id: 'd1', name: 'Data_THPT_NguyenDu_K12', source: 'Há»£p tÃ¡c TrÆ°á»ng THPT', code: '#D-2410-01', date: '24/10/2023', importer: 'Admin',
+      id: 'd1', name: 'Data_THPT_NguyenDu_K12', source: 'HÃ¡Â»Â£p tÃƒÂ¡c TrÃ†Â°Ã¡Â»Âng THPT', code: '#D-2410-01', date: '24/10/2023', importer: 'Admin',
       total: 500, match: '96.0%', valid: 480, interested: '30.0%', interestedCount: 150, enrolled: '30.0%', enrolledCount: 45,
-      eval: 'good', evalText: 'Æ¯U TIÃŠN NHáº¬P', note: 'Tá»· lá»‡ nháº­p há»c cao'
+      eval: 'good', evalText: 'Ã†Â¯U TIÃƒÅ N NHÃ¡ÂºÂ¬P', note: 'TÃ¡Â»Â· lÃ¡Â»â€¡ nhÃ¡ÂºÂ­p hÃ¡Â»Âc cao'
     },
     {
-      id: 'd2', name: 'Mua_Data_Ngoai_T10', source: 'Mua ngoÃ i (Agency A)', code: '#D-2010-02', date: '20/10/2023', importer: 'Marketing Lead',
+      id: 'd2', name: 'Mua_Data_Ngoai_T10', source: 'Mua ngoÃƒÂ i (Agency A)', code: '#D-2010-02', date: '20/10/2023', importer: 'Marketing Lead',
       total: 1000, match: '35.0%', valid: 350, interested: '2.0%', interestedCount: 20, enrolled: '10.0%', enrolledCount: 2,
-      eval: 'bad', evalText: 'Dá»ªNG Há»¢P TÃC', note: 'SÄT áº£o quÃ¡ nhiá»u'
+      eval: 'bad', evalText: 'DÃ¡Â»ÂªNG HÃ¡Â»Â¢P TÃƒÂC', note: 'SÃ„ÂT Ã¡ÂºÂ£o quÃƒÂ¡ nhiÃ¡Â»Âu'
     },
     {
-      id: 'd3', name: 'Hoi_Thao_Du_Hoc_Duc_HaNoi', source: 'Sá»± kiá»‡n Offline', code: '#D-1510-01', date: '15/10/2023', importer: 'Sales Leader',
+      id: 'd3', name: 'Hoi_Thao_Du_Hoc_Duc_HaNoi', source: 'SÃ¡Â»Â± kiÃ¡Â»â€¡n Offline', code: '#D-1510-01', date: '15/10/2023', importer: 'Sales Leader',
       total: 200, match: '99.0%', valid: 198, interested: '60.0%', interestedCount: 120, enrolled: '50.0%', enrolledCount: 60,
-      eval: 'good', evalText: 'Æ¯U TIÃŠN NHáº¬P', note: 'Tá»· lá»‡ nháº­p há»c cao'
+      eval: 'good', evalText: 'Ã†Â¯U TIÃƒÅ N NHÃ¡ÂºÂ¬P', note: 'TÃ¡Â»Â· lÃ¡Â»â€¡ nhÃ¡ÂºÂ­p hÃ¡Â»Âc cao'
     },
     {
-      id: 'd4', name: 'Import_Excel_Cu_2022', source: 'Há»‡ thá»‘ng cÅ©', code: '#D-0110-03', date: '01/10/2023', importer: 'Admin',
+      id: 'd4', name: 'Import_Excel_Cu_2022', source: 'HÃ¡Â»â€¡ thÃ¡Â»â€˜ng cÃ…Â©', code: '#D-0110-03', date: '01/10/2023', importer: 'Admin',
       total: 1500, match: '93.3%', valid: 1400, interested: '3.3%', interestedCount: 50, enrolled: '10.0%', enrolledCount: 5,
-      eval: 'warning', evalText: 'CÃ‚N NHáº®C Láº I', note: 'Ãt nhu cáº§u há»c'
+      eval: 'warning', evalText: 'CÃƒâ€šN NHÃ¡ÂºÂ®C LÃ¡ÂºÂ I', note: 'ÃƒÂt nhu cÃ¡ÂºÂ§u hÃ¡Â»Âc'
     }
   ];
 
   const CRM_FIELDS = [
-    { id: 'name', label: 'TÃªn Lead', excelHeader: 'Há» vÃ  tÃªn', required: true },
-    { id: 'phone', label: 'SÄT', excelHeader: 'Sá»‘ Ä‘iá»‡n thoáº¡i', required: true }, // Format: 10 digits, start with 0
+    { id: 'name', label: 'TÃƒÂªn Lead', excelHeader: 'HÃ¡Â»Â vÃƒÂ  tÃƒÂªn', required: true },
+    { id: 'phone', label: 'SÃ„ÂT', excelHeader: 'SÃ¡Â»â€˜ Ã„â€˜iÃ¡Â»â€¡n thoÃ¡ÂºÂ¡i', required: true }, // Format: 10 digits, start with 0
     { id: 'email', label: 'Email', excelHeader: 'Email', required: false },      // Format: contains @
-    { id: 'targetCountry', label: 'Quá»‘c gia má»¥c tiÃªu', excelHeader: 'Quá»‘c gia má»¥c tiÃªu', required: true },
-    { id: 'company', label: 'CÆ¡ sá»Ÿ', excelHeader: 'CÆ¡ sá»Ÿ', required: false },
-    { id: 'source', label: 'Nguá»“n', excelHeader: 'Nguá»“n', required: false },
-    { id: 'campaign', label: 'Chiáº¿n dá»‹ch', excelHeader: 'Chiáº¿n dá»‹ch', required: false },
-    { id: 'notes', label: 'Ghi chÃº', excelHeader: 'Ghi chÃº', required: false },
-    { id: 'program', label: 'ChÆ°Æ¡ng trÃ¬nh', excelHeader: 'ChÆ°Æ¡ng trÃ¬nh', required: false },
+    { id: 'targetCountry', label: 'QuÃ¡Â»â€˜c gia mÃ¡Â»Â¥c tiÃƒÂªu', excelHeader: 'QuÃ¡Â»â€˜c gia mÃ¡Â»Â¥c tiÃƒÂªu', required: true },
+    { id: 'company', label: 'CÃ†Â¡ sÃ¡Â»Å¸', excelHeader: 'CÃ†Â¡ sÃ¡Â»Å¸', required: false },
+    { id: 'source', label: 'NguÃ¡Â»â€œn', excelHeader: 'NguÃ¡Â»â€œn', required: false },
+    { id: 'campaign', label: 'ChiÃ¡ÂºÂ¿n dÃ¡Â»â€¹ch', excelHeader: 'ChiÃ¡ÂºÂ¿n dÃ¡Â»â€¹ch', required: false },
+    { id: 'notes', label: 'Ghi chÃƒÂº', excelHeader: 'Ghi chÃƒÂº', required: false },
+    { id: 'program', label: 'ChÃ†Â°Ã†Â¡ng trÃƒÂ¬nh', excelHeader: 'ChÃ†Â°Ã†Â¡ng trÃƒÂ¬nh', required: false },
   ];
 
   // IMPORT MODAL STATE
@@ -765,7 +781,7 @@ const Leads: React.FC = () => {
 
         if (field.required) {
           if (val === undefined || val === null || String(val).trim() === '') {
-            rowErrors.push(`Thiáº¿u ${field.label}`);
+            rowErrors.push(`ThiÃ¡ÂºÂ¿u ${field.label}`);
           }
         }
 
@@ -776,16 +792,14 @@ const Leads: React.FC = () => {
           // Email check
           if (field.id === 'email') {
             if (!strVal.includes('@')) {
-              rowErrors.push(`Email khÃ´ng há»£p lá»‡ (thiáº¿u @)`);
+              rowErrors.push(`Email khÃƒÂ´ng hÃ¡Â»Â£p lÃ¡Â»â€¡ (thiÃ¡ÂºÂ¿u @)`);
             }
           }
 
           // Phone check
           if (field.id === 'phone') {
-            const cleanPhone = strVal.replace(/[\s\.\-]/g, '');
-            // Starts with 0, 10 digits
-            if (!/^0\d{9}$/.test(cleanPhone)) {
-              rowErrors.push(`SÄT sai Ä‘á»‹nh dáº¡ng (pháº£i 10 sá»‘, báº¯t Ä‘áº§u báº±ng 0)`);
+            if (!isValidLeadPhone(strVal)) {
+              rowErrors.push(`SÃ„ÂT sai Ã„â€˜Ã¡Â»â€¹nh dÃ¡ÂºÂ¡ng (phÃ¡ÂºÂ£i 10 sÃ¡Â»â€˜, bÃ¡ÂºÂ¯t Ã„â€˜Ã¡ÂºÂ§u bÃ¡ÂºÂ±ng 0)`);
             }
           }
         }
@@ -794,21 +808,21 @@ const Leads: React.FC = () => {
       if (rowErrors.length > 0) {
         errorList.push({
           row: rowNumber,
-          name: row['Há» vÃ  tÃªn'] || 'N/A',
+          name: row['HÃ¡Â»Â vÃƒÂ  tÃƒÂªn'] || 'N/A',
           errors: rowErrors
         });
       } else {
         // Normalize Data for CRM Import
         validRows.push({
-          name: row['Há» vÃ  tÃªn'],
-          phone: String(row['Sá»‘ Ä‘iá»‡n thoáº¡i']).replace(/[\s\.\-]/g, ''),
+          name: row['HÃ¡Â»Â vÃƒÂ  tÃƒÂªn'],
+          phone: String(row['SÃ¡Â»â€˜ Ã„â€˜iÃ¡Â»â€¡n thoÃ¡ÂºÂ¡i']).replace(/[\s\.\-]/g, ''),
           email: row['Email'] || '',
-          targetCountry: row['Quá»‘c gia má»¥c tiÃªu'],
-          company: row['CÆ¡ sá»Ÿ'] || '',
-          source: row['Nguá»“n'] || 'Import',
-          campaign: row['Chiáº¿n dá»‹ch'] || '',
-          notes: row['Ghi chÃº'] || '',
-          program: row['ChÆ°Æ¡ng trÃ¬nh'] || 'Tiáº¿ng Äá»©c'
+          targetCountry: row['QuÃ¡Â»â€˜c gia mÃ¡Â»Â¥c tiÃƒÂªu'],
+          company: row['CÃ†Â¡ sÃ¡Â»Å¸'] || '',
+          source: row['NguÃ¡Â»â€œn'] || 'Import',
+          campaign: row['ChiÃ¡ÂºÂ¿n dÃ¡Â»â€¹ch'] || '',
+          notes: row['Ghi chÃƒÂº'] || '',
+          program: row['ChÃ†Â°Ã†Â¡ng trÃƒÂ¬nh'] || 'TiÃ¡ÂºÂ¿ng Ã„ÂÃ¡Â»Â©c'
         });
       }
     });
@@ -820,7 +834,7 @@ const Leads: React.FC = () => {
   // Download Template
   const handleDownloadTemplate = () => {
     const ws = utils.json_to_sheet([
-      { 'Há» vÃ  tÃªn': 'Nguyá»…n VÄƒn A', 'Sá»‘ Ä‘iá»‡n thoáº¡i': '0901234567', 'Email': 'a@example.com', 'Quá»‘c gia má»¥c tiÃªu': 'Äá»©c', 'CÆ¡ sá»Ÿ': 'Hanoi', 'Nguá»“n': 'Facebook', 'Chiáº¿n dá»‹ch': 'Summer 2024', 'Ghi chÃº': 'Quan tÃ¢m du há»c' }
+      { 'HÃ¡Â»Â vÃƒÂ  tÃƒÂªn': 'NguyÃ¡Â»â€¦n VÃ„Æ’n A', 'SÃ¡Â»â€˜ Ã„â€˜iÃ¡Â»â€¡n thoÃ¡ÂºÂ¡i': '0901234567', 'Email': 'a@example.com', 'QuÃ¡Â»â€˜c gia mÃ¡Â»Â¥c tiÃƒÂªu': 'Ã„ÂÃ¡Â»Â©c', 'CÃ†Â¡ sÃ¡Â»Å¸': 'Hanoi', 'NguÃ¡Â»â€œn': 'Facebook', 'ChiÃ¡ÂºÂ¿n dÃ¡Â»â€¹ch': 'Summer 2024', 'Ghi chÃƒÂº': 'Quan tÃƒÂ¢m du hÃ¡Â»Âc' }
     ]);
     const wb = utils.book_new();
     utils.book_append_sheet(wb, ws, "Template");
@@ -839,14 +853,14 @@ const Leads: React.FC = () => {
       document.body.removeChild(link);
     } catch (e) {
       console.error("Download failed", e);
-      alert("Lá»—i táº£i xuá»‘ng template");
+      alert("LÃ¡Â»â€”i tÃ¡ÂºÂ£i xuÃ¡Â»â€˜ng template");
     }
   };
 
   // Final Import
   const handleImportSubmit = () => {
     if (validImportRows.length === 0) {
-      alert("KhÃ´ng cÃ³ dÃ²ng dá»¯ liá»‡u nÃ o há»£p lá»‡ Ä‘á»ƒ nháº­p!");
+      alert("KhÃƒÂ´ng cÃƒÂ³ dÃƒÂ²ng dÃ¡Â»Â¯ liÃ¡Â»â€¡u nÃƒÂ o hÃ¡Â»Â£p lÃ¡Â»â€¡ Ã„â€˜Ã¡Â»Æ’ nhÃ¡ÂºÂ­p!");
       return;
     }
 
@@ -858,7 +872,7 @@ const Leads: React.FC = () => {
       return {
         id: `l-import-${Date.now()}-${index}-${Math.random().toString(36).substr(2, 9)}`,
         name: row.name,
-        phone: row.phone,
+        phone: normalizeLeadPhone(row.phone),
         email: row.email,
         company: row.company,
         targetCountry: row.targetCountry,
@@ -888,7 +902,7 @@ const Leads: React.FC = () => {
     setLeads([...leads, ...assignedLeads]); // Optimistic update
 
     setShowImportModal(false);
-    alert(`ÄÃ£ nháº­p thÃ nh cÃ´ng ${assignedLeads.length} lead!`);
+    alert(`Ã„ÂÃƒÂ£ nhÃ¡ÂºÂ­p thÃƒÂ nh cÃƒÂ´ng ${assignedLeads.length} lead!`);
 
     // Reset
     setImportStep(1);
@@ -1165,7 +1179,13 @@ const Leads: React.FC = () => {
     const assigned = leads.filter((lead) => Boolean(lead.ownerId)).length;
     const unassigned = total - assigned;
     const slaRisk = leads.filter((lead) => lead.slaStatus === 'danger').length;
-    const verified = leads.filter((lead) => Boolean((lead as any).verified || (lead as any).isVerified)).length;
+    const verified = leads.filter((lead) => {
+      const normalizedStatus = normalizeLeadStatus(lead.status as string);
+      return [
+        STANDARD_LEAD_STATUS.CONVERTED,
+        STANDARD_LEAD_STATUS.NURTURING
+      ].includes(normalizedStatus as typeof STANDARD_LEAD_STATUS[keyof typeof STANDARD_LEAD_STATUS]);
+    }).length;
     const processing = leads.filter((lead) => {
       if (!lead.ownerId) return false;
       const normalizedStatus = normalizeLeadStatus(lead.status as string);
@@ -1431,22 +1451,10 @@ const Leads: React.FC = () => {
         createdAt: new Date().toISOString(),
         leadCreatedAt: lead.createdAt,
         assignedAt: lead.pickUpDate,
-        activities: [
-          // Táº¡o activity scheduled máº·c Ä‘á»‹nh (Next Activity)
-          {
-            id: `act-${Date.now()}`,
-            type: 'call' as any,
-            content: 'Gá»i Ä‘iá»‡n tÆ° váº¥n láº§n Ä‘áº§u',
-            timestamp: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), // +1 ngÃ y
-            status: 'scheduled',
-            userId: user?.id || 'admin'
-          },
-          // Copy activities tá»« Lead
-          ...(Array.isArray(lead.activities) ? lead.activities : []).map(a => ({
-            ...a,
-            type: a.type === 'message' ? 'chat' : a.type === 'system' ? 'note' : a.type as any
-          }))
-        ] as any
+        activities: getLeadActivitiesForConversion(lead).map(a => ({
+          ...a,
+          type: a.type === 'message' ? 'chat' : a.type === 'system' ? 'note' : a.type as any
+        })) as any
       };
       addDeal(deal);
       deleteLead(lead.id);
@@ -1458,7 +1466,7 @@ const Leads: React.FC = () => {
       navigate(`/pipeline?newDeal=${deal.id}`);
     } catch (error) {
       console.error("Convert Error", error);
-      alert("CÃ³ lá»—i xáº£y ra khi chuyá»ƒn Ä‘á»•i Lead!");
+      alert("CÃƒÂ³ lÃ¡Â»â€”i xÃ¡ÂºÂ£y ra khi chuyÃ¡Â»Æ’n Ã„â€˜Ã¡Â»â€¢i Lead!");
     }
   };
 
@@ -1481,12 +1489,22 @@ const Leads: React.FC = () => {
 
 
   const handleCreateSubmitLegacy = () => {
-    if (!newLeadData.name || !newLeadData.phone) {
-      alert("Vui lÃ²ng nháº­p TÃªn vÃ  SÄT");
+    if (!newLeadData.name?.trim()) {
+      alert('Vui l\u00f2ng nh\u1eadp t\u00ean kh\u00e1ch h\u00e0ng.');
+      return;
+    }
+    if (!newLeadData.phone?.trim()) {
+      alert('Vui l\u00f2ng nh\u1eadp s\u1ed1 \u0111i\u1ec7n tho\u1ea1i.');
+      return;
+    }
+    const normalizedPhone = normalizeLeadPhone(newLeadData.phone);
+    const phoneError = getLeadPhoneValidationMessage(newLeadData.phone);
+    if (phoneError) {
+      alert(phoneError);
       return;
     }
     if (!newLeadData.company) {
-      alert("Vui lÃ²ng chá»n CÆ¡ sá»Ÿ / Company Base");
+      alert("Vui lÃƒÂ²ng chÃ¡Â»Ân CÃ†Â¡ sÃ¡Â»Å¸ / Company Base");
       return;
     }
 
@@ -1494,6 +1512,7 @@ const Leads: React.FC = () => {
     const newLeadBase: ILead = {
       id: `l-${Date.now()}`,
       ...newLeadData,
+      phone: normalizedPhone,
       program: newLeadData.program as any,
       ownerId: newLeadData.salesperson,
       marketingData: {
@@ -1514,8 +1533,8 @@ const Leads: React.FC = () => {
         buildLeadActivityLog({
           type: 'system',
           timestamp: newLeadBase.createdAt,
-          title: 'Tạo lead',
-          description: `Lead được tạo bởi ${user?.name || 'Admin'}.`,
+          title: 'Táº¡o lead',
+          description: `Lead Ä‘Æ°á»£c táº¡o bá»Ÿi ${user?.name || 'Admin'}.`,
           user: user?.name || 'System'
         })
       ],
@@ -1526,10 +1545,10 @@ const Leads: React.FC = () => {
           actorType: 'user',
           timestamp: newLeadBase.createdAt,
           changes: [
-            buildLeadAuditChange('name', '', newLeadBase.name, 'Tên lead'),
-            buildLeadAuditChange('phone', '', newLeadBase.phone, 'Số điện thoại'),
-            buildLeadAuditChange('ownerId', '', newLeadBase.ownerId, 'Sale phụ trách'),
-            buildLeadAuditChange('status', '', newLeadBase.status, 'Trạng thái')
+            buildLeadAuditChange('name', '', newLeadBase.name, 'TÃªn lead'),
+            buildLeadAuditChange('phone', '', newLeadBase.phone, 'Sá»‘ Ä‘iá»‡n thoáº¡i'),
+            buildLeadAuditChange('ownerId', '', newLeadBase.ownerId, 'Sale phá»¥ trÃ¡ch'),
+            buildLeadAuditChange('status', '', newLeadBase.status, 'Tráº¡ng thÃ¡i')
           ]
         })
       ]
@@ -1539,23 +1558,33 @@ const Leads: React.FC = () => {
       setLeads([finalLead, ...leads]);
       setShowCreateModal(false);
       setNewLeadData({
-        name: '', phone: '', email: '', source: 'hotline', program: 'Tiáº¿ng Äá»©c', notes: '',
+        name: '', phone: '', email: '', source: 'hotline', program: 'TiÃ¡ÂºÂ¿ng Ã„ÂÃ¡Â»Â©c', notes: '',
         title: '', company: '', province: '', city: '', ward: '', street: '', salesperson: '', campaign: '', tags: [], referredBy: '',
         product: '', market: '', channel: '', status: STANDARD_LEAD_STATUS.NEW
       });
-      alert("Táº¡o Lead thÃ nh cÃ´ng!");
+      alert("TÃ¡ÂºÂ¡o Lead thÃƒÂ nh cÃƒÂ´ng!");
     } else {
-      alert("CÃ³ lá»—i xáº£y ra khi lÆ°u Lead");
+      alert("CÃƒÂ³ lÃ¡Â»â€”i xÃ¡ÂºÂ£y ra khi lÃ†Â°u Lead");
     }
   };
 
   const handleCreateSubmit = () => {
-    if (!newLeadData.name.trim() || !newLeadData.phone.trim()) {
-      alert('Vui l?ng nh?p T?n v? S?T');
+    if (!newLeadData.name.trim()) {
+      alert('Vui l\u00f2ng nh\u1eadp t\u00ean kh\u00e1ch h\u00e0ng.');
+      return;
+    }
+    if (!newLeadData.phone.trim()) {
+      alert('Vui l\u00f2ng nh\u1eadp s\u1ed1 \u0111i\u1ec7n tho\u1ea1i.');
+      return;
+    }
+    const normalizedPhone = normalizeLeadPhone(newLeadData.phone);
+    const phoneError = getLeadPhoneValidationMessage(newLeadData.phone);
+    if (phoneError) {
+      alert(phoneError);
       return;
     }
     if (!newLeadData.targetCountry) {
-      alert('Vui l?ng ch?n Qu?c gia m?c ti?u');
+      alert('Vui l\u00f2ng ch\u1ecdn qu\u1ed1c gia m\u1ee5c ti\u00eau.');
       return;
     }
 
@@ -1580,6 +1609,7 @@ const Leads: React.FC = () => {
     const newLeadBase: ILead = {
       id: `l-${Date.now()}`,
       ...newLeadData,
+      phone: normalizedPhone,
       program,
       ownerId: newLeadData.salesperson,
       company: campus || undefined,
@@ -1592,7 +1622,7 @@ const Leads: React.FC = () => {
       district: newLeadData.city.trim() || undefined,
       ward: newLeadData.ward.trim() || undefined,
       guardianName: guardianRelation ? newLeadData.name.trim() || undefined : undefined,
-      guardianPhone: guardianRelation ? newLeadData.phone.trim() || undefined : undefined,
+      guardianPhone: guardianRelation ? normalizedPhone || undefined : undefined,
       guardianRelation,
       lostReason: isClosedLeadStatus(newLeadData.status) ? resolvedCloseReason : undefined,
       studentInfo,
@@ -1615,8 +1645,8 @@ const Leads: React.FC = () => {
         buildLeadActivityLog({
           type: 'system',
           timestamp: nowIso,
-          title: 'Tạo lead',
-          description: `Lead được tạo bởi ${user?.name || 'Admin'}.`,
+          title: 'Táº¡o lead',
+          description: `Lead Ä‘Æ°á»£c táº¡o bá»Ÿi ${user?.name || 'Admin'}.`,
           user: user?.name || 'System'
         })
       ],
@@ -1627,10 +1657,10 @@ const Leads: React.FC = () => {
           actorType: 'user',
           timestamp: nowIso,
           changes: [
-            buildLeadAuditChange('name', '', newLeadBase.name, 'Tên lead'),
-            buildLeadAuditChange('phone', '', newLeadBase.phone, 'Số điện thoại'),
-            buildLeadAuditChange('ownerId', '', newLeadBase.ownerId, 'Sale phụ trách'),
-            buildLeadAuditChange('status', '', newLeadBase.status, 'Trạng thái')
+            buildLeadAuditChange('name', '', newLeadBase.name, 'TÃªn lead'),
+            buildLeadAuditChange('phone', '', newLeadBase.phone, 'Sá»‘ Ä‘iá»‡n thoáº¡i'),
+            buildLeadAuditChange('ownerId', '', newLeadBase.ownerId, 'Sale phá»¥ trÃ¡ch'),
+            buildLeadAuditChange('status', '', newLeadBase.status, 'Tráº¡ng thÃ¡i')
           ]
         })
       ]
@@ -1651,12 +1681,12 @@ const Leads: React.FC = () => {
     const repsWithLeads = SALES_REPS.filter((rep) => (assignmentLeadCounts[rep.id] || 0) > 0);
 
     if (repsWithLeads.length === 0) {
-      alert("Vui lÃ²ng nháº­p tá»· lá»‡ phÃ¢n bá»• cho Ã­t nháº¥t 1 nhÃ¢n viÃªn Sale");
+      alert("Vui lòng nh?p s? lu?ng lead cho ít nh?t 1 nhân viên Sale");
       return;
     }
 
-    if (assignmentRatioTotal !== 100) {
-      alert("Tá»•ng tá»· lá»‡ phÃ¢n bá»• pháº£i báº±ng 100%");
+    if (assignmentRatioTotal !== selectedLeadIds.length) {
+      alert("T?ng s? lead phân b? ph?i b?ng s? lead dã ch?n");
       return;
     }
 
@@ -1681,10 +1711,10 @@ const Leads: React.FC = () => {
             buildLeadActivityLog({
               type: 'system',
               timestamp: nowIso,
-              title: lead.ownerId ? 'Chia lại Lead' : 'Phân bổ Lead',
+              title: lead.ownerId ? 'Chia láº¡i Lead' : 'PhÃ¢n bá»• Lead',
               description: lead.ownerId
-                ? `Lead được chia lại từ ${SALES_REPS.find((rep) => rep.id === lead.ownerId)?.name || lead.ownerId} sang ${SALES_REPS.find((rep) => rep.id === ownerId)?.name || ownerId}.`
-                : `Lead được giao cho ${SALES_REPS.find((rep) => rep.id === ownerId)?.name || ownerId}.`,
+                ? `Lead Ä‘Æ°á»£c chia láº¡i tá»« ${SALES_REPS.find((rep) => rep.id === lead.ownerId)?.name || lead.ownerId} sang ${SALES_REPS.find((rep) => rep.id === ownerId)?.name || ownerId}.`
+                : `Lead Ä‘Æ°á»£c giao cho ${SALES_REPS.find((rep) => rep.id === ownerId)?.name || ownerId}.`,
               user: user?.name || 'Admin'
             })
           ],
@@ -1695,8 +1725,8 @@ const Leads: React.FC = () => {
               actorType: 'user',
               timestamp: nowIso,
               changes: [
-                buildLeadAuditChange('ownerId', lead.ownerId, ownerId, 'Sale phụ trách'),
-                buildLeadAuditChange('status', lead.status, nextStatus, 'Trạng thái')
+                buildLeadAuditChange('ownerId', lead.ownerId, ownerId, 'Sale phá»¥ trÃ¡ch'),
+                buildLeadAuditChange('status', lead.status, nextStatus, 'Tráº¡ng thÃ¡i')
               ]
             })
           ]
@@ -1708,13 +1738,13 @@ const Leads: React.FC = () => {
     setLeads(updatedLeads);
     closeAssignModal();
     setSelectedLeadIds([]);
-    alert(`ÄÃ£ phÃ¢n bá»• thÃ nh cÃ´ng ${selectedLeadIds.length} lead!`);
+    alert(`Ã„ÂÃƒÂ£ phÃƒÂ¢n bÃ¡Â»â€¢ thÃƒÂ nh cÃƒÂ´ng ${selectedLeadIds.length} lead!`);
   };
 
   // --- BULK ACTIONS ---
   const handleBulkDelete = () => {
     if (selectedLeadIds.length === 0) return;
-    if (confirm(`Báº¡n cÃ³ cháº¯c muá»‘n xÃ³a ${selectedLeadIds.length} lead Ä‘Ã£ chá»n?`)) {
+    if (confirm(`BÃ¡ÂºÂ¡n cÃƒÂ³ chÃ¡ÂºÂ¯c muÃ¡Â»â€˜n xÃƒÂ³a ${selectedLeadIds.length} lead Ã„â€˜ÃƒÂ£ chÃ¡Â»Ân?`)) {
       const remainingLeads = leads.filter(l => !selectedLeadIds.includes(l.id));
       setLeads(remainingLeads);
       saveLeads(remainingLeads);
@@ -1744,7 +1774,7 @@ const Leads: React.FC = () => {
             buildLeadActivityLog({
               type: 'system',
               timestamp: nowIso,
-              description: `Trạng thái: ${getLeadStatusLabel(String(l.status || ''))} → ${getLeadStatusLabel(nextStatus)}. Lý do: ${finalReason}`,
+              description: `Tráº¡ng thÃ¡i: ${getLeadStatusLabel(String(l.status || ''))} â†’ ${getLeadStatusLabel(nextStatus)}. LÃ½ do: ${finalReason}`,
               user: user?.name || 'Admin',
               title: getLeadStatusLabel(nextStatus)
             })
@@ -1756,8 +1786,8 @@ const Leads: React.FC = () => {
               actorType: 'user',
               timestamp: nowIso,
               changes: [
-                buildLeadAuditChange('status', l.status, toLeadStatusValue(nextStatus), 'Trạng thái'),
-                buildLeadAuditChange('lostReason', l.lostReason, finalReason, 'Lý do thất bại')
+                buildLeadAuditChange('status', l.status, toLeadStatusValue(nextStatus), 'Tráº¡ng thÃ¡i'),
+                buildLeadAuditChange('lostReason', l.lostReason, finalReason, 'LÃ½ do tháº¥t báº¡i')
               ]
             })
           ]
@@ -1791,18 +1821,18 @@ const Leads: React.FC = () => {
       : filteredLeads;
     const ws = utils.json_to_sheet(leadsToExport.map(l => ({
       'ID': l.id,
-      'TÃªn': l.name,
-      'SÄT': l.phone,
+      'TÃƒÂªn': l.name,
+      'SÃ„ÂT': l.phone,
       'Email': l.email,
-      'CÆ¡ sá»Ÿ': l.company,
-      'Nguá»“n': l.source,
-      'Tráº¡ng thÃ¡i': getLeadStatusLabel(l.status as string)
+      'CÃ†Â¡ sÃ¡Â»Å¸': l.company,
+      'NguÃ¡Â»â€œn': l.source,
+      'TrÃ¡ÂºÂ¡ng thÃƒÂ¡i': getLeadStatusLabel(l.status as string)
     })));
     const wb = utils.book_new();
     utils.book_append_sheet(wb, ws, "Leads");
     write(wb, { bookType: 'xlsx', type: 'buffer' });
     // Trigger download (simplified)
-    alert("TÃ­nh nÄƒng export Ä‘ang Ä‘Æ°á»£c xá»­ lÃ½ (Console log data)");
+    alert("TÃƒÂ­nh nÃ„Æ’ng export Ã„â€˜ang Ã„â€˜Ã†Â°Ã¡Â»Â£c xÃ¡Â»Â­ lÃƒÂ½ (Console log data)");
     console.log(leadsToExport);
   };
 
@@ -1811,7 +1841,7 @@ const Leads: React.FC = () => {
     e.stopPropagation();
     const updatedLead = { ...lead, ownerId: user?.id, status: toLeadStatusValue(STANDARD_LEAD_STATUS.PICKED) };
     handleUpdateLead(updatedLead);
-    alert(`ÄÃ£ tiáº¿p nháº­n lead: ${lead.name}`);
+    alert(`Ã„ÂÃƒÂ£ tiÃ¡ÂºÂ¿p nhÃ¡ÂºÂ­n lead: ${lead.name}`);
   };
 
   const handleQuickMarkLost = (e: React.MouseEvent, lead: ILead) => {
@@ -1829,7 +1859,7 @@ const Leads: React.FC = () => {
 
   const openQuickAssignModal = () => {
     if (selectedLeadIds.length === 0) {
-      alert('Vui lÃ²ng chá»n lead trÆ°á»›c khi phÃ¢n bá»• nhanh');
+      alert('Vui lÃƒÂ²ng chÃ¡Â»Ân lead trÃ†Â°Ã¡Â»â€ºc khi phÃƒÂ¢n bÃ¡Â»â€¢ nhanh');
       return;
     }
 
@@ -1842,34 +1872,34 @@ const Leads: React.FC = () => {
 
     if (normalizedStatus === STANDARD_LEAD_STATUS.LOST) {
       return {
-        label: 'Mất',
+        label: 'Máº¥t',
         className: 'border-rose-200 bg-rose-50 text-rose-700'
       };
     }
 
     if (normalizedStatus === STANDARD_LEAD_STATUS.UNVERIFIED) {
       return {
-        label: 'Không xác thực',
+        label: 'KhÃ´ng xÃ¡c thá»±c',
         className: 'border-amber-200 bg-amber-50 text-amber-700'
       };
     }
 
     if (!lead.ownerId) {
       return {
-        label: 'Mới',
+        label: 'Má»›i',
         className: 'border-[#e4e7ec] bg-[#f8fafc] text-slate-600'
       };
     }
 
     if ([STANDARD_LEAD_STATUS.NEW, STANDARD_LEAD_STATUS.ASSIGNED].includes(normalizedStatus)) {
       return {
-        label: 'Đã chia',
+        label: 'ÄÃ£ phÃ¢n bá»•',
         className: 'border-[#d7e3f4] bg-[#eef4fb] text-[#4f6b8a]'
       };
     }
 
     return {
-      label: 'Đang xử lý',
+      label: 'Äang xá»­ lÃ½',
       className: 'border-[#d9e7df] bg-[#edf6f1] text-[#55756a]'
     };
   };
@@ -1886,8 +1916,8 @@ const Leads: React.FC = () => {
       <div className="mx-auto min-h-screen max-w-[1600px] bg-[#f8fafc] px-4 py-6 font-inter text-slate-900 md:px-6">
         <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h1 className="text-[20px] font-bold tracking-tight text-[#2f5bd3] md:text-[22px]">CÃ†Â¡ hÃ¡Â»â„¢i (Leads)</h1>
-            <p className="mt-1 text-[13px] text-slate-600">QuÃ¡ÂºÂ£n lÃƒÂ½ Lead Ã„â€˜Ã¡ÂºÂ§u vÃƒÂ o vÃƒÂ  phÃƒÂ¢n bÃ¡Â»â€¢ cho Ã„â€˜Ã¡Â»â„¢i Sales</p>
+            <h1 className="text-[20px] font-bold tracking-tight text-[#2f5bd3] md:text-[22px]">CÃƒâ€ Ã‚Â¡ hÃƒÂ¡Ã‚Â»Ã¢â€žÂ¢i (Leads)</h1>
+            <p className="mt-1 text-[13px] text-slate-600">QuÃƒÂ¡Ã‚ÂºÃ‚Â£n lÃƒÆ’Ã‚Â½ Lead Ãƒâ€žÃ¢â‚¬ËœÃƒÂ¡Ã‚ÂºÃ‚Â§u vÃƒÆ’Ã‚Â o vÃƒÆ’Ã‚Â  phÃƒÆ’Ã‚Â¢n bÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¢ cho Ãƒâ€žÃ¢â‚¬ËœÃƒÂ¡Ã‚Â»Ã¢â€žÂ¢i Sales</p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <button
@@ -1900,16 +1930,16 @@ const Leads: React.FC = () => {
               onClick={openCreateLeadModal}
               className="inline-flex items-center gap-2 rounded-xl bg-[#2f5bd3] px-4 py-2.5 text-[14px] font-semibold text-white shadow-sm transition-colors hover:bg-[#244fc4]"
             >
-              <Plus size={18} /> ThÃƒÂªm Lead
+              <Plus size={18} /> ThÃƒÆ’Ã‚Âªm Lead
             </button>
           </div>
         </div>
 
-        <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <button onClick={() => setActiveTab('all')} className="rounded-[18px] border border-[#2f5bd3] bg-white px-5 py-4 text-left shadow-sm transition-transform hover:-translate-y-0.5">
+        <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <button onClick={() => setActiveTab('all')} className="rounded-[18px] border border-slate-200 bg-white px-5 py-4 text-left shadow-sm transition-transform hover:-translate-y-0.5">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">TÃ¡Â»â€¢ng sÃ¡Â»â€˜ lead</div>
+                <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">TÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¢ng sÃƒÂ¡Ã‚Â»Ã¢â‚¬Ëœ lead</div>
                 <div className="mt-2 text-[18px] font-bold text-slate-900">{stats.total.toLocaleString()}</div>
               </div>
               <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-[#2f5bd3]">
@@ -1920,7 +1950,7 @@ const Leads: React.FC = () => {
           <button onClick={() => setActiveTab('new')} className="rounded-[18px] border border-slate-200 bg-white px-5 py-4 text-left shadow-sm transition-transform hover:-translate-y-0.5">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">Lead mÃ¡Â»â€ºi</div>
+                <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">Lead mÃƒÂ¡Ã‚Â»Ã¢â‚¬Âºi</div>
                 <div className="mt-2 text-[18px] font-bold text-slate-900">{stats.newLeads.toLocaleString()}</div>
               </div>
               <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
@@ -1928,11 +1958,11 @@ const Leads: React.FC = () => {
               </span>
             </div>
           </button>
-          <div className="rounded-[18px] border border-slate-200 bg-white px-5 py-4 text-left shadow-sm">
+          <div className="hidden rounded-[18px] border border-slate-200 bg-white px-5 py-4 text-left shadow-sm">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">CÃ¡ÂºÂ£nh bÃƒÂ¡o SLA</div>
-                <div className="mt-2 text-[18px] font-bold text-slate-900">{stats.slaRisk.toLocaleString()}</div>
+                <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">CÃƒÂ¡Ã‚ÂºÃ‚Â£nh bÃƒÆ’Ã‚Â¡o SLA</div>
+                <div className="hidden mt-2 text-[18px] font-bold text-slate-900">{stats.slaRisk.toLocaleString()}</div>
               </div>
               <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-rose-50 text-rose-500">
                 <AlertTriangle size={22} />
@@ -1942,7 +1972,7 @@ const Leads: React.FC = () => {
           <div className="rounded-[18px] border border-slate-200 bg-white px-5 py-4 text-left shadow-sm">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">TÃ¡Â»Â· lÃ¡Â»â€¡ xÃƒÂ¡c thÃ¡Â»Â±c</div>
+                <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">TÃƒÂ¡Ã‚Â»Ã‚Â· lÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¡ xÃƒÆ’Ã‚Â¡c thÃƒÂ¡Ã‚Â»Ã‚Â±c</div>
                 <div className="mt-2 text-[18px] font-bold text-slate-900">{stats.verificationRate.toFixed(1)}%</div>
               </div>
               <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-violet-50 text-violet-600">
@@ -1954,72 +1984,72 @@ const Leads: React.FC = () => {
         <div className="hidden mb-3 border-b border-[#f1f5f9] pb-2.5">
           <div className="flex flex-wrap items-center gap-2 xl:flex-nowrap">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-[15px] font-bold uppercase tracking-[0.12em] text-slate-900">PhÃ¢n bá»• Lead</h1>
+              <h1 className="text-[15px] font-bold uppercase tracking-[0.12em] text-slate-900">PhÃƒÂ¢n bÃ¡Â»â€¢ Lead</h1>
               <div className="flex flex-wrap items-center gap-0.5 rounded-sm border border-[#e4e7ec] bg-[#f5f6f8] px-1 py-1">
                 <button
                   onClick={openCreateLeadModal}
                   className={flatRibbonButtonClass}
                 >
-                  <Plus size={13} /> Táº¡o má»›i
+                  <Plus size={13} /> TÃ¡ÂºÂ¡o mÃ¡Â»â€ºi
                 </button>
                 <button
                   onClick={openQuickAssignModal}
                   className={flatRibbonButtonClass}
                 >
-                  <UserPlus size={13} /> PhÃ¢n bá»• nhanh
+                  <UserPlus size={13} /> PhÃƒÂ¢n bÃ¡Â»â€¢ nhanh
                 </button>
                 <button
                   onClick={() => setShowImportModal(true)}
                   className={flatRibbonButtonClass}
                 >
-                  <FileSpreadsheet size={13} /> Nháº­p Excel
+                  <FileSpreadsheet size={13} /> NhÃ¡ÂºÂ­p Excel
                 </button>
                 <button
                   onClick={handleBulkExport}
                   className={flatRibbonButtonClass}
                 >
-                  <Download size={13} /> Xuáº¥t Excel
+                  <Download size={13} /> XuÃ¡ÂºÂ¥t Excel
                 </button>
                 <div className="mx-1 h-4 w-px bg-[#d8dee8]"></div>
                 <button
                   onClick={handleBulkMarkLost}
                   disabled={selectedLeadIds.length === 0}
                   className={`${flatRibbonButtonClass} ${selectedLeadIds.length === 0 ? 'cursor-not-allowed hover:border-transparent hover:bg-transparent hover:text-slate-700' : ''}`}
-                  title="ÄÃ¡nh dáº¥u tháº¥t báº¡i"
+                  title="Ã„ÂÃƒÂ¡nh dÃ¡ÂºÂ¥u thÃ¡ÂºÂ¥t bÃ¡ÂºÂ¡i"
                 >
-                  <XCircle size={13} /> ÄÃ¡nh dáº¥u tháº¥t báº¡i
+                  <XCircle size={13} /> Ã„ÂÃƒÂ¡nh dÃ¡ÂºÂ¥u thÃ¡ÂºÂ¥t bÃ¡ÂºÂ¡i
                 </button>
 
                 <button
                   onClick={handleBulkDelete}
                   disabled={selectedLeadIds.length === 0}
                   className={`${flatRibbonButtonClass} ${selectedLeadIds.length === 0 ? 'cursor-not-allowed hover:border-transparent hover:bg-transparent hover:text-slate-700' : ''}`}
-                  title="XÃ³a"
+                  title="XÃƒÂ³a"
                 >
-                  <Trash2 size={13} /> XÃ³a
+                  <Trash2 size={13} /> XÃƒÂ³a
                 </button>
               </div>
               <div className="hidden items-center gap-2 p-3 bg-red-50 text-red-700 rounded-lg border border-red-100 text-xs italic">
                 <AlertTriangle size={14} className="shrink-0" />
-                <span>Lead sẽ được chuyển sang <strong>{getLeadStatusLabel(lossStatus).toUpperCase()}</strong> và bắt buộc lưu lý do.</span>
+                <span>Lead sáº½ Ä‘Æ°á»£c chuyá»ƒn sang <strong>{getLeadStatusLabel(lossStatus).toUpperCase()}</strong> vÃ  báº¯t buá»™c lÆ°u lÃ½ do.</span>
               </div>
             </div>
 
             <div className="ml-auto grid gap-x-6 gap-y-2 md:grid-cols-4 xl:max-w-[520px]">
               <button onClick={() => setActiveTab('all')} className="text-left">
-                <div className="text-[11px] font-medium text-[#7b8794]">Tá»•ng lead</div>
+                <div className="text-[11px] font-medium text-[#7b8794]">TÃ¡Â»â€¢ng lead</div>
                 <div className="mt-0.5 text-[15px] font-bold text-slate-900">{stats.total.toLocaleString()}</div>
               </button>
               <button onClick={() => setActiveTab('new')} className="text-left">
-                <div className="text-[11px] font-medium text-[#7b8794]">ChÆ°a chia</div>
+                <div className="text-[11px] font-medium text-[#7b8794]">ChÆ°a phÃ¢n bá»•</div>
                 <div className="mt-0.5 text-[15px] font-bold text-amber-600">{stats.unassigned.toLocaleString()}</div>
               </button>
               <div className="text-left">
-                <div className="text-[11px] font-medium text-[#7b8794]">ÄÃ£ chia</div>
+                <div className="text-[11px] font-medium text-[#7b8794]">ÄÃ£ phÃ¢n bá»•</div>
                 <div className="mt-0.5 text-[15px] font-bold text-emerald-600">{stats.assigned.toLocaleString()}</div>
               </div>
               <div className="text-left">
-                <div className="text-[11px] font-medium text-[#7b8794]">Äang xá»­ lÃ½</div>
+                <div className="text-[11px] font-medium text-[#7b8794]">Ã„Âang xÃ¡Â»Â­ lÃƒÂ½</div>
                 <div className="mt-0.5 text-[15px] font-bold text-blue-700">{stats.processing.toLocaleString()}</div>
               </div>
             </div>
@@ -2035,11 +2065,11 @@ const Leads: React.FC = () => {
                 onClick={() => setActiveTab(tab)}
                 className={`rounded-t-xl border-b-2 px-4 pb-3 text-[14px] font-semibold transition-colors ${activeTab === tab ? 'border-[#2f5bd3] text-[#2f5bd3]' : 'border-transparent text-slate-500 hover:text-slate-900'}`}
               >
-                {tab === 'all' && 'TÃ¡ÂºÂ¥t cÃ¡ÂºÂ£'}
-                {tab === 'new' && 'Lead Mới'}
+                {tab === 'all' && 'TÃƒÂ¡Ã‚ÂºÃ‚Â¥t cÃƒÂ¡Ã‚ÂºÃ‚Â£'}
+                {tab === 'new' && 'Lead Má»›i'}
                 {tab === 'sla_risk' && (
                   <span className="inline-flex items-center gap-1">
-                    SLA RÃ¡Â»Â§i ro
+                    SLA RÃƒÂ¡Ã‚Â»Ã‚Â§i ro
                     <AlertTriangle size={14} className="text-rose-500" />
                   </span>
                 )}
@@ -2049,11 +2079,11 @@ const Leads: React.FC = () => {
           <div className="space-y-3 px-4 py-4">
             {false && selectedLeadIds.length > 0 && (
               <div className="flex flex-wrap items-center gap-2">
-                <span className="text-[12px] font-semibold text-slate-500">{selectedLeadIds.length} lead Ã„â€˜ang Ã„â€˜Ã†Â°Ã¡Â»Â£c chÃ¡Â»Ân</span>
-                <button onClick={openQuickAssignModal} className={compactToolbarButtonClass}><UserPlus size={14} /> PhÃƒÂ¢n bÃ¡Â»â€¢ nhanh</button>
-                <button onClick={handleBulkExport} className={compactToolbarButtonClass}><Download size={14} /> XuÃ¡ÂºÂ¥t Excel</button>
-                <button onClick={handleBulkMarkLost} className={compactToolbarButtonClass}><XCircle size={14} /> Ã„ÂÃƒÂ¡nh dÃ¡ÂºÂ¥u thÃ¡ÂºÂ¥t bÃ¡ÂºÂ¡i</button>
-                <button onClick={handleBulkDelete} className={compactToolbarButtonClass}><Trash2 size={14} /> XÃƒÂ³a</button>
+                <span className="text-[12px] font-semibold text-slate-500">{selectedLeadIds.length} lead Ãƒâ€žÃ¢â‚¬Ëœang Ãƒâ€žÃ¢â‚¬ËœÃƒâ€ Ã‚Â°ÃƒÂ¡Ã‚Â»Ã‚Â£c chÃƒÂ¡Ã‚Â»Ã‚Ân</span>
+                <button onClick={openQuickAssignModal} className={compactToolbarButtonClass}><UserPlus size={14} /> PhÃƒÆ’Ã‚Â¢n bÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¢ nhanh</button>
+                <button onClick={handleBulkExport} className={compactToolbarButtonClass}><Download size={14} /> XuÃƒÂ¡Ã‚ÂºÃ‚Â¥t Excel</button>
+                <button onClick={handleBulkMarkLost} className={compactToolbarButtonClass}><XCircle size={14} /> Ãƒâ€žÃ‚ÂÃƒÆ’Ã‚Â¡nh dÃƒÂ¡Ã‚ÂºÃ‚Â¥u thÃƒÂ¡Ã‚ÂºÃ‚Â¥t bÃƒÂ¡Ã‚ÂºÃ‚Â¡i</button>
+                <button onClick={handleBulkDelete} className={compactToolbarButtonClass}><Trash2 size={14} /> XÃƒÆ’Ã‚Â³a</button>
               </div>
             )}
             <div className="flex flex-wrap items-center gap-1.5 lg:flex-nowrap">
@@ -2063,7 +2093,7 @@ const Leads: React.FC = () => {
                 if (selectedAdvancedFilterOptions.length > 1) {
                   addFilter(
                     buildAdvancedMultiFilterField(selectedAdvancedFilterOptions.map((option) => option.id)),
-                    'Logic lá»c',
+                    'Logic lÃ¡Â»Âc',
                     filter.value,
                     'bg-emerald-100 text-emerald-700'
                   );
@@ -2087,14 +2117,14 @@ const Leads: React.FC = () => {
                 label: selectedAdvancedFilterOptions[0].label,
                 color: 'bg-emerald-100 text-emerald-700'
               } : null}
-              placeholder="TÃ¬m kiáº¿m lead..."
+              placeholder="TÃƒÂ¬m kiÃ¡ÂºÂ¿m lead..."
               compact
               fullWidth
             />
 
             <div className="flex items-center rounded-sm border border-[#e4e7ec] bg-[#f8fafc] p-0.5">
-              <button onClick={() => setViewMode('list')} className={`rounded-sm p-1 ${viewMode === 'list' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`} title="Dáº¡ng Danh sÃ¡ch"><ListIcon size={15} /></button>
-              <button onClick={() => setViewMode('pivot')} className={`rounded-sm p-1 ${viewMode === 'pivot' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`} title="BÃ¡o cÃ¡o Pivot"><LayoutGrid size={15} /></button>
+              <button onClick={() => setViewMode('list')} className={`rounded-sm p-1 ${viewMode === 'list' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`} title="DÃ¡ÂºÂ¡ng Danh sÃƒÂ¡ch"><ListIcon size={15} /></button>
+              <button onClick={() => setViewMode('pivot')} className={`rounded-sm p-1 ${viewMode === 'pivot' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`} title="BÃƒÂ¡o cÃƒÂ¡o Pivot"><LayoutGrid size={15} /></button>
             </div>
 
             <div className="relative hidden">
@@ -2102,13 +2132,13 @@ const Leads: React.FC = () => {
                 onClick={() => setShowColumnDropdown(!showColumnDropdown)}
                 className="flex items-center gap-2 px-3 py-2 border border-slate-200 rounded-lg text-sm font-semibold hover:bg-slate-50 text-slate-600 bg-white shadow-sm"
               >
-                <Settings size={16} /> Cá»™t
+                <Settings size={16} /> CÃ¡Â»â„¢t
               </button>
               {showColumnDropdown && (
                 <>
                   <div className="fixed inset-0 z-30" onClick={() => setShowColumnDropdown(false)}></div>
                   <div className="absolute right-0 top-full mt-2 w-[500px] bg-white border border-slate-200 rounded-lg shadow-xl z-40 p-3 animate-in fade-in zoom-in-95">
-                    <div className="text-xs font-bold text-slate-500 uppercase px-2 py-1 mb-2 border-b border-slate-100 pb-2">Hiá»ƒn thá»‹ cá»™t</div>
+                    <div className="text-xs font-bold text-slate-500 uppercase px-2 py-1 mb-2 border-b border-slate-100 pb-2">HiÃ¡Â»Æ’n thÃ¡Â»â€¹ cÃ¡Â»â„¢t</div>
                     <div className="grid grid-cols-2 gap-x-2 gap-y-1">
                       {ALL_COLUMNS.map(col => (
                         <div key={col.id} onClick={() => toggleColumn(col.id)} className="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-50 rounded cursor-pointer text-sm">
@@ -2132,9 +2162,9 @@ const Leads: React.FC = () => {
                   onChange={(e) => setTimeFilterField(e.target.value as any)}
                   className="cursor-pointer border-r border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-600 outline-none hover:bg-slate-100"
                 >
-                  <option value="createdAt">NgÃ y táº¡o</option>
-                  <option value="deadline">Háº¡n chÃ³t</option>
-                  <option value="lastInteraction">TÆ°Æ¡ng tÃ¡c cuá»‘i</option>
+                  <option value="createdAt">NgÃƒÂ y tÃ¡ÂºÂ¡o</option>
+                  <option value="deadline">HÃ¡ÂºÂ¡n chÃƒÂ³t</option>
+                  <option value="lastInteraction">TÃ†Â°Ã†Â¡ng tÃƒÂ¡c cuÃ¡Â»â€˜i</option>
                 </select>
                 <button
                   onClick={() => setShowTimePicker(!showTimePicker)}
@@ -2173,10 +2203,10 @@ const Leads: React.FC = () => {
 
                     {/* Right Side: Custom Range Selection */}
                     <div className="flex-1 p-4 flex flex-col">
-                      <div className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Khoáº£ng thá»i gian tÃ¹y chá»‰nh</div>
+                      <div className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">KhoÃ¡ÂºÂ£ng thÃ¡Â»Âi gian tÃƒÂ¹y chÃ¡Â»â€°nh</div>
                       <div className="grid grid-cols-2 gap-4">
                         <div>
-                          <label className="block text-[10px] font-bold text-slate-400 mb-1">Tá»« ngÃ y</label>
+                          <label className="block text-[10px] font-bold text-slate-400 mb-1">TÃ¡Â»Â« ngÃƒÂ y</label>
                           <input
                             type="date"
                             className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-bold focus:border-blue-500 outline-none"
@@ -2185,7 +2215,7 @@ const Leads: React.FC = () => {
                           />
                         </div>
                         <div>
-                          <label className="block text-[10px] font-bold text-slate-400 mb-1">Äáº¿n ngÃ y</label>
+                          <label className="block text-[10px] font-bold text-slate-400 mb-1">Ã„ÂÃ¡ÂºÂ¿n ngÃƒÂ y</label>
                           <input
                             type="date"
                             className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-bold focus:border-blue-500 outline-none"
@@ -2204,14 +2234,14 @@ const Leads: React.FC = () => {
                           }}
                           className="text-slate-400 hover:text-slate-600 text-xs font-bold"
                         >
-                          LÃ m láº¡i
+                          LÃƒÂ m lÃ¡ÂºÂ¡i
                         </button>
                         <div className="flex gap-2">
                           <button
                             onClick={() => setShowTimePicker(false)}
                             className="px-4 py-1.5 text-slate-600 hover:bg-slate-100 rounded-lg text-xs font-bold"
                           >
-                            Há»§y
+                            HÃ¡Â»Â§y
                           </button>
                           <button
                             onClick={() => {
@@ -2219,12 +2249,12 @@ const Leads: React.FC = () => {
                                 setTimeRangeType('custom');
                                 setShowTimePicker(false);
                               } else {
-                                alert("Vui lÃ²ng chá»n khoáº£ng ngÃ y");
+                                alert("Vui lÃƒÂ²ng chÃ¡Â»Ân khoÃ¡ÂºÂ£ng ngÃƒÂ y");
                               }
                             }}
                             className="px-6 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-lg shadow-blue-100"
                           >
-                            Ãp dá»¥ng
+                            ÃƒÂp dÃ¡Â»Â¥ng
                           </button>
                         </div>
                       </div>
@@ -2240,7 +2270,7 @@ const Leads: React.FC = () => {
                 onClick={() => setShowFilterDropdown(!showFilterDropdown)}
                 className={`inline-flex items-center gap-1 rounded-sm border px-2 py-1 text-[11px] font-semibold transition-colors ${showFilterDropdown ? 'border-slate-300 bg-slate-100 text-slate-900' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}
               >
-                <Filter size={13} /> Lá»c nÃ¢ng cao
+                <Filter size={13} /> LÃ¡Â»Âc nÃƒÂ¢ng cao
                 {(() => {
                   const activeCount = [
                     ...selectedAdvancedFilterFields,
@@ -2322,7 +2352,7 @@ const Leads: React.FC = () => {
                       });
                     }}
                     className="absolute -top-1 -right-1 bg-red-500 hover:bg-red-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs shadow-lg z-10"
-                    title="XÃ³a táº¥t cáº£ bá»™ lá»c"
+                    title="XÃƒÂ³a tÃ¡ÂºÂ¥t cÃ¡ÂºÂ£ bÃ¡Â»â„¢ lÃ¡Â»Âc"
                   >
                     <X size={12} strokeWidth={3} />
                   </button>
@@ -2334,7 +2364,7 @@ const Leads: React.FC = () => {
                   <div className="hidden absolute right-0 top-full mt-2 w-[800px] bg-white border border-slate-200 rounded-lg shadow-xl z-40 p-4 animate-in fade-in zoom-in-95 flex text-sm">
                     {/* COLUMN 1: FILTER */}
                     <div className="flex-1 pr-4 border-r border-slate-100 space-y-2">
-                      <div className="font-bold text-slate-800 mb-2 flex items-center gap-2"><Filter size={14} /> Bá»™ lá»c</div>
+                      <div className="font-bold text-slate-800 mb-2 flex items-center gap-2"><Filter size={14} /> BÃ¡Â»â„¢ lÃ¡Â»Âc</div>
 
                       {/* My Pipeline */}
                       <div className="group">
@@ -2344,7 +2374,7 @@ const Leads: React.FC = () => {
                         >
                           <span>
                             <Check size={14} className={`inline mr-2 ${advancedFilters.myPipeline ? 'text-blue-600' : 'text-transparent'}`} />
-                            Quy trÃ¬nh cá»§a tÃ´i
+                            Quy trÃƒÂ¬nh cÃ¡Â»Â§a tÃƒÂ´i
                           </span>
                         </div>
                         <div className="pl-6 space-y-1">
@@ -2353,14 +2383,14 @@ const Leads: React.FC = () => {
                             className={`py-1 px-2 hover:bg-slate-50 rounded cursor-pointer ${advancedFilters.unassigned ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-slate-600'}`}
                           >
                             <Check size={12} className={`inline mr-1 ${advancedFilters.unassigned ? 'text-blue-600' : 'text-transparent'}`} />
-                            ChÆ°a phÃ¢n cÃ´ng
+                            ChÃ†Â°a phÃƒÂ¢n cÃƒÂ´ng
                           </div>
                           <div
                             onClick={() => setAdvancedFilters(prev => ({ ...prev, openOps: !prev.openOps }))}
                             className={`py-1 px-2 hover:bg-slate-50 rounded cursor-pointer ${advancedFilters.openOps ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-slate-600'}`}
                           >
                             <Check size={12} className={`inline mr-1 ${advancedFilters.openOps ? 'text-blue-600' : 'text-transparent'}`} />
-                            Má»Ÿ cÆ¡ há»™i
+                            MÃ¡Â»Å¸ cÃ†Â¡ hÃ¡Â»â„¢i
                           </div>
                         </div>
                       </div>
@@ -2372,7 +2402,7 @@ const Leads: React.FC = () => {
                         <div onClick={(e) => toggleFilter('filter_created', e)} className={`flex justify-between items-center py-1.5 px-2 hover:bg-slate-50 rounded cursor-pointer ${expandedFilter === 'filter_created' ? 'bg-slate-100 text-blue-600' : advancedFilters.createdDate ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-slate-700'}`}>
                           <span>
                             <Check size={14} className={`inline mr-2 ${advancedFilters.createdDate ? 'text-blue-600' : 'text-transparent'}`} />
-                            NgÃ y táº¡o
+                            NgÃƒÂ y tÃ¡ÂºÂ¡o
                             {advancedFilters.createdDate && (
                               <span className="ml-2 text-xs bg-blue-100 px-1.5 py-0.5 rounded">
                                 {advancedFilters.createdDate.type === 'month' && `T${advancedFilters.createdDate.value}`}
@@ -2381,7 +2411,7 @@ const Leads: React.FC = () => {
                               </span>
                             )}
                           </span>
-                          <span className="text-slate-400">â–¼</span>
+                          <span className="text-slate-400">Ã¢â€“Â¼</span>
                         </div>
                         {expandedFilter === 'filter_created' && (
                           <div className="absolute left-0 top-full mt-1 w-full bg-white border border-slate-200 shadow-xl rounded-lg p-2 z-50">
@@ -2391,7 +2421,7 @@ const Leads: React.FC = () => {
                                 onClick={() => { setDateFilter('createdDate', 'month', month); setExpandedFilter(null); }}
                                 className={`py-1 px-3 hover:bg-blue-50 rounded cursor-pointer ${advancedFilters.createdDate?.type === 'month' && advancedFilters.createdDate?.value === month ? 'bg-blue-100 text-blue-700 font-semibold' : 'text-slate-700'}`}
                               >
-                                thÃ¡ng {month}
+                                thÃƒÂ¡ng {month}
                               </div>
                             ))}
                             {[4, 3, 2, 1].map(q => (
@@ -2421,7 +2451,7 @@ const Leads: React.FC = () => {
                         <div onClick={(e) => toggleFilter('filter_closed', e)} className={`flex justify-between items-center py-1.5 px-2 hover:bg-slate-50 rounded cursor-pointer ${expandedFilter === 'filter_closed' ? 'bg-slate-100 text-blue-600' : advancedFilters.closedDate ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-slate-700'}`}>
                           <span>
                             <Check size={14} className={`inline mr-2 ${advancedFilters.closedDate ? 'text-blue-600' : 'text-transparent'}`} />
-                            NgÃ y chá»‘t
+                            NgÃƒÂ y chÃ¡Â»â€˜t
                             {advancedFilters.closedDate && (
                               <span className="ml-2 text-xs bg-blue-100 px-1.5 py-0.5 rounded">
                                 {advancedFilters.closedDate.type === 'month' && `T${advancedFilters.closedDate.value}`}
@@ -2430,7 +2460,7 @@ const Leads: React.FC = () => {
                               </span>
                             )}
                           </span>
-                          <span className="text-slate-400">â–¼</span>
+                          <span className="text-slate-400">Ã¢â€“Â¼</span>
                         </div>
                         {expandedFilter === 'filter_closed' && (
                           <div className="absolute left-0 top-full mt-1 w-full bg-white border border-slate-200 shadow-xl rounded-lg p-2 z-50">
@@ -2440,7 +2470,7 @@ const Leads: React.FC = () => {
                                 onClick={() => { setDateFilter('closedDate', 'month', month); setExpandedFilter(null); }}
                                 className={`py-1 px-3 hover:bg-blue-50 rounded cursor-pointer ${advancedFilters.closedDate?.type === 'month' && advancedFilters.closedDate?.value === month ? 'bg-blue-100 text-blue-700 font-semibold' : 'text-slate-700'}`}
                               >
-                                thÃ¡ng {month}
+                                thÃƒÂ¡ng {month}
                               </div>
                             ))}
                             {[4, 3, 2, 1].map(q => (
@@ -2468,7 +2498,7 @@ const Leads: React.FC = () => {
 
                       <div className="border-t border-slate-100 my-1"></div>
 
-                      {['Äáº¡t', 'Äang diá»…n ra', 'Rotting', 'Máº¥t'].map(status => (
+                      {['Ã„ÂÃ¡ÂºÂ¡t', 'Ã„Âang diÃ¡Â»â€¦n ra', 'Rotting', 'MÃ¡ÂºÂ¥t'].map(status => (
                         <div
                           key={status}
                           onClick={() => toggleAdvancedStatus(status)}
@@ -2480,14 +2510,14 @@ const Leads: React.FC = () => {
                       ))}
 
                       <div className="border-t border-slate-100 my-1"></div>
-                      {/* Removed "Bá»™ lá»c tÃ¹y chá»‰nh" */}
+                      {/* Removed "BÃ¡Â»â„¢ lÃ¡Â»Âc tÃƒÂ¹y chÃ¡Â»â€°nh" */}
                     </div>
 
                     {/* COLUMN 2: GROUP BY */}
                     <div className="flex-1 px-4 border-r border-slate-100 space-y-2">
-                      <div className="font-bold text-slate-800 mb-2 flex items-center gap-2"><Users size={14} /> NhÃ³m theo</div>
+                      <div className="font-bold text-slate-800 mb-2 flex items-center gap-2"><Users size={14} /> NhÃƒÂ³m theo</div>
 
-                      {['ChuyÃªn viÃªn sales', 'Bá»™ pháº­n sales', 'Giai Ä‘oáº¡n', 'ThÃ nh phá»‘', 'Quá»‘c gia', 'LÃ½ do máº¥t', 'Chiáº¿n dá»‹ch', 'PhÆ°Æ¡ng tiá»‡n', 'Nguá»“n'].map(field => (
+                      {['ChuyÃƒÂªn viÃƒÂªn sales', 'BÃ¡Â»â„¢ phÃ¡ÂºÂ­n sales', 'Giai Ã„â€˜oÃ¡ÂºÂ¡n', 'ThÃƒÂ nh phÃ¡Â»â€˜', 'QuÃ¡Â»â€˜c gia', 'LÃƒÂ½ do mÃ¡ÂºÂ¥t', 'ChiÃ¡ÂºÂ¿n dÃ¡Â»â€¹ch', 'PhÃ†Â°Ã†Â¡ng tiÃ¡Â»â€¡n', 'NguÃ¡Â»â€œn'].map(field => (
                         <div key={field} className="py-1.5 px-2 hover:bg-slate-50 rounded cursor-pointer text-slate-700">
                           {field}
                         </div>
@@ -2496,12 +2526,12 @@ const Leads: React.FC = () => {
                       <div className="border-t border-slate-100 my-1"></div>
                       <div className="group relative">
                         <div onClick={(e) => toggleFilter('group_created', e)} className={`flex justify-between items-center py-1.5 px-2 hover:bg-slate-50 rounded cursor-pointer ${expandedFilter === 'group_created' ? 'bg-slate-100 text-blue-600' : 'text-slate-700'}`}>
-                          <span>NgÃ y táº¡o</span>
-                          <span className="text-slate-400">â–¼</span>
+                          <span>NgÃƒÂ y tÃ¡ÂºÂ¡o</span>
+                          <span className="text-slate-400">Ã¢â€“Â¼</span>
                         </div>
                         {expandedFilter === 'group_created' && (
                           <div className="absolute left-0 top-full mt-1 w-full bg-white border border-slate-200 shadow-xl rounded-lg p-2 z-50">
-                            {['NÄƒm', 'QuÃ½', 'ThÃ¡ng', 'Tuáº§n', 'NgÃ y'].map(item => (
+                            {['NÃ„Æ’m', 'QuÃƒÂ½', 'ThÃƒÂ¡ng', 'TuÃ¡ÂºÂ§n', 'NgÃƒÂ y'].map(item => (
                               <div key={item} className="py-1 px-3 hover:bg-slate-100 rounded cursor-pointer text-slate-700">{item}</div>
                             ))}
                           </div>
@@ -2509,12 +2539,12 @@ const Leads: React.FC = () => {
                       </div>
                       <div className="group relative">
                         <div onClick={(e) => toggleFilter('group_expected', e)} className={`flex justify-between items-center py-1.5 px-2 hover:bg-slate-50 rounded cursor-pointer ${expandedFilter === 'group_expected' ? 'bg-slate-100 text-blue-600' : 'text-slate-700'}`}>
-                          <span>NgÃ y Ä‘Ã³ng dá»± kiáº¿n</span>
-                          <span className="text-slate-400">â–¼</span>
+                          <span>NgÃƒÂ y Ã„â€˜ÃƒÂ³ng dÃ¡Â»Â± kiÃ¡ÂºÂ¿n</span>
+                          <span className="text-slate-400">Ã¢â€“Â¼</span>
                         </div>
                         {expandedFilter === 'group_expected' && (
                           <div className="absolute left-0 top-full mt-1 w-full bg-white border border-slate-200 shadow-xl rounded-lg p-2 z-50">
-                            {['NÄƒm', 'QuÃ½', 'ThÃ¡ng', 'Tuáº§n', 'NgÃ y'].map(item => (
+                            {['NÃ„Æ’m', 'QuÃƒÂ½', 'ThÃƒÂ¡ng', 'TuÃ¡ÂºÂ§n', 'NgÃƒÂ y'].map(item => (
                               <div key={item} className="py-1 px-3 hover:bg-slate-100 rounded cursor-pointer text-slate-700">{item}</div>
                             ))}
                           </div>
@@ -2522,12 +2552,12 @@ const Leads: React.FC = () => {
                       </div>
                       <div className="group relative">
                         <div onClick={(e) => toggleFilter('group_closed', e)} className={`flex justify-between items-center py-1.5 px-2 hover:bg-slate-50 rounded cursor-pointer ${expandedFilter === 'group_closed' ? 'bg-slate-100 text-blue-600' : 'text-slate-700'}`}>
-                          <span>NgÃ y chá»‘t</span>
-                          <span className="text-slate-400">â–¼</span>
+                          <span>NgÃƒÂ y chÃ¡Â»â€˜t</span>
+                          <span className="text-slate-400">Ã¢â€“Â¼</span>
                         </div>
                         {expandedFilter === 'group_closed' && (
                           <div className="absolute left-0 top-full mt-1 w-full bg-white border border-slate-200 shadow-xl rounded-lg p-2 z-50">
-                            {['NÄƒm', 'QuÃ½', 'ThÃ¡ng', 'Tuáº§n', 'NgÃ y'].map(item => (
+                            {['NÃ„Æ’m', 'QuÃƒÂ½', 'ThÃƒÂ¡ng', 'TuÃ¡ÂºÂ§n', 'NgÃƒÂ y'].map(item => (
                               <div key={item} className="py-1 px-3 hover:bg-slate-100 rounded cursor-pointer text-slate-700">{item}</div>
                             ))}
                           </div>
@@ -2537,12 +2567,12 @@ const Leads: React.FC = () => {
                       <div className="border-t border-slate-100 my-1"></div>
                       <div className="group relative">
                         <div onClick={(e) => toggleFilter('group_custom', e)} className={`flex justify-between items-center py-1.5 px-2 hover:bg-slate-50 rounded cursor-pointer ${expandedFilter === 'group_custom' ? 'bg-slate-100 text-blue-600' : 'text-slate-700'}`}>
-                          <span>NhÃ³m tÃ¹y chá»‰nh</span>
-                          <span className="text-slate-400">â–¼</span>
+                          <span>NhÃƒÂ³m tÃƒÂ¹y chÃ¡Â»â€°nh</span>
+                          <span className="text-slate-400">Ã¢â€“Â¼</span>
                         </div>
                         {expandedFilter === 'group_custom' && (
                           <div className="absolute left-0 bottom-full mb-1 w-[300px] bg-white border border-slate-200 shadow-xl rounded-lg p-2 z-50 max-h-[300px] overflow-y-auto custom-scrollbar">
-                            {['Bá»™ pháº­n sales', 'Chiáº¿n dá»‹ch', 'ChuyÃªn viÃªn sales', 'Cháº¥t lÆ°á»£ng email', 'Cháº¥t lÆ°á»£ng Ä‘iá»‡n thoáº¡i', 'CÃ´ng ty', 'CÆ¡ há»™i', 'Cáº­p nháº­t giai Ä‘oáº¡n láº§n cuá»‘i', 'Cáº­p nháº­t láº§n cuá»‘i bá»Ÿi', 'Cáº­p nháº­t láº§n cuá»‘i vÃ o', 'Email', 'Email cc', 'Email chuáº©n hÃ³a', 'Giai Ä‘oáº¡n', 'Giá»›i thiá»‡u bá»Ÿi', 'Hiá»‡n ID', 'HoÃ n táº¥t tÄƒng cÆ°á»ng', 'Káº¿ hoáº¡ch Ä‘á»‹nh ká»³', 'LiÃªn há»‡', 'Loáº¡i'].map(field => (
+                            {['BÃ¡Â»â„¢ phÃ¡ÂºÂ­n sales', 'ChiÃ¡ÂºÂ¿n dÃ¡Â»â€¹ch', 'ChuyÃƒÂªn viÃƒÂªn sales', 'ChÃ¡ÂºÂ¥t lÃ†Â°Ã¡Â»Â£ng email', 'ChÃ¡ÂºÂ¥t lÃ†Â°Ã¡Â»Â£ng Ã„â€˜iÃ¡Â»â€¡n thoÃ¡ÂºÂ¡i', 'CÃƒÂ´ng ty', 'CÃ†Â¡ hÃ¡Â»â„¢i', 'CÃ¡ÂºÂ­p nhÃ¡ÂºÂ­t giai Ã„â€˜oÃ¡ÂºÂ¡n lÃ¡ÂºÂ§n cuÃ¡Â»â€˜i', 'CÃ¡ÂºÂ­p nhÃ¡ÂºÂ­t lÃ¡ÂºÂ§n cuÃ¡Â»â€˜i bÃ¡Â»Å¸i', 'CÃ¡ÂºÂ­p nhÃ¡ÂºÂ­t lÃ¡ÂºÂ§n cuÃ¡Â»â€˜i vÃƒÂ o', 'Email', 'Email cc', 'Email chuÃ¡ÂºÂ©n hÃƒÂ³a', 'Giai Ã„â€˜oÃ¡ÂºÂ¡n', 'GiÃ¡Â»â€ºi thiÃ¡Â»â€¡u bÃ¡Â»Å¸i', 'HiÃ¡Â»â€¡n ID', 'HoÃƒÂ n tÃ¡ÂºÂ¥t tÃ„Æ’ng cÃ†Â°Ã¡Â»Âng', 'KÃ¡ÂºÂ¿ hoÃ¡ÂºÂ¡ch Ã„â€˜Ã¡Â»â€¹nh kÃ¡Â»Â³', 'LiÃƒÂªn hÃ¡Â»â€¡', 'LoÃ¡ÂºÂ¡i'].map(field => (
                               <div key={field} className="py-1 px-3 hover:bg-slate-100 rounded cursor-pointer whitespace-nowrap text-slate-700">{field}</div>
                             ))}
                           </div>
@@ -2552,19 +2582,19 @@ const Leads: React.FC = () => {
 
                     {/* COLUMN 3: FAVORITES */}
                     <div className="flex-1 pl-4 space-y-4">
-                      <div className="font-bold text-slate-800 mb-2 flex items-center gap-2"><Save size={14} /> Danh sÃ¡ch yÃªu thÃ­ch</div>
+                      <div className="font-bold text-slate-800 mb-2 flex items-center gap-2"><Save size={14} /> Danh sÃƒÂ¡ch yÃƒÂªu thÃƒÂ­ch</div>
 
                       <div className="space-y-3">
                         <div>
-                          <label className="block text-xs font-semibold text-slate-500 mb-1">LÆ°u bá»™ lá»c hiá»‡n táº¡i</label>
-                          <input className="w-full px-2 py-1.5 border border-slate-300 rounded text-sm mb-2" defaultValue="Quy trÃ¬nh" />
+                          <label className="block text-xs font-semibold text-slate-500 mb-1">LÃ†Â°u bÃ¡Â»â„¢ lÃ¡Â»Âc hiÃ¡Â»â€¡n tÃ¡ÂºÂ¡i</label>
+                          <input className="w-full px-2 py-1.5 border border-slate-300 rounded text-sm mb-2" defaultValue="Quy trÃƒÂ¬nh" />
                           <div className="flex items-center gap-2 mb-2">
                             <input type="checkbox" id="default-filter" className="rounded border-slate-300" />
-                            <label htmlFor="default-filter" className="text-slate-600 text-sm">Bá»™ lá»c máº·c Ä‘á»‹nh</label>
+                            <label htmlFor="default-filter" className="text-slate-600 text-sm">BÃ¡Â»â„¢ lÃ¡Â»Âc mÃ¡ÂºÂ·c Ã„â€˜Ã¡Â»â€¹nh</label>
                           </div>
                           <div className="flex gap-2">
-                            <button className="flex-1 bg-purple-700 text-white py-1 rounded text-xs font-bold hover:bg-purple-800">LÆ°u</button>
-                            <button className="flex-1 bg-slate-100 text-slate-700 py-1 rounded text-xs font-bold hover:bg-slate-200">Chá»‰nh sá»­a</button>
+                            <button className="flex-1 bg-purple-700 text-white py-1 rounded text-xs font-bold hover:bg-purple-800">LÃ†Â°u</button>
+                            <button className="flex-1 bg-slate-100 text-slate-700 py-1 rounded text-xs font-bold hover:bg-slate-200">ChÃ¡Â»â€°nh sÃ¡Â»Â­a</button>
                           </div>
                         </div>
                       </div>
@@ -2579,10 +2609,10 @@ const Leads: React.FC = () => {
               <button
                 onClick={() => setShowDuplicateModal(true)}
                 className={`inline-flex items-center gap-1 rounded-sm border px-2 py-1 text-[11px] font-semibold transition-colors ${duplicateGroups.length > 0 ? 'border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}
-                title={`TÃ¬m tháº¥y ${duplicateGroups.length} nhÃ³m trÃ¹ng SÄT`}
+                title={`TÃƒÂ¬m thÃ¡ÂºÂ¥y ${duplicateGroups.length} nhÃƒÂ³m trÃƒÂ¹ng SÃ„ÂT`}
               >
                 <Database size={13} />
-                Chá»‘ng trÃ¹ng
+                ChÃ¡Â»â€˜ng trÃƒÂ¹ng
                 {duplicateGroups.length > 0 && (
                   <span className="bg-amber-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full ml-1">
                     {duplicateGroups.length}
@@ -2596,13 +2626,13 @@ const Leads: React.FC = () => {
                 onClick={() => setShowColumnDropdown(!showColumnDropdown)}
                 className={compactToolbarButtonClass}
               >
-                <Settings size={13} /> Cá»™t
+                <Settings size={13} /> CÃ¡Â»â„¢t
               </button>
               {showColumnDropdown && (
                 <>
                   <div className="fixed inset-0 z-30" onClick={() => setShowColumnDropdown(false)}></div>
                   <div className="absolute right-0 top-full mt-2 w-[500px] bg-white border border-slate-200 rounded-lg shadow-xl z-40 p-3 animate-in fade-in zoom-in-95">
-                    <div className="text-xs font-bold text-slate-500 uppercase px-2 py-1 mb-2 border-b border-slate-100 pb-2">HiÃ¡Â»Æ’n thÃ¡Â»â€¹ cÃ¡Â»â„¢t</div>
+                    <div className="text-xs font-bold text-slate-500 uppercase px-2 py-1 mb-2 border-b border-slate-100 pb-2">HiÃƒÂ¡Ã‚Â»Ã†â€™n thÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¹ cÃƒÂ¡Ã‚Â»Ã¢â€žÂ¢t</div>
                     <div className="grid grid-cols-2 gap-x-2 gap-y-1">
                       {ALL_COLUMNS.map(col => (
                         <div key={col.id} onClick={() => toggleColumn(col.id)} className="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-50 rounded cursor-pointer text-sm">
@@ -2625,8 +2655,8 @@ const Leads: React.FC = () => {
                 onClick={() => setActiveTab(tab)}
                 className={`rounded-t-xl border-b-2 px-4 pb-3 text-[14px] font-semibold transition-colors ${activeTab === tab ? 'border-[#2f5bd3] text-[#2f5bd3]' : 'border-transparent text-slate-500 hover:text-slate-900'}`}
               >
-                {tab === 'all' && 'Táº¥t cáº£'}
-                {tab === 'new' && 'Lead Mới'}
+                {tab === 'all' && 'TÃ¡ÂºÂ¥t cÃ¡ÂºÂ£'}
+                {tab === 'new' && 'Lead Má»›i'}
               </button>
             ))}
           </div>
@@ -2644,11 +2674,11 @@ const Leads: React.FC = () => {
             </div>
             {selectedLeadIds.length > 0 && (
               <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-                <span className="text-[12px] font-semibold text-slate-500">{selectedLeadIds.length} lead đang được chọn</span>
-                <button onClick={openQuickAssignModal} className={compactToolbarButtonClass}><UserPlus size={14} /> Phân bổ nhanh</button>
-                <button onClick={handleBulkExport} className={compactToolbarButtonClass}><Download size={14} /> Xuất Excel</button>
-                <button onClick={handleBulkMarkLost} className={compactToolbarButtonClass}><XCircle size={14} /> Đánh dấu thất bại</button>
-                <button onClick={handleBulkDelete} className={compactToolbarButtonClass}><Trash2 size={14} /> Xóa</button>
+                <span className="text-[12px] font-semibold text-slate-500">{selectedLeadIds.length} lead Ä‘ang Ä‘Æ°á»£c chá»n</span>
+                <button onClick={openQuickAssignModal} className={compactToolbarButtonClass}><UserPlus size={14} /> PhÃ¢n bá»• nhanh</button>
+                <button onClick={handleBulkExport} className={compactToolbarButtonClass}><Download size={14} /> Xuáº¥t Excel</button>
+                <button onClick={handleBulkMarkLost} className={compactToolbarButtonClass}><XCircle size={14} /> ÄÃ¡nh dáº¥u tháº¥t báº¡i</button>
+                <button onClick={handleBulkDelete} className={compactToolbarButtonClass}><Trash2 size={14} /> XÃ³a</button>
               </div>
             )}
           </div>
@@ -2675,11 +2705,11 @@ const Leads: React.FC = () => {
                 </div>
                 {selectedLeadIds.length > 0 && (
                   <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-                    <span className="text-[12px] font-semibold text-slate-500">{selectedLeadIds.length} lead đang được chọn</span>
-                    <button onClick={openQuickAssignModal} className={compactToolbarButtonClass}><UserPlus size={14} /> Phân bổ nhanh</button>
-                    <button onClick={handleBulkExport} className={compactToolbarButtonClass}><Download size={14} /> Xuất Excel</button>
-                    <button onClick={handleBulkMarkLost} className={compactToolbarButtonClass}><XCircle size={14} /> Đánh dấu thất bại</button>
-                    <button onClick={handleBulkDelete} className={compactToolbarButtonClass}><Trash2 size={14} /> Xóa</button>
+                    <span className="text-[12px] font-semibold text-slate-500">{selectedLeadIds.length} lead Ä‘ang Ä‘Æ°á»£c chá»n</span>
+                    <button onClick={openQuickAssignModal} className={compactToolbarButtonClass}><UserPlus size={14} /> PhÃ¢n bá»• nhanh</button>
+                    <button onClick={handleBulkExport} className={compactToolbarButtonClass}><Download size={14} /> Xuáº¥t Excel</button>
+                    <button onClick={handleBulkMarkLost} className={compactToolbarButtonClass}><XCircle size={14} /> ÄÃ¡nh dáº¥u tháº¥t báº¡i</button>
+                    <button onClick={handleBulkDelete} className={compactToolbarButtonClass}><Trash2 size={14} /> XÃ³a</button>
                   </div>
                 )}
               </div>
@@ -2692,25 +2722,26 @@ const Leads: React.FC = () => {
                     </th>
                     {visibleColumns.includes('opportunity') && <th className={compactHeaderCellClass}>T\u00ean li\u00ean h\u1ec7</th>}
                     {visibleColumns.includes('contact') && <th className={compactHeaderCellClass}>T\u00ean li\u00ean h\u1ec7 ph\u1ee5</th>}
-                    {visibleColumns.includes('company') && <th className={compactHeaderCellClass}>CÆ¡ sá»Ÿ / CÃ´ng ty</th>}
+                    {visibleColumns.includes('company') && <th className={compactHeaderCellClass}>CÃ†Â¡ sÃ¡Â»Å¸ / CÃƒÂ´ng ty</th>}
                     {visibleColumns.includes('email') && <th className={compactHeaderCellClass}>Email</th>}
-                    {visibleColumns.includes('phone') && <th className={compactHeaderCellClass}>SÄT</th>}
+                    {visibleColumns.includes('phone') && <th className={compactHeaderCellClass}>SÃ„ÂT</th>}
                     {visibleColumns.includes('salesperson') && <th className={compactHeaderCellClass}>Sale</th>}
-                    {visibleColumns.includes('campaign') && <th className={compactHeaderCellClass}>Chiáº¿n dá»‹ch</th>}
-                    {visibleColumns.includes('source') && <th className={compactHeaderCellClass}>Nguá»“n</th>}
+                    {visibleColumns.includes('campaign') && <th className={compactHeaderCellClass}>ChiÃ¡ÂºÂ¿n dÃ¡Â»â€¹ch</th>}
+                    {visibleColumns.includes('source') && <th className={compactHeaderCellClass}>NguÃ¡Â»â€œn</th>}
+                    {visibleColumns.includes('potential') && <th className={compactHeaderCellClass}>Mức độ tiềm năng</th>}
                     {visibleColumns.includes('tags') && <th className={compactHeaderCellClass}>Tags</th>}
-                    {visibleColumns.includes('market') && <th className={compactHeaderCellClass}>THá»Š TRÆ¯á»œNG</th>}
-                    {visibleColumns.includes('product') && <th className={compactHeaderCellClass}>Sáº¢N PHáº¨M QUAN TÃ‚M</th>}
-                    {visibleColumns.includes('nextActivity') && <th className={compactHeaderCellClass}>Hoáº¡t Ä‘á»™ng</th>}
-                    {visibleColumns.includes('deadline') && <th className={`${compactHeaderCellClass} text-right`}>Háº¡n chÃ³t</th>}
+                    {visibleColumns.includes('market') && <th className={compactHeaderCellClass}>THÃ¡Â»Å  TRÃ†Â¯Ã¡Â»Å“NG</th>}
+                    {visibleColumns.includes('product') && <th className={compactHeaderCellClass}>SÃ¡ÂºÂ¢N PHÃ¡ÂºÂ¨M QUAN TÃƒâ€šM</th>}
+                    {visibleColumns.includes('nextActivity') && <th className={compactHeaderCellClass}>HoÃ¡ÂºÂ¡t Ã„â€˜Ã¡Â»â„¢ng</th>}
+                    {visibleColumns.includes('deadline') && <th className={`${compactHeaderCellClass} text-right`}>HÃ¡ÂºÂ¡n chÃƒÂ³t</th>}
                     {visibleColumns.includes('value') && <th className={`${compactHeaderCellClass} text-right`}>Doanh thu</th>}
-                    {visibleColumns.includes('createdAt') && <th className={`${compactHeaderCellClass} text-right`}>NgÃ y Ä‘á»• lead</th>}
-                    {visibleColumns.includes('title') && <th className={compactHeaderCellClass}>Danh xÆ°ng</th>}
-                    {visibleColumns.includes('address') && <th className={compactHeaderCellClass}>Äá»‹a chá»‰</th>}
-                    {visibleColumns.includes('referredBy') && <th className={compactHeaderCellClass}>NgÆ°á»i giá»›i thiá»‡u</th>}
-                    {visibleColumns.includes('status') && <th className={`${compactHeaderCellClass} text-center`}>Tráº¡ng thÃ¡i</th>}
-                    {visibleColumns.includes('notes') && <th className={compactHeaderCellClass}>Ghi chÃº</th>}
-                    {visibleColumns.includes('sla') && <th className={compactHeaderCellClass}>Cáº£nh bÃ¡o SLA</th>}
+                    {visibleColumns.includes('createdAt') && <th className={`${compactHeaderCellClass} text-right`}>NgÃƒÂ y Ã„â€˜Ã¡Â»â€¢ lead</th>}
+                    {visibleColumns.includes('title') && <th className={compactHeaderCellClass}>Danh xÃ†Â°ng</th>}
+                    {visibleColumns.includes('address') && <th className={compactHeaderCellClass}>Ã„ÂÃ¡Â»â€¹a chÃ¡Â»â€°</th>}
+                    {visibleColumns.includes('referredBy') && <th className={compactHeaderCellClass}>NgÃ†Â°Ã¡Â»Âi giÃ¡Â»â€ºi thiÃ¡Â»â€¡u</th>}
+                    {visibleColumns.includes('status') && <th className={`${compactHeaderCellClass} text-center`}>TrÃ¡ÂºÂ¡ng thÃƒÂ¡i</th>}
+                    {visibleColumns.includes('notes') && <th className={compactHeaderCellClass}>Ghi chÃƒÂº</th>}
+                    {visibleColumns.includes('sla') && <th className={compactHeaderCellClass}>CÃ¡ÂºÂ£nh bÃƒÂ¡o SLA</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#f1f5f9]">
@@ -2723,6 +2754,14 @@ const Leads: React.FC = () => {
                       const nextActivity = (lead.activities || []).find(a => a.type === 'activity');
                       const deadline = lead.expectedClosingDate ? new Date(lead.expectedClosingDate).toLocaleDateString('vi-VN') : '-';
                       const normalizedStatus = normalizeLeadStatus(lead.status as string);
+                      const potentialValue = String((lead as any).potential || lead.internalNotes?.potential || '').trim();
+                      const potentialToken = potentialValue.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '').toLowerCase();
+                      const potentialClassName =
+                        potentialToken === 'nong' ? 'bg-red-100 text-red-700 border-red-200' :
+                          potentialToken === 'tiemnang' ? 'bg-amber-100 text-amber-700 border-amber-200' :
+                            potentialToken === 'thamkhao' ? 'bg-slate-100 text-slate-700 border-slate-200' :
+                              'bg-slate-50 text-slate-500 border-slate-200';
+
 
                       return (
                         <tr
@@ -2741,7 +2780,7 @@ const Leads: React.FC = () => {
                                 {lead.program && (
                                   <span
                                     className="text-[9px] text-blue-600 hover:text-blue-800 font-semibold cursor-pointer hover:underline w-fit truncate block max-w-[120px]"
-                                    onClick={(e) => handleClickableField(e, 'program', 'ChÆ°Æ¡ng trÃ¬nh', lead.program, 'bg-blue-100 text-blue-700')}
+                                    onClick={(e) => handleClickableField(e, 'program', 'ChÃ†Â°Ã†Â¡ng trÃƒÂ¬nh', lead.program, 'bg-blue-100 text-blue-700')}
                                     title={lead.program}
                                   >
                                     {lead.program}
@@ -2758,7 +2797,7 @@ const Leads: React.FC = () => {
                           )}
                           {visibleColumns.includes('company') && <td className={`${compactMetaCellClass} max-w-[96px] truncate`} title={(lead as any).company}>{(lead as any).company || '-'}</td>}
                           {visibleColumns.includes('email') && <td className={`${compactMetaCellClass} max-w-[124px] truncate`} title={lead.email}>{lead.email || '-'}</td>}
-                          {visibleColumns.includes('phone') && <td className={`${compactBodyCellClass} text-right font-semibold text-slate-700`}>{lead.phone || '-'}</td>}
+                          {visibleColumns.includes('phone') && <td className={`${compactBodyCellClass} font-semibold text-slate-700`}>{lead.phone || '-'}</td>}
                           {visibleColumns.includes('salesperson') && (
                             <td className={compactBodyCellClass}>
                               {lead.ownerId ? (
@@ -2769,7 +2808,7 @@ const Leads: React.FC = () => {
                                   <span className="truncate text-[12px] font-medium text-slate-700">{SALES_REPS.find((rep) => rep.id === lead.ownerId)?.name || '-'}</span>
                                 </div>
                               ) : (
-                                <span className="text-[12px] text-slate-400">ChÆ°a nháº­n</span>
+                                <span className="text-[12px] text-slate-400">ChÃ†Â°a nhÃ¡ÂºÂ­n</span>
                               )}
                             </td>
                           )}
@@ -2783,10 +2822,18 @@ const Leads: React.FC = () => {
                             <td className={compactBodyCellClass}>
                               <span
                                 className="inline-flex max-w-[96px] items-center rounded-sm border border-teal-100 bg-teal-50/70 px-1.5 py-0 text-[10px] font-semibold text-teal-700"
-                                onClick={(e) => handleClickableField(e, 'source', 'Nguá»“n', lead.source, 'bg-teal-100 text-teal-700')}
+                                onClick={(e) => handleClickableField(e, 'source', 'NguÃ¡Â»â€œn', lead.source, 'bg-teal-100 text-teal-700')}
                                 title={lead.source}
                               >
                                 <span className="truncate">{lead.source || '-'}</span>
+                              </span>
+                            </td>
+                          )}
+
+                          {visibleColumns.includes('potential') && (
+                            <td className={compactBodyCellClass}>
+                              <span className={`inline-flex max-w-[110px] items-center justify-center rounded-sm border px-1.5 py-0 text-[10px] font-semibold ${potentialClassName}`}>
+                                <span className="truncate">{potentialValue || '-'}</span>
                               </span>
                             </td>
                           )}
@@ -2800,11 +2847,29 @@ const Leads: React.FC = () => {
 
                             if (tags.length === 0) return '-';
 
-                            // Show only first tag if many to save space
                             return (
-                              <span className="rounded-sm border border-slate-200 bg-slate-100 px-1 py-0 text-[9px] font-semibold text-slate-700">
-                                {tags[0]}{tags.length > 1 ? ` +${tags.length - 1}` : ''}
-                              </span>
+                              <div className="flex flex-wrap gap-1">
+                                {tags.map((tag: string, index: number) => {
+                                  const colors = [
+                                    'bg-blue-100 text-blue-800 border-blue-200',
+                                    'bg-green-100 text-green-800 border-green-200',
+                                    'bg-purple-100 text-purple-800 border-purple-200',
+                                    'bg-orange-100 text-orange-800 border-orange-200',
+                                    'bg-pink-100 text-pink-800 border-pink-200',
+                                    'bg-teal-100 text-teal-800 border-teal-200'
+                                  ];
+                                  const colorClass = colors[tag.charCodeAt(0) % colors.length] || colors[0];
+
+                                  return (
+                                    <span
+                                      key={`${tag}-${index}`}
+                                      className={`rounded border px-1.5 py-0.5 text-[9px] font-bold whitespace-nowrap ${colorClass}`}
+                                    >
+                                      {tag}
+                                    </span>
+                                  );
+                                })}
+                              </div>
                             );
                           })()}</td>}
                           {visibleColumns.includes('market') && <td className={`${compactMetaCellClass} max-w-[110px] truncate`}>{(lead as any).marketingData?.market || '-'}</td>}
@@ -2816,11 +2881,11 @@ const Leads: React.FC = () => {
                               {nextActivity ? (
                                 <div className="flex max-w-[110px] items-center gap-1 overflow-hidden rounded-sm bg-purple-50 px-1 py-0 text-[9px] font-semibold text-purple-700" title={nextActivity.description}>
                                   <Clock size={8} className="shrink-0" />
-                                  <span className="truncate">{nextActivity.description.split(':')[0] || 'Lá»‹ch háº¹n'}</span>
+                                  <span className="truncate">{nextActivity.description.split(':')[0] || 'LÃ¡Â»â€¹ch hÃ¡ÂºÂ¹n'}</span>
                                 </div>
                               ) : (
                                 <div className="flex items-center gap-1 text-[9px] text-slate-400">
-                                  <Plus size={8} /> LÃªn lá»‹ch
+                                  <Plus size={8} /> LÃƒÂªn lÃ¡Â»â€¹ch
                                 </div>
                               )}
                             </td>
@@ -2876,9 +2941,9 @@ const Leads: React.FC = () => {
                               {lead.slaStatus === 'danger' || lead.slaStatus === 'warning' ? (
                                 <span
                                   className={`font-bold text-[9px] ${lead.slaStatus === 'danger' ? 'text-red-600' : 'text-amber-600'} truncate block max-w-[80px]`}
-                                  title={lead.slaReason || (lead.slaStatus === 'danger' ? 'QuÃ¡ háº¡n' : 'ChÃº Ã½')}
+                                  title={lead.slaReason || (lead.slaStatus === 'danger' ? 'QuÃƒÂ¡ hÃ¡ÂºÂ¡n' : 'ChÃƒÂº ÃƒÂ½')}
                                 >
-                                  {lead.slaReason || (lead.slaStatus === 'danger' ? 'QuÃ¡ háº¡n' : 'ChÃº Ã½')}
+                                  {lead.slaReason || (lead.slaStatus === 'danger' ? 'QuÃƒÂ¡ hÃ¡ÂºÂ¡n' : 'ChÃƒÂº ÃƒÂ½')}
                                 </span>
                               ) : (
                                 <span className="text-slate-400 text-[9px]">-</span>
@@ -2896,7 +2961,6 @@ const Leads: React.FC = () => {
           )}
         </div>
 
-        {/* EDIT MODAL - MARKETING VIEW */}
         {selectedLead && user?.role === UserRole.MARKETING && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setSelectedLead(null)}></div>
@@ -2904,11 +2968,66 @@ const Leads: React.FC = () => {
               <div className="p-5 border-b border-slate-200 flex justify-between items-center bg-slate-50 shrink-0">
                 <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
                   <Users size={20} className="text-blue-600" />
-                  Chi tiáº¿t Lead: {selectedLead.name}
+                  Chi tiÃ¡ÂºÂ¿t Lead: {selectedLead.name}
                 </h3>
                 <div className="flex items-center gap-3">
                   <button className="px-3 py-1.5 bg-white border border-slate-300 rounded text-slate-600 flex items-center gap-2 text-sm font-semibold hover:bg-slate-50">
-                    <Phone size={16} /> Cuá»™c gá»i
+                    <Phone size={16} /> CuÃƒÂ¡Ã‚Â»Ã¢â€žÂ¢c gÃƒÂ¡Ã‚Â»Ã‚Âi
+                  </button>
+                  <button onClick={() => setSelectedLead(null)} className="text-slate-400 hover:text-slate-600"><X size={24} /></button>
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto bg-white p-6 md:p-8 custom-scrollbar">
+                <LeadDrawerProfileForm
+                  leadFormData={editLeadData}
+                  leadFormActiveTab={editModalActiveTab}
+                  closeReasonOptions={isClosedLeadStatus(editLeadData.status) ? editCloseReasonOptions : []}
+                  salesOptions={leadSalesOptions}
+                  availableTags={availableTags}
+                  fixedTags={FIXED_LEAD_TAGS}
+                  isAddingTag={isAddingEditTag}
+                  customCloseReason={CUSTOM_CLOSE_REASON}
+                  onPatch={patchEditLeadData}
+                  onTabChange={setEditModalActiveTab}
+                  onStatusChange={(status) => setEditLeadData((prev) => ({
+                    ...prev,
+                    status,
+                    ...getCloseReasonStateForStatusChange(status, prev.lossReason, prev.lossReasonCustom)
+                  }))}
+                  onStartAddingTag={() => setIsAddingEditTag(true)}
+                  onStopAddingTag={() => setIsAddingEditTag(false)}
+                  onAddTag={addTagToEditLead}
+                  onCreateTag={(tag) => {
+                    addTagCatalogEntry(tag);
+                    addTagToEditLead(tag);
+                  }}
+                  onRemoveSelectedTag={(tag) => setEditLeadData((prev) => ({ ...prev, tags: prev.tags.filter((item) => item !== tag) }))}
+                  onDeleteTag={deleteTagCatalogEntry}
+                />
+              </div>
+
+              <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-3 shrink-0">
+                <button onClick={() => setSelectedLead(null)} className="px-4 py-2 text-slate-600 font-medium hover:bg-slate-200 rounded-lg">Ãƒâ€žÃ‚ÂÃƒÆ’Ã‚Â³ng</button>
+                <button onClick={handleUpdateSelectedLead} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg flex items-center gap-2 shadow-sm"><Save size={18} /> CÃƒÂ¡Ã‚ÂºÃ‚Â­p nhÃƒÂ¡Ã‚ÂºÃ‚Â­t</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* EDIT MODAL - MARKETING VIEW */}
+        {false && selectedLead && user?.role === UserRole.MARKETING && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setSelectedLead(null)}></div>
+            <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-4xl overflow-hidden animate-in zoom-in-95 flex flex-col max-h-[90vh]">
+              <div className="p-5 border-b border-slate-200 flex justify-between items-center bg-slate-50 shrink-0">
+                <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                  <Users size={20} className="text-blue-600" />
+                  Chi tiÃ¡ÂºÂ¿t Lead: {selectedLead.name}
+                </h3>
+                <div className="flex items-center gap-3">
+                  <button className="px-3 py-1.5 bg-white border border-slate-300 rounded text-slate-600 flex items-center gap-2 text-sm font-semibold hover:bg-slate-50">
+                    <Phone size={16} /> CuÃ¡Â»â„¢c gÃ¡Â»Âi
                   </button>
                   <button onClick={() => setSelectedLead(null)} className="text-slate-400 hover:text-slate-600"><X size={24} /></button>
                 </div>
@@ -2917,18 +3036,18 @@ const Leads: React.FC = () => {
               <div className="flex-1 overflow-y-auto bg-white p-6 md:p-8 custom-scrollbar">
                 {/* TOP HEADER */}
                 <div className="mb-6">
-                  <label className="block text-slate-700 text-sm font-bold mb-2">MÃ´ táº£ / TÃªn khÃ¡ch hÃ ng <span className="text-red-500">*</span></label>
+                  <label className="block text-slate-700 text-sm font-bold mb-2">MÃƒÂ´ tÃ¡ÂºÂ£ / TÃƒÂªn khÃƒÂ¡ch hÃƒÂ ng <span className="text-red-500">*</span></label>
                   <div className="flex gap-3">
                     <select
                       className="w-28 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white font-medium text-slate-700"
                       value={editLeadData.title}
                       onChange={e => setEditLeadData({ ...editLeadData, title: e.target.value })}
                     >
-                      <option value="">Danh xÆ°ng</option>
+                      <option value="">Danh xÃ†Â°ng</option>
                       <option value="Mr.">Anh</option>
-                      <option value="Ms.">Chá»‹</option>
-                      <option value="Phá»¥ huynh">Phá»¥ huynh</option>
-                      <option value="Há»c sinh">Há»c sinh</option>
+                      <option value="Ms.">ChÃ¡Â»â€¹</option>
+                      <option value="PhÃ¡Â»Â¥ huynh">PhÃ¡Â»Â¥ huynh</option>
+                      <option value="HÃ¡Â»Âc sinh">HÃ¡Â»Âc sinh</option>
                     </select>
                     <input
                       className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm font-semibold focus:border-purple-500 outline-none text-slate-800"
@@ -2941,13 +3060,13 @@ const Leads: React.FC = () => {
 
                 <div className="mb-6 grid grid-cols-1 lg:grid-cols-2 gap-x-12 gap-y-5">
                   <div className="flex items-center gap-4">
-                    <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Quá»‘c gia MT</label>
+                    <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">QuÃ¡Â»â€˜c gia MT</label>
                     <select
                       className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
                       value={editLeadData.targetCountry}
                       onChange={e => setEditLeadData({ ...editLeadData, targetCountry: e.target.value })}
                     >
-                      <option value="">-- Chá»n quá»‘c gia --</option>
+                      <option value="">-- ChÃ¡Â»Ân quÃ¡Â»â€˜c gia --</option>
                       {LEAD_TARGET_COUNTRY_OPTIONS.map(option => (
                         <option key={option} value={option}>{option}</option>
                       ))}
@@ -2960,30 +3079,30 @@ const Leads: React.FC = () => {
                   {/* LEFT COL */}
                   <div className="space-y-4">
                     <div className="flex items-center gap-4">
-                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">CÆ¡ sá»Ÿ</label>
+                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">CÃ†Â¡ sÃ¡Â»Å¸</label>
                       <select
                         className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
                         value={editLeadData.company}
                         onChange={e => setEditLeadData({ ...editLeadData, company: e.target.value })}
                       >
-                        <option value="">-- Chá»n cÆ¡ sá»Ÿ --</option>
-                        <option value="Hanoi">HÃ  Ná»™i</option>
+                        <option value="">-- ChÃ¡Â»Ân cÃ†Â¡ sÃ¡Â»Å¸ --</option>
+                        <option value="Hanoi">HÃƒÂ  NÃ¡Â»â„¢i</option>
                         <option value="HCMC">TP. HCM</option>
-                        <option value="DaNang">ÄÃ  Náºµng</option>
-                        <option value="HaiPhong">Háº£i PhÃ²ng</option>
+                        <option value="DaNang">Ã„ÂÃƒÂ  NÃ¡ÂºÂµng</option>
+                        <option value="HaiPhong">HÃ¡ÂºÂ£i PhÃƒÂ²ng</option>
                       </select>
                     </div>
 
                     {false && isClosedLeadStatus(editLeadData.status) && (
                       <div className="space-y-3 rounded-xl border border-rose-200 bg-rose-50/70 p-4">
                         <div className="flex items-center gap-4">
-                          <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Lý do</label>
+                          <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">LÃ½ do</label>
                           <select
                             className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm outline-none bg-white"
                             value={editLeadData.lossReason}
                             onChange={e => setEditLeadData({ ...editLeadData, lossReason: e.target.value })}
                           >
-                            <option value="">-- Chọn lý do --</option>
+                            <option value="">-- Chá»n lÃ½ do --</option>
                             {editCloseReasonOptions.map(reason => (
                               <option key={reason} value={reason}>{reason}</option>
                             ))}
@@ -2991,10 +3110,10 @@ const Leads: React.FC = () => {
                         </div>
                         {editLeadData.lossReason === CUSTOM_CLOSE_REASON && (
                           <div className="flex items-start gap-4">
-                            <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold mt-2">Chi tiết</label>
+                            <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold mt-2">Chi tiáº¿t</label>
                             <textarea
                               className="flex-1 min-h-[88px] rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none"
-                              placeholder="Nhập lý do cụ thể..."
+                              placeholder="Nháº­p lÃ½ do cá»¥ thá»ƒ..."
                               value={editLeadData.lossReasonCustom}
                               onChange={e => setEditLeadData({ ...editLeadData, lossReasonCustom: e.target.value })}
                             />
@@ -3003,44 +3122,44 @@ const Leads: React.FC = () => {
                       </div>
                     )}
                     <div className="flex items-start gap-4">
-                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold pt-2">Äá»‹a chá»‰</label>
+                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold pt-2">Ã„ÂÃ¡Â»â€¹a chÃ¡Â»â€°</label>
                       <div className="flex-1 space-y-2">
                         <input
                           className="w-full px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none text-slate-700"
-                          placeholder="Sá»‘ nhÃ , Ä‘Æ°á»ng..."
+                          placeholder="SÃ¡Â»â€˜ nhÃƒÂ , Ã„â€˜Ã†Â°Ã¡Â»Âng..."
                           value={editLeadData.street}
                           onChange={e => setEditLeadData({ ...editLeadData, street: e.target.value })}
                         />
                         <div className="grid grid-cols-3 gap-2">
-                          <input className="px-2 py-2 border border-slate-300 rounded text-sm outline-none" placeholder="Tá»‰nh/TP" value={editLeadData.province} onChange={e => setEditLeadData({ ...editLeadData, province: e.target.value })} />
-                          <input className="px-2 py-2 border border-slate-300 rounded text-sm outline-none" placeholder="Quáº­n/Huyá»‡n" value={editLeadData.city} onChange={e => setEditLeadData({ ...editLeadData, city: e.target.value })} />
-                          <input className="px-2 py-2 border border-slate-300 rounded text-sm outline-none" placeholder="P/XÃ£" value={editLeadData.ward} onChange={e => setEditLeadData({ ...editLeadData, ward: e.target.value })} />
+                          <input className="px-2 py-2 border border-slate-300 rounded text-sm outline-none" placeholder="TÃ¡Â»â€°nh/TP" value={editLeadData.province} onChange={e => setEditLeadData({ ...editLeadData, province: e.target.value })} />
+                          <input className="px-2 py-2 border border-slate-300 rounded text-sm outline-none" placeholder="QuÃ¡ÂºÂ­n/HuyÃ¡Â»â€¡n" value={editLeadData.city} onChange={e => setEditLeadData({ ...editLeadData, city: e.target.value })} />
+                          <input className="px-2 py-2 border border-slate-300 rounded text-sm outline-none" placeholder="P/XÃƒÂ£" value={editLeadData.ward} onChange={e => setEditLeadData({ ...editLeadData, ward: e.target.value })} />
                         </div>
                       </div>
                     </div>
 
                     <div className="flex items-center gap-4">
-                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Sáº£n pháº©m</label>
+                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">SÃ¡ÂºÂ£n phÃ¡ÂºÂ©m</label>
                       <select
                         className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
                         value={editLeadData.product}
                         onChange={e => setEditLeadData({ ...editLeadData, product: e.target.value })}
                       >
-                        <option value="">-- Chá»n sáº£n pháº©m --</option>
-                        <option value="Tiáº¿ng Äá»©c">Tiáº¿ng Äá»©c</option>
-                        <option value="Du há»c Äá»©c">Du há»c Äá»©c</option>
-                        <option value="Du há»c Nghá»">Du há»c Nghá»</option>
-                        <option value="XKLÄ">Xuáº¥t kháº©u lao Ä‘á»™ng</option>
+                        <option value="">-- ChÃ¡Â»Ân sÃ¡ÂºÂ£n phÃ¡ÂºÂ©m --</option>
+                        <option value="TiÃ¡ÂºÂ¿ng Ã„ÂÃ¡Â»Â©c">TiÃ¡ÂºÂ¿ng Ã„ÂÃ¡Â»Â©c</option>
+                        <option value="Du hÃ¡Â»Âc Ã„ÂÃ¡Â»Â©c">Du hÃ¡Â»Âc Ã„ÂÃ¡Â»Â©c</option>
+                        <option value="Du hÃ¡Â»Âc NghÃ¡Â»Â">Du hÃ¡Â»Âc NghÃ¡Â»Â</option>
+                        <option value="XKLÃ„Â">XuÃ¡ÂºÂ¥t khÃ¡ÂºÂ©u lao Ã„â€˜Ã¡Â»â„¢ng</option>
                       </select>
                     </div>
 
                     <div className="flex items-center gap-4">
-                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Thá»‹ trÆ°á»ng</label>
+                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">ThÃ¡Â»â€¹ trÃ†Â°Ã¡Â»Âng</label>
                       <select className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm outline-none bg-white" value={editLeadData.market} onChange={e => setEditLeadData({ ...editLeadData, market: e.target.value })}>
-                        <option value="">-- Chá»n --</option>
+                        <option value="">-- ChÃ¡Â»Ân --</option>
                         <option value="Vinh">Vinh</option>
-                        <option value="HÃ  TÄ©nh">HÃ  TÄ©nh</option>
-                        <option value="HÃ  Ná»™i">HÃ  Ná»™i</option>
+                        <option value="HÃƒÂ  TÃ„Â©nh">HÃƒÂ  TÃ„Â©nh</option>
+                        <option value="HÃƒÂ  NÃ¡Â»â„¢i">HÃƒÂ  NÃ¡Â»â„¢i</option>
                         <option value="Online">Online</option>
                       </select>
                     </div>
@@ -3049,7 +3168,7 @@ const Leads: React.FC = () => {
                   {/* RIGHT COL */}
                   <div className="space-y-4">
                     <div className="flex items-center gap-4">
-                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Äiá»‡n thoáº¡i <span className="text-red-500">*</span></label>
+                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Ã„ÂiÃ¡Â»â€¡n thoÃ¡ÂºÂ¡i <span className="text-red-500">*</span></label>
                       <input className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm outline-none font-medium text-slate-800" value={editLeadData.phone} onChange={e => setEditLeadData({ ...editLeadData, phone: e.target.value })} />
                     </div>
                     <div className="flex items-center gap-4">
@@ -3057,14 +3176,14 @@ const Leads: React.FC = () => {
                       <input className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm outline-none" value={editLeadData.email} onChange={e => setEditLeadData({ ...editLeadData, email: e.target.value })} />
                     </div>
                     <div className="flex items-center gap-4">
-                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Phá»¥ trÃ¡ch</label>
+                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">PhÃ¡Â»Â¥ trÃƒÂ¡ch</label>
                       <select className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm outline-none bg-white" value={editLeadData.salesperson} onChange={e => setEditLeadData({ ...editLeadData, salesperson: e.target.value })}>
-                        <option value="">-- Sale phá»¥ trÃ¡ch --</option>
+                        <option value="">-- Sale phÃ¡Â»Â¥ trÃƒÂ¡ch --</option>
                         {SALES_REPS.map(rep => <option key={rep.id} value={rep.id}>{rep.name}</option>)}
                       </select>
                     </div>
                     <div className="flex items-center gap-4">
-                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Tráº¡ng thÃ¡i</label>
+                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">TrÃ¡ÂºÂ¡ng thÃƒÂ¡i</label>
                       <select className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm outline-none bg-white" value={editLeadData.status} onChange={e => setEditLeadData({ ...editLeadData, status: e.target.value, ...getCloseReasonStateForStatusChange(e.target.value, editLeadData.lossReason, editLeadData.lossReasonCustom) })}>
                         {STANDARD_LEAD_STATUS_OPTIONS.map((option) => (
                           <option key={option.value} value={option.value}>{option.label}</option>
@@ -3074,13 +3193,13 @@ const Leads: React.FC = () => {
                     {isClosedLeadStatus(editLeadData.status) && (
                       <div className="space-y-3 rounded-xl border border-rose-200 bg-rose-50/70 p-4">
                         <div className="flex items-center gap-4">
-                          <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Lý do</label>
+                          <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">LÃ½ do</label>
                           <select
                             className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm outline-none bg-white"
                             value={editLeadData.lossReason}
                             onChange={e => setEditLeadData({ ...editLeadData, lossReason: e.target.value })}
                           >
-                            <option value="">-- Chọn lý do --</option>
+                            <option value="">-- Chá»n lÃ½ do --</option>
                             {editCloseReasonOptions.map(reason => (
                               <option key={reason} value={reason}>{reason}</option>
                             ))}
@@ -3088,10 +3207,10 @@ const Leads: React.FC = () => {
                         </div>
                         {editLeadData.lossReason === CUSTOM_CLOSE_REASON && (
                           <div className="flex items-start gap-4">
-                            <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold mt-2">Chi tiết</label>
+                            <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold mt-2">Chi tiáº¿t</label>
                             <textarea
                               className="flex-1 min-h-[88px] rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none"
-                              placeholder="Nhập lý do cụ thể..."
+                              placeholder="Nháº­p lÃ½ do cá»¥ thá»ƒ..."
                               value={editLeadData.lossReasonCustom}
                               onChange={e => setEditLeadData({ ...editLeadData, lossReasonCustom: e.target.value })}
                             />
@@ -3125,9 +3244,9 @@ const Leads: React.FC = () => {
                 {/* TABS SECTION */}
                 <div className="mt-8 border-t border-slate-200 pt-4">
                   <div className="flex border-b border-slate-200 mb-4">
-                    <button onClick={() => setEditModalActiveTab('notes')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-all ${editModalActiveTab === 'notes' ? 'border-purple-600 text-purple-700' : 'border-transparent text-slate-500'}`}>Ghi chÃº ná»™i bá»™</button>
-                    <button onClick={() => setEditModalActiveTab('student')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-all ${editModalActiveTab === 'student' ? 'border-purple-600 text-purple-700' : 'border-transparent text-slate-500'}`}>ThÃ´ng tin há»c sinh</button>
-                    <button onClick={() => setEditModalActiveTab('extra')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-all ${editModalActiveTab === 'extra' ? 'border-purple-600 text-purple-700' : 'border-transparent text-slate-500'}`}>ThÃ´ng tin thÃªm (Marketing)</button>
+                    <button onClick={() => setEditModalActiveTab('notes')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-all ${editModalActiveTab === 'notes' ? 'border-purple-600 text-purple-700' : 'border-transparent text-slate-500'}`}>Ghi chÃƒÂº nÃ¡Â»â„¢i bÃ¡Â»â„¢</button>
+                    <button onClick={() => setEditModalActiveTab('student')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-all ${editModalActiveTab === 'student' ? 'border-purple-600 text-purple-700' : 'border-transparent text-slate-500'}`}>ThÃƒÂ´ng tin hÃ¡Â»Âc sinh</button>
+                    <button onClick={() => setEditModalActiveTab('extra')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-all ${editModalActiveTab === 'extra' ? 'border-purple-600 text-purple-700' : 'border-transparent text-slate-500'}`}>ThÃƒÂ´ng tin thÃƒÂªm (Marketing)</button>
                   </div>
                   <div className="min-h-[150px]">
                     {editModalActiveTab === 'notes' && (
@@ -3139,29 +3258,29 @@ const Leads: React.FC = () => {
                     {editModalActiveTab === 'extra' && (
                       <div className="grid grid-cols-2 gap-x-12 gap-y-4">
                         <div className="flex items-center gap-4">
-                          <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Chiáº¿n dá»‹ch</label>
+                          <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">ChiÃ¡ÂºÂ¿n dÃ¡Â»â€¹ch</label>
                           <input className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm outline-none" value={editLeadData.campaign} onChange={e => setEditLeadData({ ...editLeadData, campaign: e.target.value })} />
                         </div>
                         <div className="flex items-center gap-4">
-                          <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Nguá»“n</label>
+                          <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">NguÃ¡Â»â€œn</label>
                           <select className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm outline-none bg-white" value={editLeadData.source} onChange={e => setEditLeadData({ ...editLeadData, source: e.target.value })}>
                             <option value="hotline">Hotline</option>
                             <option value="facebook">Facebook</option>
                             <option value="google">Google Ads</option>
-                            <option value="referral">Giá»›i thiá»‡u</option>
+                            <option value="referral">GiÃ¡Â»â€ºi thiÃ¡Â»â€¡u</option>
                           </select>
                         </div>
                         <div className="flex items-center gap-4">
-                          <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">KÃªnh</label>
+                          <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">KÃƒÂªnh</label>
                           <select className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm outline-none bg-white" value={editLeadData.channel} onChange={e => setEditLeadData({ ...editLeadData, channel: e.target.value })}>
-                            <option value="">-- Chá»n kÃªnh --</option>
+                            <option value="">-- ChÃ¡Â»Ân kÃƒÂªnh --</option>
                             {LEAD_CHANNEL_OPTIONS.map(option => (
                               <option key={option.value} value={option.value}>{option.label}</option>
                             ))}
                           </select>
                         </div>
                         <div className="flex items-center gap-4">
-                          <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">NgÆ°á»i GT</label>
+                          <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">NgÃ†Â°Ã¡Â»Âi GT</label>
                           <input className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm outline-none" value={editLeadData.referredBy} onChange={e => setEditLeadData({ ...editLeadData, referredBy: e.target.value })} />
                         </div>
                       </div>
@@ -3172,14 +3291,13 @@ const Leads: React.FC = () => {
               </div>
 
               <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-3 shrink-0">
-                <button onClick={() => setSelectedLead(null)} className="px-4 py-2 text-slate-600 font-medium hover:bg-slate-200 rounded-lg">ÄÃ³ng</button>
-                <button onClick={handleUpdateSelectedLead} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg flex items-center gap-2 shadow-sm"><Save size={18} /> Cáº­p nháº­t</button>
+                <button onClick={() => setSelectedLead(null)} className="px-4 py-2 text-slate-600 font-medium hover:bg-slate-200 rounded-lg">Ã„ÂÃƒÂ³ng</button>
+                <button onClick={handleUpdateSelectedLead} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg flex items-center gap-2 shadow-sm"><Save size={18} /> CÃ¡ÂºÂ­p nhÃ¡ÂºÂ­t</button>
               </div>
             </div>
           </div>
         )}
 
-        {/* CREATE LIST MODAL - ODOO STYLE */}
         {showCreateModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowCreateModal(false)}></div>
@@ -3187,11 +3305,66 @@ const Leads: React.FC = () => {
               <div className="p-5 border-b border-slate-200 flex justify-between items-center bg-slate-50 shrink-0">
                 <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
                   <UserPlus size={20} className="text-blue-600" />
-                  ThÃªm CÆ¡ há»™i / Lead Má»›i
+                  ThÃƒÆ’Ã‚Âªm CÃƒâ€ Ã‚Â¡ hÃƒÂ¡Ã‚Â»Ã¢â€žÂ¢i / Lead MÃƒÂ¡Ã‚Â»Ã¢â‚¬Âºi
                 </h3>
                 <div className="flex items-center gap-3">
                   <button className="px-3 py-1.5 bg-white border border-slate-300 rounded text-slate-600 flex items-center gap-2 text-sm font-semibold hover:bg-slate-50">
-                    <Phone size={16} /> Cuá»™c gá»i
+                    <Phone size={16} /> CuÃƒÂ¡Ã‚Â»Ã¢â€žÂ¢c gÃƒÂ¡Ã‚Â»Ã‚Âi
+                  </button>
+                  <button onClick={() => setShowCreateModal(false)} className="text-slate-400 hover:text-slate-600"><X size={24} /></button>
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto bg-white p-6 md:p-8 custom-scrollbar">
+                <LeadDrawerProfileForm
+                  leadFormData={newLeadData}
+                  leadFormActiveTab={createModalActiveTab}
+                  closeReasonOptions={isClosedLeadStatus(newLeadData.status) ? newCloseReasonOptions : []}
+                  salesOptions={leadSalesOptions}
+                  availableTags={availableTags}
+                  fixedTags={FIXED_LEAD_TAGS}
+                  isAddingTag={isAddingTag}
+                  customCloseReason={CUSTOM_CLOSE_REASON}
+                  onPatch={patchNewLeadData}
+                  onTabChange={setCreateModalActiveTab}
+                  onStatusChange={(status) => setNewLeadData((prev) => ({
+                    ...prev,
+                    status,
+                    ...getCloseReasonStateForStatusChange(status, prev.lossReason, prev.lossReasonCustom)
+                  }))}
+                  onStartAddingTag={() => setIsAddingTag(true)}
+                  onStopAddingTag={() => setIsAddingTag(false)}
+                  onAddTag={addTagToNewLead}
+                  onCreateTag={(tag) => {
+                    addTagCatalogEntry(tag);
+                    addTagToNewLead(tag);
+                  }}
+                  onRemoveSelectedTag={(tag) => setNewLeadData((prev) => ({ ...prev, tags: prev.tags.filter((item) => item !== tag) }))}
+                  onDeleteTag={deleteTagCatalogEntry}
+                />
+              </div>
+
+              <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-3 shrink-0">
+                <button onClick={() => setShowCreateModal(false)} className="px-4 py-2 text-slate-600 font-medium hover:bg-slate-200 rounded-lg">HÃƒÂ¡Ã‚Â»Ã‚Â§y bÃƒÂ¡Ã‚Â»Ã‚Â</button>
+                <button onClick={handleCreateSubmit} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg flex items-center gap-2 shadow-sm"><Save size={18} /> LÃƒâ€ Ã‚Â°u Lead mÃƒÂ¡Ã‚Â»Ã¢â‚¬Âºi</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* CREATE LIST MODAL - ODOO STYLE */}
+        {false && showCreateModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowCreateModal(false)}></div>
+            <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-4xl overflow-hidden animate-in zoom-in-95 flex flex-col max-h-[90vh]">
+              <div className="p-5 border-b border-slate-200 flex justify-between items-center bg-slate-50 shrink-0">
+                <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                  <UserPlus size={20} className="text-blue-600" />
+                  ThÃƒÂªm CÃ†Â¡ hÃ¡Â»â„¢i / Lead MÃ¡Â»â€ºi
+                </h3>
+                <div className="flex items-center gap-3">
+                  <button className="px-3 py-1.5 bg-white border border-slate-300 rounded text-slate-600 flex items-center gap-2 text-sm font-semibold hover:bg-slate-50">
+                    <Phone size={16} /> CuÃ¡Â»â„¢c gÃ¡Â»Âi
                   </button>
                   <button onClick={() => setShowCreateModal(false)} className="text-slate-400 hover:text-slate-600"><X size={24} /></button>
                 </div>
@@ -3202,14 +3375,14 @@ const Leads: React.FC = () => {
                 {/* TOP HEADER: TITLE / NAME */}
                 {/* TOP HEADER: TITLE / NAME */}
                 <div className="mb-6">
-                  <label className="block text-slate-700 text-sm font-bold mb-2">MÃ´ táº£ / TÃªn khÃ¡ch hÃ ng <span className="text-red-500">*</span></label>
+                  <label className="block text-slate-700 text-sm font-bold mb-2">MÃƒÂ´ tÃ¡ÂºÂ£ / TÃƒÂªn khÃƒÂ¡ch hÃƒÂ ng <span className="text-red-500">*</span></label>
                   <div className="flex gap-3">
                     <select
                       className="w-28 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white font-medium text-slate-700"
                       value={newLeadData.title}
                       onChange={e => setNewLeadData({ ...newLeadData, title: e.target.value })}
                     >
-                      <option value="">Danh xÆ°ng</option>
+                      <option value="">Danh xÃ†Â°ng</option>
                       {LEAD_RELATION_OPTIONS.map((option) => (
                         <option key={option.value} value={option.value}>
                           {option.label}
@@ -3217,11 +3390,11 @@ const Leads: React.FC = () => {
                       ))}
                       {false && (
                         <>
-                      <option value="">Danh xÆ°ng</option>
+                      <option value="">Danh xÃ†Â°ng</option>
                       <option value="Mr.">Anh</option>
-                      <option value="Ms.">Chá»‹</option>
-                      <option value="Phá»¥ huynh">Phá»¥ huynh</option>
-                      <option value="Há»c sinh">Há»c sinh</option>
+                      <option value="Ms.">ChÃ¡Â»â€¹</option>
+                      <option value="PhÃ¡Â»Â¥ huynh">PhÃ¡Â»Â¥ huynh</option>
+                      <option value="HÃ¡Â»Âc sinh">HÃ¡Â»Âc sinh</option>
                         </>
                       )}
                     </select>
@@ -3241,13 +3414,13 @@ const Leads: React.FC = () => {
                   <div className="space-y-4">
 
                     <div className="flex items-center gap-4">
-                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Quá»‘c gia má»¥c tiÃªu <span className="text-red-500">*</span></label>
+                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">QuÃ¡Â»â€˜c gia mÃ¡Â»Â¥c tiÃƒÂªu <span className="text-red-500">*</span></label>
                       <select
                         className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
                         value={newLeadData.targetCountry}
                         onChange={e => setNewLeadData({ ...newLeadData, targetCountry: e.target.value })}
                       >
-                        <option value="">-- Chá»n quá»‘c gia má»¥c tiÃªu --</option>
+                        <option value="">-- ChÃ¡Â»Ân quÃ¡Â»â€˜c gia mÃ¡Â»Â¥c tiÃƒÂªu --</option>
                         {LEAD_TARGET_COUNTRY_OPTIONS.map((option) => (
                           <option key={option} value={option}>
                             {option}
@@ -3260,17 +3433,17 @@ const Leads: React.FC = () => {
                       <>
                     {/* Company */}
                     <div className="flex items-center gap-4">
-                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">CÆ¡ sá»Ÿ</label>
+                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">CÃ†Â¡ sÃ¡Â»Å¸</label>
                       <select
                         className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
                         value={newLeadData.company}
                         onChange={e => setNewLeadData({ ...newLeadData, company: e.target.value })}
                       >
-                        <option value="">-- Chá»n cÆ¡ sá»Ÿ --</option>
-                        <option value="Hanoi">HÃ  Ná»™i</option>
+                        <option value="">-- ChÃ¡Â»Ân cÃ†Â¡ sÃ¡Â»Å¸ --</option>
+                        <option value="Hanoi">HÃƒÂ  NÃ¡Â»â„¢i</option>
                         <option value="HCMC">TP. HCM</option>
-                        <option value="DaNang">ÄÃ  Náºµng</option>
-                        <option value="HaiPhong">Háº£i PhÃ²ng</option>
+                        <option value="DaNang">Ã„ÂÃƒÂ  NÃ¡ÂºÂµng</option>
+                        <option value="HaiPhong">HÃ¡ÂºÂ£i PhÃƒÂ²ng</option>
                       </select>
                     </div>
 
@@ -3279,30 +3452,30 @@ const Leads: React.FC = () => {
 
                     {/* Address Group */}
                     <div className="flex items-start gap-4">
-                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold pt-2">Äá»‹a chá»‰</label>
+                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold pt-2">Ã„ÂÃ¡Â»â€¹a chÃ¡Â»â€°</label>
                       <div className="flex-1 space-y-2">
                         <input
                           className="w-full px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none text-slate-700 placeholder:text-slate-400"
-                          placeholder="Sá»‘ nhÃ , Ä‘Æ°á»ng..."
+                          placeholder="SÃ¡Â»â€˜ nhÃƒÂ , Ã„â€˜Ã†Â°Ã¡Â»Âng..."
                           value={newLeadData.street}
                           onChange={e => setNewLeadData({ ...newLeadData, street: e.target.value })}
                         />
                         <div className="grid grid-cols-3 gap-2">
                           <input
                             className="px-2 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none text-slate-700 placeholder:text-slate-400"
-                            placeholder="Tá»‰nh/TP"
+                            placeholder="TÃ¡Â»â€°nh/TP"
                             value={newLeadData.province}
                             onChange={e => setNewLeadData({ ...newLeadData, province: e.target.value })}
                           />
                           <input
                             className="px-2 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none text-slate-700 placeholder:text-slate-400"
-                            placeholder="Quáº­n/Huyá»‡n"
+                            placeholder="QuÃ¡ÂºÂ­n/HuyÃ¡Â»â€¡n"
                             value={newLeadData.city}
                             onChange={e => setNewLeadData({ ...newLeadData, city: e.target.value })}
                           />
                           <input
                             className="px-2 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none text-slate-700 placeholder:text-slate-400"
-                            placeholder="P/XÃ£"
+                            placeholder="P/XÃƒÂ£"
                             value={newLeadData.ward}
                             onChange={e => setNewLeadData({ ...newLeadData, ward: e.target.value })}
                           />
@@ -3312,28 +3485,28 @@ const Leads: React.FC = () => {
 
                     {/* Product */}
                     <div className="flex items-center gap-4">
-                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Sáº£n pháº©m</label>
+                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">SÃ¡ÂºÂ£n phÃ¡ÂºÂ©m</label>
                       <select
                         className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
                         value={newLeadData.product}
                         onChange={e => setNewLeadData({ ...newLeadData, product: e.target.value })}
                       >
-                        <option value="">-- Chá»n sáº£n pháº©m --</option>
-                        <option value="Tiáº¿ng Äá»©c">Tiáº¿ng Äá»©c</option>
-                        <option value="Du há»c Äá»©c">Du há»c Äá»©c</option>
-                        <option value="Du há»c Nghá»">Du há»c Nghá»</option>
-                        <option value="XKLÄ">Xuáº¥t kháº©u lao Ä‘á»™ng</option>
+                        <option value="">-- ChÃ¡Â»Ân sÃ¡ÂºÂ£n phÃ¡ÂºÂ©m --</option>
+                        <option value="TiÃ¡ÂºÂ¿ng Ã„ÂÃ¡Â»Â©c">TiÃ¡ÂºÂ¿ng Ã„ÂÃ¡Â»Â©c</option>
+                        <option value="Du hÃ¡Â»Âc Ã„ÂÃ¡Â»Â©c">Du hÃ¡Â»Âc Ã„ÂÃ¡Â»Â©c</option>
+                        <option value="Du hÃ¡Â»Âc NghÃ¡Â»Â">Du hÃ¡Â»Âc NghÃ¡Â»Â</option>
+                        <option value="XKLÃ„Â">XuÃ¡ÂºÂ¥t khÃ¡ÂºÂ©u lao Ã„â€˜Ã¡Â»â„¢ng</option>
                       </select>
                     </div>
 
                     <div className="flex items-center gap-4">
-                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">CÆ¡ sá»Ÿ</label>
+                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">CÃ†Â¡ sÃ¡Â»Å¸</label>
                       <select
                         className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
                         value={newLeadData.market}
                         onChange={e => setNewLeadData({ ...newLeadData, market: e.target.value })}
                       >
-                        <option value="">-- Chá»n cÆ¡ sá»Ÿ --</option>
+                        <option value="">-- ChÃ¡Â»Ân cÃ†Â¡ sÃ¡Â»Å¸ --</option>
                         {LEAD_CAMPUS_OPTIONS.map((option) => (
                           <option key={option} value={option}>
                             {option}
@@ -3346,16 +3519,16 @@ const Leads: React.FC = () => {
                       <>
                     {/* Market */}
                     <div className="flex items-center gap-4">
-                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Thá»‹ trÆ°á»ng</label>
+                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">ThÃ¡Â»â€¹ trÃ†Â°Ã¡Â»Âng</label>
                       <select
                         className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
                         value={newLeadData.market}
                         onChange={e => setNewLeadData({ ...newLeadData, market: e.target.value })}
                       >
-                        <option value="">-- Chá»n --</option>
+                        <option value="">-- ChÃ¡Â»Ân --</option>
                         <option value="Vinh">Vinh</option>
-                        <option value="HÃ  TÄ©nh">HÃ  TÄ©nh</option>
-                        <option value="HÃ  Ná»™i">HÃ  Ná»™i</option>
+                        <option value="HÃƒÂ  TÃ„Â©nh">HÃƒÂ  TÃ„Â©nh</option>
+                        <option value="HÃƒÂ  NÃ¡Â»â„¢i">HÃƒÂ  NÃ¡Â»â„¢i</option>
                         <option value="Online">Online</option>
                       </select>
                     </div>
@@ -3368,7 +3541,7 @@ const Leads: React.FC = () => {
                   <div className="space-y-4">
                     {/* Phone */}
                     <div className="flex items-center gap-4">
-                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Äiá»‡n thoáº¡i <span className="text-red-500">*</span></label>
+                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Ã„ÂiÃ¡Â»â€¡n thoÃ¡ÂºÂ¡i <span className="text-red-500">*</span></label>
                       <input
                         className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none text-slate-800 font-medium"
                         placeholder="0912..."
@@ -3390,13 +3563,13 @@ const Leads: React.FC = () => {
 
                     {/* Salesperson */}
                     <div className="flex items-center gap-4">
-                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Phá»¥ trÃ¡ch</label>
+                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">PhÃ¡Â»Â¥ trÃƒÂ¡ch</label>
                       <select
                         className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
                         value={newLeadData.salesperson}
                         onChange={e => setNewLeadData({ ...newLeadData, salesperson: e.target.value })}
                       >
-                        <option value="">-- Sale phá»¥ trÃ¡ch --</option>
+                        <option value="">-- Sale phÃ¡Â»Â¥ trÃƒÂ¡ch --</option>
                         {SALES_REPS.map(rep => (
                           <option key={rep.id} value={rep.id}>{rep.name}</option>
                         ))}
@@ -3405,7 +3578,7 @@ const Leads: React.FC = () => {
 
                     {/* Status */}
                     <div className="flex items-center gap-4">
-                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Tráº¡ng thÃ¡i</label>
+                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">TrÃ¡ÂºÂ¡ng thÃƒÂ¡i</label>
                       <select
                         className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
                         value={newLeadData.status}
@@ -3420,13 +3593,13 @@ const Leads: React.FC = () => {
                     {isClosedLeadStatus(newLeadData.status) && (
                       <div className="space-y-3 rounded-xl border border-rose-200 bg-rose-50/70 p-4">
                         <div className="flex items-center gap-4">
-                          <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Lý do</label>
+                          <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">LÃ½ do</label>
                           <select
                             className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm outline-none bg-white"
                             value={newLeadData.lossReason}
                             onChange={e => setNewLeadData({ ...newLeadData, lossReason: e.target.value })}
                           >
-                            <option value="">-- Chọn lý do --</option>
+                            <option value="">-- Chá»n lÃ½ do --</option>
                             {newCloseReasonOptions.map(reason => (
                               <option key={reason} value={reason}>{reason}</option>
                             ))}
@@ -3434,10 +3607,10 @@ const Leads: React.FC = () => {
                         </div>
                         {newLeadData.lossReason === CUSTOM_CLOSE_REASON && (
                           <div className="flex items-start gap-4">
-                            <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold mt-2">Chi tiết</label>
+                            <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold mt-2">Chi tiáº¿t</label>
                             <textarea
                               className="flex-1 min-h-[88px] rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none"
-                              placeholder="Nhập lý do cụ thể..."
+                              placeholder="Nháº­p lÃ½ do cá»¥ thá»ƒ..."
                               value={newLeadData.lossReasonCustom}
                               onChange={e => setNewLeadData({ ...newLeadData, lossReasonCustom: e.target.value })}
                             />
@@ -3477,19 +3650,19 @@ const Leads: React.FC = () => {
                       onClick={() => setCreateModalActiveTab('notes')}
                       className={`px-4 py-2 text-sm font-medium border-b-2 transition-all ${createModalActiveTab === 'notes' ? 'border-purple-600 text-purple-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
                     >
-                      Ghi chÃº ná»™i bá»™
+                      Ghi chÃƒÂº nÃ¡Â»â„¢i bÃ¡Â»â„¢
                     </button>
                     <button
                       onClick={() => setCreateModalActiveTab('student')}
                       className={`px-4 py-2 text-sm font-medium border-b-2 transition-all ${createModalActiveTab === 'student' ? 'border-purple-600 text-purple-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
                     >
-                      ThÃ´ng tin há»c sinh
+                      ThÃƒÂ´ng tin hÃ¡Â»Âc sinh
                     </button>
                     <button
                       onClick={() => setCreateModalActiveTab('extra')}
                       className={`px-4 py-2 text-sm font-medium border-b-2 transition-all ${createModalActiveTab === 'extra' ? 'border-purple-600 text-purple-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
                     >
-                      ThÃ´ng tin thÃªm (Marketing)
+                      ThÃƒÂ´ng tin thÃƒÂªm (Marketing)
                     </button>
                   </div>
 
@@ -3500,7 +3673,7 @@ const Leads: React.FC = () => {
                       <div className="animate-in fade-in duration-200">
                         <textarea
                           className="w-full p-3 border border-slate-200 rounded text-sm focus:border-purple-500 outline-none text-slate-700 h-40"
-                          placeholder="Viáº¿t ghi chÃº..."
+                          placeholder="ViÃ¡ÂºÂ¿t ghi chÃƒÂº..."
                           value={newLeadData.notes}
                           onChange={e => setNewLeadData({ ...newLeadData, notes: e.target.value })}
                         />
@@ -3515,7 +3688,7 @@ const Leads: React.FC = () => {
                     {createModalActiveTab === 'extra' && (
                       <div className="grid grid-cols-2 gap-x-12 gap-y-4 animate-in fade-in duration-200">
                         <div className="flex items-center gap-4">
-                          <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Chiáº¿n dá»‹ch</label>
+                          <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">ChiÃ¡ÂºÂ¿n dÃ¡Â»â€¹ch</label>
                           <input
                             className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none text-slate-700"
                             value={newLeadData.campaign}
@@ -3523,7 +3696,7 @@ const Leads: React.FC = () => {
                           />
                         </div>
                         <div className="flex items-center gap-4">
-                          <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Nguá»“n</label>
+                          <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">NguÃ¡Â»â€œn</label>
                           <select
                             className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
                             value={newLeadData.source}
@@ -3532,24 +3705,24 @@ const Leads: React.FC = () => {
                             <option value="hotline">Hotline</option>
                             <option value="facebook">Facebook</option>
                             <option value="google">Google Ads</option>
-                            <option value="referral">Giá»›i thiá»‡u</option>
+                            <option value="referral">GiÃ¡Â»â€ºi thiÃ¡Â»â€¡u</option>
                           </select>
                         </div>
                         <div className="flex items-center gap-4">
-                          <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">KÃªnh</label>
+                          <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">KÃƒÂªnh</label>
                           <select
                             className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
                             value={newLeadData.channel}
                             onChange={e => setNewLeadData({ ...newLeadData, channel: e.target.value })}
                           >
-                            <option value="">-- Chá»n kÃªnh --</option>
+                            <option value="">-- ChÃ¡Â»Ân kÃƒÂªnh --</option>
                             {LEAD_CHANNEL_OPTIONS.map(option => (
                               <option key={option.value} value={option.value}>{option.label}</option>
                             ))}
                           </select>
                         </div>
                         <div className="flex items-center gap-4">
-                          <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">NgÆ°á»i GT</label>
+                          <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">NgÃ†Â°Ã¡Â»Âi GT</label>
                           <input
                             className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none text-slate-700"
                             value={newLeadData.referredBy}
@@ -3563,8 +3736,8 @@ const Leads: React.FC = () => {
               </div>
 
               <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-3 shrink-0">
-                <button onClick={() => setShowCreateModal(false)} className="px-4 py-2 text-slate-600 font-medium hover:bg-slate-200 rounded-lg">Há»§y bá»</button>
-                <button onClick={handleCreateSubmit} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg flex items-center gap-2 shadow-sm"><Save size={18} /> LÆ°u Lead má»›i</button>
+                <button onClick={() => setShowCreateModal(false)} className="px-4 py-2 text-slate-600 font-medium hover:bg-slate-200 rounded-lg">HÃ¡Â»Â§y bÃ¡Â»Â</button>
+                <button onClick={handleCreateSubmit} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg flex items-center gap-2 shadow-sm"><Save size={18} /> LÃ†Â°u Lead mÃ¡Â»â€ºi</button>
               </div>
             </div>
           </div>
@@ -3578,7 +3751,7 @@ const Leads: React.FC = () => {
               <div className="flex items-center justify-between border-b border-[#e8edf3] bg-[#f6f7f8] px-4 py-3">
                 <h3 className="flex items-center gap-2 text-[15px] font-bold text-slate-900">
                   <UserPlus size={18} className="text-blue-600" />
-                  PhÃ¢n bá»• Lead
+                  PhÃƒÂ¢n bÃ¡Â»â€¢ Lead
                 </h3>
                 <button onClick={closeAssignModal} className="rounded-sm p-1 text-slate-400 hover:bg-white hover:text-slate-600"><X size={18} /></button>
               </div>
@@ -3586,14 +3759,14 @@ const Leads: React.FC = () => {
               <div className="space-y-4 p-4">
                 <div className="flex items-start gap-2 rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-[12px] text-blue-800">
                   <Users size={16} className="mt-0.5 shrink-0" />
-                  <p>Báº¡n Ä‘ang phÃ¢n bá»• <span className="font-bold">{selectedLeadIds.length}</span> lead cho nhÃ¢n viÃªn kinh doanh.</p>
+                  <p>B?n dang phân b? <span className="font-bold">{selectedLeadIds.length}</span> lead cho nhân viên kinh doanh.</p>
                 </div>
 
                 <div className="rounded-md border border-[#e8edf3] bg-[#fafbfc] p-3">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <p className="text-[13px] font-bold text-slate-800">PhÃ¢n bá»• theo pháº§n trÄƒm</p>
-                      <p className="mt-0.5 text-[11px] text-slate-500">Nháº­p tá»· lá»‡ cho tá»«ng sale. Tá»•ng pháº£i báº±ng 100%.</p>
+                      <p className="text-[13px] font-bold text-slate-800">Phân b? theo s? lu?ng</p>
+                      <p className="mt-0.5 text-[11px] text-slate-500">Nh?p s? lead cho t?ng sale. T?ng ph?i b?ng s? lead dã ch?n.</p>
                     </div>
                     <div className="flex items-center gap-2">
                       <button
@@ -3601,7 +3774,7 @@ const Leads: React.FC = () => {
                         onClick={fillAssignmentRatiosEvenly}
                         className={compactToolbarButtonClass}
                       >
-                        Chia Ä‘á»u
+                        Chia d?u s? lu?ng
                       </button>
                       <button
                         type="button"
@@ -3615,22 +3788,22 @@ const Leads: React.FC = () => {
 
                   <div className="mt-3 flex flex-wrap items-end gap-x-6 gap-y-2">
                     <div>
-                      <div className="text-[11px] text-slate-500">Tá»•ng tá»· lá»‡</div>
-                      <div className={`text-[15px] font-bold ${assignmentRatioTotal === 100 ? 'text-emerald-600' : 'text-amber-600'}`}>{assignmentRatioTotal}%</div>
+                      <div className="text-[11px] text-slate-500">T?ng phân b?</div>
+                      <div className={`text-[15px] font-bold ${assignmentRatioTotal === selectedLeadIds.length ? 'text-emerald-600' : 'text-amber-600'}`}>{assignmentRatioTotal}</div>
                     </div>
                     <div>
-                      <div className="text-[11px] text-slate-500">Tá»•ng lead</div>
+                      <div className="text-[11px] text-slate-500">T?ng lead</div>
                       <div className="text-[15px] font-bold text-slate-900">{selectedLeadIds.length}</div>
                     </div>
                     <div>
-                      <div className="text-[11px] text-slate-500">Sá»‘ sale tham gia</div>
+                      <div className="text-[11px] text-slate-500">S? sale tham gia</div>
                       <div className="text-[15px] font-bold text-slate-900">{Object.values(assignmentRatioValues).filter((value) => value > 0).length}</div>
                     </div>
                   </div>
                 </div>
 
                 <div className="animate-in slide-in-from-top-2">
-                  <label className="mb-2 block text-[11px] font-bold uppercase tracking-[0.08em] text-[#7b8794]">Tá»· lá»‡ theo nhÃ¢n viÃªn</label>
+                  <label className="mb-2 block text-[11px] font-bold uppercase tracking-[0.08em] text-[#7b8794]">S? lu?ng theo nhân viên</label>
                   <div className="max-h-[340px] overflow-y-auto custom-scrollbar">
                     {SALES_REPS.map((rep) => {
                       const ratioValue = assignmentRatios[rep.id] || '';
@@ -3655,26 +3828,26 @@ const Leads: React.FC = () => {
                               <input
                                 type="number"
                                 min={0}
-                                max={100}
+                                max={selectedLeadIds.length}
                                 value={ratioValue}
                                 onChange={(e) => updateAssignmentRatio(rep.id, e.target.value)}
                                 placeholder="0"
                                 className="w-16 rounded-sm border border-slate-300 bg-white px-2 py-1 text-[13px] font-semibold text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
                               />
-                              <span className="text-[13px] font-bold text-slate-500">%</span>
+                              <span className="text-[13px] font-bold text-slate-500">lead</span>
                             </div>
                           </div>
 
                           <div className="mt-1 flex items-center justify-between gap-3 pl-10">
                             <p className="text-[11px] text-slate-600">
-                              {ratio > 0 ? `Dá»± kiáº¿n nháº­n ${leadCount} lead (${ratio}%)` : 'ChÆ°a tham gia phÃ¢n bá»•'}
+                              {ratio > 0 ? `D? ki?n nh?n ${leadCount} lead` : 'Chua tham gia phân b?'}
                             </p>
                             <button
                               type="button"
                               onClick={() => setSingleRepAssignment(rep.id)}
                               className="rounded-sm border border-slate-200 bg-white px-2 py-1 text-[10px] font-bold text-slate-700 hover:bg-slate-100"
                             >
-                              100% cho sale nÃ y
+                              Giao h?t cho sale này
                             </button>
                           </div>
                         </div>
@@ -3685,13 +3858,13 @@ const Leads: React.FC = () => {
               </div>
 
               <div className="flex justify-end gap-2 border-t border-[#e8edf3] bg-[#f6f7f8] px-4 py-3">
-                <button onClick={closeAssignModal} className="rounded-sm px-3 py-1.5 text-[12px] font-bold text-slate-600 hover:bg-slate-200">Há»§y</button>
+                <button onClick={closeAssignModal} className="rounded-sm px-3 py-1.5 text-[12px] font-bold text-slate-600 hover:bg-slate-200">HÃ¡Â»Â§y</button>
                 <button
                   onClick={handleAssignSubmit}
-                  className={`rounded-sm px-4 py-1.5 text-[12px] font-bold text-white transition-colors ${assignmentRatioTotal === 100 ? 'bg-blue-600 hover:bg-blue-700' : 'cursor-not-allowed bg-slate-400'}`}
-                  disabled={assignmentRatioTotal !== 100}
+                  className={`rounded-sm px-4 py-1.5 text-[12px] font-bold text-white transition-colors ${assignmentRatioTotal === selectedLeadIds.length && selectedLeadIds.length > 0 ? 'bg-blue-600 hover:bg-blue-700' : 'cursor-not-allowed bg-slate-400'}`}
+                  disabled={assignmentRatioTotal !== selectedLeadIds.length || selectedLeadIds.length === 0}
                 >
-                  XÃ¡c nháº­n PhÃ¢n bá»•
+                  XÃƒÂ¡c nhÃ¡ÂºÂ­n PhÃƒÂ¢n bÃ¡Â»â€¢
                 </button>
               </div>
             </div>
@@ -3706,8 +3879,8 @@ const Leads: React.FC = () => {
               {/* Header */}
               <div className="p-6 border-b border-slate-200 flex justify-between items-center bg-slate-50">
                 <div>
-                  <h2 className="text-xl font-bold text-slate-900">Nháº­p dá»¯ liá»‡u Lead tá»« Excel</h2>
-                  <p className="text-slate-500 text-sm mt-1">Há»— trá»£ Ä‘á»‹nh dáº¡ng .xlsx, .csv</p>
+                  <h2 className="text-xl font-bold text-slate-900">NhÃ¡ÂºÂ­p dÃ¡Â»Â¯ liÃ¡Â»â€¡u Lead tÃ¡Â»Â« Excel</h2>
+                  <p className="text-slate-500 text-sm mt-1">HÃ¡Â»â€” trÃ¡Â»Â£ Ã„â€˜Ã¡Â»â€¹nh dÃ¡ÂºÂ¡ng .xlsx, .csv</p>
                 </div>
                 <button onClick={() => setShowImportModal(false)} className="text-slate-400 hover:text-slate-600 p-2 hover:bg-slate-200 rounded-full"><X size={24} /></button>
               </div>
@@ -3718,15 +3891,15 @@ const Leads: React.FC = () => {
                   <div className="absolute left-0 top-1/2 -translate-y-1/2 w-full h-1 bg-slate-100 -z-10"></div>
                   <div className={`flex flex-col items-center gap-2 z-10 ${importStep >= 1 ? 'text-blue-600' : 'text-slate-400'}`}>
                     <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold border-2 ${importStep >= 1 ? 'bg-blue-600 text-white border-blue-600' : 'bg-white border-slate-300'}`}>1</div>
-                    <span className="text-xs font-bold">Táº£i lÃªn</span>
+                    <span className="text-xs font-bold">TÃ¡ÂºÂ£i lÃƒÂªn</span>
                   </div>
                   <div className={`flex flex-col items-center gap-2 z-10 ${importStep >= 2 ? 'text-blue-600' : 'text-slate-400'}`}>
                     <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold border-2 ${importStep >= 2 ? 'bg-blue-600 text-white border-blue-600' : 'bg-white border-slate-300'}`}>2</div>
-                    <span className="text-xs font-bold">GhÃ©p & PhÃ¢n bá»•</span>
+                    <span className="text-xs font-bold">GhÃƒÂ©p & PhÃƒÂ¢n bÃ¡Â»â€¢</span>
                   </div>
                   <div className={`flex flex-col items-center gap-2 z-10 ${importStep >= 3 ? 'text-blue-600' : 'text-slate-400'}`}>
                     <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold border-2 ${importStep >= 3 ? 'bg-blue-600 text-white border-blue-600' : 'bg-white border-slate-300'}`}>3</div>
-                    <span className="text-xs font-bold">HoÃ n táº¥t</span>
+                    <span className="text-xs font-bold">HoÃƒÂ n tÃ¡ÂºÂ¥t</span>
                   </div>
                 </div>
               </div>
@@ -3753,13 +3926,13 @@ const Leads: React.FC = () => {
                       <div className="pointer-events-none w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
                         <UploadCloud size={32} />
                       </div>
-                      <p className="text-lg font-bold text-slate-700">KÃ©o tháº£ hoáº·c chá»n tá»‡p tin</p>
-                      <p className="text-sm text-slate-500 mt-2">Há»— trá»£ .CSV, .XLSX (Tá»‘i Ä‘a 5MB)</p>
+                      <p className="text-lg font-bold text-slate-700">KÃƒÂ©o thÃ¡ÂºÂ£ hoÃ¡ÂºÂ·c chÃ¡Â»Ân tÃ¡Â»â€¡p tin</p>
+                      <p className="text-sm text-slate-500 mt-2">HÃ¡Â»â€” trÃ¡Â»Â£ .CSV, .XLSX (TÃ¡Â»â€˜i Ã„â€˜a 5MB)</p>
                     </div>
 
                     <div className="flex gap-4">
                       <button onClick={handleDownloadTemplate} className="flex items-center gap-2 text-blue-600 hover:text-blue-700 font-medium text-sm hover:underline">
-                        <Download size={16} /> Táº£i tá»‡p máº«u chuáº©n (Template_Leads.xlsx)
+                        <Download size={16} /> TÃ¡ÂºÂ£i tÃ¡Â»â€¡p mÃ¡ÂºÂ«u chuÃ¡ÂºÂ©n (Template_Leads.xlsx)
                       </button>
                     </div>
                   </div>
@@ -3771,10 +3944,10 @@ const Leads: React.FC = () => {
                     {/* LEFT: VALIDATION REPORT */}
                     <div className="col-span-7 flex flex-col h-full bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                       <div className="p-4 border-b border-slate-100 bg-slate-50 font-bold text-slate-700 flex justify-between items-center">
-                        <span>Káº¿t quáº£ kiá»ƒm tra dá»¯ liá»‡u</span>
+                        <span>KÃ¡ÂºÂ¿t quÃ¡ÂºÂ£ kiÃ¡Â»Æ’m tra dÃ¡Â»Â¯ liÃ¡Â»â€¡u</span>
                         <div className="flex gap-2">
-                          <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded font-bold">Há»£p lá»‡: {validImportRows.length}</span>
-                          <span className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded font-bold">Lá»—i: {importErrors.length}</span>
+                          <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded font-bold">HÃ¡Â»Â£p lÃ¡Â»â€¡: {validImportRows.length}</span>
+                          <span className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded font-bold">LÃ¡Â»â€”i: {importErrors.length}</span>
                         </div>
                       </div>
 
@@ -3782,8 +3955,8 @@ const Leads: React.FC = () => {
                         {importErrors.length === 0 && validImportRows.length > 0 && (
                           <div className="flex flex-col items-center justify-center h-full text-slate-500 p-8 text-center">
                             <CheckCircle size={48} className="text-green-500 mb-4" />
-                            <p className="font-bold text-lg text-slate-800">Táº¥t cáº£ dá»¯ liá»‡u há»£p lá»‡!</p>
-                            <p className="text-sm">File cá»§a báº¡n Ä‘Ã£ sáºµn sÃ ng Ä‘á»ƒ nháº­p vÃ o há»‡ thá»‘ng.</p>
+                            <p className="font-bold text-lg text-slate-800">TÃ¡ÂºÂ¥t cÃ¡ÂºÂ£ dÃ¡Â»Â¯ liÃ¡Â»â€¡u hÃ¡Â»Â£p lÃ¡Â»â€¡!</p>
+                            <p className="text-sm">File cÃ¡Â»Â§a bÃ¡ÂºÂ¡n Ã„â€˜ÃƒÂ£ sÃ¡ÂºÂµn sÃƒÂ ng Ã„â€˜Ã¡Â»Æ’ nhÃ¡ÂºÂ­p vÃƒÂ o hÃ¡Â»â€¡ thÃ¡Â»â€˜ng.</p>
                           </div>
                         )}
 
@@ -3791,9 +3964,9 @@ const Leads: React.FC = () => {
                           <table className="w-full text-sm">
                             <thead className="bg-red-50 text-red-800 font-semibold border-b border-red-100 sticky top-0">
                               <tr>
-                                <th className="p-3 text-left w-20">DÃ²ng</th>
-                                <th className="p-3 text-left w-40">TÃªn Lead</th>
-                                <th className="p-3 text-left">Chi tiáº¿t lá»—i</th>
+                                <th className="p-3 text-left w-20">DÃƒÂ²ng</th>
+                                <th className="p-3 text-left w-40">TÃƒÂªn Lead</th>
+                                <th className="p-3 text-left">Chi tiÃ¡ÂºÂ¿t lÃ¡Â»â€”i</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
@@ -3813,14 +3986,14 @@ const Leads: React.FC = () => {
                         )}
 
                         {rawImportData.length === 0 && (
-                          <div className="p-8 text-center text-slate-500 italic">KhÃ´ng tÃ¬m tháº¥y dá»¯ liá»‡u hoáº·c file rá»—ng.</div>
+                          <div className="p-8 text-center text-slate-500 italic">KhÃƒÂ´ng tÃƒÂ¬m thÃ¡ÂºÂ¥y dÃ¡Â»Â¯ liÃ¡Â»â€¡u hoÃ¡ÂºÂ·c file rÃ¡Â»â€”ng.</div>
                         )}
                       </div>
 
                       {importErrors.length > 0 && (
                         <div className="p-3 bg-red-50 border-t border-red-100 text-xs text-red-700 flex items-center gap-2">
                           <AlertTriangle size={14} />
-                          <span>Há»‡ thá»‘ng sáº½ chá»‰ nháº­p cÃ¡c dÃ²ng há»£p lá»‡ ({validImportRows.length} dÃ²ng). CÃ¡c dÃ²ng lá»—i sáº½ bá»‹ bá» qua.</span>
+                          <span>HÃ¡Â»â€¡ thÃ¡Â»â€˜ng sÃ¡ÂºÂ½ chÃ¡Â»â€° nhÃ¡ÂºÂ­p cÃƒÂ¡c dÃƒÂ²ng hÃ¡Â»Â£p lÃ¡Â»â€¡ ({validImportRows.length} dÃƒÂ²ng). CÃƒÂ¡c dÃƒÂ²ng lÃ¡Â»â€”i sÃ¡ÂºÂ½ bÃ¡Â»â€¹ bÃ¡Â»Â qua.</span>
                         </div>
                       )}
                     </div>
@@ -3829,24 +4002,24 @@ const Leads: React.FC = () => {
                     <div className="col-span-5 flex flex-col gap-6">
                       {/* Allocation Config */}
                       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 h-full">
-                        <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><Users size={18} className="text-blue-600" /> Cáº¥u hÃ¬nh phÃ¢n bá»•</h3>
+                        <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><Users size={18} className="text-blue-600" /> CÃ¡ÂºÂ¥u hÃƒÂ¬nh phÃƒÂ¢n bÃ¡Â»â€¢</h3>
 
                         <div className="space-y-4">
                           <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-                            <p className="text-sm font-bold text-slate-800 mb-1">Cháº¿ Ä‘á»™ phÃ¢n bá»• tá»« Admin</p>
+                            <p className="text-sm font-bold text-slate-800 mb-1">ChÃ¡ÂºÂ¿ Ã„â€˜Ã¡Â»â„¢ phÃƒÂ¢n bÃ¡Â»â€¢ tÃ¡Â»Â« Admin</p>
                             <div className="flex items-center gap-2">
                               <span className="inline-flex px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-widest border bg-slate-100 text-slate-600 border-slate-200">
-                                Thá»§ cÃ´ng
+                                ThÃ¡Â»Â§ cÃƒÂ´ng
                               </span>
                               <span className="text-xs text-slate-500">
-                                Admin &gt; Quy táº¯c tá»± Ä‘á»™ng hÃ³a Ä‘Ã£ chá»‰ giá»¯ luá»“ng phÃ¢n cÃ´ng thá»§ cÃ´ng.
+                                Admin &gt; Quy tÃ¡ÂºÂ¯c tÃ¡Â»Â± Ã„â€˜Ã¡Â»â„¢ng hÃƒÂ³a Ã„â€˜ÃƒÂ£ chÃ¡Â»â€° giÃ¡Â»Â¯ luÃ¡Â»â€œng phÃƒÂ¢n cÃƒÂ´ng thÃ¡Â»Â§ cÃƒÂ´ng.
                               </span>
                             </div>
                           </div>
 
                           <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-                            Cháº¿ Ä‘á»™ thá»§ cÃ´ng Ä‘ang báº­t: lead há»£p lá»‡ sáº½ Ä‘Æ°á»£c nháº­p vÃ o há»‡ thá»‘ng nhÆ°ng chÆ°a phÃ¢n bá»•.
-                            Admin/Leader sáº½ phÃ¢n cÃ´ng sau.
+                            ChÃ¡ÂºÂ¿ Ã„â€˜Ã¡Â»â„¢ thÃ¡Â»Â§ cÃƒÂ´ng Ã„â€˜ang bÃ¡ÂºÂ­t: lead hÃ¡Â»Â£p lÃ¡Â»â€¡ sÃ¡ÂºÂ½ Ã„â€˜Ã†Â°Ã¡Â»Â£c nhÃ¡ÂºÂ­p vÃƒÂ o hÃ¡Â»â€¡ thÃ¡Â»â€˜ng nhÃ†Â°ng chÃ†Â°a phÃƒÂ¢n bÃ¡Â»â€¢.
+                            Admin/Leader sÃ¡ÂºÂ½ phÃƒÂ¢n cÃƒÂ´ng sau.
                           </div>
                         </div>
                       </div>
@@ -3861,13 +4034,13 @@ const Leads: React.FC = () => {
                       <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-4 animate-bounce">
                         <CheckCircle size={32} />
                       </div>
-                      <h3 className="text-2xl font-bold text-slate-900">Sáºµn sÃ ng nháº­p liá»‡u!</h3>
-                      <p className="text-slate-500 mt-2">Vui lÃ²ng kiá»ƒm tra thÃ´ng tin láº§n cuá»‘i trÆ°á»›c khi nháº­p vÃ o há»‡ thá»‘ng.</p>
+                      <h3 className="text-2xl font-bold text-slate-900">SÃ¡ÂºÂµn sÃƒÂ ng nhÃ¡ÂºÂ­p liÃ¡Â»â€¡u!</h3>
+                      <p className="text-slate-500 mt-2">Vui lÃƒÂ²ng kiÃ¡Â»Æ’m tra thÃƒÂ´ng tin lÃ¡ÂºÂ§n cuÃ¡Â»â€˜i trÃ†Â°Ã¡Â»â€ºc khi nhÃ¡ÂºÂ­p vÃƒÂ o hÃ¡Â»â€¡ thÃ¡Â»â€˜ng.</p>
                     </div>
 
                     <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 space-y-6">
                       <div>
-                        <label className="block text-sm font-bold text-slate-700 mb-2">TÃªn Ä‘á»£t nháº­p liá»‡u (Import Batch Name)</label>
+                        <label className="block text-sm font-bold text-slate-700 mb-2">TÃƒÂªn Ã„â€˜Ã¡Â»Â£t nhÃ¡ÂºÂ­p liÃ¡Â»â€¡u (Import Batch Name)</label>
                         <input
                           className="w-full px-4 py-3 border border-slate-300 rounded-lg text-slate-900 font-medium focus:border-blue-500 outline-none bg-slate-50"
                           value={importBatchName}
@@ -3876,7 +4049,7 @@ const Leads: React.FC = () => {
                       </div>
 
                       <div>
-                        <label className="block text-sm font-bold text-slate-700 mb-2">Tháº» phÃ¢n loáº¡i bá»• sung (Tags)</label>
+                        <label className="block text-sm font-bold text-slate-700 mb-2">ThÃ¡ÂºÂ» phÃƒÂ¢n loÃ¡ÂºÂ¡i bÃ¡Â»â€¢ sung (Tags)</label>
                         <div className="p-3 border border-slate-300 rounded-lg bg-white flex flex-wrap gap-2 focus-within:border-blue-500 transition-colors">
                           {importTags.map(tag => (
                             <span key={tag} className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-sm font-bold flex items-center gap-1">
@@ -3885,7 +4058,7 @@ const Leads: React.FC = () => {
                           ))}
                           <input
                             className="flex-1 min-w-[120px] outline-none text-sm p-1"
-                            placeholder="Nháº­p tag vÃ  áº¥n Enter..."
+                            placeholder="NhÃ¡ÂºÂ­p tag vÃƒÂ  Ã¡ÂºÂ¥n Enter..."
                             value={newTagInput}
                             onChange={(e) => setNewTagInput(e.target.value)}
                             onKeyDown={(e) => {
@@ -3923,27 +4096,27 @@ const Leads: React.FC = () => {
                     onClick={() => setImportStep(prev => (prev - 1) as 1 | 2 | 3)}
                     className="px-6 py-2.5 border border-slate-300 rounded-lg text-slate-700 font-bold hover:bg-slate-50 transition-colors"
                   >
-                    Quay láº¡i
+                    Quay lÃ¡ÂºÂ¡i
                   </button>
                 )}
 
                 {importStep < 3 ? (
                   <button
                     onClick={() => {
-                      if (importStep === 1 && !importFile) return alert("Vui lÃ²ng chá»n file!");
+                      if (importStep === 1 && !importFile) return alert("Vui lÃƒÂ²ng chÃ¡Â»Ân file!");
                       setImportStep(prev => (prev + 1) as 1 | 2 | 3);
                     }}
                     className={`px-8 py-2.5 bg-blue-600 text-white rounded-lg font-bold shadow-lg shadow-blue-200 transition-all flex items-center gap-2 ${(!importFile && importStep === 1) ? 'opacity-50 cursor-not-allowed' : (validImportRows.length === 0 && importStep === 2) ? 'bg-slate-400 cursor-not-allowed text-slate-200 shadow-none' : 'hover:bg-blue-700 hover:scale-105'}`}
                     disabled={validImportRows.length === 0 && importStep === 2}
                   >
-                    Tiáº¿p tá»¥c & Review <ArrowRight size={18} />
+                    TiÃ¡ÂºÂ¿p tÃ¡Â»Â¥c & Review <ArrowRight size={18} />
                   </button>
                 ) : (
                   <button
                     onClick={handleImportSubmit}
                     className="px-8 py-2.5 bg-green-600 text-white rounded-lg font-bold shadow-lg shadow-green-200 transition-all flex items-center gap-2 hover:bg-green-700 hover:scale-105"
                   >
-                    <CheckCircle size={18} /> XÃ¡c nháº­n Nháº­p (Import)
+                    <CheckCircle size={18} /> XÃƒÂ¡c nhÃ¡ÂºÂ­n NhÃ¡ÂºÂ­p (Import)
                   </button>
                 )}
               </div>
@@ -3959,7 +4132,7 @@ const Leads: React.FC = () => {
               <div className="p-5 border-b border-slate-200 flex justify-between items-center bg-amber-50 shrink-0">
                 <h3 className="text-lg font-bold text-amber-900 flex items-center gap-2">
                   <AlertTriangle size={20} className="text-amber-600" />
-                  Danh sÃ¡ch Lead trÃ¹ng Sá»‘ Ä‘iá»‡n thoáº¡i
+                  Danh sÃƒÂ¡ch Lead trÃƒÂ¹ng SÃ¡Â»â€˜ Ã„â€˜iÃ¡Â»â€¡n thoÃ¡ÂºÂ¡i
                 </h3>
                 <button onClick={() => setShowDuplicateModal(false)} className="text-slate-400 hover:text-slate-600"><X size={24} /></button>
               </div>
@@ -3968,7 +4141,7 @@ const Leads: React.FC = () => {
                 {duplicateGroups.length === 0 ? (
                   <div className="text-center py-10">
                     <CheckCircle size={48} className="mx-auto text-green-500 mb-4 opacity-20" />
-                    <p className="text-slate-500">Tuyá»‡t vá»i! KhÃ´ng tÃ¬m tháº¥y Lead nÃ o bá»‹ trÃ¹ng SÄT.</p>
+                    <p className="text-slate-500">TuyÃ¡Â»â€¡t vÃ¡Â»Âi! KhÃƒÂ´ng tÃƒÂ¬m thÃ¡ÂºÂ¥y Lead nÃƒÂ o bÃ¡Â»â€¹ trÃƒÂ¹ng SÃ„ÂT.</p>
                   </div>
                 ) : (
                   <div className="space-y-3">
@@ -3980,8 +4153,8 @@ const Leads: React.FC = () => {
                       >
                         <div className="flex justify-between items-center">
                           <div>
-                            <p className="font-bold text-slate-900 group-hover:text-blue-700">SÄT: {group.phone}</p>
-                            <p className="text-sm text-slate-500">{group.leads.length} báº£n ghi bá»‹ trÃ¹ng</p>
+                            <p className="font-bold text-slate-900 group-hover:text-blue-700">SÃ„ÂT: {group.phone}</p>
+                            <p className="text-sm text-slate-500">{group.leads.length} bÃ¡ÂºÂ£n ghi bÃ¡Â»â€¹ trÃƒÂ¹ng</p>
                           </div>
                           <div className="flex -space-x-2">
                             {group.leads.slice(0, 3).map((l: any) => (
@@ -4019,9 +4192,9 @@ const Leads: React.FC = () => {
                 <div>
                   <h3 className="text-xl font-black text-slate-900 flex items-center gap-2 uppercase tracking-tighter">
                     <Database size={24} className="text-blue-600" />
-                    So sÃ¡nh Lead trÃ¹ng: {selectedDuplicateGroup.phone}
+                    So sÃƒÂ¡nh Lead trÃƒÂ¹ng: {selectedDuplicateGroup.phone}
                   </h3>
-                  <p className="text-sm text-slate-500">Xem vÃ  so sÃ¡nh thÃ´ng tin giá»¯a cÃ¡c báº£n ghi Ä‘á»ƒ quyáº¿t Ä‘á»‹nh xá»­ lÃ½.</p>
+                  <p className="text-sm text-slate-500">Xem vÃƒÂ  so sÃƒÂ¡nh thÃƒÂ´ng tin giÃ¡Â»Â¯a cÃƒÂ¡c bÃ¡ÂºÂ£n ghi Ã„â€˜Ã¡Â»Æ’ quyÃ¡ÂºÂ¿t Ã„â€˜Ã¡Â»â€¹nh xÃ¡Â»Â­ lÃƒÂ½.</p>
                 </div>
                 <button onClick={() => setSelectedDuplicateGroup(null)} className="p-2 hover:bg-slate-200 rounded transition-colors"><X size={24} /></button>
               </div>
@@ -4041,7 +4214,7 @@ const Leads: React.FC = () => {
                         <button
                           onClick={() => { setSelectedLead(lead); setSelectedDuplicateGroup(null); setShowDuplicateModal(false); }}
                           className="p-1.5 bg-white border border-slate-200 rounded text-blue-600 hover:bg-blue-600 hover:text-white transition-all shadow-sm"
-                          title="Chá»‰nh sá»­a Lead nÃ y"
+                          title="ChÃ¡Â»â€°nh sÃ¡Â»Â­a Lead nÃƒÂ y"
                         >
                           <Eye size={16} />
                         </button>
@@ -4049,47 +4222,47 @@ const Leads: React.FC = () => {
 
                       <div className="p-3 space-y-3 text-sm flex-1">
                         <section>
-                          <p className="text-[9px] font-bold text-slate-400 uppercase mb-1 tracking-widest">ThÃ´ng tin cÆ¡ báº£n</p>
+                          <p className="text-[9px] font-bold text-slate-400 uppercase mb-1 tracking-widest">ThÃƒÂ´ng tin cÃ†Â¡ bÃ¡ÂºÂ£n</p>
                           <div className="space-y-1 bg-slate-50 p-2 rounded-md border border-slate-100">
-                            <div className="flex justify-between"><span className="text-slate-500 text-xs">SÄT:</span> <span className="font-bold text-slate-900">{lead.phone}</span></div>
+                            <div className="flex justify-between"><span className="text-slate-500 text-xs">SÃ„ÂT:</span> <span className="font-bold text-slate-900">{lead.phone}</span></div>
                             <div className="flex justify-between"><span className="text-slate-500 text-xs">Email:</span> <span className="font-medium text-slate-700 truncate max-w-[150px]" title={lead.email}>{lead.email || '-'}</span></div>
-                            <div className="flex justify-between"><span className="text-slate-500 text-xs">CÆ¡ sá»Ÿ:</span> <span className="font-medium text-slate-700">{lead.company || '-'}</span></div>
-                            <div className="flex justify-between"><span className="text-slate-500 text-xs">D.xÆ°ng:</span> <span className="font-medium text-slate-700">{(lead as any).title || '-'}</span></div>
+                            <div className="flex justify-between"><span className="text-slate-500 text-xs">CÃ†Â¡ sÃ¡Â»Å¸:</span> <span className="font-medium text-slate-700">{lead.company || '-'}</span></div>
+                            <div className="flex justify-between"><span className="text-slate-500 text-xs">D.xÃ†Â°ng:</span> <span className="font-medium text-slate-700">{(lead as any).title || '-'}</span></div>
                           </div>
                         </section>
 
                         <section>
-                          <p className="text-[9px] font-bold text-slate-400 uppercase mb-1 tracking-widest">Marketing & Nguá»“n</p>
+                          <p className="text-[9px] font-bold text-slate-400 uppercase mb-1 tracking-widest">Marketing & NguÃ¡Â»â€œn</p>
                           <div className="space-y-1 bg-slate-50 p-2 rounded-md border border-slate-100">
-                            <div className="flex justify-between"><span className="text-slate-500 text-xs">Nguá»“n:</span> <span className="font-medium text-slate-700">{lead.source || '-'}</span></div>
-                            <div className="flex justify-between"><span className="text-slate-500 text-xs">Chiáº¿n dá»‹ch:</span> <span className="font-medium text-slate-700">{lead.marketingData?.campaign || '-'}</span></div>
-                            <div className="flex justify-between"><span className="text-slate-500 text-xs">Ng.giá»›i thiá»‡u:</span> <span className="font-medium text-slate-700">{(lead as any).referredBy || '-'}</span></div>
+                            <div className="flex justify-between"><span className="text-slate-500 text-xs">NguÃ¡Â»â€œn:</span> <span className="font-medium text-slate-700">{lead.source || '-'}</span></div>
+                            <div className="flex justify-between"><span className="text-slate-500 text-xs">ChiÃ¡ÂºÂ¿n dÃ¡Â»â€¹ch:</span> <span className="font-medium text-slate-700">{lead.marketingData?.campaign || '-'}</span></div>
+                            <div className="flex justify-between"><span className="text-slate-500 text-xs">Ng.giÃ¡Â»â€ºi thiÃ¡Â»â€¡u:</span> <span className="font-medium text-slate-700">{(lead as any).referredBy || '-'}</span></div>
                             <div className="flex justify-between items-start"><span className="text-slate-500 text-xs">Tags:</span> <div className="flex flex-wrap gap-1 justify-end">{lead.marketingData?.tags?.length ? lead.marketingData.tags.map((t: string) => <span key={t} className="bg-white border text-[9px] px-1 rounded-sm">{t}</span>) : '-'}</div></div>
                           </div>
                         </section>
 
                         <section>
-                          <p className="text-[9px] font-bold text-slate-400 uppercase mb-1 tracking-widest">Lá»‹ch sá»­ & Phá»¥ trÃ¡ch</p>
+                          <p className="text-[9px] font-bold text-slate-400 uppercase mb-1 tracking-widest">LÃ¡Â»â€¹ch sÃ¡Â»Â­ & PhÃ¡Â»Â¥ trÃƒÂ¡ch</p>
                           <div className="space-y-1 bg-slate-50 p-2 rounded-md border border-slate-100">
-                            <div className="flex justify-between"><span className="text-slate-500 text-xs">NgÃ y táº¡o:</span> <span className="font-medium text-slate-700">{new Date(lead.createdAt).toLocaleDateString('vi-VN')}</span></div>
-                            <div className="flex justify-between"><span className="text-slate-500 text-xs">Phá»¥ trÃ¡ch:</span> <span className="font-bold text-blue-600">{SALES_REPS.find(r => r.id === lead.ownerId)?.name || 'ChÆ°a phÃ¢n'}</span></div>
+                            <div className="flex justify-between"><span className="text-slate-500 text-xs">NgÃƒÂ y tÃ¡ÂºÂ¡o:</span> <span className="font-medium text-slate-700">{new Date(lead.createdAt).toLocaleDateString('vi-VN')}</span></div>
+                            <div className="flex justify-between"><span className="text-slate-500 text-xs">PhÃ¡Â»Â¥ trÃƒÂ¡ch:</span> <span className="font-bold text-blue-600">{SALES_REPS.find(r => r.id === lead.ownerId)?.name || 'ChÃ†Â°a phÃƒÂ¢n'}</span></div>
                           </div>
                         </section>
 
                         <section>
-                          <p className="text-[9px] font-bold text-slate-400 uppercase mb-1 tracking-widest">Ghi chÃº</p>
+                          <p className="text-[9px] font-bold text-slate-400 uppercase mb-1 tracking-widest">Ghi chÃƒÂº</p>
                           <div className="bg-slate-50 p-2 rounded-md border border-slate-100 text-[11px] text-slate-600 min-h-[50px] leading-relaxed">
-                            {lead.notes || 'KhÃ´ng cÃ³ ghi chÃº.'}
+                            {lead.notes || 'KhÃƒÂ´ng cÃƒÂ³ ghi chÃƒÂº.'}
                           </div>
                         </section>
                       </div>
 
                       <div className="p-3 border-t border-slate-50 bg-slate-50/30 flex gap-2">
                         <button
-                          onClick={() => { if (confirm("XÃ³a báº£n ghi trÃ¹ng nÃ y?")) { const filtered = leads.filter(l => l.id !== lead.id); setLeads(filtered); saveLeads(filtered); setSelectedDuplicateGroup((prev: any) => ({ ...prev!, leads: prev!.leads.filter((l: any) => l.id !== lead.id) })); } }}
+                          onClick={() => { if (confirm("XÃƒÂ³a bÃ¡ÂºÂ£n ghi trÃƒÂ¹ng nÃƒÂ y?")) { const filtered = leads.filter(l => l.id !== lead.id); setLeads(filtered); saveLeads(filtered); setSelectedDuplicateGroup((prev: any) => ({ ...prev!, leads: prev!.leads.filter((l: any) => l.id !== lead.id) })); } }}
                           className="flex-1 py-1.5 border border-red-200 text-red-600 hover:bg-red-50 rounded text-[11px] font-bold transition-all uppercase"
                         >
-                          XÃ³a
+                          XÃƒÂ³a
                         </button>
                       </div>
                     </div>
@@ -4110,7 +4283,7 @@ const Leads: React.FC = () => {
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95">
             <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
-              <h3 className="text-lg font-bold text-red-600 flex items-center gap-2"><Ban size={20} /> XÃ¡c nháº­n tháº¥t báº¡i</h3>
+              <h3 className="text-lg font-bold text-red-600 flex items-center gap-2"><Ban size={20} /> XÃƒÂ¡c nhÃ¡ÂºÂ­n thÃ¡ÂºÂ¥t bÃ¡ÂºÂ¡i</h3>
               <button
                 onClick={() => { setShowLossModal(false); setLossModalLeadIds([]); setLossStatus(STANDARD_LEAD_STATUS.LOST); setLossReason(''); setCustomLossReason(''); }}
                 className="text-slate-400 hover:text-slate-600 transition-colors"
@@ -4121,8 +4294,8 @@ const Leads: React.FC = () => {
 
             <div className="p-6">
               <p className="text-sm text-slate-600 mb-4">
-                Báº¡n Ä‘ang Ä‘Ã¡nh dáº¥u <strong>{lossModalLeadIds.length}</strong> lead lÃ  tháº¥t báº¡i.
-                Vui lÃ²ng chá»n lÃ½ do Ä‘á»ƒ há»‡ thá»‘ng ghi nháº­n:
+                BÃ¡ÂºÂ¡n Ã„â€˜ang Ã„â€˜ÃƒÂ¡nh dÃ¡ÂºÂ¥u <strong>{lossModalLeadIds.length}</strong> lead lÃƒÂ  thÃ¡ÂºÂ¥t bÃ¡ÂºÂ¡i.
+                Vui lÃƒÂ²ng chÃ¡Â»Ân lÃƒÂ½ do Ã„â€˜Ã¡Â»Æ’ hÃ¡Â»â€¡ thÃ¡Â»â€˜ng ghi nhÃ¡ÂºÂ­n:
               </p>
 
               <select
@@ -4146,16 +4319,16 @@ const Leads: React.FC = () => {
                 value={lossReason}
                 onChange={e => setLossReason(e.target.value)}
               >
-                <option value="">-- Chá»n lÃ½ do --</option>
+                <option value="">-- ChÃ¡Â»Ân lÃƒÂ½ do --</option>
                 {bulkCloseReasonOptions.map(reason => (
                   <option key={reason} value={reason}>{reason}</option>
                 ))}
               </select>
 
-              {lossReason === 'LÃ½ do khÃ¡c' && (
+              {lossReason === 'LÃƒÂ½ do khÃƒÂ¡c' && (
                 <textarea
                   className="w-full p-3 border border-slate-300 rounded-lg text-sm mb-4 h-24 outline-none focus:ring-2 focus:ring-blue-500 animate-in slide-in-from-top-2"
-                  placeholder="Vui lÃ²ng nháº­p lÃ½ do cá»¥ thá»ƒ..."
+                  placeholder="Vui lÃƒÂ²ng nhÃ¡ÂºÂ­p lÃƒÂ½ do cÃ¡Â»Â¥ thÃ¡Â»Æ’..."
                   value={customLossReason}
                   onChange={e => setCustomLossReason(e.target.value)}
                 ></textarea>
@@ -4164,7 +4337,7 @@ const Leads: React.FC = () => {
               {lossReason === CUSTOM_CLOSE_REASON && (
                 <textarea
                   className="w-full p-3 border border-slate-300 rounded-lg text-sm mb-4 h-24 outline-none focus:ring-2 focus:ring-blue-500 animate-in slide-in-from-top-2"
-                  placeholder="Nhập lý do cụ thể..."
+                  placeholder="Nháº­p lÃ½ do cá»¥ thá»ƒ..."
                   value={customLossReason}
                   onChange={e => setCustomLossReason(e.target.value)}
                 ></textarea>
@@ -4172,14 +4345,14 @@ const Leads: React.FC = () => {
 
               <div className="hidden items-center gap-2 p-3 bg-red-50 text-red-700 rounded-lg border border-red-100 text-xs italic">
                 <AlertTriangle size={14} className="shrink-0" />
-                <span>HÃ nh Ä‘á»™ng nÃ y sáº½ cáº­p nháº­t tráº¡ng thÃ¡i cá»§a lead sang <strong>LOST</strong>.</span>
+                <span>HÃƒÂ nh Ã„â€˜Ã¡Â»â„¢ng nÃƒÂ y sÃ¡ÂºÂ½ cÃ¡ÂºÂ­p nhÃ¡ÂºÂ­t trÃ¡ÂºÂ¡ng thÃƒÂ¡i cÃ¡Â»Â§a lead sang <strong>LOST</strong>.</span>
               </div>
             </div>
 
             <div className="px-6 pt-0 pb-4">
               <div className="flex items-center gap-2 p-3 bg-red-50 text-red-700 rounded-lg border border-red-100 text-xs italic">
                 <AlertTriangle size={14} className="shrink-0" />
-                <span>Lead sẽ được chuyển sang <strong>{getLeadStatusLabel(lossStatus).toUpperCase()}</strong> và bắt buộc lưu lý do.</span>
+                <span>Lead sáº½ Ä‘Æ°á»£c chuyá»ƒn sang <strong>{getLeadStatusLabel(lossStatus).toUpperCase()}</strong> vÃ  báº¯t buá»™c lÆ°u lÃ½ do.</span>
               </div>
             </div>
 
@@ -4188,13 +4361,13 @@ const Leads: React.FC = () => {
                 onClick={() => { setShowLossModal(false); setLossModalLeadIds([]); setLossStatus(STANDARD_LEAD_STATUS.LOST); setLossReason(''); setCustomLossReason(''); }}
                 className="px-5 py-2 font-bold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
               >
-                Há»§y
+                HÃ¡Â»Â§y
               </button>
               <button
                 onClick={handleConfirmLoss}
                 className="px-5 py-2 font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg shadow-lg shadow-red-200 transition-all font-bold"
               >
-                XÃ¡c nháº­n LOST
+                XÃƒÂ¡c nhÃ¡ÂºÂ­n LOST
               </button>
             </div>
           </div>
@@ -4214,6 +4387,8 @@ const Leads: React.FC = () => {
 };
 
 export default Leads;
+
+
 
 
 

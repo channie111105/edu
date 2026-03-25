@@ -144,6 +144,7 @@ export interface IMarketingData {
 // Contact entity - Central hub for customer data
 export interface IContact {
   id: string;
+  leadId?: string;
 
   // Core Info (Bắt buộc)
   name: string;
@@ -234,6 +235,10 @@ export interface ILead {
   slaStatus?: 'normal' | 'warning' | 'danger';
   slaReason?: string; // Lý do cảnh báo SLA
   lastActivityDate?: string;
+  reclaimedAt?: string;
+  reclaimReason?: 'picked_no_action' | 'slow_care';
+  reclaimTriggerAt?: string;
+  reclaimedFromOwnerId?: string;
 
   // 3. Deal & Revenue Info (Persisted)
   value?: number;
