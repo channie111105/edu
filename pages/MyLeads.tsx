@@ -665,6 +665,16 @@ const MyLeads: React.FC = () => {
 
    const overdueLeadsCount = useMemo(() => leads.filter(isOverdueLead).length, [leads]);
    const todayCareLeadsCount = useMemo(() => leads.filter(isTodayCareLead).length, [leads]);
+   const assignedLeadsCount = useMemo(
+      () => leads.filter((lead) => normalizeLeadStatusKey(String(lead.status || '')) === LEAD_STATUS_KEYS.ASSIGNED).length,
+      [leads]
+   );
+   const statusTabs = useMemo(() => ([
+      { id: 'all', label: 'Táº¥t cáº£', count: leads.length },
+      { id: LEAD_STATUS_KEYS.ASSIGNED, label: 'Chá» tiáº¿p nháº­n', count: assignedLeadsCount },
+      { id: 'overdue', label: 'DS quÃ¡ háº¡n', count: overdueLeadsCount },
+      { id: 'today_care', label: 'ChÄƒm sÃ³c hÃ´m nay', count: todayCareLeadsCount },
+   ]), [assignedLeadsCount, leads.length, overdueLeadsCount, todayCareLeadsCount]);
 
    const filteredLeads = useMemo(() => {
       let result = leads;
@@ -1463,13 +1473,13 @@ const MyLeads: React.FC = () => {
                   if ((e.target as HTMLElement).tagName !== 'INPUT') setSelectedLead(lead);
                }}
             >
-               <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
+               <td className="px-2 py-3 text-center" onClick={(e) => e.stopPropagation()}>
                   <input type="checkbox" checked={selectedIds.includes(lead.id)} onChange={() => {
                      setSelectedIds(prev => prev.includes(lead.id) ? prev.filter(i => i !== lead.id) : [...prev, lead.id]);
                   }} />
                </td>
 
-               <td className="w-12 p-3 text-center align-middle" onClick={(e) => e.stopPropagation()}>
+               <td className="w-12 px-2 py-3 text-center align-middle" onClick={(e) => e.stopPropagation()}>
                   <button
                      onClick={(e) => handleCall(e, lead)}
                      className="inline-flex items-center justify-center p-1 rounded bg-green-100 text-green-700 hover:bg-green-200"
@@ -1626,6 +1636,29 @@ const MyLeads: React.FC = () => {
       })
    );
 
+   const listTableColumnCount = visibleColumns.length + 2;
+   const todayCareTableColumnCount = 8;
+
+   const renderStatusTabs = (containerClassName = '') => (
+      <div className={`min-w-0 overflow-x-auto ${containerClassName}`.trim()}>
+         <div className="flex items-center gap-1 min-w-max">
+            {statusTabs.map((tab) => (
+               <button
+                  key={tab.id}
+                  onClick={() => {
+                     setStatusFilter(tab.id);
+                     setStatusFilterSource(tab.id === 'all' ? null : 'tabs');
+                  }}
+                  className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-bold normal-case whitespace-nowrap transition-all ${statusFilter === tab.id ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}
+               >
+                  <span>{tab.label}</span>
+                  <span className={`text-[10px] ${statusFilter === tab.id ? 'text-blue-500' : 'text-slate-400'}`}>{tab.count}</span>
+               </button>
+            ))}
+         </div>
+      </div>
+   );
+
    const actionDropdownItems = [
       {
          label: 'PhÃ¢n bá»•',
@@ -1716,28 +1749,7 @@ const MyLeads: React.FC = () => {
                         <Inbox size={20} className="text-blue-600" /> Lead cá»§a tÃ´i
                      </h1>
 
-                     <div className="min-w-0 overflow-x-auto pb-1">
-                        <div className="flex items-center gap-1 min-w-max">
-                           {[
-                              { id: 'all', label: 'Táº¥t cáº£', count: leads.length },
-                              { id: LEAD_STATUS_KEYS.ASSIGNED, label: 'Chá» tiáº¿p nháº­n', count: leads.filter(l => normalizeLeadStatusKey(String(l.status || '')) === LEAD_STATUS_KEYS.ASSIGNED).length },
-                              { id: 'overdue', label: 'DS quÃ¡ háº¡n', count: overdueLeadsCount },
-                              { id: 'today_care', label: 'ChÄƒm sÃ³c hÃ´m nay', count: todayCareLeadsCount },
-                           ].map((tab) => (
-                              <button
-                                 key={tab.id}
-                                 onClick={() => {
-                                    setStatusFilter(tab.id);
-                                    setStatusFilterSource(tab.id === 'all' ? null : 'tabs');
-                                 }}
-                                 className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold whitespace-nowrap border transition-all ${statusFilter === tab.id ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}
-                              >
-                                 <span>{tab.label}</span>
-                                 <span className={`text-[10px] ${statusFilter === tab.id ? 'text-blue-500' : 'text-slate-400'}`}>{tab.count}</span>
-                              </button>
-                           ))}
-                        </div>
-                     </div>
+                     {viewMode !== 'list' && renderStatusTabs('pb-1')}
 
 
                      {false && showTimePicker && timeRangeType === 'custom' && (
@@ -1790,41 +1802,6 @@ const MyLeads: React.FC = () => {
                      >
                         <UserPlus size={13} /> Táº¡o lead
                      </button>
-
-                     <div className="relative shrink-0">
-                        <button
-                           onClick={() => setShowActionDropdown(!showActionDropdown)}
-                           className={`flex items-center gap-1 px-2.5 py-1.5 border rounded-lg text-xs font-bold whitespace-nowrap transition-all ${showActionDropdown ? 'bg-slate-100 border-slate-300 text-slate-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}
-                        >
-                           <Cog size={13} />
-                           Action
-                           <ChevronDown size={13} />
-                        </button>
-
-                        {showActionDropdown && (
-                           <>
-                              <div className="fixed inset-0 z-30" onClick={() => setShowActionDropdown(false)}></div>
-                              <div className="absolute left-0 top-full mt-2 w-[200px] bg-white border border-slate-200 rounded-xl shadow-xl z-40 p-1.5 animate-in fade-in zoom-in-95">
-                                 {actionDropdownItems.map((item) => {
-                                    const Icon = item.icon;
-                                    return (
-                                       <button
-                                          key={item.label}
-                                          onClick={() => {
-                                             setShowActionDropdown(false);
-                                             item.onClick();
-                                          }}
-                                          className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 rounded-lg transition-colors"
-                                       >
-                                          <Icon size={14} className="text-slate-400" />
-                                          <span>{item.label}</span>
-                                       </button>
-                                    );
-                                 })}
-                              </div>
-                           </>
-                        )}
-                     </div>
 
                      <div className="flex items-center gap-2 border border-slate-200 rounded-lg bg-white px-2 py-1.5 text-xs shrink-0">
                         <select
@@ -1886,6 +1863,41 @@ const MyLeads: React.FC = () => {
                            </button>
                         </div>
                      )}
+
+                     <div className="relative shrink-0">
+                        <button
+                           onClick={() => setShowActionDropdown(!showActionDropdown)}
+                           className={`flex items-center gap-1 px-2.5 py-1.5 border rounded-lg text-xs font-bold whitespace-nowrap transition-all ${showActionDropdown ? 'bg-slate-100 border-slate-300 text-slate-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+                        >
+                           <Cog size={13} />
+                           Action
+                           <ChevronDown size={13} />
+                        </button>
+
+                        {showActionDropdown && (
+                           <>
+                              <div className="fixed inset-0 z-30" onClick={() => setShowActionDropdown(false)}></div>
+                              <div className="absolute left-0 top-full mt-2 w-[200px] bg-white border border-slate-200 rounded-xl shadow-xl z-40 p-1.5 animate-in fade-in zoom-in-95">
+                                 {actionDropdownItems.map((item) => {
+                                    const Icon = item.icon;
+                                    return (
+                                       <button
+                                          key={item.label}
+                                          onClick={() => {
+                                             setShowActionDropdown(false);
+                                             item.onClick();
+                                          }}
+                                          className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 rounded-lg transition-colors"
+                                       >
+                                          <Icon size={14} className="text-slate-400" />
+                                          <span>{item.label}</span>
+                                       </button>
+                                    );
+                                 })}
+                              </div>
+                           </>
+                        )}
+                     </div>
                   </div>
 
                   <div className="w-full xl:w-[52%] xl:max-w-[700px] xl:flex-none flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between xl:flex-nowrap">
@@ -2144,7 +2156,12 @@ const MyLeads: React.FC = () => {
                </div>
             ) : statusFilter === 'today_care' ? (
                <table className="w-full text-left border-collapse">
-                  <thead className="bg-slate-50 border-b border-slate-200">
+                  <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50 shadow-sm">
+                     <tr>
+                        <th colSpan={todayCareTableColumnCount} className="border-b border-slate-200 bg-white px-4 py-2 text-left align-middle normal-case">
+                           {renderStatusTabs()}
+                        </th>
+                     </tr>
                      <tr>
                         <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider w-12">
                            <input
@@ -2166,7 +2183,7 @@ const MyLeads: React.FC = () => {
                   <tbody className="divide-y divide-slate-100">
                      {todayCareRows.length === 0 ? (
                         <tr>
-                           <td colSpan={8} className="px-6 py-12 text-center text-slate-400">
+                           <td colSpan={todayCareTableColumnCount} className="px-6 py-12 text-center text-slate-400">
                               ChÆ°a cÃ³ lá»‹ch chÄƒm sÃ³c nÃ o trong hÃ´m nay.
                            </td>
                         </tr>
@@ -2224,9 +2241,21 @@ const MyLeads: React.FC = () => {
                </table>
             ) : (
                <table className="w-full text-left border-collapse text-sm table-fixed">
-                  <thead className="bg-slate-50 sticky top-0 z-1 shadow-sm text-xs font-bold text-slate-500 uppercase">
+                  <colgroup>
+                     <col style={{ width: '40px' }} />
+                     <col style={{ width: '48px' }} />
+                     {ALL_COLUMNS.filter((column) => visibleColumns.includes(column.id)).map((column) => (
+                        <col key={column.id} />
+                     ))}
+                  </colgroup>
+                  <thead className="sticky top-0 z-10 bg-slate-50 text-xs font-bold text-slate-500 uppercase shadow-sm">
                      <tr>
-                        <th className="w-10 p-3 border-r border-slate-200 text-center">
+                        <th colSpan={listTableColumnCount} className="border-b border-slate-200 bg-white px-3 py-2 text-left align-middle normal-case">
+                           {renderStatusTabs()}
+                        </th>
+                     </tr>
+                     <tr>
+                        <th className="w-10 px-2 py-3 border-r border-slate-200 text-center">
                            <input
                               type="checkbox"
                               className="rounded border-slate-300"
@@ -2234,7 +2263,7 @@ const MyLeads: React.FC = () => {
                               checked={selectedIds.length === filteredLeads.length && filteredLeads.length > 0}
                            />
                         </th>
-                        <th className="w-12 p-3 border-r border-slate-200 text-center">
+                        <th className="w-12 px-2 py-3 border-r border-slate-200 text-center">
                            <Phone size={12} className="mx-auto text-slate-400" />
                         </th>
 
@@ -2265,7 +2294,7 @@ const MyLeads: React.FC = () => {
                   <tbody className="divide-y divide-slate-100">
                      {filteredLeads.length === 0 ? (
                         <tr>
-                           <td colSpan={Math.max(visibleColumns.length + 1, 2)} className="px-6 py-14 text-center text-slate-500">
+                           <td colSpan={listTableColumnCount} className="px-6 py-14 text-center text-slate-500">
                               <div className="flex flex-col items-center gap-3">
                                  <Inbox size={34} className="text-slate-300" />
                                  <p>ChÆ°a cÃ³ lead trong danh sÃ¡ch hiá»‡n táº¡i.</p>
@@ -2284,7 +2313,7 @@ const MyLeads: React.FC = () => {
                         Object.entries(groupedLeads).map(([groupName, items]) => (
                            <React.Fragment key={groupName}>
                               <tr className="bg-slate-100 border-y border-slate-200">
-                                 <td colSpan={Math.max(visibleColumns.length + 1, 2)} className="px-4 py-2 font-bold text-slate-700 text-xs uppercase flex items-center gap-2">
+                                 <td colSpan={listTableColumnCount} className="px-4 py-2 font-bold text-slate-700 text-xs uppercase flex items-center gap-2">
                                     <ChevronDown size={14} /> {groupName}
                                     <span className="bg-slate-200 px-2 py-0.5 rounded-full text-[10px]">{items.length}</span>
                                  </td>

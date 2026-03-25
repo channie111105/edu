@@ -128,6 +128,11 @@ const ContactDrawer: React.FC<ContactDrawerProps> = ({ contact: initialContact, 
     const websiteValue = contact.website || contact.socialLink || '';
     const activityList = [...(contact.activities || [])].sort((a: any, b: any) => new Date(b?.timestamp || b?.datetime || 0).getTime() - new Date(a?.timestamp || a?.datetime || 0).getTime());
     const lockedMeetingCustomer: MeetingCustomerOption = { key: `contact:${contact.id}`, id: contact.id, source: 'contact', name: contact.name, phone: contact.phone, campus: contact.company || contact.city || 'Hà Nội', address: contact.address || 'Chưa có địa chỉ', contactId: contact.id };
+    const headerPrimaryValue = currentType === 'company' ? (contact.company || '') : contact.name;
+    const headerSecondaryValue = currentType === 'company' ? contact.name : (contact.company || '');
+    const headerPrimaryPlaceholder = currentType === 'company' ? 'Tên công ty' : 'Tên khách hàng';
+    const headerSecondaryPlaceholder = currentType === 'company' ? 'Người phụ trách' : 'Công ty / Cơ sở';
+    const headerTitle = currentType === 'company' ? (contact.company || contact.name) : contact.name;
 
     const renderDetailTab = () => (
         <div className={`${panelClassName} p-4`}>
@@ -197,6 +202,91 @@ const ContactDrawer: React.FC<ContactDrawerProps> = ({ contact: initialContact, 
         </div>
     );
 
+    const renderCompanyDetailTab = () => (
+        <div className={`${panelClassName} p-4`}>
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,1.4fr)_320px]">
+                <div className="space-y-4">
+                    <div className="grid gap-x-5 gap-y-3 xl:grid-cols-2">
+                        <FieldBlock label="Tên công ty">
+                            <input type="text" value={contact.company || ''} onChange={(event) => change('company', event.target.value)} placeholder="VD: Công ty ABC Education" className={inputClassName} />
+                        </FieldBlock>
+                        <FieldBlock label="Người phụ trách">
+                            <input type="text" value={contact.name} onChange={(event) => change('name', event.target.value)} placeholder="VD: Phạm Minh Anh" className={inputClassName} />
+                        </FieldBlock>
+                        <FieldBlock label="Số điện thoại công ty">
+                            <input type="text" value={contact.phone || ''} onChange={(event) => change('phone', event.target.value)} placeholder="028xxxxxxx" className={inputClassName} />
+                        </FieldBlock>
+                        <FieldBlock label="Di động / Hotline">
+                            <input type="text" value={contact.mobile || ''} onChange={(event) => change('mobile', event.target.value)} placeholder="09xxxxxxxx" className={inputClassName} />
+                        </FieldBlock>
+                        <FieldBlock label="Email">
+                            <input type="email" value={contact.email || ''} onChange={(event) => change('email', event.target.value)} placeholder="contact@company.vn" className={inputClassName} />
+                        </FieldBlock>
+                        <FieldBlock label="Website">
+                            <input type="text" value={websiteValue} onChange={(event) => changeWebsite(event.target.value)} placeholder="https://company.vn" className={inputClassName} />
+                        </FieldBlock>
+                        <FieldBlock label="Mã số thuế">
+                            <input type="text" value={contact.identityCard || ''} onChange={(event) => change('identityCard', event.target.value)} placeholder="MST doanh nghiệp" className={inputClassName} />
+                        </FieldBlock>
+                        <FieldBlock label="Chức vụ người phụ trách">
+                            <input type="text" value={contact.job || ''} onChange={(event) => change('job', event.target.value)} placeholder="Giám đốc / Trưởng phòng" className={inputClassName} />
+                        </FieldBlock>
+                        <FieldBlock label="Cơ sở / Chi nhánh">
+                            <input type="text" value={contact.venue || ''} onChange={(event) => change('venue', event.target.value)} placeholder="Chi nhánh Hà Nội / HCM" className={inputClassName} />
+                        </FieldBlock>
+                        <FieldBlock label="Thẻ">
+                            <input type="text" value={tagValue} onChange={(event) => changeTags(event.target.value)} placeholder="B2B, VIP, Trường đối tác" className={inputClassName} />
+                        </FieldBlock>
+                        <FieldBlock label="Thị trường quan tâm">
+                            <input type="text" value={contact.targetCountry || ''} onChange={(event) => change('targetCountry', event.target.value)} placeholder="Đức, Úc, Trung Quốc..." className={inputClassName} />
+                        </FieldBlock>
+                        <FieldBlock label="Nguồn">
+                            <input type="text" value={contact.source || ''} onChange={(event) => change('source', event.target.value)} placeholder="Referral / Website / Sales tự khai thác" className={inputClassName} />
+                        </FieldBlock>
+                        <FieldBlock label="Địa chỉ công ty" className="xl:col-span-2">
+                            <div className="grid gap-2 xl:grid-cols-[1.5fr_repeat(3,minmax(0,1fr))]">
+                                <input type="text" value={contact.address || ''} onChange={(event) => change('address', event.target.value)} placeholder="Số nhà, tên đường..." className={inputClassName} />
+                                <input type="text" value={contact.city || ''} onChange={(event) => change('city', event.target.value)} placeholder="Tỉnh / Thành phố" className={inputClassName} />
+                                <input type="text" value={contact.district || ''} onChange={(event) => change('district', event.target.value)} placeholder="Quận / Huyện" className={inputClassName} />
+                                <input type="text" value={contact.ward || ''} onChange={(event) => change('ward', event.target.value)} placeholder="Phường / Xã" className={inputClassName} />
+                            </div>
+                        </FieldBlock>
+                    </div>
+                </div>
+
+                <div className="space-y-3">
+                    <div className="rounded-lg border border-slate-300 bg-slate-50 p-4">
+                        <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">Hồ sơ công ty</div>
+                        <div className="mt-3 space-y-2">
+                            <SummaryRow icon={Building2} label="Doanh nghiệp" value={contact.company || 'Chưa có tên công ty'} hint={contact.venue || 'Chưa có chi nhánh'} />
+                            <SummaryRow icon={Globe} label="Website" value={websiteValue ? websiteValue.replace(/^https?:\/\//, '') : '-'} hint="Trang web chính thức" />
+                            <SummaryRow icon={Receipt} label="Mã số thuế" value={contact.identityCard || '-'} hint="Thông tin pháp lý" />
+                            <SummaryRow icon={Calendar} label="Cập nhật" value={dateTime(contact.updatedAt || contact.createdAt)} hint="Thời điểm gần nhất" />
+                        </div>
+                    </div>
+
+                    <div className="grid gap-2">
+                        <div className="rounded-md border border-slate-300 bg-white px-3 py-2">
+                            <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">Người phụ trách</div>
+                            <div className="mt-1 text-sm font-semibold text-slate-800">{contact.name || '-'}</div>
+                            <div className="mt-1 text-xs font-medium text-slate-500">{contact.job || 'Chưa cập nhật chức vụ'}</div>
+                        </div>
+                        <div className="rounded-md border border-slate-300 bg-white px-3 py-2">
+                            <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">Liên hệ chính</div>
+                            <div className="mt-1 text-sm font-semibold text-slate-800">{contact.phone || '-'}</div>
+                            <div className="mt-1 text-xs font-medium text-slate-500">{contact.email || 'Chưa có email'}</div>
+                        </div>
+                        <div className="rounded-md border border-slate-300 bg-white px-3 py-2">
+                            <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">Phân loại</div>
+                            <div className="mt-1 text-sm font-semibold text-slate-800">{contact.source || 'Chưa có nguồn'}</div>
+                            <div className="mt-1 text-xs font-medium text-slate-500">{contact.targetCountry || 'Chưa có thị trường'}</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+
     const renderNotesTab = () => (
         <div className="grid items-start gap-4 xl:grid-cols-[330px_minmax(0,1fr)]">
             <div className={`${panelClassName} p-4`}>
@@ -222,7 +312,7 @@ const ContactDrawer: React.FC<ContactDrawerProps> = ({ contact: initialContact, 
                 <div className="divide-y divide-slate-200">{deals.length === 0 ? <div className="px-4 py-8 text-center text-sm font-medium text-slate-500">Contact này chưa có cơ hội bán hàng nào được liên kết.</div> : deals.map((deal) => <div key={deal.id} className="flex items-center justify-between gap-4 px-4 py-3 hover:bg-blue-50/40"><div className="min-w-0"><div className="truncate text-sm font-semibold text-slate-900">{deal.title}</div><div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs font-medium text-slate-500"><span>{deal.stage}</span><span className="text-slate-300">•</span><span>{dateTime(deal.createdAt)}</span></div></div><div className="text-right"><div className="text-sm font-semibold text-slate-900">{money(deal.value || 0)}</div><div className="text-[11px] font-medium text-slate-500">Doanh thu dự kiến</div></div></div>)}</div>
             </div>
             <div className="space-y-4 self-start">
-                <div className={`${panelClassName} p-4`}><div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">Tổng quan</div><div className="mt-3 space-y-2"><SummaryRow icon={DollarSign} label="Giá trị cơ hội" value={compactMoney(financialStats.totalDealValue)} hint="Tổng giá trị" /><SummaryRow icon={Receipt} label="Đã ký" value={String(contracts.length)} hint="Hợp đồng đã tạo" /><SummaryRow icon={ShieldCheck} label="Hiệu lực" value={String(financialStats.activeContracts)} hint="Hợp đồng đang chạy" /></div></div>
+                <div className={`${panelClassName} p-4`}><div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">Tổng quan</div><div className="mt-3 space-y-2"><SummaryRow icon={DollarSign} label="Giá trị cơ hội" value={compactMoney(financialStats.totalDealValue)} hint="Tổng giá trị" /><SummaryRow icon={Receipt} label="Đã ký" value={String(contracts.length)} hint="Hợp đồng đã tạo" /><SummaryRow icon={ShieldCheck} label="SO" value={String(financialStats.activeContracts)} hint="Hợp đồng đang chạy" /></div></div>
                 <div className={`${panelClassName} overflow-hidden`}><div className="border-b border-slate-200 px-4 py-3"><div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">Hợp đồng</div><div className="mt-0.5 text-[15px] font-semibold text-slate-900">Chứng từ liên quan</div></div><div className="divide-y divide-slate-200">{contracts.length === 0 ? <div className="px-4 py-6 text-center text-sm font-medium text-slate-500">Chưa có hợp đồng liên kết.</div> : contracts.map((contract) => <div key={contract.id} className="px-4 py-3"><div className="flex items-start justify-between gap-4"><div className="min-w-0"><div className="flex items-center gap-2"><div className="truncate text-sm font-semibold text-slate-900">{contract.code}</div><span className={['rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide', contract.status === ContractStatus.ACTIVE || contract.status === ContractStatus.SIGNED ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-300 bg-slate-100 text-slate-600'].join(' ')}>{contract.status}</span></div><div className="mt-0.5 text-xs font-medium text-slate-500">Ngày ký: {contract.signedDate ? dateTime(contract.signedDate) : '-'}</div></div><div className="text-right text-sm font-semibold text-slate-900">{money(contract.totalValue)}</div></div></div>)}</div></div>
             </div>
         </div>
@@ -242,23 +332,23 @@ const ContactDrawer: React.FC<ContactDrawerProps> = ({ contact: initialContact, 
                 <div className="border-b border-slate-300 bg-[linear-gradient(180deg,#eef5ff_0%,#f8fbff_100%)] px-4 py-3">
                     <div className="flex items-start justify-between gap-4">
                         <div className="flex min-w-0 flex-1 items-start gap-4">
-                            <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg border border-blue-200 bg-blue-100 text-[26px] font-bold uppercase text-blue-700">{initials(contact.name)}</div>
+                            <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg border border-blue-200 bg-blue-100 text-[26px] font-bold uppercase text-blue-700">{initials(headerTitle)}</div>
                             <div className="min-w-0 flex-1">
                                 <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-blue-700">Khách hàng</div>
                                 <div className="mt-2 flex flex-wrap items-center gap-2">
                                     <button onClick={() => change('contactType', 'individual')} className={['rounded-full border px-3 py-1 text-xs font-semibold transition-colors', currentType === 'individual' ? 'border-blue-300 bg-blue-600 text-white' : 'border-slate-300 bg-white text-slate-600 hover:border-blue-200 hover:text-blue-700'].join(' ')}>Cá nhân</button>
                                     <button onClick={() => change('contactType', 'company')} className={['rounded-full border px-3 py-1 text-xs font-semibold transition-colors', currentType === 'company' ? 'border-blue-300 bg-blue-600 text-white' : 'border-slate-300 bg-white text-slate-600 hover:border-blue-200 hover:text-blue-700'].join(' ')}>Công ty</button>
                                 </div>
-                                <div className="mt-2 grid gap-2 xl:grid-cols-[minmax(0,1fr)_230px]"><input type="text" value={contact.name} onChange={(event) => change('name', event.target.value)} className="h-10 rounded-md border border-blue-300 bg-blue-100 px-4 text-[18px] font-semibold text-slate-900 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-100" /><input type="text" value={contact.company || ''} onChange={(event) => change('company', event.target.value)} placeholder="Công ty / Cơ sở" className={inputClassName} /></div>
+                                <div className="mt-2 grid gap-2 xl:grid-cols-[minmax(0,1fr)_230px]"><input type="text" value={headerPrimaryValue} onChange={(event) => currentType === 'company' ? change('company', event.target.value) : change('name', event.target.value)} placeholder={headerPrimaryPlaceholder} className="h-10 rounded-md border border-blue-300 bg-blue-100 px-4 text-[18px] font-semibold text-slate-900 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-100" /><input type="text" value={headerSecondaryValue} onChange={(event) => currentType === 'company' ? change('name', event.target.value) : change('company', event.target.value)} placeholder={headerSecondaryPlaceholder} className={inputClassName} /></div>
                                 <div className="mt-2 flex flex-wrap items-center gap-2"><span className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700"><Tag size={11} className="text-blue-600" />{contact.source || 'Chưa có nguồn'}</span><span className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700"><Globe size={11} className="text-blue-600" />{contact.targetCountry || 'Chưa có thị trường'}</span><span className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700"><Building2 size={11} className="text-blue-600" />{contact.company || contact.city || 'Chưa có đơn vị'}</span></div>
                             </div>
                         </div>
-                        <div className="grid w-full max-w-[360px] grid-cols-2 gap-2"><MetricCard icon={ExternalLink} label="Cơ hội" value={String(financialStats.dealCount)} hint="Đã liên kết" /><MetricCard icon={Calendar} label="Lịch hẹn" value={String(financialStats.meetingCount)} hint="Đã tạo" /><MetricCard icon={DollarSign} label="Doanh số" value={compactMoney(financialStats.totalContractValue)} hint="Tổng giá trị" /><MetricCard icon={ShieldCheck} label="Hiệu lực" value={String(financialStats.activeContracts)} hint="Đang chạy" /></div>
+                        <div className="grid w-full max-w-[360px] grid-cols-2 gap-2"><MetricCard icon={ExternalLink} label="Cơ hội" value={String(financialStats.dealCount)} hint="Đã liên kết" /><MetricCard icon={Calendar} label="Lịch hẹn" value={String(financialStats.meetingCount)} hint="Đã tạo" /><MetricCard icon={DollarSign} label="Doanh số" value={compactMoney(financialStats.totalContractValue)} hint="Tổng giá trị" /><MetricCard icon={ShieldCheck} label="SO" value={String(financialStats.activeContracts)} hint="Đang chạy" /></div>
                         <button onClick={onClose} className="rounded-md p-2 text-slate-500 transition hover:bg-white hover:text-slate-800"><X size={18} /></button>
                     </div>
                 </div>
-                <div className="custom-scrollbar flex-1 min-h-0 overflow-y-auto bg-[#f7f9fc] px-4 py-3">{activeTab === 'details' && renderDetailTab()}{activeTab === 'notes' && renderNotesTab()}{activeTab === 'sales' && renderSalesTab()}{activeTab === 'invoicing' && renderInvoicingTab()}</div>
-                <div className="border-t border-slate-300 bg-white px-4 py-2.5"><div className="grid grid-cols-4 gap-2"><TabButton active={activeTab === 'details'} label="Liên hệ & địa chỉ" onClick={() => setActiveTab('details')} /><TabButton active={activeTab === 'notes'} label="Ghi chú nội bộ" onClick={() => setActiveTab('notes')} /><TabButton active={activeTab === 'sales'} label="Kinh doanh" onClick={() => setActiveTab('sales')} /><TabButton active={activeTab === 'invoicing'} label="Công nợ / hóa đơn" onClick={() => setActiveTab('invoicing')} /></div></div>
+                <div className="custom-scrollbar flex-1 min-h-0 overflow-y-auto bg-[#f7f9fc] px-4 py-3">{activeTab === 'details' && (currentType === 'company' ? renderCompanyDetailTab() : renderDetailTab())}{activeTab === 'notes' && renderNotesTab()}{activeTab === 'sales' && renderSalesTab()}{activeTab === 'invoicing' && renderInvoicingTab()}</div>
+                <div className="border-t border-slate-300 bg-white px-4 py-2.5"><div className="grid grid-cols-4 gap-2"><TabButton active={activeTab === 'details'} label={currentType === 'company' ? 'Thông tin công ty' : 'Liên hệ & địa chỉ'} onClick={() => setActiveTab('details')} /><TabButton active={activeTab === 'notes'} label="Ghi chú nội bộ" onClick={() => setActiveTab('notes')} /><TabButton active={activeTab === 'sales'} label="Kinh doanh" onClick={() => setActiveTab('sales')} /><TabButton active={activeTab === 'invoicing'} label="Công nợ / hóa đơn" onClick={() => setActiveTab('invoicing')} /></div></div>
                 <div className="flex items-center justify-between border-t border-slate-300 bg-slate-50 px-4 py-3"><div className="text-xs font-medium text-slate-500">Cập nhật lần cuối: <span className="font-semibold text-slate-800">{dateTime(contact.updatedAt || contact.createdAt)}</span></div><div className="flex items-center gap-2.5"><button onClick={onClose} className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">Hủy</button><button onClick={save} className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700"><Save size={15} />Lưu</button></div></div>
             </div>
             <CreateMeetingModal isOpen={isCreateMeetingModalOpen} onClose={() => setIsCreateMeetingModalOpen(false)} salesPersonId={user?.id || 'u2'} salesPersonName={user?.name || 'Sales Rep'} lockedCustomer={lockedMeetingCustomer} onCreated={() => { const refreshed = getContactById(contact.id); if (refreshed) { setContact(refreshed); onUpdate(refreshed); } }} />

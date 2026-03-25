@@ -388,7 +388,8 @@ const SalesMeetings: React.FC = () => {
                                 <th className="p-4 w-32">Cơ sở</th>
                                 <th className="p-4 w-44">Salesperson</th>
                                 <th className="p-4 w-44">Giáo viên test</th>
-                                <th className="p-4 min-w-[220px]">Hình thức hẹn & Notes</th>
+                                <th className="p-4 w-44">Hình thức hẹn / Kết quả</th>
+                                <th className="p-4 min-w-[220px]">Note</th>
                                 <th className="p-4 w-32">Trạng thái</th>
                                 <th className="p-4 w-52 text-right">Hành động</th>
                             </tr>
@@ -461,12 +462,6 @@ const SalesMeetings: React.FC = () => {
                                                         {getMeetingTypeLabel(m.type)}
                                                     </span>
                                                 </div>
-                                                {m.notes && (
-                                                    <div className="text-xs text-slate-600 italic bg-yellow-50 p-2 rounded border border-yellow-100 flex gap-1">
-                                                        <FileText size={12} className="shrink-0 mt-0.5 text-yellow-600" />
-                                                        "{m.notes}"
-                                                    </div>
-                                                )}
                                                 {m.result && (
                                                     <div className="bg-green-50 p-2 rounded border border-green-100 mt-1">
                                                         <div className="flex justify-between items-center mb-1">
@@ -477,6 +472,16 @@ const SalesMeetings: React.FC = () => {
                                                     </div>
                                                 )}
                                             </div>
+                                        </td>
+                                        <td className="p-4 align-top">
+                                            {m.notes ? (
+                                                <div className="text-xs text-slate-600 italic bg-yellow-50 p-2 rounded border border-yellow-100 flex gap-1">
+                                                    <FileText size={12} className="shrink-0 mt-0.5 text-yellow-600" />
+                                                    "{m.notes}"
+                                                </div>
+                                            ) : (
+                                                <span className="text-xs text-slate-400">-</span>
+                                            )}
                                         </td>
                                         <td className="p-4 align-top">{getStatusBadge(m.status)}</td>
                                         <td className="p-4 align-top text-right">
@@ -534,7 +539,7 @@ const SalesMeetings: React.FC = () => {
                                 );
                             }) : (
                                 <tr>
-                                    <td colSpan={9} className="p-12 text-center text-slate-400 italic">
+                                    <td colSpan={10} className="p-12 text-center text-slate-400 italic">
                                         <div className="flex flex-col items-center gap-2">
                                             <Calendar size={48} className="text-slate-200" />
                                             <p>Không tìm thấy lịch hẹn nào phù hợp.</p>

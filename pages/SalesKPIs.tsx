@@ -1,6 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Building2,
+  CalendarRange,
+  ChevronDown,
   CheckCircle2,
   Copy,
   Download,
@@ -69,6 +71,21 @@ type TeamKpiRow = {
   progress: number;
 };
 
+type TimeFilterValue = '1m' | '3m' | '6m' | '12m' | 'all' | 'custom';
+
+const TIME_FILTER_OPTIONS: Array<{
+  value: TimeFilterValue;
+  label: string;
+  months: number | null;
+}> = [
+  { value: '1m', label: '1 tháng', months: 1 },
+  { value: '3m', label: '3 tháng', months: 3 },
+  { value: '6m', label: '6 tháng', months: 6 },
+  { value: '12m', label: '12 tháng', months: 12 },
+  { value: 'all', label: 'Toàn thời gian', months: null },
+  { value: 'custom', label: 'Tùy chỉnh khoảng...', months: null },
+];
+
 const getMonthKey = (date: Date) => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -87,11 +104,82 @@ const getPeriodLabel = (period: string) => {
   return `Tháng ${month}/${year}`;
 };
 
-const getDateMonthKey = (value?: string | number | null) => {
-  if (value === null || value === undefined || value === '') return '';
+const parseDateValue = (value?: string | number | null) => {
+  if (value === null || value === undefined || value === '') return null;
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
+  if (Number.isNaN(date.getTime())) return null;
+  return date;
+};
+
+const getDateMonthKey = (value?: string | number | null) => {
+  const date = parseDateValue(value);
+  if (!date) return '';
   return getMonthKey(date);
+};
+
+const startOfDay = (date: Date) =>
+  new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+
+const endOfDay = (date: Date) =>
+  new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
+
+const parseDateInputValue = (value: string) => {
+  const [year, month, day] = value.split('-').map(Number);
+  if (!year || !month || !day) return null;
+  const date = new Date(year, month - 1, day);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const toDateInputValue = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const formatDateLabel = (date: Date) =>
+  new Intl.DateTimeFormat('vi-VN', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  }).format(date);
+
+const getMonthBoundary = (period: string, boundary: 'start' | 'end') => {
+  const [year, month] = period.split('-').map(Number);
+  if (!year || !month) return null;
+  if (boundary === 'start') {
+    return new Date(year, month - 1, 1, 0, 0, 0, 0);
+  }
+  return new Date(year, month, 0, 23, 59, 59, 999);
+};
+
+const buildMonthRange = (startPeriod: string, endPeriod: string) => {
+  if (!startPeriod || !endPeriod) return [];
+
+  const periods: string[] = [];
+  let cursor = startPeriod;
+  let guard = 0;
+
+  while (cursor <= endPeriod && guard < 240) {
+    periods.push(cursor);
+    cursor = shiftMonthKey(cursor, 1);
+    guard += 1;
+  }
+
+  return periods;
+};
+
+const getPresetMonthRange = (monthsCount: number, anchorDate: Date) => {
+  const anchorMonth = getMonthKey(anchorDate);
+  const months = Array.from({ length: monthsCount }, (_, index) =>
+    shiftMonthKey(anchorMonth, index - monthsCount + 1)
+  );
+
+  return {
+    months,
+    start: months.length > 0 ? getMonthBoundary(months[0], 'start') : null,
+    end: endOfDay(anchorDate),
+  };
 };
 
 const formatCurrency = (value: number) =>
@@ -183,8 +271,12 @@ const sanitizeNumericInput = (value: string) => value.replace(/[^\d]/g, '');
 
 const SalesKPIs: React.FC = () => {
   const currentMonth = getMonthKey(new Date());
+  const today = new Date();
+  const currentMonthStart = new Date(today.getFullYear(), today.getMonth(), 1);
 
-  const [selectedPeriod, setSelectedPeriod] = useState(currentMonth);
+  const [timeFilter, setTimeFilter] = useState<TimeFilterValue>('1m');
+  const [customStartDate, setCustomStartDate] = useState(toDateInputValue(currentMonthStart));
+  const [customEndDate, setCustomEndDate] = useState(toDateInputValue(today));
   const [branchFilter, setBranchFilter] = useState('all');
   const [teamFilter, setTeamFilter] = useState('all');
   const [teams, setTeams] = useState<ISalesTeam[]>([]);
@@ -197,6 +289,11 @@ const SalesKPIs: React.FC = () => {
   const [copyPreviousMonth, setCopyPreviousMonth] = useState(false);
   const [draftTargets, setDraftTargets] = useState<DraftTargetMap>({});
   const [notice, setNotice] = useState('');
+  const [isTimeFilterOpen, setIsTimeFilterOpen] = useState(false);
+  const [draftTimeFilter, setDraftTimeFilter] = useState<TimeFilterValue>('1m');
+  const [draftCustomStartDate, setDraftCustomStartDate] = useState(toDateInputValue(currentMonthStart));
+  const [draftCustomEndDate, setDraftCustomEndDate] = useState(toDateInputValue(today));
+  const timeFilterRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const loadData = () => {
@@ -226,6 +323,29 @@ const SalesKPIs: React.FC = () => {
     const timer = window.setTimeout(() => setNotice(''), 2500);
     return () => window.clearTimeout(timer);
   }, [notice]);
+
+  useEffect(() => {
+    if (!isTimeFilterOpen) return undefined;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (timeFilterRef.current && !timeFilterRef.current.contains(event.target as Node)) {
+        setIsTimeFilterOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isTimeFilterOpen]);
+
+  const openTimeFilter = () => {
+    const nextDraftRange = resolveDraftTimeFilterInputs(timeFilter, customStartDate, customEndDate);
+    setDraftTimeFilter(timeFilter);
+    setDraftCustomStartDate(nextDraftRange.startDate);
+    setDraftCustomEndDate(nextDraftRange.endDate);
+    setIsTimeFilterOpen(true);
+  };
+
+  const closeTimeFilter = () => setIsTimeFilterOpen(false);
 
   const rosterMap = new Map<string, MemberProfile>();
 
@@ -313,6 +433,130 @@ const SalesKPIs: React.FC = () => {
     return matchesBranch && matchesTeam;
   });
 
+  const resolveTimeFilterRange = (
+    filter: TimeFilterValue,
+    startInput: string,
+    endInput: string
+  ) => {
+    const selectedOption = TIME_FILTER_OPTIONS.find((option) => option.value === filter) || TIME_FILTER_OPTIONS[0];
+
+    if (filter === 'all') {
+      return {
+        start: null as Date | null,
+        end: null as Date | null,
+        months: [] as string[],
+        buttonLabel: 'Tất cả thời gian',
+        displayLabel: 'Toàn bộ thời gian',
+      };
+    }
+
+    if (filter === 'custom') {
+      const startDate = parseDateInputValue(startInput);
+      const endDate = parseDateInputValue(endInput);
+      if (!startDate || !endDate) {
+        return {
+          start: null as Date | null,
+          end: null as Date | null,
+          months: [] as string[],
+          buttonLabel: 'Tùy chỉnh khoảng...',
+          displayLabel:
+            startInput || endInput
+              ? 'Chọn đầy đủ Từ ngày và Đến ngày'
+              : 'Chưa chọn khoảng thời gian',
+        };
+      }
+
+      if (startDate > endDate) {
+        return {
+          start: startOfDay(startDate),
+          end: endOfDay(endDate),
+          months: [] as string[],
+          buttonLabel: 'Tùy chỉnh khoảng...',
+          displayLabel: 'Khoảng thời gian không hợp lệ',
+        };
+      }
+
+      if (startDate && endDate) {
+        const start = startOfDay(startDate);
+        const end = endOfDay(endDate);
+        const months = buildMonthRange(getMonthKey(start), getMonthKey(end));
+        return {
+          start,
+          end,
+          months,
+          buttonLabel: 'Tùy chỉnh khoảng...',
+          displayLabel: `${formatDateLabel(start)} - ${formatDateLabel(end)}`,
+        };
+      }
+    }
+
+    const presetRange =
+      selectedOption.months !== null ? getPresetMonthRange(selectedOption.months, today) : null;
+    const months = presetRange?.months || [];
+    const start = presetRange?.start || null;
+    const end = presetRange?.end || null;
+
+    return {
+      start,
+      end,
+      months,
+      buttonLabel: selectedOption.label,
+      displayLabel:
+        months.length === 0
+          ? 'Toàn bộ thời gian'
+          : months.length === 1
+            ? getPeriodLabel(months[0])
+            : `${getPeriodLabel(months[0])} - ${getPeriodLabel(months[months.length - 1])}`,
+    };
+  };
+
+  const resolveDraftTimeFilterInputs = (
+    filter: TimeFilterValue,
+    startInput: string,
+    endInput: string
+  ) => {
+    if (filter === 'custom') {
+      return {
+        startDate: startInput,
+        endDate: endInput,
+      };
+    }
+
+    if (filter === 'all') {
+      return {
+        startDate: '',
+        endDate: '',
+      };
+    }
+
+    const resolvedRange = resolveTimeFilterRange(filter, startInput, endInput);
+    return {
+      startDate: resolvedRange.start ? toDateInputValue(resolvedRange.start) : '',
+      endDate: resolvedRange.end ? toDateInputValue(resolvedRange.end) : '',
+    };
+  };
+
+  const activeDateRange = resolveTimeFilterRange(timeFilter, customStartDate, customEndDate);
+  const draftDateRange = resolveTimeFilterRange(draftTimeFilter, draftCustomStartDate, draftCustomEndDate);
+  const activePeriodSet = new Set(activeDateRange.months);
+  const activePeriodLabel = activeDateRange.displayLabel;
+  const activeButtonLabel =
+    timeFilter === 'custom' ? activeDateRange.displayLabel : activeDateRange.buttonLabel;
+  const isPeriodIncluded = (period?: string) => {
+    if (!period) return timeFilter === 'all';
+    return timeFilter === 'all' ? true : activePeriodSet.has(period);
+  };
+  const isDateIncluded = (value?: string | number | null) => {
+    if (!activeDateRange.start || !activeDateRange.end) return true;
+    const date = parseDateValue(value);
+    if (!date) return false;
+    return date >= activeDateRange.start && date <= activeDateRange.end;
+  };
+  const defaultKpiPeriod =
+    activeDateRange.months.length > 0
+      ? activeDateRange.months[activeDateRange.months.length - 1]
+      : currentMonth;
+
   const statsByOwner = new Map<
     string,
     { actualRevenue: number; actualContracts: number; pipelineValue: number }
@@ -334,7 +578,7 @@ const SalesKPIs: React.FC = () => {
     const stats = getOwnerStats(quotation.createdBy);
     const wonDate = quotation.lockedAt || quotation.updatedAt || quotation.createdAt;
 
-    if (isWonQuotation(quotation) && getDateMonthKey(wonDate) === selectedPeriod) {
+    if (isWonQuotation(quotation) && isDateIncluded(wonDate)) {
       stats.actualRevenue += Number(quotation.finalAmount || quotation.amount || 0);
       stats.actualContracts += 1;
     }
@@ -342,7 +586,7 @@ const SalesKPIs: React.FC = () => {
     if (
       isOpenQuotation(quotation) &&
       !quotation.dealId &&
-      getDateMonthKey(quotation.createdAt || quotation.updatedAt) === selectedPeriod
+      isDateIncluded(quotation.createdAt || quotation.updatedAt)
     ) {
       stats.pipelineValue += Number(quotation.finalAmount || quotation.amount || 0);
     }
@@ -356,18 +600,29 @@ const SalesKPIs: React.FC = () => {
       deal.stage !== DealStage.AFTER_SALE;
     if (!isOpenStage) return;
 
-    const dealMonth = getDateMonthKey(deal.expectedCloseDate || deal.createdAt || '');
-    if (dealMonth && dealMonth !== selectedPeriod) return;
+    if (!isDateIncluded(deal.expectedCloseDate || deal.createdAt || '')) return;
 
     const stats = getOwnerStats(deal.ownerId);
     stats.pipelineValue += Number(deal.value || 0);
   });
 
-  const currentTargetsByOwner = new Map(
-    kpiTargets
-      .filter((target) => target.period === selectedPeriod)
-      .map((target) => [target.ownerId, target] as const)
-  );
+  const currentTargetsByOwner = new Map<
+    string,
+    { targetRevenue: number; targetContracts: number }
+  >();
+
+  kpiTargets
+    .filter((target) => isPeriodIncluded(target.period))
+    .forEach((target) => {
+      const currentTarget = currentTargetsByOwner.get(target.ownerId) || {
+        targetRevenue: 0,
+        targetContracts: 0,
+      };
+
+      currentTarget.targetRevenue += Number(target.targetRevenue || 0);
+      currentTarget.targetContracts += Number(target.targetContracts || 0);
+      currentTargetsByOwner.set(target.ownerId, currentTarget);
+    });
 
   const memberRows: MemberKpiRow[] = filteredRoster
     .map((member) => {
@@ -488,10 +743,10 @@ const SalesKPIs: React.FC = () => {
 
   const openCreateModal = () => {
     const defaultIds = (filteredRoster.length ? filteredRoster : roster).map((member) => member.userId);
-    setDraftPeriod(selectedPeriod);
+    setDraftPeriod(defaultKpiPeriod);
     setCopyPreviousMonth(false);
     setSelectedMemberIds(defaultIds);
-    setDraftTargets(buildDraftTargets(selectedPeriod, defaultIds, false));
+    setDraftTargets(buildDraftTargets(defaultKpiPeriod, defaultIds, false));
     setShowCreateModal(true);
   };
 
@@ -593,6 +848,50 @@ const SalesKPIs: React.FC = () => {
     closeCreateModal();
   };
 
+  const handleSelectDraftTimeFilter = (nextFilter: TimeFilterValue) => {
+    const nextDraftRange = resolveDraftTimeFilterInputs(
+      nextFilter,
+      draftCustomStartDate,
+      draftCustomEndDate
+    );
+
+    setDraftTimeFilter(nextFilter);
+    setDraftCustomStartDate(nextDraftRange.startDate);
+    setDraftCustomEndDate(nextDraftRange.endDate);
+  };
+
+  const handleResetTimeFilterDraft = () => {
+    setDraftTimeFilter('all');
+    setDraftCustomStartDate('');
+    setDraftCustomEndDate('');
+  };
+
+  const handleApplyTimeFilter = () => {
+    if (draftTimeFilter === 'custom') {
+      const startDate = parseDateInputValue(draftCustomStartDate);
+      const endDate = parseDateInputValue(draftCustomEndDate);
+
+      if (!startDate || !endDate) {
+        setNotice('Vui lòng chọn đầy đủ Từ ngày và Đến ngày cho khoảng tùy chỉnh.');
+        return;
+      }
+
+      if (startDate > endDate) {
+        setNotice('Khoảng thời gian tùy chỉnh không hợp lệ. Từ ngày phải trước Đến ngày.');
+        return;
+      }
+
+      setCustomStartDate(draftCustomStartDate);
+      setCustomEndDate(draftCustomEndDate);
+    } else {
+      setCustomStartDate('');
+      setCustomEndDate('');
+    }
+
+    setTimeFilter(draftTimeFilter);
+    closeTimeFilter();
+  };
+
   const handleExport = () => {
     const rows = [
       [
@@ -625,7 +924,13 @@ const SalesKPIs: React.FC = () => {
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `kpi-sales-${selectedPeriod}.csv`;
+    const exportKey =
+      timeFilter === 'custom' && customStartDate && customEndDate
+        ? `${customStartDate}_${customEndDate}`
+        : timeFilter === 'all'
+          ? 'all-time'
+          : defaultKpiPeriod;
+    link.download = `kpi-sales-${timeFilter}-${exportKey}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -639,7 +944,133 @@ const SalesKPIs: React.FC = () => {
           <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
             <h1 className="text-3xl font-bold tracking-tight text-slate-900">KPIs & Mục tiêu Kinh doanh</h1>
 
-            <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2 md:justify-end xl:w-auto xl:grid-cols-[176px_176px_148px] xl:gap-1.5">
+            <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2 md:justify-end xl:w-auto xl:grid-cols-[220px_176px_176px_148px] xl:gap-1.5">
+              <div ref={timeFilterRef} className="relative min-w-0">
+                <span className="sr-only">Lọc theo thời gian</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isTimeFilterOpen) {
+                      closeTimeFilter();
+                    } else {
+                      openTimeFilter();
+                    }
+                  }}
+                  title={`Khoảng áp dụng: ${activePeriodLabel}`}
+                  className="inline-flex w-full items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-xs font-bold text-slate-600 transition-all hover:bg-slate-50 focus:border-blue-500 focus:outline-none"
+                >
+                  <CalendarRange size={15} className="shrink-0 text-slate-400" />
+                  <span className="min-w-0 flex-1 truncate">{activeButtonLabel}</span>
+                  <ChevronDown
+                    size={15}
+                    className={`shrink-0 text-slate-400 transition-transform ${isTimeFilterOpen ? 'rotate-180' : ''}`}
+                  />
+                </button>
+
+                {isTimeFilterOpen ? (
+                  <div className="absolute left-0 top-[calc(100%+8px)] z-30 w-[500px] max-w-[calc(100vw-2.5rem)] overflow-hidden rounded-[18px] border border-slate-200 bg-white shadow-2xl">
+                    <div className="flex flex-col sm:flex-row">
+                      <div className="border-b border-slate-100 bg-slate-50/70 p-3 sm:w-[180px] sm:border-b-0 sm:border-r">
+                        <div className="space-y-1">
+                          {TIME_FILTER_OPTIONS.map((option) => {
+                            const isActive = option.value === draftTimeFilter;
+                            return (
+                              <button
+                                key={option.value}
+                                type="button"
+                                onClick={() => handleSelectDraftTimeFilter(option.value)}
+                                className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-[12px] font-semibold transition ${
+                                  isActive
+                                    ? 'bg-blue-600 text-white shadow-sm'
+                                    : 'text-slate-700 hover:bg-white hover:text-slate-900'
+                                }`}
+                              >
+                                <span>{option.label}</span>
+                                {isActive ? <span className="text-[10px] font-bold">Đang chọn</span> : null}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      <div className="flex-1 p-4">
+                        <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                          Khoảng thời gian tùy chỉnh
+                        </div>
+
+                        <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
+                          <label className="space-y-1">
+                            <span className="block text-[11px] font-semibold text-slate-500">Từ ngày</span>
+                            <input
+                              type="date"
+                              value={draftCustomStartDate}
+                              onChange={(event) => {
+                                setDraftTimeFilter('custom');
+                                setDraftCustomStartDate(event.target.value);
+                              }}
+                              disabled={draftTimeFilter !== 'custom'}
+                              className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-[12px] font-semibold text-slate-800 outline-none transition focus:border-blue-500"
+                            />
+                          </label>
+
+                          <label className="space-y-1">
+                            <span className="block text-[11px] font-semibold text-slate-500">Đến ngày</span>
+                            <input
+                              type="date"
+                              value={draftCustomEndDate}
+                              onChange={(event) => {
+                                setDraftTimeFilter('custom');
+                                setDraftCustomEndDate(event.target.value);
+                              }}
+                              disabled={draftTimeFilter !== 'custom'}
+                              className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-[12px] font-semibold text-slate-800 outline-none transition focus:border-blue-500"
+                            />
+                          </label>
+                        </div>
+
+                        <div className="mt-3 space-y-1 text-[11px] text-slate-500">
+                          <div>
+                            Đang chọn:{' '}
+                            <span className="font-semibold text-slate-700">{draftDateRange.displayLabel}</span>
+                          </div>
+                          <div>
+                            Áp dụng hiện tại:{' '}
+                            <span className="font-semibold text-slate-700">{activePeriodLabel}</span>
+                          </div>
+                        </div>
+
+                        <div className="mt-4 flex items-center justify-between gap-2.5">
+                          <button
+                            type="button"
+                            onClick={handleResetTimeFilterDraft}
+                            className="text-[12px] font-semibold text-slate-500 transition hover:text-slate-700"
+                          >
+                            Làm lại
+                          </button>
+
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={closeTimeFilter}
+                              className="rounded-xl px-3.5 py-1.5 text-[12px] font-semibold text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+                            >
+                              Hủy
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleApplyTimeFilter}
+                              className="rounded-xl bg-blue-600 px-4 py-1.5 text-[12px] font-semibold text-white transition hover:bg-blue-700"
+                            >
+                              Áp dụng
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+
               <label className="relative min-w-0">
                 <Building2
                   size={15}
@@ -694,7 +1125,7 @@ const SalesKPIs: React.FC = () => {
         </div>
 
         <div className="rounded-lg border border-dashed border-blue-200 bg-blue-50/70 px-3 py-2.5 text-[13px] text-slate-700 shadow-sm">
-          Dữ liệu thực tế lấy từ báo giá/đơn chốt và pipeline hiện có.
+          Dữ liệu thực tế lấy từ báo giá/đơn chốt và pipeline hiện có trong khoảng {activePeriodLabel}.
         </div>
 
         {notice ? (

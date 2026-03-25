@@ -3369,35 +3369,9 @@ const resolveLeadForDealStatusSync = (deal: IDeal, contacts: IContact[], leads: 
 };
 
 const syncLostLeadStatusesFromDeals = (deals: IDeal[]) => {
-  const lostDeals = deals.filter((deal) => deal.stage === DealStage.LOST);
-  if (lostDeals.length === 0) return;
-
-  const contacts = getContacts();
-  const leads = getLeads();
-  const nextLeads = [...leads];
-  let hasChanges = false;
-
-  lostDeals.forEach((deal) => {
-    const linkedLead = resolveLeadForDealStatusSync(deal, contacts, nextLeads);
-    if (!linkedLead) return;
-
-    const leadIndex = nextLeads.findIndex((lead) => lead.id === linkedLead.id);
-    if (leadIndex === -1) return;
-
-    const currentLead = nextLeads[leadIndex];
-    if (currentLead.status === LeadStatus.LOST || currentLead.status === DealStage.LOST) return;
-
-    nextLeads[leadIndex] = {
-      ...currentLead,
-      status: LeadStatus.LOST,
-      updatedAt: new Date().toISOString()
-    };
-    hasChanges = true;
-  });
-
-  if (hasChanges) {
-    saveLeads(nextLeads);
-  }
+  // Lead closure is now managed from lead workflows.
+  // Do not infer closed leads from deal stage anymore.
+  void deals;
 };
 
 export const saveDeals = (deals: IDeal[]) => {

@@ -30,10 +30,7 @@ const DISPLAY_VIEW_OPTIONS = [
   { value: 'analysis', label: 'Phân tích', icon: BarChart3, disabled: true }
 ] as const;
 
-const TIME_FIELD_OPTIONS = [
-  { value: 'confirmDate', label: 'Ngày xác nhận' },
-  { value: 'quotationDate', label: 'Ngày báo giá' }
-] as const;
+const TIME_FIELD_OPTIONS = [{ value: 'createdDate', label: 'Ngày tạo' }] as const;
 
 const TIME_PRESETS = [
   { value: 'all', label: 'Mọi ngày' },
@@ -91,8 +88,7 @@ type EnrichedQuotation = {
   paymentState: { label: string; className: string };
   displayStatus: { label: string; className: string };
   saleTypeLabel: string;
-  quotationDateValue?: string;
-  confirmDateValue?: string;
+  createdDateValue?: string;
   isFavorite: boolean;
 };
 
@@ -266,12 +262,7 @@ const getSaleTypeLabel = (quotation: IQuotation) => {
   return 'Mới';
 };
 
-const getQuotationDateValue = (quotation: IQuotation) => quotation.quotationDate || quotation.createdAt;
-
-const getConfirmDateValue = (quotation: IQuotation) =>
-  quotation.confirmDate ||
-  quotation.saleConfirmedAt ||
-  (quotation.status === QuotationStatus.LOCKED ? quotation.lockedAt || quotation.updatedAt : undefined);
+const getCreatedDateValue = (quotation: IQuotation) => quotation.createdAt || quotation.quotationDate;
 
 const getTimePresetLabel = (_timeFilterField: TimeFilterField, timeRangeType: TimeRangeType) => {
   if (timeRangeType === 'all') {
@@ -374,7 +365,7 @@ const Quotations: React.FC = () => {
   const [quotations, setQuotations] = useState<IQuotation[]>([]);
   const [students, setStudents] = useState<IStudent[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [timeFilterField, setTimeFilterField] = useState<TimeFilterField>('confirmDate');
+  const [timeFilterField, setTimeFilterField] = useState<TimeFilterField>('createdDate');
   const [timeRangeType, setTimeRangeType] = useState<TimeRangeType>('all');
   const [customTimeRange, setCustomTimeRange] = useState<DateRange>({
     startDate: null,
@@ -444,8 +435,7 @@ const Quotations: React.FC = () => {
         paymentState: getPaymentStateConfig(quotation),
         displayStatus: getDisplayStatusConfig(quotation.status),
         saleTypeLabel: getSaleTypeLabel(quotation),
-        quotationDateValue: getQuotationDateValue(quotation),
-        confirmDateValue: getConfirmDateValue(quotation),
+        createdDateValue: getCreatedDateValue(quotation),
         isFavorite: favoriteIds.includes(quotation.id)
       })),
     [favoriteIds, quotations, studentMap]
@@ -492,8 +482,7 @@ const Quotations: React.FC = () => {
         .join(' ')
         .toLowerCase();
 
-      const selectedTimeValue =
-        timeFilterField === 'quotationDate' ? item.quotationDateValue : item.confirmDateValue;
+      const selectedTimeValue = item.createdDateValue;
 
       if (keyword && !haystack.includes(keyword)) return false;
       if (!isTimeRangeMatch(selectedTimeValue, timeRangeType, customTimeRange)) return false;
@@ -513,8 +502,8 @@ const Quotations: React.FC = () => {
         if (groupCompare !== 0) return groupCompare;
       }
 
-      return new Date(b.quotationDateValue || b.quotation.createdAt).getTime() -
-        new Date(a.quotationDateValue || a.quotation.createdAt).getTime();
+      return new Date(b.createdDateValue || b.quotation.createdAt).getTime() -
+        new Date(a.createdDateValue || a.quotation.createdAt).getTime();
     });
 
     return result;
@@ -584,7 +573,7 @@ const Quotations: React.FC = () => {
 
   const resetToolbar = () => {
     setSearchTerm('');
-    setTimeFilterField('confirmDate');
+    setTimeFilterField('createdDate');
     setTimeRangeType('all');
     setCustomTimeRange({ startDate: null, endDate: null, label: 'Tùy chọn' });
     setIsCustomRangeOpen(false);
@@ -608,7 +597,7 @@ const Quotations: React.FC = () => {
         setFavoriteMode('all');
         break;
       case 'time':
-        setTimeFilterField('confirmDate');
+        setTimeFilterField('createdDate');
         setTimeRangeType('all');
         setCustomTimeRange({ startDate: null, endDate: null, label: 'Tuy chon' });
         setIsCustomRangeOpen(false);
@@ -633,15 +622,14 @@ const Quotations: React.FC = () => {
         lastGroup = groupValue;
         rows.push(
           <tr key={`group-${groupMode}-${groupValue}`} className="bg-slate-50/80">
-            <td colSpan={11} className="px-3 py-2 text-[11px] font-semibold text-slate-600">
+            <td colSpan={10} className="px-3 py-2 text-[11px] font-semibold text-slate-600">
               {getGroupPrefix(groupMode)}: {groupValue || '-'}
             </td>
           </tr>
         );
       }
 
-      const quotationDate = formatDateParts(item.quotationDateValue);
-      const confirmDate = formatDateParts(item.confirmDateValue);
+      const createdDate = formatDateParts(item.createdDateValue);
       const isSelected = selectedIds.includes(item.quotation.id);
 
       rows.push(
@@ -682,12 +670,8 @@ const Quotations: React.FC = () => {
             </div>
           </td>
           <td className="px-3 py-3 text-[12px] text-slate-700">
-            <div>{quotationDate.date}</div>
-            {quotationDate.time ? <div className="mt-0.5 truncate text-[10px] text-slate-400">{quotationDate.time}</div> : null}
-          </td>
-          <td className="px-3 py-3 text-[12px] text-slate-700">
-            <div>{confirmDate.date}</div>
-            {confirmDate.time ? <div className="mt-0.5 truncate text-[10px] text-slate-400">{confirmDate.time}</div> : null}
+            <div>{createdDate.date}</div>
+            {createdDate.time ? <div className="mt-0.5 truncate text-[10px] text-slate-400">{createdDate.time}</div> : null}
           </td>
           <td className="px-3 py-3">
             <div
@@ -777,7 +761,7 @@ const Quotations: React.FC = () => {
       });
     }
 
-    if (timeFilterField !== 'confirmDate' || timeRangeType !== 'all') {
+    if (timeRangeType !== 'all') {
       const timeFieldLabel = getOptionLabelByValue(TIME_FIELD_OPTIONS, timeFilterField);
       const timeRangeLabel =
         timeRangeType === 'custom'
@@ -855,7 +839,7 @@ const Quotations: React.FC = () => {
                 <PinnedSearchInput
                   value={searchTerm}
                   onChange={setSearchTerm}
-                  placeholder="Tim so bao gia, khach hang, hoc vien, tu van..."
+                  placeholder="Tim ma bao gia, khach hang, hoc vien, tu van..."
                   chips={activeToolbarChips}
                   onRemoveChip={handleRemoveToolbarChip}
                   onClearAll={resetToolbar}
@@ -942,9 +926,8 @@ const Quotations: React.FC = () => {
                       className="h-4 w-4 rounded border-slate-300"
                     />
                   </th>
-                  <th className="w-[122px] px-3 py-2.5 whitespace-nowrap">Số báo giá</th>
-                  <th className="w-[102px] px-3 py-2.5 whitespace-nowrap">Ngày báo giá</th>
-                  <th className="w-[102px] px-3 py-2.5 whitespace-nowrap">Ngày xác nhận</th>
+                  <th className="w-[122px] px-3 py-2.5 whitespace-nowrap">Mã báo giá</th>
+                  <th className="w-[102px] px-3 py-2.5 whitespace-nowrap">Ngày tạo</th>
                   <th className="w-[170px] px-3 py-2.5 whitespace-nowrap">Khách hàng</th>
                   <th className="w-[124px] px-3 py-2.5 whitespace-nowrap">Học viên</th>
                   <th className="w-[116px] px-3 py-2.5 whitespace-nowrap">Tư vấn</th>
@@ -960,7 +943,7 @@ const Quotations: React.FC = () => {
                   groupedRows
                 ) : (
                   <tr>
-                    <td colSpan={11} className="px-4 py-12 text-center text-[13px] italic text-slate-400">
+                    <td colSpan={10} className="px-4 py-12 text-center text-[13px] italic text-slate-400">
                       Không tìm thấy báo giá phù hợp.
                     </td>
                   </tr>
