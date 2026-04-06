@@ -368,6 +368,7 @@ const Campaigns: React.FC = () => {
             <table className="w-full text-left text-sm">
               <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
                 <tr>
+                  <th className="p-4 w-16 text-center">STT</th>
                   <th className="p-4">Tên chiến dịch</th>
                   <th className="p-4">Kênh</th>
                   {campaignTypeTab === 'auto' && <th className="p-4 text-center">API</th>}
@@ -382,7 +383,7 @@ const Campaigns: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredCampaigns.map(c => (
+                {filteredCampaigns.map((c, index) => (
                   <tr
                     key={c.id}
                     onClick={() => navigate(`/campaigns/${c.id}`, {
@@ -396,6 +397,7 @@ const Campaigns: React.FC = () => {
                     })}
                     className="hover:bg-slate-50 cursor-pointer transition-colors"
                   >
+                    <td className="p-4 text-center font-semibold text-slate-500">{index + 1}</td>
                     <td className="p-4 font-bold text-slate-900">{c.name}</td>
                     <td className="p-4 text-slate-600">{c.channel}</td>
                     {campaignTypeTab === 'auto' && (

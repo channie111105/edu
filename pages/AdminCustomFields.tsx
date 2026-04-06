@@ -113,6 +113,7 @@ const AdminCustomFields: React.FC = () => {
              <table className="w-full text-left border-collapse">
                 <thead className="bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-500 uppercase">
                    <tr>
+                      <th className="px-6 py-4 w-16 text-center">STT</th>
                       <th className="px-6 py-4">Tên hiển thị (Label)</th>
                       <th className="px-6 py-4">Mã trường (Key)</th>
                       <th className="px-6 py-4">Loại dữ liệu</th>
@@ -121,8 +122,9 @@ const AdminCustomFields: React.FC = () => {
                    </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                   {fields.filter(f => f.module === activeModule).map((field) => (
-                      <tr key={field.id} className="hover:bg-slate-50 transition-colors">
+                    {fields.filter(f => f.module === activeModule).map((field, index) => (
+                       <tr key={field.id} className="hover:bg-slate-50 transition-colors">
+                         <td className="px-6 py-4 text-center font-semibold text-slate-500">{index + 1}</td>
                          <td className="px-6 py-4 font-bold text-slate-900">{field.label}</td>
                          <td className="px-6 py-4 font-mono text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded w-fit">{field.key}</td>
                          <td className="px-6 py-4">

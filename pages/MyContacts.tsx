@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+﻿import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getContacts, getStudents, getContracts, addContact, saveContact } from '../utils/storage';
 import {
@@ -8,7 +8,6 @@ import {
     Building2,
     User,
     GraduationCap,
-    DollarSign,
     FileCheck,
     ChevronRight,
     LayoutList,
@@ -22,7 +21,7 @@ import Toast from '../components/Toast';
 import PinnedSearchInput, { PinnedSearchChip } from '../components/PinnedSearchInput';
 import { IContact, ContractStatus } from '../types';
 
-type ContactFilter = 'all' | 'debt' | 'student' | 'signed';
+type ContactFilter = 'all' | 'student' | 'signed';
 type ViewMode = 'list' | 'card';
 
 const ALL_COLUMNS: Array<{ id: string; label: string }> = [
@@ -34,7 +33,6 @@ const ALL_COLUMNS: Array<{ id: string; label: string }> = [
     { id: 'source', label: 'Nguồn' },
     { id: 'student', label: 'Học sinh' },
     { id: 'signed', label: 'Đã ký HĐ' },
-    { id: 'debt', label: 'Công nợ' },
     { id: 'createdAt', label: 'Ngày tạo' }
 ];
 
@@ -47,7 +45,6 @@ const DEFAULT_VISIBLE_COLUMNS = [
     'source',
     'student',
     'signed',
-    'debt',
     'createdAt'
 ];
 
@@ -111,20 +108,6 @@ const MyContacts: React.FC = () => {
         return map;
     }, [contracts]);
 
-    const debtByName = useMemo(() => {
-        const set = new Set<string>();
-        contracts.forEach((contract) => {
-            const customerName = String(contract?.customerName || '').trim();
-            if (!customerName) return;
-            const paidValue = Number(contract?.paidValue || 0);
-            const totalValue = Number(contract?.totalValue || 0);
-            if (paidValue < totalValue) {
-                set.add(customerName);
-            }
-        });
-        return set;
-    }, [contracts]);
-
     const filteredContacts = useMemo(() => {
         const keyword = searchTerm.trim().toLowerCase();
 
@@ -146,11 +129,9 @@ const MyContacts: React.FC = () => {
 
                 const student = studentByPhone.get(contact.phone);
                 const signedCount = signedCountByName.get(name.trim()) || 0;
-                const hasDebt = debtByName.has(name.trim());
 
                 if (filterType === 'student') return !!student;
                 if (filterType === 'signed') return signedCount > 0;
-                if (filterType === 'debt') return hasDebt;
                 return true;
             })
             .sort((a, b) => {
@@ -158,13 +139,12 @@ const MyContacts: React.FC = () => {
                 const bTime = new Date(b.createdAt || 0).getTime();
                 return bTime - aTime;
             });
-    }, [contacts, searchTerm, filterType, studentByPhone, signedCountByName, debtByName]);
+    }, [contacts, searchTerm, filterType, studentByPhone, signedCountByName]);
 
     const filterTypeLabelMap: Record<ContactFilter, string> = {
         all: 'Tat ca',
         student: 'Hoc sinh',
-        signed: 'Da ky hop dong',
-        debt: 'Co cong no'
+        signed: 'Da ky hop dong'
     };
 
     const activeSearchChips = useMemo<PinnedSearchChip[]>(() => {
@@ -221,6 +201,7 @@ const MyContacts: React.FC = () => {
                 <table className="w-full text-left border-collapse text-sm table-fixed">
                     <thead className="bg-slate-50 sticky top-0 z-10 text-xs font-bold text-slate-500 uppercase">
                         <tr>
+                            <th className="px-3 py-3 border-b border-slate-200 w-16 text-center">STT</th>
                             {visibleColumns.includes('name') && <th className="px-3 py-3 border-b border-slate-200">Liên hệ</th>}
                             {visibleColumns.includes('phone') && <th className="px-3 py-3 border-b border-slate-200">SĐT</th>}
                             {visibleColumns.includes('email') && <th className="px-3 py-3 border-b border-slate-200">Email</th>}
@@ -229,22 +210,20 @@ const MyContacts: React.FC = () => {
                             {visibleColumns.includes('source') && <th className="px-3 py-3 border-b border-slate-200">Nguồn</th>}
                             {visibleColumns.includes('student') && <th className="px-3 py-3 border-b border-slate-200">Học sinh</th>}
                             {visibleColumns.includes('signed') && <th className="px-3 py-3 border-b border-slate-200">Đã ký HĐ</th>}
-                            {visibleColumns.includes('debt') && <th className="px-3 py-3 border-b border-slate-200">Công nợ</th>}
                             {visibleColumns.includes('createdAt') && <th className="px-3 py-3 border-b border-slate-200">Ngày tạo</th>}
                         </tr>
                     </thead>
                     <tbody>
                         {filteredContacts.length === 0 ? (
                             <tr>
-                                <td className="px-4 py-10 text-center text-slate-500" colSpan={visibleColumns.length}>
+                                <td className="px-4 py-10 text-center text-slate-500" colSpan={visibleColumns.length + 1}>
                                     Chưa có contact phù hợp bộ lọc hiện tại.
                                 </td>
                             </tr>
                         ) : (
-                            filteredContacts.map((contact) => {
+                            filteredContacts.map((contact, index) => {
                                 const student = studentByPhone.get(contact.phone);
                                 const signedCount = signedCountByName.get(String(contact.name || '').trim()) || 0;
-                                const hasDebt = debtByName.has(String(contact.name || '').trim());
 
                                 return (
                                     <tr
@@ -255,6 +234,7 @@ const MyContacts: React.FC = () => {
                                             setIsDrawerOpen(true);
                                         }}
                                     >
+                                        <td className="px-3 py-3 text-center font-semibold text-slate-500">{index + 1}</td>
                                         {visibleColumns.includes('name') && (
                                             <td className="px-3 py-3">
                                                 <div className="flex items-center gap-2 min-w-0">
@@ -315,18 +295,6 @@ const MyContacts: React.FC = () => {
                                                 )}
                                             </td>
                                         )}
-                                        {visibleColumns.includes('debt') && (
-                                            <td className="px-3 py-3">
-                                                {hasDebt ? (
-                                                    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-amber-50 text-amber-700 border border-amber-100 text-xs font-semibold">
-                                                        <DollarSign size={12} />
-                                                        Có nợ
-                                                    </span>
-                                                ) : (
-                                                    <span className="text-slate-400">-</span>
-                                                )}
-                                            </td>
-                                        )}
                                         {visibleColumns.includes('createdAt') && (
                                             <td className="px-3 py-3 text-slate-700">
                                                 {contact.createdAt ? new Date(contact.createdAt).toLocaleDateString('vi-VN') : '-'}
@@ -358,7 +326,6 @@ const MyContacts: React.FC = () => {
                 {filteredContacts.map((contact) => {
                     const student = studentByPhone.get(contact.phone);
                     const signedCount = signedCountByName.get(String(contact.name || '').trim()) || 0;
-                    const hasDebt = debtByName.has(String(contact.name || '').trim());
 
                     return (
                         <div
@@ -383,11 +350,6 @@ const MyContacts: React.FC = () => {
                                             {signedCount > 0 && (
                                                 <div title="Đã ký hợp đồng" className="text-purple-500">
                                                     <FileCheck size={14} />
-                                                </div>
-                                            )}
-                                            {hasDebt && (
-                                                <div title="Có công nợ" className="text-amber-500">
-                                                    <DollarSign size={14} />
                                                 </div>
                                             )}
                                         </div>
@@ -472,7 +434,6 @@ const MyContacts: React.FC = () => {
                             <option value="all">Tất cả</option>
                             <option value="student">Học sinh</option>
                             <option value="signed">Đã ký hợp đồng</option>
-                            <option value="debt">Có công nợ</option>
                         </select>
                     </div>
 

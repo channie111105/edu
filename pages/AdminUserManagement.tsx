@@ -160,6 +160,7 @@ const AdminUserManagement: React.FC = () => {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-[#f8fafc] border-b border-[#dbe0e6]">
+                  <th className="px-6 py-4 text-[#111418] text-sm font-bold uppercase tracking-wider w-16 text-center">STT</th>
                   <th className="px-6 py-4 text-[#111418] text-sm font-bold uppercase tracking-wider">Họ và Tên</th>
                   <th className="px-6 py-4 text-[#111418] text-sm font-bold uppercase tracking-wider">Email / Username</th>
                   <th className="px-6 py-4 text-[#111418] text-sm font-bold uppercase tracking-wider text-center">Vai trò (Role)</th>
@@ -169,8 +170,9 @@ const AdminUserManagement: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#dbe0e6]">
-                {filteredUsers.map((user) => (
+                {filteredUsers.map((user, index) => (
                     <tr key={user.id} className="hover:bg-[#f0f4f8] transition-colors group">
+                        <td className="px-6 py-4 text-center text-sm font-semibold text-[#617589]">{index + 1}</td>
                         <td className="px-6 py-4">
                             <div className="flex items-center gap-3">
                                 <div className={`size-9 rounded-full flex items-center justify-center font-bold text-xs ${user.color.replace('border', '')}`}>

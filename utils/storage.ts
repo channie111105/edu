@@ -153,10 +153,37 @@ const normalizeStudentClaimRecord = (claim: IStudentClaim): IStudentClaim => {
   };
 };
 
-const normalizeTransactionRecord = (transaction: ITransaction): ITransaction => ({
-  ...decodeStorageValue(transaction),
-  ...(TRANSACTION_TEXT_REPAIR_BY_ID[transaction.id] || {})
-});
+const stripInlineStorageUrl = (value?: string) => {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  return normalized.startsWith('data:') ? '' : normalized;
+};
+
+const compactTransactionProofFiles = (proofFiles?: ITransaction['proofFiles']) => {
+  if (!Array.isArray(proofFiles)) return [];
+
+  return proofFiles.map((file) => ({
+    ...file,
+    url: stripInlineStorageUrl(file?.url)
+  }));
+};
+
+const normalizeTransactionRecord = (transaction: ITransaction): ITransaction => {
+  const normalized = decodeStorageValue(transaction) as ITransaction;
+  return {
+    ...normalized,
+    proofFiles: compactTransactionProofFiles(normalized.proofFiles),
+    ...(TRANSACTION_TEXT_REPAIR_BY_ID[transaction.id] || {})
+  };
+};
+
+const normalizeActualTransactionRecord = (transaction: IActualTransaction): IActualTransaction => {
+  const normalized = decodeStorageValue(transaction) as IActualTransaction;
+  return {
+    ...normalized,
+    proof: stripInlineStorageUrl(normalized.proof),
+    attachmentUrl: stripInlineStorageUrl(normalized.attachmentUrl)
+  };
+};
 
 // ... (existing code)
 
@@ -164,12 +191,13 @@ const normalizeTransactionRecord = (transaction: ITransaction): ITransaction => 
 export const getActualTransactions = (): IActualTransaction[] => {
   try {
     const data = localStorage.getItem(KEYS.ACTUAL_TRANSACTIONS);
-    return data ? JSON.parse(data) : [];
+    const list: IActualTransaction[] = data ? JSON.parse(data) : [];
+    return list.map(normalizeActualTransactionRecord);
   } catch { return []; }
 };
 
 export const saveActualTransactions = (data: IActualTransaction[]) => {
-  localStorage.setItem(KEYS.ACTUAL_TRANSACTIONS, JSON.stringify(data));
+  localStorage.setItem(KEYS.ACTUAL_TRANSACTIONS, JSON.stringify(data.map(normalizeActualTransactionRecord)));
   emitClientEvent('educrm:actual-transactions-changed');
 };
 
@@ -448,28 +476,28 @@ export const saveLeadDistributionConfig = (config: Partial<ILeadDistributionConf
 export const getSalesTeams = (): ISalesTeam[] => {
   try {
     const data = localStorage.getItem(KEYS.SALES_TEAMS);
-    return data ? JSON.parse(data) : INITIAL_SALES_TEAMS;
+    return normalizeMojibakeInObject(data ? JSON.parse(data) : INITIAL_SALES_TEAMS) as ISalesTeam[];
   } catch {
-    return INITIAL_SALES_TEAMS;
+    return normalizeMojibakeInObject(INITIAL_SALES_TEAMS) as ISalesTeam[];
   }
 };
 
 export const saveSalesTeams = (teams: ISalesTeam[]) => {
-  localStorage.setItem(KEYS.SALES_TEAMS, JSON.stringify(teams));
+  localStorage.setItem(KEYS.SALES_TEAMS, JSON.stringify(normalizeMojibakeInObject(teams)));
   emitClientEvent('educrm:sales-teams-changed');
 };
 
 export const getSalesKpis = (): ISalesKpiTarget[] => {
   try {
     const data = localStorage.getItem(KEYS.SALES_KPIS);
-    return data ? JSON.parse(data) : INITIAL_SALES_KPIS;
+    return normalizeMojibakeInObject(data ? JSON.parse(data) : INITIAL_SALES_KPIS) as ISalesKpiTarget[];
   } catch {
-    return INITIAL_SALES_KPIS;
+    return normalizeMojibakeInObject(INITIAL_SALES_KPIS) as ISalesKpiTarget[];
   }
 };
 
 export const saveSalesKpis = (targets: ISalesKpiTarget[]) => {
-  localStorage.setItem(KEYS.SALES_KPIS, JSON.stringify(targets));
+  localStorage.setItem(KEYS.SALES_KPIS, JSON.stringify(normalizeMojibakeInObject(targets)));
   emitClientEvent('educrm:sales-kpis-changed');
 };
 
@@ -557,6 +585,46 @@ export const updateQuotation = (updated: IQuotation) => {
   return false;
 };
 
+export const deleteQuotation = (quotationId: string) => {
+  const quotations = getQuotations();
+  const quotation = quotations.find((item) => item.id === quotationId);
+
+  if (!quotation) {
+    return { ok: false as const, error: 'Không tìm thấy báo giá để xóa.' };
+  }
+
+  const canDelete =
+    quotation.status === QuotationStatus.DRAFT || quotation.status === QuotationStatus.SENT;
+
+  if (!canDelete) {
+    return { ok: false as const, error: 'Chỉ được xóa báo giá khi chưa confirm.' };
+  }
+
+  const nextQuotations = quotations.filter((item) => item.id !== quotationId);
+  localStorage.setItem(KEYS.QUOTATIONS, JSON.stringify(nextQuotations));
+  emitClientEvent('educrm:quotations-changed');
+
+  const transactions = getTransactions();
+  const nextTransactions = transactions.filter((item) => item.quotationId !== quotationId);
+  if (nextTransactions.length !== transactions.length) {
+    saveTransactions(nextTransactions);
+  }
+
+  const contracts = getContracts();
+  const nextContracts = contracts.filter((item) => item.quotationId !== quotationId);
+  if (nextContracts.length !== contracts.length) {
+    localStorage.setItem(KEYS.CONTRACTS, JSON.stringify(nextContracts));
+    emitClientEvent('educrm:contracts-changed');
+  }
+
+  return {
+    ok: true as const,
+    quotation,
+    removedTransactions: transactions.length - nextTransactions.length,
+    removedContracts: contracts.length - nextContracts.length
+  };
+};
+
 // TRANSACTIONS (Accounting approval for SO)
 export const getTransactions = (): ITransaction[] => {
   try {
@@ -615,6 +683,96 @@ const normalizeStudentIdentity = (value?: string) =>
 
 const getQuotationLinkedStudentIds = (quotation: IQuotation) =>
   Array.from(new Set([quotation.studentId, ...(quotation.studentIds || [])].filter(Boolean) as string[]));
+
+const PROGRAM_LEVEL_ORDER = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'] as const;
+
+const normalizeProgramToken = (value?: string) => {
+  const normalized = normalizeEnrollmentText(value).replace(/\s+/g, ' ').trim();
+  if (!normalized) return '';
+
+  const hskMatch = normalized.match(/^HSK\s*([1-6])$/i);
+  if (hskMatch) return `HSK${hskMatch[1]}`;
+
+  const levelMatch = normalized.match(/^(A1|A2|B1|B2|C1|C2)$/i);
+  if (levelMatch) return levelMatch[1].toUpperCase();
+
+  return normalized.toUpperCase();
+};
+
+const expandProgramRange = (startToken: string, endToken: string) => {
+  const normalizedStart = normalizeProgramToken(startToken);
+  const normalizedEnd = normalizeProgramToken(endToken);
+  if (!normalizedStart || !normalizedEnd) return [];
+
+  const startLevelIndex = PROGRAM_LEVEL_ORDER.indexOf(normalizedStart as (typeof PROGRAM_LEVEL_ORDER)[number]);
+  const endLevelIndex = PROGRAM_LEVEL_ORDER.indexOf(normalizedEnd as (typeof PROGRAM_LEVEL_ORDER)[number]);
+  if (startLevelIndex >= 0 && endLevelIndex >= 0) {
+    const [from, to] = startLevelIndex <= endLevelIndex ? [startLevelIndex, endLevelIndex] : [endLevelIndex, startLevelIndex];
+    return [...PROGRAM_LEVEL_ORDER.slice(from, to + 1)];
+  }
+
+  const startHsk = normalizedStart.match(/^HSK([1-6])$/);
+  const endHsk = normalizedEnd.match(/^HSK([1-6])$/);
+  if (startHsk && endHsk) {
+    const [from, to] =
+      Number(startHsk[1]) <= Number(endHsk[1])
+        ? [Number(startHsk[1]), Number(endHsk[1])]
+        : [Number(endHsk[1]), Number(startHsk[1])];
+    return Array.from({ length: to - from + 1 }, (_, index) => `HSK${from + index}`);
+  }
+
+  return Array.from(new Set([normalizedStart, normalizedEnd]));
+};
+
+const extractProgramTokensFromText = (value?: string, options?: { includeFallback?: boolean }) => {
+  const normalized = normalizeEnrollmentText(value).replace(/\s+/g, ' ').trim();
+  const includeFallback = options?.includeFallback ?? true;
+  if (!normalized) return [];
+
+  const tokens: string[] = [];
+  const pushToken = (token?: string) => {
+    const normalizedToken = normalizeProgramToken(token);
+    if (normalizedToken && !tokens.includes(normalizedToken)) {
+      tokens.push(normalizedToken);
+    }
+  };
+
+  for (const match of normalized.matchAll(/HSK\s*([1-6])\s*[-–]\s*(?:HSK\s*)?([1-6])/gi)) {
+    expandProgramRange(`HSK${match[1]}`, `HSK${match[2]}`).forEach((item) => pushToken(item));
+  }
+
+  for (const match of normalized.matchAll(/\b(A1|A2|B1|B2|C1|C2)\s*[-–]\s*(A1|A2|B1|B2|C1|C2)\b/gi)) {
+    expandProgramRange(match[1], match[2]).forEach((item) => pushToken(item));
+  }
+
+  (normalized.match(/\b(HSK\s*[1-6]|A1|A2|B1|B2|C1|C2)\b/gi) || []).forEach((item) => pushToken(item));
+
+  if (!tokens.length && includeFallback) {
+    pushToken(normalized);
+  }
+
+  return tokens;
+};
+
+const getQuotationProgramTokens = (quotation: IQuotation) => {
+  const tokens: string[] = [];
+  const pushTokens = (values: string[]) => {
+    values.forEach((value) => {
+      if (value && !tokens.includes(value)) {
+        tokens.push(value);
+      }
+    });
+  };
+
+  (quotation.lineItems || []).forEach((item) => {
+    (item.programs || []).forEach((program) => pushTokens(extractProgramTokensFromText(program)));
+    pushTokens(extractProgramTokensFromText(item.courseName));
+    pushTokens(extractProgramTokensFromText(item.name, { includeFallback: false }));
+  });
+  pushTokens(extractProgramTokensFromText(quotation.product));
+
+  return tokens;
+};
 
 const getNextStudentCode = (students: IStudent[]) => {
   const maxCode = students.reduce((maxValue, student) => {
@@ -723,6 +881,120 @@ export const quotationLinksToStudent = (quotation: IQuotation, student: IStudent
     (!!student.customerId && quotation.customerId === student.customerId) ||
     (!!student.leadId && quotation.leadId === student.leadId)
   );
+};
+
+export const getStudentAllowedPrograms = (student?: IStudent, sourceQuotations = getQuotations()) => {
+  if (!student) return [];
+
+  const tokens: string[] = [];
+  const pushTokens = (values: string[]) => {
+    values.forEach((value) => {
+      if (value && !tokens.includes(value)) {
+        tokens.push(value);
+      }
+    });
+  };
+
+  sourceQuotations
+    .filter((quotation) => quotationLinksToStudent(quotation, student) || (!!student.soId && quotation.id === student.soId))
+    .forEach((quotation) => pushTokens(getQuotationProgramTokens(quotation)));
+
+  pushTokens(extractProgramTokensFromText(student.level));
+  return tokens;
+};
+
+export const getStudentClassEligibility = (
+  student?: IStudent,
+  classInfo?: Partial<Pick<ITrainingClass, 'id' | 'code' | 'level'>>,
+  sourceQuotations = getQuotations()
+) => {
+  const allowedPrograms = getStudentAllowedPrograms(student, sourceQuotations);
+  const classLevel = normalizeEnrollmentText(classInfo?.level).replace(/\s+/g, ' ').trim();
+  const classPrograms = Array.from(
+    new Set([
+      ...extractProgramTokensFromText(classInfo?.level),
+      ...extractProgramTokensFromText(classInfo?.code, { includeFallback: false })
+    ])
+  );
+
+  if (!student) {
+    return {
+      ok: false,
+      allowedPrograms,
+      classPrograms,
+      classLevel,
+      reason: 'Không tìm thấy học viên'
+    };
+  }
+
+  if (!classInfo) {
+    return {
+      ok: false,
+      allowedPrograms,
+      classPrograms,
+      classLevel,
+      reason: 'Không tìm thấy lớp'
+    };
+  }
+
+  if (!classPrograms.length && !classLevel) {
+    return {
+      ok: true,
+      allowedPrograms,
+      classPrograms,
+      classLevel
+    };
+  }
+
+  const isMatched = classPrograms.some((program) => allowedPrograms.includes(program));
+  if (isMatched) {
+    return {
+      ok: true,
+      allowedPrograms,
+      classPrograms,
+      classLevel
+    };
+  }
+
+  const classLabel = classInfo.code || classInfo.id || 'lớp đã chọn';
+  const classDescription = classLevel ? ` (${classLevel})` : '';
+  const reason = allowedPrograms.length
+    ? `Học viên chỉ có chương trình ${allowedPrograms.join(', ')} nên không thể gán vào lớp ${classLabel}${classDescription}`
+    : `Học viên chưa có chương trình phù hợp nên không thể gán vào lớp ${classLabel}${classDescription}`;
+
+  return {
+    ok: false,
+    allowedPrograms,
+    classPrograms,
+    classLevel,
+    reason
+  };
+};
+
+export const validateStudentClassEligibility = (studentId: string, classId: string) => {
+  const student = getStudents().find((item) => item.id === studentId);
+  if (!student) {
+    return {
+      ok: false,
+      allowedPrograms: [],
+      classPrograms: [],
+      classLevel: '',
+      reason: 'Không tìm thấy học viên'
+    };
+  }
+
+  const trainingClass = getTrainingClasses().find((item) => item.id === classId || item.code === classId);
+  if (!trainingClass) {
+    return {
+      ok: false,
+      allowedPrograms: getStudentAllowedPrograms(student),
+      classPrograms: [],
+      classLevel: '',
+      reason: 'Không tìm thấy lớp'
+    };
+  }
+
+  return getStudentClassEligibility(student, trainingClass);
 };
 
 export const createStudentsFromQuotation = (quotation: IQuotation): IStudent[] => {
@@ -1042,6 +1314,11 @@ export const addStudentToClass = (classId: string, studentId: string): IClassStu
   const existing = list.find((item) => item.classId === classId && item.studentId === studentId);
   if (existing) return existing;
 
+  const eligibility = validateStudentClassEligibility(studentId, classId);
+  if (!eligibility.ok) {
+    throw new Error(eligibility.reason || 'Học viên không phù hợp với trình độ của lớp');
+  }
+
   const debtSummary = summarizeDebt();
   const newRecord: IClassStudent = {
     id: `CS-${Date.now()}`,
@@ -1077,6 +1354,11 @@ export const transferStudentClass = (studentId: string, fromClassId: string, toC
   const list = getClassStudents();
   const from = list.find((item) => item.classId === fromClassId && item.studentId === studentId);
   if (!from) throw new Error('KhÃ´ng tÃ¬m tháº¥y há»c viÃªn trong lá»›p hiá»‡n táº¡i');
+
+  const eligibility = validateStudentClassEligibility(studentId, toClassId);
+  if (!eligibility.ok) {
+    throw new Error(eligibility.reason || 'Học viên không phù hợp với trình độ của lớp đích');
+  }
 
   const existsInTarget = list.find((item) => item.classId === toClassId && item.studentId === studentId);
   const filtered = list.filter((item) => !(item.classId === fromClassId && item.studentId === studentId));
@@ -1145,14 +1427,16 @@ export const markDebtTermPaid = (classId: string, studentId: string, termNo: num
 export const getTrainingClasses = (): ITrainingClass[] => {
   try {
     const data = localStorage.getItem(KEYS.TRAINING_CLASSES);
-    return data ? (JSON.parse(data) as ITrainingClass[]).map((item) => buildClassSnapshot(item)) : [];
+    return data
+      ? (normalizeMojibakeInObject(JSON.parse(data)) as ITrainingClass[]).map((item) => buildClassSnapshot(item))
+      : (normalizeMojibakeInObject(INITIAL_TRAINING_CLASSES) as ITrainingClass[]).map((item) => buildClassSnapshot(item));
   } catch {
-    return [];
+    return (normalizeMojibakeInObject(INITIAL_TRAINING_CLASSES) as ITrainingClass[]).map((item) => buildClassSnapshot(item));
   }
 };
 
 export const saveTrainingClasses = (classes: ITrainingClass[]) => {
-  localStorage.setItem(KEYS.TRAINING_CLASSES, JSON.stringify(classes));
+  localStorage.setItem(KEYS.TRAINING_CLASSES, JSON.stringify(normalizeMojibakeInObject(classes)));
   emitClientEvent('educrm:training-classes-changed');
 };
 
@@ -1712,7 +1996,7 @@ export const createStudentFromQuotation = (quotation: IQuotation) => {
 const INITIAL_LEADS: ILead[] = [
   {
     id: 'SLA-001',
-    name: 'Tráº§n Van Nguy Hiá»ƒm',
+    name: 'Trần Van Nguy Hiểm',
     phone: '090111222',
     email: 'danger@test.com',
     source: 'SLA Test',
@@ -1720,15 +2004,15 @@ const INITIAL_LEADS: ILead[] = [
     createdAt: new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString(),
     ownerId: 'u1',
     activities: [],
-    program: 'Du há»c Äá»©c',
-    city: 'HÃ  Ná»™i',
+    program: 'Du học Đức',
+    city: 'Hà Nội',
     lastInteraction: new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString(),
     notes: 'SLA Test Lead',
     slaStatus: 'danger'
   },
   {
     id: 'SLA-002',
-    name: 'Nguyá»…n Thá»‹ Cáº£nh BÃ¡o',
+    name: 'Nguyễn Thị Cảnh Báo',
     phone: '090333444',
     email: 'warning@test.com',
     source: 'SLA Test',
@@ -1736,57 +2020,57 @@ const INITIAL_LEADS: ILead[] = [
     createdAt: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(),
     ownerId: 'u1',
     activities: [],
-    program: 'Tiáº¿ng Äá»©c',
-    city: 'ÄÃ  Náºµng',
+    program: 'Tiếng Đức',
+    city: 'Đà Nẵng',
     lastInteraction: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(),
     notes: 'SLA Test Lead',
     slaStatus: 'warning'
   },
   {
     id: 'LEAD-005',
-    name: 'Äáº·ng Tháº£o Chi',
+    name: 'Đặng Thảo Chi',
     phone: '0988777666',
     email: 'thaochi@example.com',
     source: 'TikTok',
     status: 'CONTACTED' as LeadStatus,
     createdAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
     ownerId: 'u1',
-    program: 'Du há»c nghá» Ãšc',
-    city: 'HÃ  Ná»™i',
+    program: 'Du học nghề Úc',
+    city: 'Hà Nội',
     lastInteraction: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
-    notes: 'Quan tÃ¢m ngÃ nh nhÃ  hÃ ng khÃ¡ch sáº¡n',
+    notes: 'Quan tâm ngành nhà hàng khách sạn',
     slaStatus: 'normal',
     activities: []
   },
   {
     id: 'LEAD-006',
-    name: 'VÅ© Minh Tuáº¥n',
+    name: 'Vũ Minh Tuấn',
     phone: '0912345678',
     email: 'minhtuan@example.com',
     source: 'Google',
     status: 'NEW' as LeadStatus,
     createdAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
     ownerId: 'u3',
-    program: 'Du há»c Äá»©c',
-    city: 'Quáº£ng Ninh',
+    program: 'Du học Đức',
+    city: 'Quảng Ninh',
     lastInteraction: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
-    notes: 'ChÆ°a liÃªn há»‡ Ä‘Æ°á»£c',
+    notes: 'Chưa liên hệ được',
     slaStatus: 'danger',
     activities: []
   },
   {
     id: 'LEAD-007',
-    name: 'HoÃ ng Thá»‹ Lan',
+    name: 'Hoàng Thị Lan',
     phone: '0933221100',
     email: 'hlan@example.com',
     source: 'Referral',
     status: 'NEW' as LeadStatus,
     createdAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
     ownerId: 'u2',
-    program: 'Tiáº¿ng Äá»©c',
-    city: 'Há»“ ChÃ­ Minh',
+    program: 'Tiếng Đức',
+    city: 'Hồ Chí Minh',
     lastInteraction: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
-    notes: 'Báº¡n cá»§a há»c viÃªn cÅ© giá»›i thiá»‡u',
+    notes: 'Bạn của học viên cũ giới thiệu',
     slaStatus: 'normal',
     activities: []
   }
@@ -1794,6 +2078,11 @@ const INITIAL_LEADS: ILead[] = [
 
 const DEMO_RECLAIM_LEAD_ID = 'DEMO-RECLAIM-001';
 const DEMO_TODAY_CARE_LEAD_ID = 'DEMO-TODAY-CARE-001';
+const DEMO_INSTALLMENT_LEAD_ID = 'DEMO-INSTALLMENT-001';
+const DEMO_INSTALLMENT_QUOTATION_ID = 'Q-DEMO-INSTALLMENT-001';
+const DEMO_INSTALLMENT_SO_CODE = 'SO5886';
+const DEMO_INSTALLMENT_TERM_IDS = ['demo-term-1', 'demo-term-2', 'demo-term-3', 'demo-term-4'] as const;
+const DEMO_INSTALLMENT_TRANSACTION_IDS = ['TRX-DEMO-INSTALLMENT-1', 'TRX-DEMO-INSTALLMENT-3'] as const;
 
 const buildDemoReclaimLead = (): ILead => {
   const now = new Date();
@@ -1867,6 +2156,172 @@ const buildDemoTodayCareLead = (): ILead => {
       }
     ] as any
   };
+};
+
+const buildDemoInstallmentActivationLead = (): ILead => {
+  const now = new Date();
+
+  return {
+    id: DEMO_INSTALLMENT_LEAD_ID,
+    name: 'Demo Kích Hoạt Từng Lần Thu',
+    phone: '0909990003',
+    email: 'demo.installment@example.com',
+    source: 'Demo Finance',
+    status: LeadStatus.CONTACTED as LeadStatus,
+    createdAt: new Date(now.getTime() - 6 * 24 * 60 * 60 * 1000).toISOString(),
+    ownerId: 'u1',
+    program: 'Du học Đức',
+    city: 'Hà Nội',
+    lastInteraction: new Date(now.getTime() - 2 * 60 * 60 * 1000).toISOString(),
+    notes: 'Lead demo để kiểm tra trạng thái từng lần thu: chưa kích hoạt, đã kích hoạt, thu 1 phần, hoàn tất.',
+    slaStatus: 'normal',
+    activities: []
+  };
+};
+
+const buildDemoInstallmentActivationQuotation = (): IQuotation => {
+  const now = new Date();
+  const createdAt = new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000).toISOString();
+  const saleConfirmedAt = new Date(now.getTime() - 4 * 24 * 60 * 60 * 1000).toISOString();
+  const lockedAt = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000).toISOString();
+  const activatedAt = new Date(now.getTime() - 36 * 60 * 60 * 1000).toISOString();
+
+  return {
+    id: DEMO_INSTALLMENT_QUOTATION_ID,
+    soCode: DEMO_INSTALLMENT_SO_CODE,
+    customerName: 'Demo Kích Hoạt Từng Lần Thu',
+    customerId: 'CUST-DEMO-INSTALLMENT-001',
+    leadId: DEMO_INSTALLMENT_LEAD_ID,
+    serviceType: 'Combo',
+    product: 'Combo tiếng Đức A1-B1',
+    amount: 45000000,
+    finalAmount: 45000000,
+    createdAt,
+    updatedAt: now.toISOString(),
+    quotationDate: createdAt,
+    saleConfirmedAt,
+    saleConfirmedBy: 'u1',
+    confirmDate: saleConfirmedAt,
+    lockedAt,
+    lockedBy: 'u1',
+    status: QuotationStatus.LOCKED,
+    transactionStatus: 'DA_DUYET',
+    contractStatus: 'signed_contract',
+    createdBy: 'u1',
+    lineItems: [
+      {
+        id: 'demo-line-installment-1',
+        name: 'Combo tiếng Đức A1-B1',
+        quantity: 1,
+        unitPrice: 45000000,
+        discount: 0,
+        total: 45000000,
+        studentName: 'Demo Kích Hoạt Từng Lần Thu',
+        targetMarket: 'Đức',
+        servicePackage: 'Combo',
+        programs: ['A1', 'A2', 'B1'],
+        paymentSchedule: [
+          {
+            id: DEMO_INSTALLMENT_TERM_IDS[0],
+            termNo: 1,
+            installmentLabel: 'Lần 1',
+            condition: 'Confirm sale',
+            amount: 10000000,
+            expectedDate: '',
+            dueDate: ''
+          },
+          {
+            id: DEMO_INSTALLMENT_TERM_IDS[1],
+            termNo: 2,
+            installmentLabel: 'Lần 2',
+            condition: 'Kế toán kích hoạt đợt tiếp theo',
+            amount: 10000000,
+            expectedDate: '',
+            dueDate: '',
+            activatedAt,
+            activatedBy: 'Kế toán demo'
+          },
+          {
+            id: DEMO_INSTALLMENT_TERM_IDS[2],
+            termNo: 3,
+            installmentLabel: 'Lần 3',
+            condition: 'Đã kích hoạt và thu 1 phần',
+            amount: 10000000,
+            expectedDate: '',
+            dueDate: '',
+            activatedAt,
+            activatedBy: 'Kế toán demo'
+          },
+          {
+            id: DEMO_INSTALLMENT_TERM_IDS[3],
+            termNo: 4,
+            installmentLabel: 'Lần 4',
+            condition: 'Chưa kích hoạt',
+            amount: 15000000,
+            expectedDate: '',
+            dueDate: ''
+          }
+        ]
+      }
+    ]
+  };
+};
+
+const buildDemoInstallmentActivationTransactions = (): ITransaction[] => {
+  const now = Date.now();
+
+  return [
+    {
+      id: DEMO_INSTALLMENT_TRANSACTION_IDS[0],
+      code: 'KT5886-01',
+      quotationId: DEMO_INSTALLMENT_QUOTATION_ID,
+      soCode: DEMO_INSTALLMENT_SO_CODE,
+      installmentTermId: DEMO_INSTALLMENT_TERM_IDS[0],
+      installmentTermNo: 1,
+      installmentLabel: 'Lần 1',
+      customerId: 'CUST-DEMO-INSTALLMENT-001',
+      studentName: 'Demo Kích Hoạt Từng Lần Thu',
+      relatedEntityLabel: 'Demo Kích Hoạt Từng Lần Thu',
+      recipientPayerName: 'Demo Kích Hoạt Từng Lần Thu',
+      amount: 10000000,
+      method: 'CHUYEN_KHOAN',
+      proofType: 'UNC',
+      bankRefCode: 'UNC-DEMO-5886-01',
+      status: 'DA_DUYET',
+      paidAt: now - 72 * 60 * 60 * 1000,
+      createdAt: now - 72 * 60 * 60 * 1000,
+      approvedAt: now - 71 * 60 * 60 * 1000,
+      createdBy: 'u1',
+      businessGroupHint: 'THU',
+      businessTypeHint: 'Thu học viên',
+      note: 'Demo lần 1 hoàn tất'
+    },
+    {
+      id: DEMO_INSTALLMENT_TRANSACTION_IDS[1],
+      code: 'KT5886-03',
+      quotationId: DEMO_INSTALLMENT_QUOTATION_ID,
+      soCode: DEMO_INSTALLMENT_SO_CODE,
+      installmentTermId: DEMO_INSTALLMENT_TERM_IDS[2],
+      installmentTermNo: 3,
+      installmentLabel: 'Lần 3',
+      customerId: 'CUST-DEMO-INSTALLMENT-001',
+      studentName: 'Demo Kích Hoạt Từng Lần Thu',
+      relatedEntityLabel: 'Demo Kích Hoạt Từng Lần Thu',
+      recipientPayerName: 'Demo Kích Hoạt Từng Lần Thu',
+      amount: 4000000,
+      method: 'CHUYEN_KHOAN',
+      proofType: 'UNC',
+      bankRefCode: 'UNC-DEMO-5886-03',
+      status: 'DA_DUYET',
+      paidAt: now - 18 * 60 * 60 * 1000,
+      createdAt: now - 18 * 60 * 60 * 1000,
+      approvedAt: now - 17 * 60 * 60 * 1000,
+      createdBy: 'u1',
+      businessGroupHint: 'THU',
+      businessTypeHint: 'Thu học viên',
+      note: 'Demo lần 3 thu 1 phần'
+    }
+  ];
 };
 
 const INITIAL_DEALS: IDeal[] = [];
@@ -2021,13 +2476,13 @@ const KPI_SEED_TIMESTAMP = new Date().toISOString();
 const INITIAL_SALES_TEAMS: ISalesTeam[] = [
   {
     id: 'team-duc',
-    name: 'Team Äá»©c',
-    branch: 'HÃ  Ná»™i',
-    productFocus: 'Tiáº¿ng Äá»©c / Du há»c Äá»©c',
-    assignKeywords: ['Äá»©c', 'Tiáº¿ng Äá»©c', 'Du há»c Äá»©c', 'German'],
+    name: 'Team Đức',
+    branch: 'Hà Nội',
+    productFocus: 'Tiếng Đức / Du học Đức',
+    assignKeywords: ['Đức', 'Tiếng Đức', 'Du học Đức', 'German'],
     members: [
-      { userId: 'u1', name: 'Tráº§n VÄƒn Quáº£n Trá»‹', role: 'Team Lead', branch: 'HÃ  Ná»™i' },
-      { userId: 'u2', name: 'Sarah Miller', role: 'Sales Rep', branch: 'HÃ  Ná»™i' }
+      { userId: 'u1', name: 'Trần Văn Quản Trị', role: 'Team Lead', branch: 'Hà Nội' },
+      { userId: 'u2', name: 'Sarah Miller', role: 'Sales Rep', branch: 'Hà Nội' }
     ],
     createdAt: KPI_SEED_TIMESTAMP,
     updatedAt: KPI_SEED_TIMESTAMP
@@ -2036,8 +2491,8 @@ const INITIAL_SALES_TEAMS: ISalesTeam[] = [
     id: 'team-trung',
     name: 'Team Trung',
     branch: 'HCM',
-    productFocus: 'Tiáº¿ng Trung / Du há»c Trung',
-    assignKeywords: ['Trung', 'Tiáº¿ng Trung', 'Du há»c Trung', 'Chinese'],
+    productFocus: 'Tiếng Trung / Du học Trung',
+    assignKeywords: ['Trung', 'Tiếng Trung', 'Du học Trung', 'Chinese'],
     members: [
       { userId: 'u3', name: 'David Clark', role: 'Team Lead', branch: 'HCM' },
       { userId: 'u4', name: 'Alex Rivera', role: 'Sales Rep', branch: 'HCM' }
@@ -2052,10 +2507,10 @@ const INITIAL_SALES_KPIS: ISalesKpiTarget[] = [
     id: `kpi-${CURRENT_KPI_PERIOD}-u1`,
     period: CURRENT_KPI_PERIOD,
     ownerId: 'u1',
-    ownerName: 'Tráº§n VÄƒn Quáº£n Trá»‹',
+    ownerName: 'Trần Văn Quản Trị',
     teamId: 'team-duc',
-    teamName: 'Team Äá»©c',
-    branch: 'HÃ  Ná»™i',
+    teamName: 'Team Đức',
+    branch: 'Hà Nội',
     targetRevenue: 600000000,
     targetContracts: 8,
     createdAt: KPI_SEED_TIMESTAMP,
@@ -2067,8 +2522,8 @@ const INITIAL_SALES_KPIS: ISalesKpiTarget[] = [
     ownerId: 'u2',
     ownerName: 'Sarah Miller',
     teamId: 'team-duc',
-    teamName: 'Team Äá»©c',
-    branch: 'HÃ  Ná»™i',
+    teamName: 'Team Đức',
+    branch: 'Hà Nội',
     targetRevenue: 350000000,
     targetContracts: 6,
     createdAt: KPI_SEED_TIMESTAMP,
@@ -2104,10 +2559,10 @@ const INITIAL_SALES_KPIS: ISalesKpiTarget[] = [
     id: `kpi-${PREVIOUS_KPI_PERIOD}-u1`,
     period: PREVIOUS_KPI_PERIOD,
     ownerId: 'u1',
-    ownerName: 'Tráº§n VÄƒn Quáº£n Trá»‹',
+    ownerName: 'Trần Văn Quản Trị',
     teamId: 'team-duc',
-    teamName: 'Team Äá»©c',
-    branch: 'HÃ  Ná»™i',
+    teamName: 'Team Đức',
+    branch: 'Hà Nội',
     targetRevenue: 520000000,
     targetContracts: 7,
     createdAt: KPI_SEED_TIMESTAMP,
@@ -2119,8 +2574,8 @@ const INITIAL_SALES_KPIS: ISalesKpiTarget[] = [
     ownerId: 'u2',
     ownerName: 'Sarah Miller',
     teamId: 'team-duc',
-    teamName: 'Team Äá»©c',
-    branch: 'HÃ  Ná»™i',
+    teamName: 'Team Đức',
+    branch: 'Hà Nội',
     targetRevenue: 320000000,
     targetContracts: 5,
     createdAt: KPI_SEED_TIMESTAMP,
@@ -2261,11 +2716,11 @@ const INITIAL_ADMISSIONS: IAdmission[] = [
 ];
 
 const INITIAL_TRAINING_CLASSES: ITrainingClass[] = [
-  { id: 'GER-A1-K35', code: 'GER-A1-K35', name: 'Lá»›p GER-A1-K35', campus: 'HÃ  Ná»™i', schedule: 'T2-4-6 18:30', language: 'Tiáº¿ng Äá»©c', level: 'A1', classType: 'Offline', maxStudents: 25, startDate: '2025-09-10', endDate: '2025-12-20', status: 'ACTIVE', teacherId: 'T001' },
-  { id: 'GER-A1-K36', code: 'GER-A1-K36', name: 'Lá»›p GER-A1-K36', campus: 'HÃ  Ná»™i', schedule: 'T3-5-7 19:00', language: 'Tiáº¿ng Äá»©c', level: 'A1', classType: 'Offline', maxStudents: 25, startDate: '2025-09-12', endDate: '2025-12-22', status: 'ACTIVE', teacherId: 'T001' },
-  { id: 'AUS-COOK-K01', code: 'AUS-COOK-K01', name: 'Lá»›p AUS-COOK-K01', campus: 'HCM', schedule: 'T2-4 20:00', language: 'Tiáº¿ng Anh', level: 'Cookery', classType: 'Offline', maxStudents: 20, startDate: '2025-10-01', endDate: '2026-01-10', status: 'ACTIVE', teacherId: 'T002' },
-  { id: 'DE-A2-K10', code: 'DE-A2-K10', name: 'Lá»›p DE-A2-K10', campus: 'HÃ  Ná»™i', schedule: 'T3-5 08:30', language: 'Tiáº¿ng Äá»©c', level: 'A2', classType: 'Offline', maxStudents: 25, startDate: '2025-05-01', endDate: '2025-08-15', status: 'DONE', teacherId: '' },
-  { id: 'DE-A1-K24', code: 'DE-A1-K24', name: 'Lá»›p Tiáº¿ng Äá»©c A1 - K24', campus: 'HÃ  Ná»™i', schedule: 'T2-4-6 18:30', language: 'Tiáº¿ng Äá»©c', level: 'A1', classType: 'Offline', maxStudents: 25, startDate: '2025-09-15', endDate: '2025-12-15', status: 'ACTIVE', teacherId: 'T001' }
+  { id: 'GER-A1-K35', code: 'GER-A1-K35', name: 'Lớp GER-A1-K35', campus: 'Hà Nội', schedule: 'T2-4-6 18:30', language: 'Tiếng Đức', level: 'A1', classType: 'Offline', maxStudents: 25, startDate: '2025-09-10', endDate: '2025-12-20', status: 'ACTIVE', teacherId: 'T001' },
+  { id: 'GER-A1-K36', code: 'GER-A1-K36', name: 'Lớp GER-A1-K36', campus: 'Hà Nội', schedule: 'T3-5-7 19:00', language: 'Tiếng Đức', level: 'A1', classType: 'Offline', maxStudents: 25, startDate: '2025-09-12', endDate: '2025-12-22', status: 'ACTIVE', teacherId: 'T001' },
+  { id: 'AUS-COOK-K01', code: 'AUS-COOK-K01', name: 'Lớp AUS-COOK-K01', campus: 'HCM', schedule: 'T2-4 20:00', language: 'Tiếng Anh', level: 'Cookery', classType: 'Offline', maxStudents: 20, startDate: '2025-10-01', endDate: '2026-01-10', status: 'ACTIVE', teacherId: 'T002' },
+  { id: 'DE-A2-K10', code: 'DE-A2-K10', name: 'Lớp DE-A2-K10', campus: 'Hà Nội', schedule: 'T3-5 08:30', language: 'Tiếng Đức', level: 'A2', classType: 'Offline', maxStudents: 25, startDate: '2025-05-01', endDate: '2025-08-15', status: 'DONE', teacherId: '' },
+  { id: 'DE-A1-K24', code: 'DE-A1-K24', name: 'Lớp Tiếng Đức A1 - K24', campus: 'Hà Nội', schedule: 'T2-4-6 18:30', language: 'Tiếng Đức', level: 'A1', classType: 'Offline', maxStudents: 25, startDate: '2025-09-15', endDate: '2025-12-15', status: 'ACTIVE', teacherId: 'T001' }
 ];
 
 const INITIAL_TEACHERS: ITeacher[] = [
@@ -2732,6 +3187,30 @@ const migrateLegacyConfirmSaleTransactions = () => {
   }
 };
 
+const migrateInlineFinanceAttachments = () => {
+  try {
+    const transactions = getTransactions();
+    const hasInlineTransactionAttachment = transactions.some((transaction) =>
+      Array.isArray(transaction.proofFiles) && transaction.proofFiles.some((file) => typeof file?.url === 'string' && file.url.trim().startsWith('data:'))
+    );
+
+    if (hasInlineTransactionAttachment) {
+      saveTransactions(transactions);
+    }
+
+    const actualTransactions = getActualTransactions();
+    const hasInlineActualAttachment = actualTransactions.some((transaction) =>
+      [transaction.proof, transaction.attachmentUrl].some((value) => typeof value === 'string' && value.trim().startsWith('data:'))
+    );
+
+    if (hasInlineActualAttachment) {
+      saveActualTransactions(actualTransactions);
+    }
+  } catch (error) {
+    console.error('Failed to compact inline finance attachments', error);
+  }
+};
+
 const migrateClassStudentsData = () => {
   try {
     const migrationKey = 'educrm_migration_class_students_v2';
@@ -2898,7 +3377,7 @@ const normalizeMojibakeInObject = (value: any): any => {
 
 const migrateMojibakeTextData = () => {
   try {
-    const migrationKey = 'educrm_migration_text_fix_v7';
+    const migrationKey = 'educrm_migration_text_fix_v8';
     if (localStorage.getItem(migrationKey) === 'done') return;
 
     const keysToNormalize = [
@@ -2922,7 +3401,9 @@ const migrateMojibakeTextData = () => {
       KEYS.INVOICES,
       KEYS.COLLABORATORS,
       KEYS.TAGS,
-      KEYS.LOST_REASONS
+      KEYS.LOST_REASONS,
+      KEYS.SALES_TEAMS,
+      KEYS.SALES_KPIS
     ];
 
     keysToNormalize.forEach((key) => {
@@ -2993,6 +3474,66 @@ export const initializeData = () => {
     }
   };
 
+  const ensureDemoInstallmentActivationScenario = () => {
+    try {
+      const demoLead = buildDemoInstallmentActivationLead();
+      const rawLeads = localStorage.getItem(KEYS.LEADS);
+      const leads = rawLeads ? (JSON.parse(rawLeads) as ILead[]) : [];
+
+      if (Array.isArray(leads)) {
+        const leadIndex = leads.findIndex((lead) => lead?.id === DEMO_INSTALLMENT_LEAD_ID);
+        if (leadIndex >= 0) {
+          leads[leadIndex] = {
+            ...leads[leadIndex],
+            ...demoLead
+          };
+        } else {
+          leads.unshift(demoLead);
+        }
+        localStorage.setItem(KEYS.LEADS, JSON.stringify(leads));
+      }
+
+      const demoQuotation = buildDemoInstallmentActivationQuotation();
+      const rawQuotations = localStorage.getItem(KEYS.QUOTATIONS);
+      const quotations = rawQuotations ? (JSON.parse(rawQuotations) as IQuotation[]) : [];
+
+      if (Array.isArray(quotations)) {
+        const quotationIndex = quotations.findIndex((quotation) => quotation?.id === DEMO_INSTALLMENT_QUOTATION_ID);
+        if (quotationIndex >= 0) {
+          quotations[quotationIndex] = {
+            ...quotations[quotationIndex],
+            ...demoQuotation
+          };
+        } else {
+          quotations.unshift(demoQuotation);
+        }
+        localStorage.setItem(KEYS.QUOTATIONS, JSON.stringify(quotations));
+      }
+
+      const demoTransactions = buildDemoInstallmentActivationTransactions();
+      const rawTransactions = localStorage.getItem(KEYS.TRANSACTIONS);
+      const transactions = rawTransactions ? (JSON.parse(rawTransactions) as ITransaction[]) : [];
+
+      if (Array.isArray(transactions)) {
+        demoTransactions.forEach((demoTransaction) => {
+          const transactionIndex = transactions.findIndex((transaction) => transaction?.id === demoTransaction.id);
+          if (transactionIndex >= 0) {
+            transactions[transactionIndex] = {
+              ...transactions[transactionIndex],
+              ...demoTransaction
+            };
+          } else {
+            transactions.unshift(demoTransaction);
+          }
+        });
+
+        localStorage.setItem(KEYS.TRANSACTIONS, JSON.stringify(transactions));
+      }
+    } catch {
+      // Ignore malformed storage payloads during demo seed.
+    }
+  };
+
   const CURRENT_VERSION = 'v15';
   if (localStorage.getItem(KEYS.INIT) !== CURRENT_VERSION) {
     console.log('Initializing Data if needed...');
@@ -3018,6 +3559,7 @@ export const initializeData = () => {
   }
   ensureDemoReclaimLead();
   ensureDemoTodayCareLead();
+  ensureDemoInstallmentActivationScenario();
   if (!localStorage.getItem(KEYS.STUDENTS)) {
     localStorage.setItem(KEYS.STUDENTS, JSON.stringify(INITIAL_STUDENTS));
   }
@@ -3071,6 +3613,7 @@ export const initializeData = () => {
   migrateQuotationStudentsData();
   migrateTransactionsData();
   migrateLegacyConfirmSaleTransactions();
+  migrateInlineFinanceAttachments();
   migrateClassStudentsData();
   migrateTrainingClassesData();
 };

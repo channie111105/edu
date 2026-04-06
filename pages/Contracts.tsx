@@ -24,6 +24,7 @@ import {
   getContracts,
   getQuotations,
   getStudentClaims,
+  getStudentClassEligibility,
   getStudents,
   getTeachers,
   getTrainingClasses,
@@ -198,7 +199,7 @@ const Contracts: React.FC = () => {
     classCode: '',
     note: ''
   });
-  const [assignForm, setAssignForm] = useState({ classId: '', classCode: '', note: '' });
+  const [assignForm, setAssignForm] = useState({ campusId: text('HÃ  Ná»™i'), classId: '', classCode: '', note: '' });
 
   const loadData = () => {
     setAdmissions(getAdmissions());
@@ -523,6 +524,18 @@ const Contracts: React.FC = () => {
       (item) => normalizeText(item.id) === normalizedValue || normalizeText(item.code) === normalizedValue
     );
   };
+  const activeClassCampusOptions = useMemo(
+    () => Array.from(new Set(activeClasses.map((item) => item.campus).filter(Boolean) as string[])).sort(),
+    [activeClasses]
+  );
+  const desiredClassOptions = useMemo(
+    () => activeClasses.filter((item) => !form.campusId || item.campus === form.campusId),
+    [activeClasses, form.campusId]
+  );
+  const assignClassOptions = useMemo(
+    () => activeClasses.filter((item) => !assignForm.campusId || item.campus === assignForm.campusId),
+    [activeClasses, assignForm.campusId]
+  );
 
   const selectedDesiredClass = useMemo(
     () => findActiveClass(form.classId) || findActiveClass(form.classCode),
@@ -532,6 +545,20 @@ const Contracts: React.FC = () => {
     () => findActiveClass(assignForm.classId) || findActiveClass(assignForm.classCode),
     [activeClasses, assignForm.classCode, assignForm.classId]
   );
+  const getEligibilityErrorMessage = (targetStudents: IStudent[], targetClass: ITrainingClass) => {
+    const invalidStudents = targetStudents
+      .map((student) => ({
+        student,
+        eligibility: getStudentClassEligibility(student, targetClass, quotations)
+      }))
+      .filter((item) => !item.eligibility.ok);
+
+    if (!invalidStudents.length) return '';
+    if (invalidStudents.length === 1) {
+      return invalidStudents[0].eligibility.reason || `Học viên ${invalidStudents[0].student.name} không phù hợp với lớp ${targetClass.code}`;
+    }
+    return `Có ${invalidStudents.length} học viên không khớp chương trình với lớp ${targetClass.code}: ${invalidStudents.map((item) => item.student.name).join(', ')}`;
+  };
 
   const closeCreateModal = () => {
     setShowCreateModal(false);
@@ -539,7 +566,7 @@ const Contracts: React.FC = () => {
     setForm({
       studentId: '',
       quotationId: '',
-      campusId: text('HÃ  Ná»™i'),
+      campusId: activeClassCampusOptions[0] || text('HÃ  Ná»™i'),
       classId: '',
       classCode: '',
       note: ''
@@ -549,7 +576,7 @@ const Contracts: React.FC = () => {
   const closeAssignModal = () => {
     setShowAssignModal(false);
     setSelectedAssignRow(null);
-    setAssignForm({ classId: '', classCode: '', note: '' });
+    setAssignForm({ campusId: activeClassCampusOptions[0] || text('HÃ  Ná»™i'), classId: '', classCode: '', note: '' });
   };
 
   const admissionEligibleStudents = useMemo(
@@ -573,7 +600,9 @@ const Contracts: React.FC = () => {
       ...prev,
       studentId,
       quotationId: studentQuotations[0]?.id || '',
-      campusId: selectedStudent?.campus || prev.campusId
+      campusId: selectedStudent?.campus || prev.campusId,
+      classId: '',
+      classCode: ''
     }));
   };
 
@@ -598,12 +627,13 @@ const Contracts: React.FC = () => {
       return;
     }
     setSelectedEnrollRow(row || null);
+    const initialClass = findActiveClass(row?.currentClass?.id || row?.currentClass?.code);
     setForm({
       studentId: row?.student.id || '',
       quotationId: row?.lockedQuotation?.id || '',
-      campusId: row?.desiredCampus || row?.student.campus || text('HÃ  Ná»™i'),
-      classId: row?.currentClass?.id || '',
-      classCode: row?.currentClass?.code || '',
+      campusId: initialClass?.campus || row?.desiredCampus || row?.student.campus || activeClassCampusOptions[0] || text('HÃ  Ná»™i'),
+      classId: initialClass?.id || '',
+      classCode: initialClass?.code || '',
       note: ''
     });
     setShowCreateModal(true);
@@ -625,6 +655,11 @@ const Contracts: React.FC = () => {
     }
     if (!form.quotationId) {
       notify('KhÃ´ng tÃ¬m tháº¥y SO Ä‘Ã£ khÃ³a Ä‘á»ƒ ghi danh');
+      return;
+    }
+    const eligibilityError = getEligibilityErrorMessage([selectedEnrollRow?.student || students.find((item) => item.id === targetStudentId)].filter(Boolean) as IStudent[], selectedDesiredClass);
+    if (eligibilityError) {
+      notify(eligibilityError);
       return;
     }
 
@@ -683,6 +718,11 @@ const Contracts: React.FC = () => {
     }
     if (!selectedEnrollRow && !selectedStudentIds.length && !form.quotationId) {
       notify('KhÃ´ng tÃ¬m tháº¥y SO Ä‘Ã£ khÃ³a Ä‘á»ƒ ghi danh');
+      return;
+    }
+    const eligibilityError = getEligibilityErrorMessage(targetRows.map((row) => row.student), selectedDesiredClass);
+    if (eligibilityError) {
+      notify(eligibilityError);
       return;
     }
 
@@ -790,7 +830,7 @@ const Contracts: React.FC = () => {
     setForm({
       studentId: '',
       quotationId: '',
-      campusId: text('HÃ  Ná»™i'),
+      campusId: activeClassCampusOptions[0] || text('HÃ  Ná»™i'),
       classId: '',
       classCode: '',
       note: ''
@@ -809,7 +849,7 @@ const Contracts: React.FC = () => {
     }
     setShowActionMenu(false);
     setSelectedAssignRow(null);
-    setAssignForm({ classId: '', classCode: '', note: '' });
+    setAssignForm({ campusId: activeClassCampusOptions[0] || text('HÃ  Ná»™i'), classId: '', classCode: '', note: '' });
     setShowAssignModal(true);
   };
 
@@ -819,6 +859,7 @@ const Contracts: React.FC = () => {
 
     setSelectedAssignRow(row || null);
     setAssignForm({
+      campusId: initialClass?.campus || row?.latestAdmission?.campusId || row?.student.campus || activeClassCampusOptions[0] || text('HÃ  Ná»™i'),
       classId: initialClass?.id || row?.latestAdmission?.classId || row?.currentClass?.id || '',
       classCode: initialClass?.code || row?.latestAdmission?.classId || row?.currentClass?.code || '',
       note: ''
@@ -856,6 +897,16 @@ const Contracts: React.FC = () => {
       notify('Vui lÃ²ng chá»n lá»›p Ä‘Ã­ch tá»« danh sÃ¡ch tra cá»©u');
       return;
     }
+    const targetRows = selectedAssignRow ? [selectedAssignRow] : selectedAssignableRows;
+    if (!targetRows.length) {
+      notify('KhÃ´ng cÃ³ há»c viÃªn phÃ¹ há»£p Ä‘á»ƒ gÃ¡n lá»›p');
+      return;
+    }
+    const eligibilityError = getEligibilityErrorMessage(targetRows.map((row) => row.student), selectedAssignClass);
+    if (eligibilityError) {
+      notify(eligibilityError);
+      return;
+    }
 
     if (selectedAssignRow?.latestAdmission?.status === 'CHO_DUYET') {
       updateAdmission({
@@ -890,29 +941,34 @@ const Contracts: React.FC = () => {
     }
 
     const targetClass = selectedAssignClass;
-    selectedAssignableRows.forEach((row) => {
-      if (row.currentClassStudent?.classId) {
-        transferStudentClass(row.student.id, row.currentClassStudent.classId, targetClass.id);
-      } else {
-        addStudentToClass(targetClass.id, row.student.id);
-      }
+    try {
+      targetRows.forEach((row) => {
+        if (row.currentClassStudent?.classId) {
+          transferStudentClass(row.student.id, row.currentClassStudent.classId, targetClass.id);
+        } else {
+          addStudentToClass(targetClass.id, row.student.id);
+        }
 
-      updateStudent({
-        ...row.student,
-        campus: targetClass.campus || row.student.campus,
-        classId: targetClass.id,
-        className: targetClass.code,
-        enrollmentStatus: 'DA_GHI_DANH',
-        status: StudentStatus.ENROLLED,
-        note: assignForm.note ? [row.student.note, text(`GÃ¡n lá»›p hÃ ng loáº¡t: ${assignForm.note}`)].filter(Boolean).join('\n') : row.student.note
+        updateStudent({
+          ...row.student,
+          campus: targetClass.campus || row.student.campus,
+          classId: targetClass.id,
+          className: targetClass.code,
+          enrollmentStatus: 'DA_GHI_DANH',
+          status: StudentStatus.ENROLLED,
+          note: assignForm.note ? [row.student.note, text(`GÃ¡n lá»›p hÃ ng loáº¡t: ${assignForm.note}`)].filter(Boolean).join('\n') : row.student.note
+        });
+        addStudentLog(row.student.id, 'BULK_ASSIGN_CLASS', text(`GÃ¡n vÃ o lá»›p ${targetClass.code}${assignForm.note ? `: ${assignForm.note}` : ''}`), user?.id || 'system', 'SYSTEM');
+        addClassLog(targetClass.id, 'BULK_ASSIGN_CLASS', text(`GÃ¡n há»c viÃªn ${row.student.name} tá»« mÃ n danh sÃ¡ch`), user?.id || 'system');
       });
-      addStudentLog(row.student.id, 'BULK_ASSIGN_CLASS', text(`GÃ¡n vÃ o lá»›p ${targetClass.code}${assignForm.note ? `: ${assignForm.note}` : ''}`), user?.id || 'system', 'SYSTEM');
-      addClassLog(targetClass.id, 'BULK_ASSIGN_CLASS', text(`GÃ¡n há»c viÃªn ${row.student.name} tá»« mÃ n danh sÃ¡ch`), user?.id || 'system');
-    });
+    } catch (error: any) {
+      notify(error?.message || 'KhÃ´ng thá»ƒ gÃ¡n lá»›p');
+      return;
+    }
     closeAssignModal();
     setSelectedStudentIds([]);
     loadData();
-    notify(`ÄÃ£ gÃ¡n lá»›p ${targetClass.code} cho ${selectedAssignableRows.length} há»c viÃªn.`);
+    notify(`ÄÃ£ gÃ¡n lá»›p ${targetClass.code} cho ${targetRows.length} há»c viÃªn.`);
   };
 
   return decodeMojibakeReactNode(
@@ -1132,6 +1188,7 @@ const Contracts: React.FC = () => {
                 <table className="w-full table-fixed text-left text-sm">
                   <thead className="border-b border-slate-200 bg-slate-50 text-xs font-bold uppercase text-slate-500">
                     <tr>
+                      <th className="w-[6%] px-4 py-3 text-center">STT</th>
                       <th className="w-[10%] px-4 py-3">Mã HV</th>
                       <th className="w-[18%] px-4 py-3">Học viên</th>
                       <th className="w-[14%] px-4 py-3">Trạng thái học viên</th>
@@ -1143,11 +1200,12 @@ const Contracts: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {group.rows.length > 0 ? group.rows.map((row) => (
+                    {group.rows.length > 0 ? group.rows.map((row, index) => (
                       (() => {
                         const displayClaim = row.activeClaim || row.latestClaim;
                         return (
                           <tr key={row.student.id} onClick={() => openStudentClaims(row.student.id)} className="cursor-pointer hover:bg-slate-50">
+                            <td className="px-4 py-3 align-top text-center font-semibold text-slate-500">{index + 1}</td>
                             <td className="px-4 py-3 align-top">
                               <div className="break-words font-bold text-indigo-700">{row.student.code}</div>
                             </td>
@@ -1172,7 +1230,7 @@ const Contracts: React.FC = () => {
                         );
                       })()
                     )) : (
-                      <tr><td colSpan={8} className="px-4 py-12 text-center text-slate-500">Không có học viên phù hợp với bộ lọc hiện tại.</td></tr>
+                      <tr><td colSpan={9} className="px-4 py-12 text-center text-slate-500">Không có học viên phù hợp với bộ lọc hiện tại.</td></tr>
                     )}
                   </tbody>
                 </table>
@@ -1195,6 +1253,7 @@ const Contracts: React.FC = () => {
                         className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-400"
                       />
                     </th>
+                    <th className="w-[6%] px-4 py-3 text-center">STT</th>
                     <th className="w-[9%] px-4 py-3">MÃ£ HV</th>
                     <th className="w-[16%] px-4 py-3">Há»c viÃªn</th>
                     <th className="w-[22%] px-4 py-3">SO / ChÆ°Æ¡ng trÃ¬nh</th>
@@ -1205,7 +1264,7 @@ const Contracts: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {group.rows.length > 0 ? group.rows.map((row) => (
+                  {group.rows.length > 0 ? group.rows.map((row, index) => (
                     <tr key={row.student.id} onClick={() => navigate(`/contracts/students/${row.student.id}`)} className="cursor-pointer hover:bg-slate-50">
                       <td className="px-4 py-3 align-top">
                         <input
@@ -1216,6 +1275,7 @@ const Contracts: React.FC = () => {
                           className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-400"
                         />
                       </td>
+                      <td className="px-4 py-3 align-top text-center font-semibold text-slate-500">{index + 1}</td>
                       <td className="px-4 py-3 align-top">
                         <div className="break-words font-bold text-indigo-700">{row.student.code}</div>
                       </td>
@@ -1292,7 +1352,7 @@ const Contracts: React.FC = () => {
                       </td>
                     </tr>
                   )) : (
-                    <tr><td colSpan={8} className="px-4 py-12 text-center text-slate-500">KhÃ´ng cÃ³ há»c viÃªn phÃ¹ há»£p vá»›i bá»™ lá»c hiá»‡n táº¡i.</td></tr>
+                    <tr><td colSpan={9} className="px-4 py-12 text-center text-slate-500">KhÃ´ng cÃ³ há»c viÃªn phÃ¹ há»£p vá»›i bá»™ lá»c hiá»‡n táº¡i.</td></tr>
                   )}
                 </tbody>
               </table>
@@ -1355,36 +1415,57 @@ const Contracts: React.FC = () => {
                   </div>
                 </>
               )}
-              <div>
-                <label className="mb-1 block text-sm font-semibold text-slate-700">Lá»›p há»c mong muá»‘n</label>
-                <ClassCodeLookupInput
-                  value={form.classCode}
-                  onChange={(value) => setForm((prev) => ({ ...prev, classCode: value, classId: findActiveClass(value)?.id || '' }))}
-                  loadOptions={() =>
-                    activeClasses.map((item) => ({
-                      code: item.code,
-                      name: item.name,
-                      campus: item.campus,
-                      schedule: item.schedule,
-                      level: item.level,
-                      classType: item.classType,
-                      status: item.status
-                    }))
-                  }
-                  placeholder="Nháº­p hoáº·c tÃ¬m theo mÃ£ lá»›p"
-                  wrapperClassName="w-full"
-                  inputClassName="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-500"
-                  buttonClassName="rounded-xl border border-slate-300 px-3 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                />
-                {selectedDesiredClass ? (
-                  <div className="mt-2 rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                    <span className="font-semibold text-slate-900">{selectedDesiredClass.code}</span>
-                    {selectedDesiredClass.campus ? ` â€¢ ${selectedDesiredClass.campus}` : ''}
-                    {selectedDesiredClass.level ? ` â€¢ ${selectedDesiredClass.level}` : ''}
-                    {selectedDesiredClass.schedule ? <span className="block">{selectedDesiredClass.schedule}</span> : null}
-                  </div>
-                ) : null}
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-sm font-semibold text-slate-700">Cơ sở lớp học</label>
+                  <select
+                    value={form.campusId}
+                    onChange={(event) => setForm((prev) => ({ ...prev, campusId: event.target.value, classId: '', classCode: '' }))}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
+                  >
+                    {activeClassCampusOptions.map((campus) => <option key={campus} value={campus}>{campus}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-semibold text-slate-700">Lớp học mong muốn</label>
+                  <ClassCodeLookupInput
+                    value={form.classCode}
+                    onChange={(value) => {
+                      const selected = findActiveClass(value);
+                      setForm((prev) => ({
+                        ...prev,
+                        campusId: selected?.campus || prev.campusId,
+                        classCode: value,
+                        classId: selected?.id || ''
+                      }));
+                    }}
+                    loadOptions={() =>
+                      desiredClassOptions.map((item) => ({
+                        code: item.code,
+                        name: item.name,
+                        campus: item.campus,
+                        schedule: item.schedule,
+                        level: item.level,
+                        classType: item.classType,
+                        status: item.status
+                      }))
+                    }
+                    placeholder="Nhập hoặc tìm theo mã lớp"
+                    wrapperClassName="w-full"
+                    inputClassName="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-500"
+                    buttonClassName="rounded-xl border border-slate-300 px-3 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  />
+                </div>
               </div>
+              {selectedDesiredClass ? (
+                <div className="mt-2 rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                  <span className="font-semibold text-slate-900">{selectedDesiredClass.code}</span>
+                  {selectedDesiredClass.campus ? ` â€¢ ${selectedDesiredClass.campus}` : ''}
+                  {selectedDesiredClass.level ? ` â€¢ ${selectedDesiredClass.level}` : ''}
+                  {selectedDesiredClass.schedule ? <span className="block">{selectedDesiredClass.schedule}</span> : null}
+                </div>
+              ) : null}
+              {!desiredClassOptions.length ? <div className="text-xs text-amber-700">Cơ sở này hiện chưa có lớp đang mở phù hợp.</div> : null}
               <div>
                 <label className="mb-1 block text-sm font-semibold text-slate-700">Ghi chÃº</label>
                 <textarea
@@ -1432,36 +1513,57 @@ const Contracts: React.FC = () => {
               </div>
             )}
 
-            <div className="mt-3">
-              <label className="mb-1 block text-sm font-semibold text-slate-700">{selectedAssignRow ? 'Danh sách lớp' : 'Lớp đích'}</label>
-              <ClassCodeLookupInput
-                value={assignForm.classCode}
-                onChange={(value) => setAssignForm((prev) => ({ ...prev, classCode: value, classId: findActiveClass(value)?.id || '' }))}
-                loadOptions={() =>
-                  activeClasses.map((item) => ({
-                    code: item.code,
-                    name: item.name,
-                    campus: item.campus,
-                    schedule: item.schedule,
-                    level: item.level,
-                    classType: item.classType,
-                    status: item.status
-                  }))
-                }
-                placeholder="Nháº­p hoáº·c tÃ¬m theo mÃ£ lá»›p"
-                wrapperClassName="w-full"
-                inputClassName="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-500"
-                buttonClassName="rounded-xl border border-slate-300 px-3 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-              />
-              {selectedAssignClass ? (
-                <div className="mt-2 rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                  <span className="font-semibold text-slate-900">{selectedAssignClass.code}</span>
-                  {selectedAssignClass.campus ? ` • ${selectedAssignClass.campus}` : ''}
-                  {selectedAssignClass.level ? ` • ${selectedAssignClass.level}` : ''}
-                  {selectedAssignClass.schedule ? <span className="block">{selectedAssignClass.schedule}</span> : null}
-                </div>
-              ) : null}
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-sm font-semibold text-slate-700">Cơ sở lớp</label>
+                <select
+                  value={assignForm.campusId}
+                  onChange={(event) => setAssignForm((prev) => ({ ...prev, campusId: event.target.value, classId: '', classCode: '' }))}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
+                >
+                  {activeClassCampusOptions.map((campus) => <option key={campus} value={campus}>{campus}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-semibold text-slate-700">{selectedAssignRow ? 'Danh sách lớp' : 'Lớp đích'}</label>
+                <ClassCodeLookupInput
+                  value={assignForm.classCode}
+                  onChange={(value) => {
+                    const selected = findActiveClass(value);
+                    setAssignForm((prev) => ({
+                      ...prev,
+                      campusId: selected?.campus || prev.campusId,
+                      classCode: value,
+                      classId: selected?.id || ''
+                    }));
+                  }}
+                  loadOptions={() =>
+                    assignClassOptions.map((item) => ({
+                      code: item.code,
+                      name: item.name,
+                      campus: item.campus,
+                      schedule: item.schedule,
+                      level: item.level,
+                      classType: item.classType,
+                      status: item.status
+                    }))
+                  }
+                  placeholder="Nhập hoặc tìm theo mã lớp"
+                  wrapperClassName="w-full"
+                  inputClassName="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-500"
+                  buttonClassName="rounded-xl border border-slate-300 px-3 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                />
+              </div>
             </div>
+            {selectedAssignClass ? (
+              <div className="mt-2 rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                <span className="font-semibold text-slate-900">{selectedAssignClass.code}</span>
+                {selectedAssignClass.campus ? ` • ${selectedAssignClass.campus}` : ''}
+                {selectedAssignClass.level ? ` • ${selectedAssignClass.level}` : ''}
+                {selectedAssignClass.schedule ? <span className="block">{selectedAssignClass.schedule}</span> : null}
+              </div>
+            ) : null}
+            {!assignClassOptions.length ? <div className="mt-2 text-xs text-amber-700">Cơ sở này hiện chưa có lớp đang mở để gán.</div> : null}
 
             <div className="mt-3">
               <label className="mb-1 block text-sm font-semibold text-slate-700">Ghi chú</label>

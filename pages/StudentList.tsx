@@ -40,6 +40,7 @@ const StudentList: React.FC = () => {
             <table className="w-full text-left">
                <thead className="bg-slate-50 border-b border-slate-200">
                   <tr>
+                     <th className="px-6 py-4 font-bold text-sm text-slate-600 w-16 text-center">STT</th>
                      <th className="px-6 py-4 font-bold text-sm text-slate-600">Mã HV</th>
                      <th className="px-6 py-4 font-bold text-sm text-slate-600">Họ tên</th>
                      <th className="px-6 py-4 font-bold text-sm text-slate-600">Chương trình</th>
@@ -48,8 +49,9 @@ const StudentList: React.FC = () => {
                   </tr>
                </thead>
                <tbody className="divide-y divide-slate-100">
-                  {MOCK_STUDENTS.map(student => (
+                  {MOCK_STUDENTS.map((student, index) => (
                      <tr key={student.id} className="hover:bg-slate-50 transition-colors cursor-pointer" onClick={() => navigate(`/students/${student.id}`)}>
+                        <td className="px-6 py-4 text-center text-sm font-semibold text-slate-500">{index + 1}</td>
                         <td className="px-6 py-4 text-sm text-slate-500">{student.code}</td>
                         <td className="px-6 py-4">
                            <div className="flex items-center gap-3">

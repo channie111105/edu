@@ -3,6 +3,7 @@ import {
   upsertLinkedContractFromQuotation,
   getQuotations,
   getTransactions,
+  removeActualTransactionByRelatedId,
   updateQuotation,
   updateTransaction
 } from '../utils/storage';
@@ -75,6 +76,7 @@ const getActualTransactionPayload = (transaction: ITransaction, userId: string):
     type,
     category: transaction.businessTypeHint || (businessGroup === 'THU' ? 'Thu học phí' : businessGroup === 'CHI' ? 'Chi phí' : 'Điều chỉnh'),
     title: transaction.note || transaction.relatedEntityLabel || transaction.studentName || transaction.soCode || transaction.customerId,
+    recipientPayerName: transaction.recipientPayerName || transaction.relatedEntityLabel || transaction.studentName || transaction.customerId,
     amount: transaction.amount,
     department: 'Kế toán',
     cashAccount: transaction.method === 'TIEN_MAT' ? 'Tiền mặt' : 'STK ngân hàng',
@@ -113,7 +115,7 @@ export const confirmSale = (
       updatedAt: new Date().toISOString()
     },
     'Sale Confirmed',
-    'Đã xác nhận sale. Chờ kế toán tạo phiếu duyệt thu'
+    'Đã xác nhận sale. Sales tạo phiếu duyệt thu ở bước tiếp theo'
   );
   updateQuotation(updatedQuotation);
   return { ok: true, quotation: updatedQuotation };
@@ -125,8 +127,8 @@ export const approveTransaction = (
   userRole?: UserRole
 ): { ok: boolean; transaction?: ITransaction; quotation?: IQuotation; error?: string } => {
   // TODO: replace mock service with BE API
-  if (userRole !== UserRole.ACCOUNTANT) {
-    return { ok: false, error: 'Chỉ Kế toán được duyệt giao dịch' };
+  if (!userRole) {
+    return { ok: false, error: 'Không xác định người xử lý giao dịch' };
   }
 
   const transaction = getTransactions().find((t) => t.id === transactionId);
@@ -136,6 +138,9 @@ export const approveTransaction = (
     ...transaction,
     status: 'DA_DUYET',
     approvedAt: Date.now(),
+    adminApprovedAt: undefined,
+    adminApprovedBy: undefined,
+    adminLockedQuotation: undefined,
     rejectedAt: undefined,
     note: transaction.note || `Đã duyệt bởi ${userId}`
   };
@@ -174,9 +179,48 @@ export const approveTransaction = (
       updatedAt: new Date().toISOString()
     },
     'Accounting Approved Transaction',
-    `Kế toán đã duyệt giao dịch ${transaction.soCode}. SO sẵn sàng để khóa thủ công`
+    `Kế toán đã xác nhận giao dịch ${transaction.soCode}. Chờ Admin duyệt SO`
   );
   updateQuotation(updatedQuotation);
+  return { ok: true, transaction: updatedTransaction, quotation: updatedQuotation };
+};
+
+export const approveTransactionByAdmin = (
+  transactionId: string,
+  userId: string,
+  userRole?: UserRole
+): { ok: boolean; transaction?: ITransaction; quotation?: IQuotation; error?: string } => {
+  if (!userRole) {
+    return { ok: false, error: 'Không xác định người duyệt giao dịch' };
+  }
+
+  const transaction = getTransactions().find((item) => item.id === transactionId);
+  if (!transaction) return { ok: false, error: 'Không tìm thấy giao dịch' };
+  if (transaction.status !== 'DA_DUYET') {
+    return { ok: false, error: 'Kế toán chưa xác nhận giao dịch' };
+  }
+
+  let updatedQuotation = transaction.quotationId
+    ? getQuotations().find((quotation) => quotation.id === transaction.quotationId)
+    : undefined;
+  const shouldLockQuotation = Boolean(updatedQuotation && updatedQuotation.status !== QuotationStatus.LOCKED);
+
+  if (shouldLockQuotation && updatedQuotation) {
+    const lockRes = lockQuotationAfterAccounting(updatedQuotation.id, userId, userRole);
+    if (!lockRes.ok) {
+      return { ok: false, error: lockRes.error };
+    }
+    updatedQuotation = lockRes.quotation;
+  }
+
+  const updatedTransaction: ITransaction = {
+    ...transaction,
+    adminApprovedAt: Date.now(),
+    adminApprovedBy: userId,
+    adminLockedQuotation: shouldLockQuotation
+  };
+  updateTransaction(updatedTransaction);
+
   return { ok: true, transaction: updatedTransaction, quotation: updatedQuotation };
 };
 
@@ -187,21 +231,27 @@ export const rejectTransaction = (
   reason?: string
 ): { ok: boolean; transaction?: ITransaction; quotation?: IQuotation; error?: string } => {
   // TODO: replace mock service with BE API
-  if (userRole !== UserRole.ACCOUNTANT) {
-    return { ok: false, error: 'Chỉ Kế toán được từ chối giao dịch' };
+  if (!userRole) {
+    return { ok: false, error: 'Không xác định người xử lý giao dịch' };
   }
 
   const transaction = getTransactions().find((t) => t.id === transactionId);
   if (!transaction) return { ok: false, error: 'Không tìm thấy giao dịch' };
+  const wasAccountingConfirmed = transaction.status === 'DA_DUYET';
+  const rejectionActor = wasAccountingConfirmed ? 'Admin' : 'Kế toán';
 
   const updatedTransaction: ITransaction = {
     ...transaction,
     status: 'TU_CHOI',
     approvedAt: undefined,
+    adminApprovedAt: undefined,
+    adminApprovedBy: undefined,
+    adminLockedQuotation: undefined,
     rejectedAt: Date.now(),
     note: reason || `Từ chối bởi ${userId}`
   };
   updateTransaction(updatedTransaction);
+  removeActualTransactionByRelatedId(updatedTransaction.id);
 
   const quotation = getQuotations().find((q) => q.id === transaction.quotationId);
   if (!quotation) return { ok: true, transaction: updatedTransaction };
@@ -212,8 +262,8 @@ export const rejectTransaction = (
       transactionStatus: 'TU_CHOI',
       updatedAt: new Date().toISOString()
     },
-    'Accounting Rejected Transaction',
-    reason || `Kế toán từ chối giao dịch ${transaction.soCode}`
+    wasAccountingConfirmed ? 'Admin Rejected Transaction' : 'Accounting Rejected Transaction',
+    reason || `${rejectionActor} từ chối giao dịch ${transaction.soCode}`
   );
   updateQuotation(updatedQuotation);
   return { ok: true, transaction: updatedTransaction, quotation: updatedQuotation };
@@ -225,8 +275,8 @@ export const lockQuotationAfterAccounting = (
   userRole?: UserRole
 ): { ok: boolean; quotation?: IQuotation; error?: string } => {
   // TODO: replace mock service with BE API
-  if (userRole !== UserRole.ACCOUNTANT) {
-    return { ok: false, error: 'Chỉ Kế toán được khóa SO' };
+  if (!userRole) {
+    return { ok: false, error: 'Không xác định người duyệt SO' };
   }
 
   const quotation = getQuotations().find((q) => q.id === quotationId);
@@ -258,7 +308,7 @@ export const lockQuotationAfterAccounting = (
       updatedAt: new Date().toISOString()
     },
     'Lock Quotation',
-    `Khóa SO sau khi kế toán duyệt giao dịch (${quotation.soCode})`
+    `Admin duyệt SO sau khi kế toán xác nhận giao dịch (${quotation.soCode})`
   );
   const linkedContract = upsertLinkedContractFromQuotation(updatedQuotation, userId);
   updatedQuotation.contractId = linkedContract.id;
@@ -272,8 +322,8 @@ export const unlockQuotationAfterAccounting = (
   userRole?: UserRole
 ): { ok: boolean; quotation?: IQuotation; error?: string } => {
   // TODO: replace mock service with BE API
-  if (userRole !== UserRole.ACCOUNTANT) {
-    return { ok: false, error: 'Chỉ Kế toán được hủy khóa SO' };
+  if (!userRole) {
+    return { ok: false, error: 'Không xác định người hủy duyệt SO' };
   }
 
   const quotation = getQuotations().find((q) => q.id === quotationId);
@@ -294,7 +344,7 @@ export const unlockQuotationAfterAccounting = (
       updatedAt: new Date().toISOString()
     },
     'Unlock Quotation',
-    `Kế toán hủy khóa SO (${quotation.soCode})`
+    `Admin hủy duyệt SO (${quotation.soCode})`
   );
 
   updateQuotation(updatedQuotation);
@@ -306,8 +356,8 @@ export const requestQuotationCancelApproval = (
   userId: string,
   userRole?: UserRole
 ): { ok: boolean; quotation?: IQuotation; error?: string } => {
-  if (userRole !== UserRole.ACCOUNTANT) {
-    return { ok: false, error: 'Chỉ Kế toán được gửi yêu cầu hủy SO' };
+  if (!userRole) {
+    return { ok: false, error: 'Không xác định người gửi yêu cầu hủy SO' };
   }
 
   const quotation = getQuotations().find((q) => q.id === quotationId);
@@ -346,8 +396,8 @@ export const approveQuotationCancelApproval = (
   userId: string,
   userRole?: UserRole
 ): { ok: boolean; quotation?: IQuotation; error?: string } => {
-  if (userRole !== UserRole.ADMIN && userRole !== UserRole.FOUNDER) {
-    return { ok: false, error: 'Chỉ Admin được duyệt hủy SO' };
+  if (!userRole) {
+    return { ok: false, error: 'Không xác định người duyệt hủy SO' };
   }
 
   const quotation = getQuotations().find((q) => q.id === quotationId);

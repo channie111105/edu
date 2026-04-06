@@ -84,6 +84,7 @@ const FinancePayroll: React.FC = () => {
                 <table className="w-full text-left">
                     <thead className="bg-white text-slate-500 uppercase text-xs font-bold border-b border-slate-200">
                         <tr>
+                            <th className="px-6 py-4 w-16 text-center">STT</th>
                             <th className="px-6 py-4">Nhân viên</th>
                             <th className="px-6 py-4">Giờ dạy / KPI</th>
                             <th className="px-6 py-4">Đơn giá / Lương cứng</th>
@@ -94,8 +95,9 @@ const FinancePayroll: React.FC = () => {
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                        {payrollData.map((item) => (
+                        {payrollData.map((item, index) => (
                             <tr key={item.id} className="hover:bg-slate-50 transition-colors">
+                                <td className="px-6 py-4 text-center font-semibold text-slate-500">{index + 1}</td>
                                 <td className="px-6 py-4">
                                     <p className="text-sm font-bold text-slate-900">{item.name}</p>
                                     <p className="text-xs text-slate-500">{item.role}</p>

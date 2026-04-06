@@ -92,6 +92,7 @@ const TrainingEnrollment: React.FC = () => {
            <table className="w-full text-left border-collapse">
               <thead className="bg-slate-50 text-xs font-bold text-slate-500 uppercase">
                  <tr>
+                    <th className="px-6 py-4 w-16 text-center">STT</th>
                     <th className="px-6 py-4">Học viên</th>
                     <th className="px-6 py-4">Nhu cầu học</th>
                     <th className="px-6 py-4">Trạng thái phí</th>
@@ -101,8 +102,9 @@ const TrainingEnrollment: React.FC = () => {
                  </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-sm">
-                 {WAITLIST.map((student) => (
+                 {WAITLIST.map((student, index) => (
                     <tr key={student.id} className="hover:bg-slate-50 transition-colors">
+                       <td className="px-6 py-4 text-center font-semibold text-slate-500">{index + 1}</td>
                        <td className="px-6 py-4 font-bold text-slate-900">{student.name}</td>
                        <td className="px-6 py-4 text-blue-600 font-medium">{student.course}</td>
                        <td className="px-6 py-4">

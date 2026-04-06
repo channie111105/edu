@@ -185,6 +185,7 @@ const TrainingTeachers: React.FC = () => {
           <table className="w-full text-left border-collapse">
             <thead className="bg-[#F8FAFC] border-b border-slate-200">
               <tr>
+                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider w-16 text-center">STT</th>
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Họ tên / Định danh</th>
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Chuyên môn</th>
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Hợp đồng & Nhân sự</th>
@@ -193,12 +194,13 @@ const TrainingTeachers: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredTeachers.map((teacher) => (
+              {filteredTeachers.map((teacher, index) => (
                 <tr
                   key={teacher.id}
                   className="hover:bg-slate-50 transition-colors group cursor-pointer"
                   onClick={() => navigate(`/training/teachers/${teacher.id}`)}
                 >
+                  <td className="px-6 py-4 text-center font-semibold text-slate-500">{index + 1}</td>
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold">

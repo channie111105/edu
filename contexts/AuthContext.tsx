@@ -17,28 +17,39 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider = ({ children }: { children?: ReactNode }) => {
   const [user, setUser] = useState<IUser | null>(null);
 
-  const login = (role: UserRole) => {
-    // Simulate logging in with distinct IDs for demo purposes
-    let demoUser = { ...MOCK_USER, role };
-
+  const getDemoUserByRole = (role: UserRole): IUser => {
     if (role === UserRole.SALES_REP) {
-                // If Sales role, use Sarah Miller (u2) demo account
-        demoUser = {
-            id: 'u2',
-            name: 'Sarah Miller',
-            role: UserRole.SALES_REP,
-            avatar: 'https://i.pravatar.cc/150?u=a042581f4e29026024d'
-        };
-    } else if (role === UserRole.MARKETING) {
-        demoUser = {
-            id: 'u1',
-            name: 'Tr\u1ea7n V\u0103n Qu\u1ea3n Tr\u1ecb',
-            role: UserRole.MARKETING,
-            avatar: 'https://picsum.photos/200'
-        };
+      return {
+        id: 'u2',
+        name: 'Sarah Miller',
+        role: UserRole.SALES_REP,
+        avatar: 'https://i.pravatar.cc/150?u=a042581f4e29026024d'
+      };
     }
 
-    setUser(demoUser);
+    if (role === UserRole.SALES_LEADER) {
+      return {
+        id: 'u1',
+        name: 'Trần Văn Quản Trị',
+        role: UserRole.SALES_LEADER,
+        avatar: 'https://picsum.photos/200?sales-leader'
+      };
+    }
+
+    if (role === UserRole.MARKETING) {
+      return {
+        id: 'u1',
+        name: 'Trần Văn Quản Trị',
+        role: UserRole.MARKETING,
+        avatar: 'https://picsum.photos/200'
+      };
+    }
+
+    return { ...MOCK_USER, role };
+  };
+
+  const login = (role: UserRole) => {
+    setUser(getDemoUserByRole(role));
   };
 
   const logout = () => {
@@ -46,14 +57,13 @@ export const AuthProvider = ({ children }: { children?: ReactNode }) => {
   };
 
   const switchRole = (role: UserRole) => {
-    if (user) {
-      setUser({ ...user, role });
-    }
+    setUser(getDemoUserByRole(role));
   };
 
   const hasPermission = (allowedRoles: UserRole[]) => {
     if (!user) return false;
-    return allowedRoles.includes(user.role);
+    void allowedRoles;
+    return true;
   };
 
   return (

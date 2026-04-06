@@ -208,6 +208,7 @@ const LeadBatches: React.FC = () => {
                 <table className="w-full text-left border-collapse">
                     <thead className="bg-slate-50 border-b border-slate-200">
                         <tr>
+                            <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider w-16 text-center">STT</th>
                             <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider w-[250px]">Tên Đợt / Nguồn Data</th>
                             <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Ngày nhập</th>
                             <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Tổng SĐT</th>
@@ -218,10 +219,11 @@ const LeadBatches: React.FC = () => {
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                        {batches.map((batch) => {
+                        {batches.map((batch, index) => {
                             const metrics = getQualityMetrics(batch);
                             return (
                                 <tr key={batch.id} className="hover:bg-slate-50 transition-colors group">
+                                    <td className="px-6 py-4 text-center font-semibold text-slate-500">{index + 1}</td>
                                     <td className="px-6 py-4">
                                         <div>
                                             <p className="text-sm font-bold text-slate-900 group-hover:text-blue-600 cursor-pointer">{batch.name}</p>

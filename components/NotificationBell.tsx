@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Bell, CheckCheck, Clock3, UserPlus2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -41,6 +42,7 @@ const NotificationBell: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [notifications, setNotifications] = useState<IAppNotification[]>([]);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
   const [panelStyle, setPanelStyle] = useState<React.CSSProperties>({});
 
   const updatePanelPosition = () => {
@@ -81,20 +83,36 @@ const NotificationBell: React.FC = () => {
   useEffect(() => {
     const handleChanged = () => syncNotifications();
     const handleClickOutside = (event: MouseEvent) => {
-      if (!containerRef.current?.contains(event.target as Node)) {
+      const target = event.target as Node;
+      if (
+        !containerRef.current?.contains(target) &&
+        !panelRef.current?.contains(target)
+      ) {
         setIsOpen(false);
       }
     };
 
-    window.addEventListener(NOTIFICATION_EVENTS.CHANGED, handleChanged as EventListener);
-    window.addEventListener('educrm:meetings-changed', handleChanged as EventListener);
+    window.addEventListener(
+      NOTIFICATION_EVENTS.CHANGED,
+      handleChanged as EventListener
+    );
+    window.addEventListener(
+      'educrm:meetings-changed',
+      handleChanged as EventListener
+    );
     window.addEventListener('mousedown', handleClickOutside);
 
     const intervalId = window.setInterval(syncNotifications, 60000);
 
     return () => {
-      window.removeEventListener(NOTIFICATION_EVENTS.CHANGED, handleChanged as EventListener);
-      window.removeEventListener('educrm:meetings-changed', handleChanged as EventListener);
+      window.removeEventListener(
+        NOTIFICATION_EVENTS.CHANGED,
+        handleChanged as EventListener
+      );
+      window.removeEventListener(
+        'educrm:meetings-changed',
+        handleChanged as EventListener
+      );
       window.removeEventListener('mousedown', handleClickOutside);
       window.clearInterval(intervalId);
     };
@@ -130,6 +148,87 @@ const NotificationBell: React.FC = () => {
 
   if (!user) return null;
 
+  const panel = isOpen ? (
+    <div
+      ref={panelRef}
+      className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
+      style={panelStyle}
+    >
+      <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+        <div>
+          <p className="text-sm font-bold text-slate-900">Thông báo</p>
+          <p className="text-xs text-slate-500">
+            {unreadCount > 0
+              ? `${unreadCount} thông báo chưa đọc`
+              : 'Không có thông báo mới'}
+          </p>
+        </div>
+        {notifications.length > 0 && (
+          <button
+            type="button"
+            onClick={() => markAllNotificationsAsRead(user.id)}
+            className="flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700"
+          >
+            <CheckCheck size={14} />
+            Đọc hết
+          </button>
+        )}
+      </div>
+
+      <div className="max-h-[360px] overflow-y-auto custom-scrollbar">
+        {notifications.length === 0 ? (
+          <div className="px-4 py-8 text-center text-sm text-slate-500">
+            Chưa có thông báo nào cho bạn.
+          </div>
+        ) : (
+          notifications.map((notification) => {
+            const Icon = getNotificationIcon(notification.type);
+            return (
+              <div
+                key={notification.id}
+                className={`group flex gap-3 border-b border-slate-100 px-4 py-3 transition-colors last:border-b-0 ${
+                  notification.readAt ? 'bg-white' : 'bg-blue-50/60'
+                }`}
+              >
+                <button
+                  type="button"
+                  onClick={() => handleOpenNotification(notification)}
+                  className="flex min-w-0 flex-1 items-start gap-3 text-left"
+                >
+                  <div
+                    className={`mt-0.5 rounded-full p-2 ${
+                      notification.readAt
+                        ? 'bg-slate-100 text-slate-500'
+                        : 'bg-blue-100 text-blue-700'
+                    }`}
+                  >
+                    <Icon size={14} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="truncate text-sm font-semibold text-slate-900">
+                        {notification.title}
+                      </p>
+                      {!notification.readAt && (
+                        <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-blue-500" />
+                      )}
+                    </div>
+                    <p className="mt-1 line-clamp-2 text-sm text-slate-600">
+                      {notification.message}
+                    </p>
+                    <p className="mt-2 text-xs text-slate-400">
+                      {formatRelativeTime(notification.createdAt)}
+                    </p>
+                  </div>
+                </button>
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
+  ) : null;
+
   return (
     <div className="relative" ref={containerRef}>
       <button
@@ -152,69 +251,10 @@ const NotificationBell: React.FC = () => {
         )}
       </button>
 
-      {isOpen && (
-        <div
-          className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
-          style={panelStyle}
-        >
-          <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-            <div>
-              <p className="text-sm font-bold text-slate-900">Thông báo</p>
-              <p className="text-xs text-slate-500">
-                {unreadCount > 0 ? `${unreadCount} thông báo chưa đọc` : 'Không có thông báo mới'}
-              </p>
-            </div>
-            {notifications.length > 0 && (
-              <button
-                type="button"
-                onClick={() => markAllNotificationsAsRead(user.id)}
-                className="flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700"
-              >
-                <CheckCheck size={14} />
-                Đọc hết
-              </button>
-            )}
-          </div>
-
-          <div className="max-h-[360px] overflow-y-auto custom-scrollbar">
-            {notifications.length === 0 ? (
-              <div className="px-4 py-8 text-center text-sm text-slate-500">
-                Chưa có thông báo nào cho bạn.
-              </div>
-            ) : (
-              notifications.map((notification) => {
-                const Icon = getNotificationIcon(notification.type);
-                return (
-                  <div
-                    key={notification.id}
-                    className={`group flex gap-3 border-b border-slate-100 px-4 py-3 transition-colors last:border-b-0 ${
-                      notification.readAt ? 'bg-white' : 'bg-blue-50/60'
-                    }`}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => handleOpenNotification(notification)}
-                      className="flex min-w-0 flex-1 items-start gap-3 text-left"
-                    >
-                      <div className={`mt-0.5 rounded-full p-2 ${notification.readAt ? 'bg-slate-100 text-slate-500' : 'bg-blue-100 text-blue-700'}`}>
-                        <Icon size={14} />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-start justify-between gap-2">
-                          <p className="truncate text-sm font-semibold text-slate-900">{notification.title}</p>
-                          {!notification.readAt && <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-blue-500" />}
-                        </div>
-                        <p className="mt-1 line-clamp-2 text-sm text-slate-600">{notification.message}</p>
-                        <p className="mt-2 text-xs text-slate-400">{formatRelativeTime(notification.createdAt)}</p>
-                      </div>
-                    </button>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </div>
-      )}
+      {panel &&
+        (typeof document !== 'undefined'
+          ? createPortal(panel, document.body)
+          : panel)}
     </div>
   );
 };

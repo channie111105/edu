@@ -23,9 +23,30 @@ const Layout: React.FC = () => {
     navigate('/module-selection');
   };
 
+  const isSalesSection = location.pathname === '/sales' || location.pathname.startsWith('/sales/');
+  const isEnrollmentSection =
+    location.pathname === '/contracts' ||
+    location.pathname.startsWith('/contracts/') ||
+    location.pathname === '/enrollment' ||
+    location.pathname.startsWith('/enrollment/');
+
   const visibleNavItems = NAV_ITEMS.filter(item => {
-    if (!item.roles) return true;
-    return item.roles.includes(user.role);
+    const hasAccess = !item.roles || item.roles.includes(user.role);
+    if (!hasAccess) return false;
+
+    if (isSalesSection) {
+      return item.path === '/' || item.path.startsWith('/sales/');
+    }
+
+    if (isEnrollmentSection) {
+      return (
+        item.path === '/contracts' ||
+        item.path.startsWith('/contracts/') ||
+        item.path.startsWith('/enrollment/')
+      );
+    }
+
+    return true;
   });
 
   // Calculate the active path based on longest matching prefix

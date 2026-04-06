@@ -1003,7 +1003,7 @@ const StudyAbroadPartners: React.FC = () => {
     }
   };
 
-  const renderPartnerRow = (partner: IStudyAbroadPartner) => {
+  const renderPartnerRow = (partner: IStudyAbroadPartner, rowNumber: number) => {
     const expandedProgramId = getExpandedProgramId(partner);
 
     return (
@@ -1012,6 +1012,7 @@ const StudyAbroadPartners: React.FC = () => {
           onClick={() => toggleExpand(partner.id)}
           className={`cursor-pointer transition-colors group ${expandedId === partner.id ? 'bg-blue-50/50' : 'hover:bg-slate-50'}`}
         >
+          <td className="px-6 py-4 text-center text-sm font-semibold text-slate-500">{rowNumber}</td>
           <td className="px-6 py-4">
             <div className="flex flex-col">
               <span className="text-sm font-bold text-[#0d141b]">{partner.name}</span>
@@ -1045,7 +1046,7 @@ const StudyAbroadPartners: React.FC = () => {
 
         {expandedId === partner.id && (
           <tr className="animate-in slide-in-from-top-1 bg-slate-50/50">
-            <td colSpan={7} className="border-b border-slate-100 px-0 py-0">
+            <td colSpan={8} className="border-b border-slate-100 px-0 py-0">
               <div className="my-1.5 ml-6 rounded-r-lg border-l-4 border-[#0d47a1] bg-white px-4 py-4 shadow-inner">
                 <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2 xl:grid-cols-3">
                   <div className="rounded-xl border border-[#f1f5f9] bg-white px-4 py-3">
@@ -1582,6 +1583,7 @@ const StudyAbroadPartners: React.FC = () => {
           <table className="w-full border-collapse text-left">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50">
+                <th className="w-16 px-6 py-4 text-center text-xs font-bold uppercase tracking-wider text-slate-500">STT</th>
                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-slate-500">Tên trường</th>
                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-slate-500">Quốc gia</th>
                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-slate-500">Ranking</th>
@@ -1592,26 +1594,35 @@ const StudyAbroadPartners: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {groupBy.length === 0 && filteredPartners.map((partner) => renderPartnerRow(partner))}
+              {groupBy.length === 0 && filteredPartners.map((partner, index) => renderPartnerRow(partner, index + 1))}
 
               {groupBy.length > 0 &&
-                groupedPartners.map((group) => (
-                  <React.Fragment key={group.label}>
-                    <tr className="border-b border-slate-200 bg-slate-50">
-                      <td colSpan={7} className="px-6 py-2 text-sm font-semibold text-slate-700">
-                        <div className="flex items-center justify-between gap-3">
-                          <span>{group.label}</span>
-                          <span className="rounded-full bg-white px-2 py-0.5 text-xs font-bold text-slate-500">{group.items.length} đối tác</span>
-                        </div>
-                      </td>
-                    </tr>
-                    {group.items.map((partner) => renderPartnerRow(partner))}
-                  </React.Fragment>
-                ))}
+                (() => {
+                  let currentIndex = 0;
+
+                  return groupedPartners.map((group) => {
+                    const groupStartIndex = currentIndex;
+                    currentIndex += group.items.length;
+
+                    return (
+                      <React.Fragment key={group.label}>
+                        <tr className="border-b border-slate-200 bg-slate-50">
+                          <td colSpan={8} className="px-6 py-2 text-sm font-semibold text-slate-700">
+                            <div className="flex items-center justify-between gap-3">
+                              <span>{group.label}</span>
+                              <span className="rounded-full bg-white px-2 py-0.5 text-xs font-bold text-slate-500">{group.items.length} đối tác</span>
+                            </div>
+                          </td>
+                        </tr>
+                        {group.items.map((partner, index) => renderPartnerRow(partner, groupStartIndex + index + 1))}
+                      </React.Fragment>
+                    );
+                  });
+                })()}
 
               {filteredPartners.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-6 py-10 text-center text-sm text-slate-500">
+                  <td colSpan={8} className="px-6 py-10 text-center text-sm text-slate-500">
                     Không có đối tác phù hợp với bộ lọc hiện tại.
                   </td>
                 </tr>

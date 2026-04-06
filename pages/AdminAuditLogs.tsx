@@ -223,6 +223,7 @@ const AdminAuditLogs: React.FC = () => {
               <table className="w-full text-left border-collapse">
                  <thead>
                     <tr className="bg-[#f8fafc] border-b border-[#cfdbe7]">
+                       <th className="px-6 py-4 text-xs font-bold text-[#617589] uppercase tracking-wider w-16 text-center">STT</th>
                        <th className="px-6 py-4 text-xs font-bold text-[#617589] uppercase tracking-wider w-48">Thời gian</th>
                        <th className="px-6 py-4 text-xs font-bold text-[#617589] uppercase tracking-wider min-w-[240px]">Người dùng</th>
                        <th className="px-6 py-4 text-xs font-bold text-[#617589] uppercase tracking-wider w-44 text-center">Loại hành động</th>
@@ -232,8 +233,9 @@ const AdminAuditLogs: React.FC = () => {
                     </tr>
                  </thead>
                  <tbody className="divide-y divide-[#cfdbe7]">
-                    {filteredLogs.map((log) => (
+                    {filteredLogs.map((log, index) => (
                        <tr key={log.id} className="hover:bg-[#f0f4f8] transition-colors group">
+                          <td className="px-6 py-4 text-center text-sm font-semibold text-[#617589]">{index + 1}</td>
                           <td className="px-6 py-4 text-[#617589] text-sm font-mono whitespace-nowrap">{log.timestamp}</td>
                           <td className="px-6 py-4">
                              <div className="flex items-center gap-3">

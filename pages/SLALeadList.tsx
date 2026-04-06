@@ -1719,16 +1719,7 @@ const SLALeadList: React.FC = () => {
                   <table className="w-full text-left border-collapse">
                      <thead className="bg-slate-50 border-b border-slate-200">
                         <tr>
-                           {activeTab === 'reclaim' && (
-                              <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider w-12">
-                                 <input
-                                    type="checkbox"
-                                    className="rounded border-slate-300"
-                                    checked={allFilteredReclaimSelected}
-                                    onChange={handleSelectAllReclaim}
-                                 />
-                              </th>
-                           )}
+                           <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center w-16">STT</th>
                            <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Sale</th>
                            <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Chậm nhận</th>
                            <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Chậm lịch hẹn</th>
@@ -1742,6 +1733,7 @@ const SLALeadList: React.FC = () => {
                            const repName = getRepDisplayName(row.ownerId);
                            return (
                               <tr key={`${row.ownerId || 'unassigned'}-${idx}`} className="hover:bg-slate-50 transition-colors">
+                                 <td className="px-6 py-4 text-center text-sm font-semibold text-slate-500">{idx + 1}</td>
                                  <td className="px-6 py-4">
                                     <div className="flex items-center gap-2">
                                        {row.ownerId && rep.name !== 'Unknown' && rep.name !== '-' && (
@@ -1760,7 +1752,7 @@ const SLALeadList: React.FC = () => {
 
                         {reportRows.length === 0 && (
                            <tr>
-                              <td colSpan={5} className="px-6 py-12 text-center text-slate-400">
+                              <td colSpan={6} className="px-6 py-12 text-center text-slate-400">
                                  <div className="flex flex-col items-center gap-3">
                                     <CheckCircle2 size={48} className="text-green-500 opacity-50" />
                                     <p>Chưa có dữ liệu vi phạm theo bộ lọc hiện tại.</p>
@@ -1784,6 +1776,7 @@ const SLALeadList: React.FC = () => {
                                  />
                               </th>
                            )}
+                           <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center w-16">STT</th>
                            <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Họ tên & Nguồn</th>
                            <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Sale phụ trách</th>
                            <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Vấn đề (Issue)</th>
@@ -1807,6 +1800,7 @@ const SLALeadList: React.FC = () => {
 
                                  return (
                                     <tr key={`${collaborator.id}-collaborator-${idx}`} className="hover:bg-rose-50/40 transition-colors">
+                                       <td className="px-6 py-4 text-center text-sm font-semibold text-slate-500">{idx + 1}</td>
                                        <td className="px-6 py-4">
                                           <div className="flex flex-col">
                                              <span className="text-sm font-bold text-slate-900">{text(collaborator.name)}</span>
@@ -1868,7 +1862,7 @@ const SLALeadList: React.FC = () => {
 
                               {filteredSlowCollaboratorList.length === 0 && (
                                  <tr>
-                                    <td colSpan={6} className="px-6 py-12 text-center text-slate-400">
+                                    <td colSpan={7} className="px-6 py-12 text-center text-slate-400">
                                        <div className="flex flex-col items-center gap-3">
                                           <CheckCircle2 size={48} className="text-green-500 opacity-50" />
                                           <p>Chưa có cộng tác viên nào đang chậm lịch hẹn theo SLA.</p>
@@ -1889,6 +1883,7 @@ const SLALeadList: React.FC = () => {
                                        className={`hover:bg-slate-50 transition-colors ${linkedLead ? 'cursor-pointer' : ''}`}
                                        onClick={() => linkedLead && openLeadDetails(linkedLead.id)}
                                     >
+                                       <td className="px-6 py-4 text-center text-sm font-semibold text-slate-500">{idx + 1}</td>
                                        <td className="px-6 py-4">
                                           <div className="flex flex-col">
                                              <span className="text-sm font-bold text-slate-900">{text(item.leadName)}</span>
@@ -1962,7 +1957,7 @@ const SLALeadList: React.FC = () => {
 
                               {filteredSlowHistoryList.length === 0 && (
                                  <tr>
-                                    <td colSpan={6} className="px-6 py-12 text-center text-slate-400">
+                                    <td colSpan={7} className="px-6 py-12 text-center text-slate-400">
                                        <div className="flex flex-col items-center gap-3">
                                           <CheckCircle2 size={48} className="text-green-500 opacity-50" />
                                           <p>Chưa có bản ghi chậm phù hợp bộ lọc.</p>
@@ -1987,6 +1982,7 @@ const SLALeadList: React.FC = () => {
                                              onChange={() => toggleReclaimLeadSelection(item.lead.id)}
                                           />
                                        </td>
+                                        <td className="px-6 py-4 text-center text-sm font-semibold text-slate-500">{idx + 1}</td>
                                        <td className="px-6 py-4">
                                           <div className="flex flex-col">
                                              <span className="text-sm font-bold text-slate-900">{text(item.lead.name)}</span>
@@ -2033,7 +2029,7 @@ const SLALeadList: React.FC = () => {
 
                               {filteredReclaimList.length === 0 && (
                                  <tr>
-                                    <td colSpan={6} className="px-6 py-12 text-center text-slate-400">
+                                    <td colSpan={7} className="px-6 py-12 text-center text-slate-400">
                                        <div className="flex flex-col items-center gap-3">
                                           <CheckCircle2 size={48} className="text-green-500 opacity-50" />
                                           <p>Chưa có lead nào tới ngưỡng thu hồi theo quy tắc hiện tại.</p>
@@ -2050,6 +2046,7 @@ const SLALeadList: React.FC = () => {
                                  const leadBranch = resolveLeadBranch(warning.lead);
                                  return (
                                     <tr key={`${warning.lead.id}-${idx}`} className="hover:bg-slate-50 transition-colors cursor-pointer" onClick={() => openLeadDetails(warning.lead.id)}>
+                                       <td className="px-6 py-4 text-center text-sm font-semibold text-slate-500">{idx + 1}</td>
                                        <td className="px-6 py-4">
                                           <div className="flex flex-col">
                                              <span className="text-sm font-bold text-slate-900">{text(warning.lead.name)}</span>
@@ -2118,7 +2115,7 @@ const SLALeadList: React.FC = () => {
 
                               {filteredList.length === 0 && (
                                  <tr>
-                                    <td colSpan={6} className="px-6 py-12 text-center text-slate-400">
+                                    <td colSpan={7} className="px-6 py-12 text-center text-slate-400">
                                        <div className="flex flex-col items-center gap-3">
                                           <CheckCircle2 size={48} className="text-green-500 opacity-50" />
                                           <p>Tuyệt vời! Không có lead nào cần xử lý trong mục này.</p>

@@ -14,6 +14,7 @@ import {
   Bell
 } from 'lucide-react';
 import PinnedSearchInput, { PinnedSearchChip } from '../components/PinnedSearchInput';
+import { decodeMojibakeReactNode } from '../utils/mojibake';
 
 type InterviewStatus = 'Scheduled' | 'Pending' | 'Completed' | 'Cancelled';
 type InterviewType = 'Visa' | 'Entrance Exam';
@@ -194,7 +195,7 @@ const StudyAbroadInterviews: React.FC = () => {
     );
   };
 
-  return (
+  return decodeMojibakeReactNode(
     <div className="flex flex-col h-full bg-[#f8fafc] text-[#0d141b] font-sans overflow-hidden">
       <div className="px-8 py-6 flex justify-between items-end shrink-0 border-b border-[#e7edf3] bg-white">
         <div>
@@ -271,6 +272,7 @@ const StudyAbroadInterviews: React.FC = () => {
             <table className="w-full text-left border-collapse">
               <thead className="bg-[#f8fafc] border-b border-[#e7edf3] sticky top-0 z-10 shadow-sm">
                 <tr>
+                  <th className="px-6 py-4 text-center text-[#4c739a] text-xs font-bold uppercase tracking-wider w-16">STT</th>
                   <th className="px-6 py-4 text-[#4c739a] text-xs font-bold uppercase tracking-wider w-32">Thời gian</th>
                   <th className="px-6 py-4 text-[#4c739a] text-xs font-bold uppercase tracking-wider">Học viên</th>
                   <th className="px-6 py-4 text-[#4c739a] text-xs font-bold uppercase tracking-wider">Loại lịch</th>
@@ -282,8 +284,9 @@ const StudyAbroadInterviews: React.FC = () => {
               </thead>
               <tbody className="divide-y divide-[#e7edf3]">
                 {filteredInterviews.length > 0 ? (
-                  filteredInterviews.map((item) => (
+                  filteredInterviews.map((item, index) => (
                     <tr key={item.id} className="hover:bg-blue-50/30 transition-colors group">
+                      <td className="px-6 py-4 text-center text-sm font-semibold text-slate-500">{index + 1}</td>
                       <td className="px-6 py-4">
                         <div className="font-bold text-[#0d141b] text-sm">{item.date}</div>
                         <div className="text-[#4c739a] text-xs font-medium flex items-center gap-1 mt-0.5">
@@ -326,7 +329,7 @@ const StudyAbroadInterviews: React.FC = () => {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={7} className="px-6 py-12 text-center text-sm text-slate-500">
+                    <td colSpan={8} className="px-6 py-12 text-center text-sm text-slate-500">
                       Không tìm thấy lịch phỏng vấn phù hợp với bộ lọc hiện tại.
                     </td>
                   </tr>

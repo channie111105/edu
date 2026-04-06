@@ -8,12 +8,13 @@ import {
   List,
   Plus,
   RotateCcw,
-  Star
+  Star,
+  Trash2
 } from 'lucide-react';
 import AdvancedDateFilter, { DateRange } from '../components/AdvancedDateFilter';
 import PinnedSearchInput from '../components/PinnedSearchInput';
-import { IQuotation, IStudent, QuotationStatus } from '../types';
-import { getQuotations, getStudents } from '../utils/storage';
+import { IQuotation, IQuotationPaymentScheduleTerm, IStudent, ITransaction, QuotationStatus } from '../types';
+import { deleteQuotation, getQuotations, getStudents, getTransactions } from '../utils/storage';
 
 const FAVORITES_STORAGE_KEY = 'educrm:quotation-favorites';
 const SALESPERSON_MAP: Record<string, string> = {
@@ -47,7 +48,8 @@ const TIME_PRESETS = [
 const DATA_SCOPE_OPTIONS = [
   { value: 'all', label: 'Tất cả dữ liệu' },
   { value: 'quotation', label: 'Quotation' },
-  { value: 'locked', label: 'Locked' }
+  { value: 'locked', label: 'Locked' },
+  { value: 'overdue_expected', label: 'Quá hạn dự kiến đóng' }
 ] as const;
 
 const GROUP_OPTIONS = [
@@ -89,6 +91,7 @@ type EnrichedQuotation = {
   displayStatus: { label: string; className: string };
   saleTypeLabel: string;
   createdDateValue?: string;
+  hasOverdueExpectedPayment: boolean;
   isFavorite: boolean;
 };
 
@@ -225,6 +228,102 @@ const formatDateParts = (value?: string) => {
 };
 
 const formatCurrency = (value?: number) => `${(value || 0).toLocaleString('vi-VN')} đ`;
+
+const toNumberOrZero = (value: unknown) => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : 0;
+};
+
+const normalizePaymentSchedule = (
+  schedule: IQuotationPaymentScheduleTerm[] | undefined
+): IQuotationPaymentScheduleTerm[] => {
+  if (!Array.isArray(schedule) || schedule.length === 0) return [];
+
+  return schedule.map((item, index) => ({
+    ...item,
+    id: item.id || `term-${index + 1}`,
+    termNo: Number(item.termNo || index + 1),
+    installmentLabel: item.installmentLabel || `Lần ${index + 1}`,
+    condition: item.condition || '',
+    amount: Math.max(0, Math.round(Number(item.amount) || 0)),
+    expectedDate: item.expectedDate || '',
+    dueDate: item.dueDate || '',
+    activatedAt: item.activatedAt || '',
+    activatedBy: item.activatedBy || ''
+  }));
+};
+
+const parseEndOfDay = (value?: string) => {
+  const raw = String(value || '').trim();
+  if (!raw) return Number.NaN;
+
+  const isoDateMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoDateMatch) {
+    const [, yearText, monthText, dayText] = isoDateMatch;
+    const endOfDay = new Date(Number(yearText), Number(monthText) - 1, Number(dayText), 23, 59, 59, 999);
+    return endOfDay.getTime();
+  }
+
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return Number.NaN;
+  parsed.setHours(23, 59, 59, 999);
+  return parsed.getTime();
+};
+
+const hasOverdueExpectedPayment = (quotation: IQuotation, transactions: ITransaction[]) => {
+  if (!Array.isArray(quotation.lineItems) || quotation.lineItems.length === 0) return false;
+
+  const approvedTransactions = transactions.filter(
+    (transaction) => transaction.quotationId === quotation.id && transaction.status === 'DA_DUYET'
+  );
+  const paidByInstallment = new Map<string, number>();
+  let legacyPaidPool = 0;
+
+  approvedTransactions.forEach((transaction) => {
+    const amount = Math.max(0, toNumberOrZero(transaction.amount));
+    const installmentKey = String(transaction.installmentTermId || '').trim();
+
+    if (installmentKey) {
+      paidByInstallment.set(installmentKey, (paidByInstallment.get(installmentKey) || 0) + amount);
+      return;
+    }
+
+    legacyPaidPool += amount;
+  });
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const rows = quotation.lineItems.flatMap((item) => {
+    const schedule = normalizePaymentSchedule(item.paymentSchedule);
+
+    return schedule.map((term) => {
+      const mustCollect = Math.max(0, toNumberOrZero(term.amount));
+      const directPaidAmount = Math.max(0, paidByInstallment.get(term.id) || 0);
+      let paidAmount = Math.min(mustCollect, directPaidAmount);
+
+      if (paidAmount < mustCollect && legacyPaidPool > 0) {
+        const legacyApplied = Math.min(mustCollect - paidAmount, legacyPaidPool);
+        paidAmount += legacyApplied;
+        legacyPaidPool = Math.max(0, legacyPaidPool - legacyApplied);
+      }
+
+      return {
+        remainingAmount: Math.max(mustCollect - paidAmount, 0),
+        dueDate: term.dueDate
+      };
+    });
+  });
+
+  return rows.some((row) => {
+    if (row.remainingAmount <= 0) return false;
+    const dueTimestamp = parseEndOfDay(row.dueDate);
+    return !Number.isNaN(dueTimestamp) && dueTimestamp < today.getTime();
+  });
+};
+
+const canDeleteQuotation = (quotation: IQuotation) =>
+  quotation.status === QuotationStatus.DRAFT || quotation.status === QuotationStatus.SENT;
 
 const getPaymentStateConfig = (quotation: IQuotation) => {
   if (quotation.status === QuotationStatus.LOCKED) {
@@ -364,6 +463,7 @@ const Quotations: React.FC = () => {
   const navigate = useNavigate();
   const [quotations, setQuotations] = useState<IQuotation[]>([]);
   const [students, setStudents] = useState<IStudent[]>([]);
+  const [transactions, setTransactions] = useState<ITransaction[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [timeFilterField, setTimeFilterField] = useState<TimeFilterField>('createdDate');
   const [timeRangeType, setTimeRangeType] = useState<TimeRangeType>('all');
@@ -393,14 +493,17 @@ const Quotations: React.FC = () => {
     const loadData = () => {
       setQuotations(getQuotations() || []);
       setStudents((getStudents() || []) as IStudent[]);
+      setTransactions(getTransactions() || []);
     };
 
     loadData();
     window.addEventListener('educrm:quotations-changed', loadData as EventListener);
+    window.addEventListener('educrm:transactions-changed', loadData as EventListener);
     window.addEventListener('storage', loadData);
 
     return () => {
       window.removeEventListener('educrm:quotations-changed', loadData as EventListener);
+      window.removeEventListener('educrm:transactions-changed', loadData as EventListener);
       window.removeEventListener('storage', loadData);
     };
   }, []);
@@ -428,17 +531,22 @@ const Quotations: React.FC = () => {
 
   const enrichedData = useMemo<EnrichedQuotation[]>(
     () =>
-      quotations.map((quotation) => ({
-        quotation,
-        studentName: getStudentName(quotation),
-        salespersonName: getSalespersonName(quotation),
-        paymentState: getPaymentStateConfig(quotation),
-        displayStatus: getDisplayStatusConfig(quotation.status),
-        saleTypeLabel: getSaleTypeLabel(quotation),
-        createdDateValue: getCreatedDateValue(quotation),
-        isFavorite: favoriteIds.includes(quotation.id)
-      })),
-    [favoriteIds, quotations, studentMap]
+      quotations.map((quotation) => {
+        const overdueExpectedPayment = hasOverdueExpectedPayment(quotation, transactions);
+
+        return {
+          quotation,
+          studentName: getStudentName(quotation),
+          salespersonName: getSalespersonName(quotation),
+          paymentState: getPaymentStateConfig(quotation),
+          displayStatus: getDisplayStatusConfig(quotation.status),
+          saleTypeLabel: getSaleTypeLabel(quotation),
+          createdDateValue: getCreatedDateValue(quotation),
+          hasOverdueExpectedPayment: overdueExpectedPayment,
+          isFavorite: favoriteIds.includes(quotation.id)
+        };
+      }),
+    [favoriteIds, quotations, studentMap, transactions]
   );
 
   const getGroupValue = (item: EnrichedQuotation) => {
@@ -462,6 +570,8 @@ const Quotations: React.FC = () => {
         return item.quotation.status !== QuotationStatus.LOCKED;
       case 'locked':
         return item.quotation.status === QuotationStatus.LOCKED;
+      case 'overdue_expected':
+        return item.hasOverdueExpectedPayment;
       default:
         return true;
     }
@@ -556,6 +666,25 @@ const Quotations: React.FC = () => {
     );
   };
 
+  const handleDeleteQuotation = (quotation: IQuotation) => {
+    if (!canDeleteQuotation(quotation)) {
+      window.alert('Chỉ xóa báo giá khi chưa confirm.');
+      return;
+    }
+
+    const confirmed = window.confirm(`Xóa báo giá ${normalizeText(quotation.soCode)}?`);
+    if (!confirmed) return;
+
+    const result = deleteQuotation(quotation.id);
+    if (!result.ok) {
+      window.alert(result.error || 'Không thể xóa báo giá.');
+      return;
+    }
+
+    setSelectedIds((current) => current.filter((id) => id !== quotation.id));
+    setFavoriteIds((current) => current.filter((id) => id !== quotation.id));
+  };
+
   const handleTimeRangeChange = (value: TimeRangeType) => {
     setTimeRangeType(value);
     setIsCustomRangeOpen(value === 'custom');
@@ -613,6 +742,7 @@ const Quotations: React.FC = () => {
 
   const groupedRows = useMemo(() => {
     let lastGroup = '';
+    let rowNumber = 0;
 
     return filteredData.flatMap((item) => {
       const groupValue = getGroupValue(item);
@@ -622,7 +752,7 @@ const Quotations: React.FC = () => {
         lastGroup = groupValue;
         rows.push(
           <tr key={`group-${groupMode}-${groupValue}`} className="bg-slate-50/80">
-            <td colSpan={10} className="px-3 py-2 text-[11px] font-semibold text-slate-600">
+            <td colSpan={12} className="px-3 py-2 text-[11px] font-semibold text-slate-600">
               {getGroupPrefix(groupMode)}: {groupValue || '-'}
             </td>
           </tr>
@@ -631,6 +761,8 @@ const Quotations: React.FC = () => {
 
       const createdDate = formatDateParts(item.createdDateValue);
       const isSelected = selectedIds.includes(item.quotation.id);
+      const currentRowNumber = ++rowNumber;
+      const isDeletable = canDeleteQuotation(item.quotation);
 
       rows.push(
         <tr
@@ -638,7 +770,7 @@ const Quotations: React.FC = () => {
           className="cursor-pointer transition-colors hover:bg-slate-50"
           onClick={() => navigate(`/contracts/quotations/${item.quotation.id}`)}
         >
-          <td className="w-9 px-3 py-3" onClick={(event) => event.stopPropagation()}>
+          <td className="w-9 px-2.5 py-3" onClick={(event) => event.stopPropagation()}>
             <input
               type="checkbox"
               checked={isSelected}
@@ -646,7 +778,8 @@ const Quotations: React.FC = () => {
               className="h-4 w-4 rounded border-slate-300"
             />
           </td>
-          <td className="px-3 py-3">
+          <td className="w-[52px] px-2.5 py-3 text-center text-[12px] font-semibold text-slate-500">{currentRowNumber}</td>
+          <td className="px-2.5 py-3">
             <div className="flex items-center gap-3">
               <button
                 type="button"
@@ -673,53 +806,64 @@ const Quotations: React.FC = () => {
             <div>{createdDate.date}</div>
             {createdDate.time ? <div className="mt-0.5 truncate text-[10px] text-slate-400">{createdDate.time}</div> : null}
           </td>
-          <td className="px-3 py-3">
+          <td className="px-2.5 py-3">
             <div
-              className="max-w-[160px] truncate text-[12px] font-semibold text-slate-900"
+              className="max-w-[142px] truncate text-[12px] font-semibold text-slate-900"
               title={normalizeText(item.quotation.customerName)}
             >
               {normalizeText(item.quotation.customerName)}
             </div>
             <div
-              className="mt-0.5 max-w-[180px] truncate text-[10px] text-slate-500"
+              className="mt-0.5 max-w-[152px] truncate text-[10px] text-slate-500"
               title={normalizeText(item.quotation.product)}
             >
               {normalizeText(item.quotation.product)}
             </div>
           </td>
-          <td className="px-3 py-3">
+          <td className="px-2.5 py-3">
             <div
-              className="max-w-[130px] truncate text-[12px] font-medium text-slate-800"
+              className="max-w-[110px] truncate text-[12px] font-medium text-slate-800"
               title={item.studentName}
             >
               {item.studentName}
             </div>
           </td>
-          <td className="px-3 py-3">
+          <td className="px-2.5 py-3">
             <div
-              className="max-w-[120px] truncate text-[12px] text-slate-700"
+              className="max-w-[98px] truncate text-[12px] text-slate-700"
               title={item.salespersonName}
             >
               {item.salespersonName}
             </div>
           </td>
-          <td className="px-3 py-3 whitespace-nowrap text-right text-[12px] font-semibold text-slate-900">
+          <td className="px-2.5 py-3 whitespace-nowrap text-right text-[12px] font-semibold text-slate-900">
             {formatCurrency(item.quotation.finalAmount)}
           </td>
-          <td className="px-3 py-3">
-            <span className={`inline-flex rounded-lg px-2.5 py-1 text-[11px] font-semibold ${item.paymentState.className}`}>
+          <td className="px-2.5 py-3">
+            <span className={`inline-flex rounded-lg px-2 py-1 text-[10px] font-semibold ${item.paymentState.className}`}>
               {item.paymentState.label}
             </span>
           </td>
-          <td className="px-3 py-3">
-            <span className={`inline-flex rounded-lg px-2.5 py-1 text-[11px] font-semibold ${item.displayStatus.className}`}>
+          <td className="px-2.5 py-3">
+            <span className={`inline-flex rounded-lg px-2 py-1 text-[10px] font-semibold ${item.displayStatus.className}`}>
               {item.displayStatus.label}
             </span>
           </td>
-          <td className="px-3 py-3 text-[12px] text-slate-700">
-            <div className="max-w-[84px] truncate" title={item.saleTypeLabel}>
+          <td className="px-2.5 py-3 text-[12px] text-slate-700">
+            <div className="max-w-[72px] truncate" title={item.saleTypeLabel}>
               {item.saleTypeLabel}
             </div>
+          </td>
+          <td className="w-[56px] px-2 py-3 text-right" onClick={(event) => event.stopPropagation()}>
+            <button
+              type="button"
+              onClick={() => handleDeleteQuotation(item.quotation)}
+              disabled={!isDeletable}
+              title={isDeletable ? 'Xóa báo giá' : 'Chỉ xóa khi báo giá chưa confirm'}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-rose-200 text-rose-600 transition-colors hover:bg-rose-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300 disabled:hover:bg-transparent"
+            >
+              <Trash2 size={14} />
+            </button>
           </td>
         </tr>
       );
@@ -915,10 +1059,10 @@ const Quotations: React.FC = () => {
 
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1040px] table-fixed border-collapse text-left">
+            <table className="w-full min-w-[1020px] table-fixed border-collapse text-left">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">
-                  <th className="w-9 px-3 py-2.5 whitespace-nowrap">
+                  <th className="w-9 px-2.5 py-2.5 whitespace-nowrap">
                     <input
                       type="checkbox"
                       checked={allVisibleSelected}
@@ -926,15 +1070,17 @@ const Quotations: React.FC = () => {
                       className="h-4 w-4 rounded border-slate-300"
                     />
                   </th>
-                  <th className="w-[122px] px-3 py-2.5 whitespace-nowrap">Mã báo giá</th>
-                  <th className="w-[102px] px-3 py-2.5 whitespace-nowrap">Ngày tạo</th>
-                  <th className="w-[170px] px-3 py-2.5 whitespace-nowrap">Khách hàng</th>
-                  <th className="w-[124px] px-3 py-2.5 whitespace-nowrap">Học viên</th>
-                  <th className="w-[116px] px-3 py-2.5 whitespace-nowrap">Tư vấn</th>
-                  <th className="w-[126px] px-3 py-2.5 whitespace-nowrap text-right">Tổng tiền</th>
-                  <th className="w-[126px] px-3 py-2.5 whitespace-nowrap">Thanh toán</th>
-                  <th className="w-[116px] px-3 py-2.5 whitespace-nowrap">Trạng thái</th>
-                  <th className="w-[88px] px-3 py-2.5 whitespace-nowrap">Loại đơn</th>
+                  <th className="w-[52px] px-2.5 py-2.5 whitespace-nowrap text-center">STT</th>
+                  <th className="w-[112px] px-2.5 py-2.5 whitespace-nowrap">Mã báo giá</th>
+                  <th className="w-[92px] px-2.5 py-2.5 whitespace-nowrap">Ngày tạo</th>
+                  <th className="w-[152px] px-2.5 py-2.5 whitespace-nowrap">Khách hàng</th>
+                  <th className="w-[108px] px-2.5 py-2.5 whitespace-nowrap">Học viên</th>
+                  <th className="w-[104px] px-2.5 py-2.5 whitespace-nowrap">Tư vấn</th>
+                  <th className="w-[112px] px-2.5 py-2.5 whitespace-nowrap text-right">Tổng tiền</th>
+                  <th className="w-[108px] px-2.5 py-2.5 whitespace-nowrap">Thanh toán</th>
+                  <th className="w-[96px] px-2.5 py-2.5 whitespace-nowrap">Trạng thái</th>
+                  <th className="w-[78px] px-2.5 py-2.5 whitespace-nowrap">Loại đơn</th>
+                  <th className="w-[56px] px-2.5 py-2.5 whitespace-nowrap text-right">Xóa</th>
                 </tr>
               </thead>
 
@@ -943,7 +1089,7 @@ const Quotations: React.FC = () => {
                   groupedRows
                 ) : (
                   <tr>
-                    <td colSpan={10} className="px-4 py-12 text-center text-[13px] italic text-slate-400">
+                    <td colSpan={12} className="px-4 py-12 text-center text-[13px] italic text-slate-400">
                       Không tìm thấy báo giá phù hợp.
                     </td>
                   </tr>

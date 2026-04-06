@@ -1,8 +1,8 @@
 ﻿import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom'; // Add import
 import { useAuth } from '../contexts/AuthContext';
-import { getLeads, saveLead, addContact, addDeal, convertLeadToContact, getClosedLeadReasons, getTags, saveTags, getLeadActivitiesForConversion } from '../utils/storage';
-import { LeadStatus, ILead, IDeal, DealStage } from '../types';
+import { getLeads, saveLead, saveLeads, addContact, addDeal, convertLeadToContact, getClosedLeadReasons, getTags, saveTags, getLeadActivitiesForConversion } from '../utils/storage';
+import { LeadStatus, ILead, IDeal, DealStage, UserRole } from '../types';
 import UnifiedLeadDrawer from '../components/UnifiedLeadDrawer';
 import LeadDrawerProfileForm from '../components/LeadDrawerProfileForm';
 import LeadPivotTable from '../components/LeadPivotTable';
@@ -11,6 +11,7 @@ import LeadTagManager from '../components/LeadTagManager';
 import SLABadge from '../components/SLABadge';
 import OdooSearchBar, { SearchFilter, SearchFieldConfig } from '../components/OdooSearchBar';
 import SLAWarningBanner from '../components/SLAWarningBanner';
+import SalesRoleTestSwitcher from '../components/SalesRoleTestSwitcher';
 import { buildDomainFromFilters, applyDomainFilter, getGroupByFields } from '../utils/filterDomain';
 import { calculateSLAWarnings, getUrgentWarningCount } from '../utils/slaUtils';
 import { LEAD_CHANNEL_OPTIONS } from '../constants';
@@ -27,6 +28,7 @@ import {
 } from '../utils/leadCreateForm';
 import { FIXED_LEAD_TAGS } from '../utils/storage';
 import { appendLeadLogs, buildLeadActivityLog, buildLeadAuditChange, buildLeadAuditLog } from '../utils/leadLogs';
+import { useSalesTestRole } from '../utils/salesTestRole';
 import {
    getLeadStatusLabel,
    isClosedLeadStatusKey,
@@ -35,7 +37,7 @@ import {
    normalizeLeadStatusKey,
    toLeadStatusValue,
 } from '../utils/leadStatus';
-import { decodeMojibakeReactNode } from '../utils/mojibake';
+import { decodeMojibakeReactNode, decodeMojibakeText } from '../utils/mojibake';
 import { getLeadPhoneValidationMessage, normalizeLeadPhone } from '../utils/phone';
 import { clearLeadReclaimTracking } from '../utils/leadSla';
 import {
@@ -49,6 +51,8 @@ import {
 const MyLeads: React.FC = () => {
    const { user } = useAuth();
    const navigate = useNavigate();
+   const { salesTestRole } = useSalesTestRole(user?.role);
+   const isSalesLeader = salesTestRole === UserRole.SALES_LEADER;
 
    const SALES_REPS = [
       { id: 'u1', name: 'Tráº§n VÄƒn Quáº£n Trá»‹' },
@@ -56,6 +60,31 @@ const MyLeads: React.FC = () => {
       { id: 'u3', name: 'David Clark' },
       { id: 'u4', name: 'Alex Rivera' },
    ];
+
+   const normalizeOwnerToken = useCallback((value?: string) => decodeMojibakeText(String(value || '')).trim().toLowerCase(), []);
+
+   const isLeadAllocated = useCallback((lead: ILead) => Boolean(normalizeOwnerToken(lead.ownerId)), [normalizeOwnerToken]);
+
+   const isLeadVisibleToCurrentUser = useCallback((lead: ILead) => {
+      if (!user) return false;
+      if (isSalesLeader) return isLeadAllocated(lead);
+
+      const ownerToken = normalizeOwnerToken(lead.ownerId);
+      if (!ownerToken) return false;
+
+      return [normalizeOwnerToken(user.id), normalizeOwnerToken(user.name)].includes(ownerToken);
+   }, [isLeadAllocated, isSalesLeader, normalizeOwnerToken, user]);
+
+   const applyLeadScope = useCallback((allLeads: ILead[]) => {
+      const scopedLeads = allLeads.filter(isLeadVisibleToCurrentUser);
+      setLeads(scopedLeads);
+      setSelectedIds((prev) => prev.filter((id) => scopedLeads.some((lead) => lead.id === id)));
+      setSelectedLead((prev) => (prev ? scopedLeads.find((lead) => lead.id === prev.id) || null : null));
+      return scopedLeads;
+   }, [isLeadVisibleToCurrentUser]);
+
+   const myLeadsTitle = isSalesLeader ? 'Lead đã được phân bổ' : 'Lead của tôi';
+   const myLeadsEmptyLabel = isSalesLeader ? 'Chưa có lead đã phân bổ trong danh sách hiện tại.' : 'Chưa có lead trong danh sách hiện tại.';
 
    const NEW_LEAD_INITIAL_STATE = createLeadInitialState(user?.id || ''); /*
       name: '',
@@ -277,14 +306,9 @@ const MyLeads: React.FC = () => {
    ];
 
    const reloadMyLeads = useCallback(() => {
-      if (!user?.id) {
-         setLeads([]);
-         return;
-      }
       const allLeads = getLeads();
-      const myLeads = allLeads.filter(l => l.ownerId === user.id);
-      setLeads(myLeads);
-   }, [user?.id]);
+      applyLeadScope(allLeads);
+   }, [applyLeadScope]);
 
    const handleCreateMyLeadLegacy = () => {
       if (!user?.id) {
@@ -741,8 +765,8 @@ const MyLeads: React.FC = () => {
 
    // Calculate SLA Warnings
    const slaWarnings = useMemo(() => {
-      return calculateSLAWarnings(filteredLeads, user?.id);
-   }, [filteredLeads, user]);
+      return calculateSLAWarnings(filteredLeads);
+   }, [filteredLeads]);
 
    const getLeadOwnerName = (lead: ILead) => {
       const matchedRep = SALES_REPS.find((rep) => rep.id === lead.ownerId);
@@ -836,10 +860,11 @@ const MyLeads: React.FC = () => {
       const slaMet = diffMins <= 15;
 
       const nowIso = now.toISOString();
+      const nextOwnerId = isSalesLeader ? lead.ownerId : (user?.id || lead.ownerId);
       const updated = appendLeadLogs({
          ...clearLeadReclaimTracking(lead),
          status: LeadStatus.PICKED,
-         ownerId: user?.id,
+         ownerId: nextOwnerId,
          pickUpDate: nowIso
       }, {
          activities: [
@@ -859,7 +884,7 @@ const MyLeads: React.FC = () => {
                timestamp: nowIso,
                changes: [
                   buildLeadAuditChange('status', lead.status, LeadStatus.PICKED, 'Tráº¡ng thÃ¡i'),
-                  buildLeadAuditChange('ownerId', lead.ownerId, user?.id, 'Sale phá»¥ trÃ¡ch'),
+                  buildLeadAuditChange('ownerId', lead.ownerId, nextOwnerId, 'Sale phá»¥ trÃ¡ch'),
                   buildLeadAuditChange('pickUpDate', lead.pickUpDate, nowIso, 'Thá»i gian nháº­n lead')
                ]
             })
@@ -873,12 +898,13 @@ const MyLeads: React.FC = () => {
    const handleCall = (e: React.MouseEvent, lead: ILead) => {
       e.stopPropagation();
       const nowIso = new Date().toISOString();
+      const nextOwnerId = isSalesLeader ? lead.ownerId : (user?.id || lead.ownerId);
 
       if ([LEAD_STATUS_KEYS.NEW, LEAD_STATUS_KEYS.ASSIGNED, LEAD_STATUS_KEYS.PICKED].includes(normalizeLeadStatusKey(String(lead.status || '')))) {
          const updated = appendLeadLogs({
             ...lead,
             status: LeadStatus.CONTACTED,
-            ownerId: user?.id,
+            ownerId: nextOwnerId,
             lastInteraction: nowIso
          }, {
             activities: [
@@ -967,7 +993,8 @@ const MyLeads: React.FC = () => {
    const handleBulkMarkLost = () => {
       if (confirm(`ÄÃ¡nh dáº¥u ${selectedIds.length} lead lÃ  Tháº¥t báº¡i?`)) {
          const nowIso = new Date().toISOString();
-         const updatedLeads = leads.map(l => selectedIds.includes(l.id)
+         const allLeads = getLeads();
+         const updatedAllLeads = allLeads.map(l => selectedIds.includes(l.id)
             ? appendLeadLogs({
                ...l,
                status: LeadStatus.LOST
@@ -992,12 +1019,11 @@ const MyLeads: React.FC = () => {
                ]
             })
             : l);
-         setLeads(updatedLeads);
-         // Simulate save
-         import('../utils/storage').then(({ saveLeads }) => saveLeads(updatedLeads));
+         applyLeadScope(updatedAllLeads);
+         saveLeads(updatedAllLeads);
          setSelectedIds([]);
-      }
-   };
+       }
+    };
 
    // Mock Assign (Handover)
    const handleBulkAssign = () => {
@@ -1037,29 +1063,22 @@ const MyLeads: React.FC = () => {
             );
          });
 
-         import('../utils/storage').then(({ saveLeads }) => {
-            saveLeads(updatedAllLeads);
-            // Update local state: remove from "My Leads" since owner changed
-            setLeads(prev => prev.filter(l => !selectedIds.includes(l.id)));
-            setSelectedIds([]);
-            alert(`? b?n giao ${selectedIds.length} lead cho ${target}`);
-         });
+         saveLeads(updatedAllLeads);
+         applyLeadScope(updatedAllLeads);
+         setSelectedIds([]);
+         alert(`Đã bàn giao ${selectedIds.length} lead cho ${target}`);
       }
    };
 
 
    // Handle Updates from Drawer
    const handleLeadUpdate = (updatedLead: ILead) => {
-      // 1. Update UI State
-      const newLeads = leads.map(l => l.id === updatedLead.id ? updatedLead : l);
-      setLeads(newLeads);
-
-      // 2. Persist to Storage
-      const allLeads = getLeads(); // Fetch fresh data
+      const allLeads = getLeads();
       const index = allLeads.findIndex(l => l.id === updatedLead.id);
       if (index !== -1) {
          allLeads[index] = updatedLead;
-         import('../utils/storage').then(({ saveLeads }) => saveLeads(allLeads));
+         applyLeadScope(allLeads);
+         saveLeads(allLeads);
       }
    };
 
@@ -1183,9 +1202,10 @@ const MyLeads: React.FC = () => {
    const handleBulkWon = () => {
       if (selectedIds.length > 0) {
          if (confirm(`XÃ¡c nháº­n Ä‘Ã¡nh dáº¥u tháº¯ng (Won) cho ${selectedIds.length} lead?`)) {
-            const updatedLeads = leads.map(l => selectedIds.includes(l.id) ? { ...l, status: DealStage.WON } : l);
-            setLeads(updatedLeads);
-            import('../utils/storage').then(({ saveLeads }) => saveLeads(updatedLeads));
+            const allLeads = getLeads();
+            const updatedAllLeads = allLeads.map(l => selectedIds.includes(l.id) ? { ...l, status: DealStage.WON } : l);
+            applyLeadScope(updatedAllLeads);
+            saveLeads(updatedAllLeads);
             setSelectedIds([]);
             alert("Cáº­p nháº­t thÃ nh cÃ´ng!");
          }
@@ -1197,11 +1217,10 @@ const MyLeads: React.FC = () => {
    const handleBulkDelete = () => {
       if (selectedIds.length > 0) {
          if (confirm(`XÃ³a ${selectedIds.length} lead Ä‘Ã£ chá»n?`)) {
-            const remainingLeads = leads.filter(l => !selectedIds.includes(l.id));
-            setLeads(remainingLeads);
-            const allLeads = JSON.parse(localStorage.getItem('leads') || '[]');
-            const filteredAllLeads = allLeads.filter((l: any) => !selectedIds.includes(l.id));
-            import('../utils/storage').then(({ saveLeads }) => saveLeads(filteredAllLeads));
+            const allLeads = getLeads();
+            const filteredAllLeads = allLeads.filter((l) => !selectedIds.includes(l.id));
+            applyLeadScope(filteredAllLeads);
+            saveLeads(filteredAllLeads);
             setSelectedIds([]);
          }
       } else {
@@ -1428,8 +1447,8 @@ const MyLeads: React.FC = () => {
       // Note: UnifiedLeadDrawer will need to support opening specific tab
    };
 
-   const renderTableRows = (leadList: ILead[]) => (
-      leadList.map(lead => {
+   const renderTableRows = (leadList: ILead[], startIndex = 0) => (
+      leadList.map((lead, index) => {
          // Determine Next Activity
          // @ts-ignore
          const nextActivity = (lead.activities || []).find(a => a.type === 'activity');
@@ -1477,6 +1496,10 @@ const MyLeads: React.FC = () => {
                   <input type="checkbox" checked={selectedIds.includes(lead.id)} onChange={() => {
                      setSelectedIds(prev => prev.includes(lead.id) ? prev.filter(i => i !== lead.id) : [...prev, lead.id]);
                   }} />
+               </td>
+
+               <td className="w-12 px-2 py-3 text-center align-middle font-semibold text-slate-500">
+                  {startIndex + index + 1}
                </td>
 
                <td className="w-12 px-2 py-3 text-center align-middle" onClick={(e) => e.stopPropagation()}>
@@ -1636,8 +1659,8 @@ const MyLeads: React.FC = () => {
       })
    );
 
-   const listTableColumnCount = visibleColumns.length + 2;
-   const todayCareTableColumnCount = 8;
+   const listTableColumnCount = visibleColumns.length + 3;
+   const todayCareTableColumnCount = 9;
 
    const renderStatusTabs = (containerClassName = '') => (
       <div className={`min-w-0 overflow-x-auto ${containerClassName}`.trim()}>
@@ -1746,8 +1769,10 @@ const MyLeads: React.FC = () => {
                <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-3 flex-wrap xl:flex-nowrap">
                      <h1 className="text-xl font-bold flex items-center gap-2 text-slate-800 shrink-0">
-                        <Inbox size={20} className="text-blue-600" /> Lead cá»§a tÃ´i
+                        <Inbox size={20} className="text-blue-600" /> {myLeadsTitle}
                      </h1>
+
+                     <SalesRoleTestSwitcher className="shrink-0" />
 
                      {viewMode !== 'list' && renderStatusTabs('pb-1')}
 
@@ -1920,7 +1945,7 @@ const MyLeads: React.FC = () => {
                                           <Filter size={16} /> Bá»™ lá»c
                                        </div>
                                        <div className="space-y-1">
-                                          <div className={`px-3 py-2 text-sm rounded cursor-pointer transition-colors ${filterType === 'all' ? 'bg-blue-600 text-white font-bold' : 'text-slate-700 hover:bg-slate-50'}`} onClick={() => setFilterType('all')}>Táº¥t cáº£ Lead cá»§a tÃ´i</div>
+                                          <div className={`px-3 py-2 text-sm rounded cursor-pointer transition-colors ${filterType === 'all' ? 'bg-blue-600 text-white font-bold' : 'text-slate-700 hover:bg-slate-50'}`} onClick={() => setFilterType('all')}>{isSalesLeader ? 'Tất cả lead đã phân bổ' : 'Tất cả lead của tôi'}</div>
                                           <div className={`px-3 py-2 text-sm rounded cursor-pointer transition-colors ${filterType === 'no-activity' ? 'bg-blue-600 text-white font-bold' : 'text-slate-700 hover:bg-slate-50'}`} onClick={() => setFilterType('no-activity')}>ChÆ°a cÃ³ hoáº¡t Ä‘á»™ng</div>
                                           <div className={`px-3 py-2 text-sm rounded cursor-pointer transition-colors ${filterType === 'high-value' ? 'bg-blue-600 text-white font-bold' : 'text-slate-700 hover:bg-slate-50'}`} onClick={() => setFilterType('high-value')}>CÆ¡ há»™i giÃ¡ trá»‹ cao</div>
                                           <div className="my-2 border-t border-slate-100"></div>
@@ -2093,7 +2118,7 @@ const MyLeads: React.FC = () => {
                         )}
 
                         <div className="text-xs text-slate-500 font-mono whitespace-nowrap shrink-0">
-                           Tá»•ng sá»‘: <span className="font-bold text-slate-900">{filteredLeads.length}</span> records
+                           Tá»•ng sá»‘: <span className="font-bold text-slate-900">{filteredLeads.length}</span> bản ghi
                         </div>
                      </div>
                   </div>
@@ -2112,7 +2137,7 @@ const MyLeads: React.FC = () => {
                   {filteredLeads.length === 0 ? (
                      <div className="h-full flex flex-col items-center justify-center text-slate-500 gap-3">
                         <Inbox size={36} className="text-slate-300" />
-                        <p>ChÆ°a cÃ³ lead trong cháº¿ Ä‘á»™ Kanban.</p>
+                                 <p>{isSalesLeader ? 'Chưa có lead đã phân bổ trong chế độ Kanban.' : 'Chưa có lead trong chế độ Kanban.'}</p>
                      </div>
                   ) : (
                      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4 h-full min-h-[520px]">
@@ -2171,6 +2196,7 @@ const MyLeads: React.FC = () => {
                               checked={selectedIds.length === todayCareRows.length && todayCareRows.length > 0}
                            />
                         </th>
+                        <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider w-16 text-center">STT</th>
                         <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Há»c viÃªn</th>
                         <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Äiá»‡n thoáº¡i</th>
                         <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Sale phá»¥ trÃ¡ch</th>
@@ -2188,7 +2214,7 @@ const MyLeads: React.FC = () => {
                            </td>
                         </tr>
                      ) : (
-                        todayCareRows.map(({ lead, activity }) => {
+                        todayCareRows.map(({ lead, activity }, index) => {
                            const statusMeta = getTodayCareStatusMeta(activity);
                            const actionLabel = getTodayCareActionLabel(activity);
                            const actionClassName = getTodayCareActionBadgeClass(activity);
@@ -2211,6 +2237,7 @@ const MyLeads: React.FC = () => {
                                        }}
                                     />
                                  </td>
+                                 <td className="px-4 py-4 text-center font-semibold text-slate-500">{index + 1}</td>
                                  <td className="px-6 py-4">
                                     <div className="flex flex-col gap-1">
                                        <span className="text-sm font-bold text-slate-900">{lead.name || '-'}</span>
@@ -2242,8 +2269,9 @@ const MyLeads: React.FC = () => {
             ) : (
                <table className="w-full text-left border-collapse text-sm table-fixed">
                   <colgroup>
-                     <col style={{ width: '40px' }} />
-                     <col style={{ width: '48px' }} />
+                      <col style={{ width: '40px' }} />
+                      <col style={{ width: '56px' }} />
+                      <col style={{ width: '48px' }} />
                      {ALL_COLUMNS.filter((column) => visibleColumns.includes(column.id)).map((column) => (
                         <col key={column.id} />
                      ))}
@@ -2263,6 +2291,7 @@ const MyLeads: React.FC = () => {
                               checked={selectedIds.length === filteredLeads.length && filteredLeads.length > 0}
                            />
                         </th>
+                        <th className="w-14 px-2 py-3 border-r border-slate-200 text-center">STT</th>
                         <th className="w-12 px-2 py-3 border-r border-slate-200 text-center">
                            <Phone size={12} className="mx-auto text-slate-400" />
                         </th>
@@ -2297,20 +2326,25 @@ const MyLeads: React.FC = () => {
                            <td colSpan={listTableColumnCount} className="px-6 py-14 text-center text-slate-500">
                               <div className="flex flex-col items-center gap-3">
                                  <Inbox size={34} className="text-slate-300" />
-                                 <p>ChÆ°a cÃ³ lead trong danh sÃ¡ch hiá»‡n táº¡i.</p>
-                                 {leads.length === 0 && (
-                                    <button
-                                       onClick={openCreateLeadModal}
-                                       className="inline-flex items-center gap-2 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded text-xs font-bold transition-all shadow-sm"
-                                    >
-                                       <UserPlus size={14} /> Táº¡o lead cho tÃ´i
-                                    </button>
-                                 )}
+                                 <p>{myLeadsEmptyLabel}</p>
+                                  {leads.length === 0 && (
+                                     <button
+                                        onClick={openCreateLeadModal}
+                                        className="inline-flex items-center gap-2 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded text-xs font-bold transition-all shadow-sm"
+                                     >
+                                        <UserPlus size={14} /> {isSalesLeader ? 'Tạo lead mới' : 'Tạo lead cho tôi'}
+                                     </button>
+                                  )}
                               </div>
                            </td>
                         </tr>
                      ) : groupBy === 'none' ? renderTableRows(filteredLeads) : (
-                        Object.entries(groupedLeads).map(([groupName, items]) => (
+                        (() => {
+                           let rowOffset = 0;
+                           return Object.entries(groupedLeads).map(([groupName, items]) => {
+                              const groupStartIndex = rowOffset;
+                              rowOffset += items.length;
+                              return (
                            <React.Fragment key={groupName}>
                               <tr className="bg-slate-100 border-y border-slate-200">
                                  <td colSpan={listTableColumnCount} className="px-4 py-2 font-bold text-slate-700 text-xs uppercase flex items-center gap-2">
@@ -2318,9 +2352,11 @@ const MyLeads: React.FC = () => {
                                     <span className="bg-slate-200 px-2 py-0.5 rounded-full text-[10px]">{items.length}</span>
                                  </td>
                               </tr>
-                              {renderTableRows(items)}
+                              {renderTableRows(items, groupStartIndex)}
                            </React.Fragment>
-                        ))
+                           );
+                           });
+                        })()
                      )}
                   </tbody>
                </table>

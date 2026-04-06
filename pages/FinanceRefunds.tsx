@@ -19,6 +19,7 @@ import LogAudienceFilterControl from '../components/LogAudienceFilter';
 import { IRefundLog, IRefundRequest, RefundStatus } from '../types';
 import { addRefund, addRefundLog, getRefundLogs, getRefunds, saveRefunds } from '../utils/storage';
 import { filterByLogAudience, getRefundLogAudience, LogAudienceFilter } from '../utils/logAudience';
+import { decodeMojibakeReactNode } from '../utils/mojibake';
 
 const REFUND_REASONS = [
    'Rút hồ sơ',
@@ -780,7 +781,7 @@ const FinanceRefunds: React.FC = () => {
       }
    };
 
-   return (
+   return decodeMojibakeReactNode(
       <div className="min-h-screen bg-[#F8FAFC] p-8 font-sans text-slate-900">
          <div className="mx-auto max-w-[1880px]">
             <div className="mb-8 flex items-end justify-between gap-6">
@@ -897,6 +898,7 @@ const FinanceRefunds: React.FC = () => {
                   <table className="w-full table-fixed border-collapse text-left">
                      <thead className="border-b border-slate-200 bg-[#F8FAFC]">
                         <tr>
+                           <th className="w-16 px-4 py-4 text-center text-xs font-bold uppercase tracking-wider text-slate-500">STT</th>
                            {activeRefundColumns.map((column) => (
                               <th
                                  key={column.id}
@@ -936,12 +938,13 @@ const FinanceRefunds: React.FC = () => {
                      </thead>
 
                      <tbody className="divide-y divide-slate-100">
-                        {filteredData.map((item) => (
+                        {filteredData.map((item, index) => (
                            <tr
                               key={item.id}
                               onClick={() => navigate(`/refunds/${item.id}`)}
                               className="cursor-pointer transition-colors hover:bg-slate-50"
                            >
+                              <td className="w-16 px-4 py-4 text-center align-top text-sm font-semibold text-slate-500">{index + 1}</td>
                               {activeRefundColumns.map((column) => (
                                  <React.Fragment key={column.id}>{renderRefundCell(item, column.id)}</React.Fragment>
                               ))}
@@ -986,7 +989,7 @@ const FinanceRefunds: React.FC = () => {
 
                         {filteredData.length === 0 && (
                            <tr>
-                              <td colSpan={activeRefundColumns.length} className="py-12 text-center italic text-slate-400">
+                              <td colSpan={activeRefundColumns.length + 1} className="py-12 text-center italic text-slate-400">
                                  Không tìm thấy yêu cầu hoàn tiền nào trong bộ lọc này.
                               </td>
                            </tr>

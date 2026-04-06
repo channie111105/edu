@@ -24,6 +24,7 @@ import {
   getLogNotes,
   getQuotations,
   getSessionsByClassId,
+  getStudentClassEligibility,
   getStudentScoresByClassId,
   getStudents,
   getStudyNotesByClassId,
@@ -633,7 +634,17 @@ const TrainingClassList: React.FC = () => {
     () => filterByLogAudience(logs, logAudienceFilter, getILogNoteAudience),
     [logAudienceFilter, logs]
   );
-  const availableStudents = selected ? students.filter((s) => !rows.some((r) => r.member.studentId === s.id)) : [];
+  const availableStudents = useMemo(
+    () =>
+      selected
+        ? students.filter(
+            (student) =>
+              !rows.some((row) => row.member.studentId === student.id) &&
+              getStudentClassEligibility(student, selected, quotations).ok
+          )
+        : [],
+    [quotations, rows, selected, students]
+  );
   const transferTargets = selected ? classes.filter((c) => c.id !== selected.id) : [];
   const inferredLevel = selected?.level || selected?.code.match(/(A1|A2|B1|B2|C1|C2)/i)?.[1]?.toUpperCase() || '-';
   const scheduleRange = selected && (selected.startDate || selected.endDate) ? `${fd(selected.startDate)} - ${fd(selected.endDate)}` : '-';
@@ -653,6 +664,25 @@ const TrainingClassList: React.FC = () => {
       .map((member) => ({ member, student: students.find((student) => student.id === member.studentId) }))
       .filter((item) => item.student);
   }, [createClassForm.sourceClassId, members, students]);
+  const getCreateClassEligibilityError = (studentIds: string[], targetClass: Pick<ITrainingClass, 'id' | 'code' | 'level'>) => {
+    const invalidStudents = studentIds
+      .map((studentId) => {
+        const student = students.find((item) => item.id === studentId);
+        return student
+          ? {
+              student,
+              eligibility: getStudentClassEligibility(student, targetClass, quotations)
+            }
+          : null;
+      })
+      .filter((item): item is { student: IStudent; eligibility: ReturnType<typeof getStudentClassEligibility> } => !!item && !item.eligibility.ok);
+
+    if (!invalidStudents.length) return '';
+    if (invalidStudents.length === 1) {
+      return invalidStudents[0].eligibility.reason || `Học viên ${invalidStudents[0].student.name} không phù hợp với lớp ${targetClass.code}`;
+    }
+    return `Có ${invalidStudents.length} học viên không khớp chương trình với lớp ${targetClass.code}: ${invalidStudents.map((item) => item.student.name).join(', ')}`;
+  };
 
   const attendanceMap = useMemo(() => {
     const map = new Map<string, IAttendanceRecord>();
@@ -926,7 +956,7 @@ const TrainingClassList: React.FC = () => {
     }
   };
 
-  const renderClassListRow = (classItem: ITrainingClass) => {
+  const renderClassListRow = (classItem: ITrainingClass, rowNumber: number) => {
     const isSelected = selected?.id === classItem.id;
 
     return (
@@ -940,6 +970,7 @@ const TrainingClassList: React.FC = () => {
         }}
         className={`cursor-pointer border-b border-slate-100 transition-colors ${isSelected ? 'bg-blue-50' : 'hover:bg-slate-50'}`}
       >
+        <td className="px-4 py-3 text-center align-top font-semibold text-slate-500">{rowNumber}</td>
         {activeClassColumns.map((column) => (
           <td
             key={column.key}
@@ -961,6 +992,11 @@ const TrainingClassList: React.FC = () => {
 
   const handleCreateClass = () => {
     const normalizedCode = normalizeClassCode(createClassForm.code);
+    const targetClassDraft = {
+      id: normalizedCode,
+      code: normalizedCode,
+      level: createClassForm.level.trim()
+    };
     if (!normalizedCode) {
       setCreateClassError('Cần nhập mã lớp.');
       return;
@@ -979,6 +1015,11 @@ const TrainingClassList: React.FC = () => {
     }
     if (!createClassForm.timeSlot) {
       setCreateClassError('Cần chọn khung giờ.');
+      return;
+    }
+    const eligibilityError = getCreateClassEligibilityError(createClassForm.promotedStudentIds, targetClassDraft);
+    if (eligibilityError) {
+      setCreateClassError(eligibilityError);
       return;
     }
 
@@ -1004,10 +1045,15 @@ const TrainingClassList: React.FC = () => {
       return;
     }
 
-    createClassForm.promotedStudentIds.forEach((studentId) => {
-      addStudentToClass(result.data.id, studentId);
-      addClassLog(result.data.id, 'PROMOTE_STUDENT', `Tiếp nhận ${studentId} từ lớp ${createClassForm.sourceClassId}`, 'training');
-    });
+    try {
+      createClassForm.promotedStudentIds.forEach((studentId) => {
+        addStudentToClass(result.data.id, studentId);
+        addClassLog(result.data.id, 'PROMOTE_STUDENT', `Tiếp nhận ${studentId} từ lớp ${createClassForm.sourceClassId}`, 'training');
+      });
+    } catch (error: any) {
+      setCreateClassError(error?.message || 'Không thể chuyển học viên sang lớp mới');
+      return;
+    }
 
     setCreateClassError('');
     setCreateClassOpen(false);
@@ -1863,6 +1909,7 @@ const TrainingClassList: React.FC = () => {
                   <table className="w-full table-auto text-sm text-slate-700">
                     <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                       <tr>
+                        <th className="sticky top-0 w-16 border-b border-slate-200 bg-slate-50 px-4 py-3 text-center font-semibold">STT</th>
                         {activeClassColumns.map((column) => (
                           <th
                             key={column.key}
@@ -1877,21 +1924,29 @@ const TrainingClassList: React.FC = () => {
                     </thead>
                     <tbody>
                       {groupBy.length === 0 &&
-                        classItems.map((classItem) => renderClassListRow(classItem))}
+                        classItems.map((classItem, index) => renderClassListRow(classItem, index + 1))}
                       {groupBy.length > 0 &&
-                        groupedClassItems.map((group) => (
-                          <React.Fragment key={group.label}>
-                            <tr className="border-b border-slate-200 bg-slate-50">
-                              <td colSpan={activeClassColumns.length} className="px-4 py-2 text-sm font-semibold text-slate-700">
-                                <div className="flex items-center justify-between gap-3">
-                                  <span>{group.label}</span>
-                                  <span className="rounded-full bg-white px-2 py-0.5 text-xs font-bold text-slate-500">{group.items.length} lớp</span>
-                                </div>
-                              </td>
-                            </tr>
-                            {group.items.map((classItem) => renderClassListRow(classItem))}
-                          </React.Fragment>
-                        ))}
+                        (() => {
+                          let currentIndex = 0;
+                          return groupedClassItems.map((group) => {
+                            const groupStartIndex = currentIndex;
+                            currentIndex += group.items.length;
+
+                            return (
+                              <React.Fragment key={group.label}>
+                                <tr className="border-b border-slate-200 bg-slate-50">
+                                  <td colSpan={activeClassColumns.length + 1} className="px-4 py-2 text-sm font-semibold text-slate-700">
+                                    <div className="flex items-center justify-between gap-3">
+                                      <span>{group.label}</span>
+                                      <span className="rounded-full bg-white px-2 py-0.5 text-xs font-bold text-slate-500">{group.items.length} lớp</span>
+                                    </div>
+                                  </td>
+                                </tr>
+                                {group.items.map((classItem, index) => renderClassListRow(classItem, groupStartIndex + index + 1))}
+                              </React.Fragment>
+                            );
+                          });
+                        })()}
                     </tbody>
                   </table>
                 </div>
@@ -1990,9 +2045,13 @@ const TrainingClassList: React.FC = () => {
                 <button
                   disabled={locked || !newStudentId}
                   onClick={() => {
-                    addStudentToClass(selected.id, newStudentId);
-                    addClassLog(selected.id, 'ADD_STUDENT', `Thêm ${newStudentId}`, 'training');
-                    setNewStudentId('');
+                    try {
+                      addStudentToClass(selected.id, newStudentId);
+                      addClassLog(selected.id, 'ADD_STUDENT', `Thêm ${newStudentId}`, 'training');
+                      setNewStudentId('');
+                    } catch (error: any) {
+                      window.alert(error?.message || 'Không thể thêm học viên vào lớp');
+                    }
                   }}
                   className="inline-flex items-center gap-1 rounded-lg bg-[#1380ec] px-3 py-2 text-sm font-bold text-white disabled:opacity-50"
                 >

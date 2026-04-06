@@ -3,6 +3,7 @@ import { Calendar, Check, ChevronDown, Columns3, Filter } from 'lucide-react';
 import { getClassStudents, getContracts, getQuotations, getSalesTeams, getStudents, getTrainingClasses } from '../utils/storage';
 import { IClassStudent, IContract, IQuotation } from '../types';
 import PinnedSearchInput, { PinnedSearchChip } from '../components/PinnedSearchInput';
+import { decodeMojibakeReactNode } from '../utils/mojibake';
 
 type DebtPaymentStatus = 'CHUA_THU' | 'DA_THU_MOT_PHAN' | 'THU_DU' | 'DA_HUY';
 type DebtQuickFilter = 'ALL' | 'CHUA_THU' | 'DA_THU_MOT_PHAN' | 'THU_DU' | 'DA_HUY' | 'QUA_HAN';
@@ -907,8 +908,9 @@ const FinanceDebtList: React.FC = () => {
     setActiveAdvancedField(null);
   };
 
-  const renderDebtRow = (item: DebtRow) => (
+  const renderDebtRow = (item: DebtRow, rowNumber: number) => (
     <tr key={item.id} className="transition-colors hover:bg-slate-50">
+      <td className="w-16 px-3 py-4 text-center text-sm font-semibold text-slate-500">{rowNumber}</td>
       {effectiveVisibleColumns.includes('collectionCode') && (
         <td className={`${getColumnWidthClass('collectionCode')} px-3 py-4 text-sm font-bold text-blue-600`}>
           <div className="truncate" title={item.collectionCode}>
@@ -991,7 +993,7 @@ const FinanceDebtList: React.FC = () => {
     </tr>
   );
 
-  return (
+  return decodeMojibakeReactNode(
     <div className="min-h-screen bg-[#F8FAFC] p-8 font-sans text-slate-900">
       <div className="mx-auto max-w-[1800px]">
         <div className="mb-6">
@@ -1524,6 +1526,7 @@ const FinanceDebtList: React.FC = () => {
             <table className="w-full table-fixed border-collapse text-left">
               <thead className="border-b border-slate-200 bg-[#F8FAFC]">
                 <tr>
+                  <th className="w-16 px-3 py-4 text-center text-xs font-bold uppercase tracking-wider text-slate-500">STT</th>
                   {effectiveVisibleColumnOptions.map((column) => (
                     <th
                       key={column.id}
@@ -1542,28 +1545,38 @@ const FinanceDebtList: React.FC = () => {
               <tbody className="divide-y divide-slate-100">
                 {filteredRows.length > 0 ? (
                   groupByFields.length > 0 ? (
-                    groupedRows.map((group) => (
-                      <React.Fragment key={group.key}>
-                        <tr className="bg-slate-50/80">
-                          <td colSpan={effectiveVisibleColumns.length} className="px-4 py-3">
-                            <div className="flex flex-wrap items-center justify-between gap-3">
-                              <div>
-                                <div className="text-sm font-bold text-slate-900">{group.label}</div>
-                                <div className="mt-1 text-xs font-medium text-slate-500">{group.rowCount} khoản thu</div>
-                              </div>
-                              <div className="flex flex-wrap items-center gap-4 text-xs font-semibold text-slate-500">
-                                <span>Phải thu: {money(group.amountDue)}</span>
-                                <span>Còn lại: {money(group.remainingAmount)}</span>
-                              </div>
-                            </div>
-                          </td>
-                        </tr>
-                        {group.rows.map((item) => renderDebtRow(item))}
-                      </React.Fragment>
-                    ))
+                    (() => {
+                      let currentIndex = 0;
+
+                      return groupedRows.map((group) => {
+                        const groupStartIndex = currentIndex;
+                        currentIndex += group.rows.length;
+
+                        return (
+                          <React.Fragment key={group.key}>
+                            <tr className="bg-slate-50/80">
+                              <td colSpan={effectiveVisibleColumns.length + 1} className="px-4 py-3">
+                                <div className="flex flex-wrap items-center justify-between gap-3">
+                                  <div>
+                                    <div className="text-sm font-bold text-slate-900">{group.label}</div>
+                                    <div className="mt-1 text-xs font-medium text-slate-500">{group.rowCount} khoản thu</div>
+                                  </div>
+                                  <div className="flex flex-wrap items-center gap-4 text-xs font-semibold text-slate-500">
+                                    <span>Phải thu: {money(group.amountDue)}</span>
+                                    <span>Còn lại: {money(group.remainingAmount)}</span>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                            {group.rows.map((item, index) => renderDebtRow(item, groupStartIndex + index + 1))}
+                          </React.Fragment>
+                        );
+                      });
+                    })()
                   ) : (
-                  filteredRows.map((item) => (
+                  filteredRows.map((item, index) => (
                     <tr key={item.id} className="transition-colors hover:bg-slate-50">
+                      <td className="w-16 px-3 py-4 text-center text-sm font-semibold text-slate-500">{index + 1}</td>
                       {effectiveVisibleColumns.includes('collectionCode') && (
                         <td className={`${getColumnWidthClass('collectionCode')} px-3 py-4 text-sm font-bold text-blue-600`}>
                           <div className="truncate" title={item.collectionCode}>
@@ -1648,7 +1661,7 @@ const FinanceDebtList: React.FC = () => {
                   )
                 ) : (
                   <tr>
-                    <td colSpan={effectiveVisibleColumns.length} className="py-12 text-center italic text-slate-400">
+                    <td colSpan={effectiveVisibleColumns.length + 1} className="py-12 text-center italic text-slate-400">
                       Không tìm thấy dữ liệu công nợ phù hợp.
                     </td>
                   </tr>

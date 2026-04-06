@@ -75,9 +75,8 @@ const SalesMeetings: React.FC = () => {
     const handleConfirm = (id: string) => {
         const meeting = meetings.find(m => m.id === id);
         if (!meeting || meeting.status !== MeetingStatus.DRAFT) return;
-
-        const canConfirmNow = new Date() >= new Date(meeting.datetime);
-        if (!canConfirmNow) return;
+        const canConfirmMeeting = isAdmin || user?.role === UserRole.SALES_LEADER || meeting.salesPersonId === user?.id;
+        if (!canConfirmMeeting) return;
 
         updateMeeting({ ...meeting, status: MeetingStatus.CONFIRMED });
         loadData();
@@ -382,6 +381,7 @@ const SalesMeetings: React.FC = () => {
                     <table className="w-full text-left border-collapse">
                         <thead className="bg-slate-50 text-slate-500 text-xs uppercase font-bold sticky top-0 border-b border-slate-200">
                             <tr>
+                                <th className="p-4 w-16 text-center">STT</th>
                                 <th className="p-4 w-44">Thời gian & Ngày</th>
                                 <th className="p-4 w-56">Contact Name / SĐT</th>
                                 <th className="p-4 w-56">Địa chỉ</th>
@@ -395,15 +395,18 @@ const SalesMeetings: React.FC = () => {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 text-sm">
-                            {filteredMeetings.length > 0 ? filteredMeetings.map(m => {
+                            {filteredMeetings.length > 0 ? filteredMeetings.map((m, index) => {
                                 const mDate = new Date(m.datetime);
-                                const canConfirmNow = new Date() >= mDate;
+                                const canConfirmMeeting =
+                                    canConfirm &&
+                                    (isAdmin || user?.role === UserRole.SALES_LEADER || m.salesPersonId === user?.id);
                                 const isOverdue = m.status !== MeetingStatus.SUBMITTED && m.status !== MeetingStatus.CANCELLED && mDate < new Date();
                                 const isToday = mDate.toDateString() === new Date().toDateString();
                                 const isUpcoming = !isOverdue && isToday;
 
                                 return (
                                     <tr key={m.id} className="hover:bg-slate-50 transition-colors group">
+                                        <td className="p-4 align-top text-center font-semibold text-slate-500">{index + 1}</td>
                                         <td className="p-4 align-top">
                                             <div className="flex flex-col gap-1">
                                                 <div className={`font-bold text-lg ${isOverdue ? 'text-red-600' : (isUpcoming ? 'text-blue-600' : 'text-slate-800')}`}>
@@ -500,9 +503,9 @@ const SalesMeetings: React.FC = () => {
                                                 {m.status === MeetingStatus.DRAFT && canConfirm && (
                                                     <button
                                                         onClick={() => handleConfirm(m.id)}
-                                                        disabled={!canConfirmNow}
-                                                        className={`p-1.5 px-3 rounded-lg text-xs font-bold shadow-sm transition-all whitespace-nowrap ${canConfirmNow ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}
-                                                        title={canConfirmNow ? 'Xác nhận khách đến' : 'Chỉ được Confirm đúng hoặc sau giờ hẹn'}
+                                                        disabled={!canConfirmMeeting}
+                                                        className={`p-1.5 px-3 rounded-lg text-xs font-bold shadow-sm transition-all whitespace-nowrap ${canConfirmMeeting ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}
+                                                        title={canConfirmMeeting ? 'Sale xác nhận lịch hẹn' : 'Chỉ sale phụ trách hoặc quản lý mới được confirm'}
                                                     >
                                                         Confirm
                                                     </button>
@@ -539,7 +542,7 @@ const SalesMeetings: React.FC = () => {
                                 );
                             }) : (
                                 <tr>
-                                    <td colSpan={10} className="p-12 text-center text-slate-400 italic">
+                                    <td colSpan={11} className="p-12 text-center text-slate-400 italic">
                                         <div className="flex flex-col items-center gap-2">
                                             <Calendar size={48} className="text-slate-200" />
                                             <p>Không tìm thấy lịch hẹn nào phù hợp.</p>

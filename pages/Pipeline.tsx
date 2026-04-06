@@ -1161,8 +1161,8 @@ const Pipeline: React.FC = () => {
     }
   };
 
-  const listTableColumnCount = visibleColumns.length + 1;
-  const renderListRow = (deal: IDeal) => {
+  const listTableColumnCount = visibleColumns.length + 2;
+  const renderListRow = (deal: IDeal, rowNumber: number) => {
     const contact = contactsById[deal.leadId];
     const opportunityName = deal.title.split(' - ')[0] || deal.title;
     const programName = deal.title.split(' - ')[1] || '';
@@ -1187,6 +1187,7 @@ const Pipeline: React.FC = () => {
             }}
           />
         </td>
+        <td className="p-3 text-center border-r border-slate-50 font-semibold text-slate-500">{rowNumber}</td>
         {visibleColumns.includes('opportunity') && (
           <td className="p-2 border-r border-slate-50">
             <div className="flex flex-col gap-0.5">
@@ -1793,6 +1794,7 @@ const Pipeline: React.FC = () => {
                         }}
                       />
                     </th>
+                    <th className="p-3 text-center border-r border-slate-200 w-16">STT</th>
                     {visibleColumns.includes('opportunity') && <th className="p-3 border-r border-slate-200 min-w-[200px]">Cơ hội</th>}
                     {visibleColumns.includes('contact') && <th className="p-3 border-r border-slate-200 w-44">Liên hệ</th>}
                     {visibleColumns.includes('email') && <th className="p-3 border-r border-slate-200 w-40">Email</th>}
@@ -1813,25 +1815,34 @@ const Pipeline: React.FC = () => {
                       </td>
                     </tr>
                   ) : selectedAdvancedGroupFields.length > 0 ? (
-                    groupedDeals.map((group) => (
-                      <React.Fragment key={group.key}>
-                        <tr className="bg-slate-100 border-y border-slate-200">
-                          <td colSpan={listTableColumnCount} className="px-4 py-2">
-                            <div className="flex items-center justify-between gap-3">
-                              <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">
-                                {group.label}
-                              </span>
-                              <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-slate-500 border border-slate-200">
-                                {group.deals.length} deal
-                              </span>
-                            </div>
-                          </td>
-                        </tr>
-                        {group.deals.map((deal) => renderListRow(deal))}
-                      </React.Fragment>
-                    ))
+                    (() => {
+                      let currentIndex = 0;
+
+                      return groupedDeals.map((group) => {
+                        const groupStartIndex = currentIndex;
+                        currentIndex += group.deals.length;
+
+                        return (
+                          <React.Fragment key={group.key}>
+                            <tr className="bg-slate-100 border-y border-slate-200">
+                              <td colSpan={listTableColumnCount} className="px-4 py-2">
+                                <div className="flex items-center justify-between gap-3">
+                                  <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">
+                                    {group.label}
+                                  </span>
+                                  <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-slate-500 border border-slate-200">
+                                    {group.deals.length} deal
+                                  </span>
+                                </div>
+                              </td>
+                            </tr>
+                            {group.deals.map((deal, index) => renderListRow(deal, groupStartIndex + index + 1))}
+                          </React.Fragment>
+                        );
+                      });
+                    })()
                   ) : (
-                    filteredDeals.map((deal) => renderListRow(deal))
+                    filteredDeals.map((deal, index) => renderListRow(deal, index + 1))
                   )}
                 </tbody>
               </table>

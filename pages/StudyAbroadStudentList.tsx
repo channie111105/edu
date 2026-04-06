@@ -12,6 +12,7 @@ import {
 import PinnedSearchInput, { PinnedSearchChip } from '../components/PinnedSearchInput';
 import { useAuth } from '../contexts/AuthContext';
 import { UserRole } from '../types';
+import { decodeMojibakeReactNode } from '../utils/mojibake';
 
 type ColumnId =
   | 'student'
@@ -359,7 +360,7 @@ const StudyAbroadStudentList: React.FC = () => {
     columnId === 'invoiceStatus' ||
     columnId === 'cmtc';
 
-  return (
+  return decodeMojibakeReactNode(
     <div className="flex h-full flex-col overflow-hidden bg-[#f8fafc] text-[#111418]">
       <div className="mx-auto flex h-full w-full max-w-[1500px] flex-1 flex-col overflow-y-auto p-6 lg:p-8">
         <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
@@ -465,6 +466,7 @@ const StudyAbroadStudentList: React.FC = () => {
             <table className="w-full table-fixed border-collapse text-left">
               <thead className="border-b border-[#cfdbe7] bg-[#f8fafc]">
                 <tr>
+                  <th className="w-16 px-2 py-3 text-center text-[11px] font-bold uppercase tracking-wide text-[#111418]">STT</th>
                   {visibleColumnList.map((column) => (
                     <th
                       key={column.id}
@@ -479,19 +481,20 @@ const StudyAbroadStudentList: React.FC = () => {
                 {loading &&
                   Array.from({ length: 5 }).map((_, index) => (
                     <tr key={`skeleton-${index}`}>
-                      <td colSpan={visibleColumnList.length} className="px-3 py-3">
+                      <td colSpan={visibleColumnList.length + 1} className="px-3 py-3">
                         <div className="h-8 animate-pulse rounded bg-slate-100" />
                       </td>
                     </tr>
                   ))}
 
                 {!loading &&
-                  filteredRows.map((row) => (
+                  filteredRows.map((row, index) => (
                     <tr
                       key={row.id}
                       className="cursor-pointer transition-colors hover:bg-[#f8fafc]"
                       onClick={() => navigate(`/study-abroad/cases/${row.id}`)}
                     >
+                      <td className="px-2 py-2.5 text-center text-sm font-semibold text-slate-500">{index + 1}</td>
                       {visibleColumnList.map((column) => {
                         const value = renderCell(row, column.id);
                         return (
@@ -511,7 +514,7 @@ const StudyAbroadStudentList: React.FC = () => {
 
                 {!loading && filteredRows.length === 0 && (
                   <tr>
-                    <td colSpan={visibleColumnList.length} className="px-3 py-8 text-center text-sm font-medium text-slate-500">
+                    <td colSpan={visibleColumnList.length + 1} className="px-3 py-8 text-center text-sm font-medium text-slate-500">
                       Không có dữ liệu theo bộ lọc hiện tại.
                     </td>
                   </tr>

@@ -17,6 +17,7 @@ import {
   formatServicePaymentPlanNote,
   resolveServicePaymentPlan
 } from '../utils/servicePaymentPlans';
+import { CONTRACT_FIELD_CONFIG, DEFAULT_CONTRACT_TEMPLATE_NAME } from '../utils/contractFields';
 import ClassCodeLookupInput from '../components/ClassCodeLookupInput';
 import { buildTrainingClassLookupOptions } from '../utils/trainingClassLookup';
 import LogAudienceFilterControl from '../components/LogAudienceFilter';
@@ -40,18 +41,9 @@ const STATUS_STEPS = [
   { id: 'draft', label: 'Nháp' },
   { id: 'sent', label: 'Đã gửi' },
   { id: 'sale_order', label: 'SO' },
-  { id: 'in_progress', label: 'Đang thực hiện' },
+  { id: 'in_progress', label: 'Đã kích hoạt' },
   { id: 'stopped', label: 'Dừng' },
   { id: 'completed', label: 'Hoàn tất' }
-] as const;
-
-const DEFAULT_CONTRACT_TEMPLATE_NAME = 'Mẫu hợp đồng đào tạo';
-
-const CONTRACT_FIELD_CONFIG = [
-  { key: 'customerName', label: 'Tên khách hàng / Bên B', placeholder: 'Tên khách hàng đứng tên hợp đồng' },
-  { key: 'studentName', label: 'Tên học sinh', placeholder: 'Họ tên học sinh' },
-  { key: 'studentPhone', label: 'SĐT học sinh', placeholder: 'Số điện thoại học sinh' },
-  { key: 'identityCard', label: 'CCCD học sinh', placeholder: 'Số CCCD học sinh' }
 ] as const;
 
 type QuotationTab = 'order_lines' | 'other_info' | 'contract' | 'payment_debt';
@@ -94,18 +86,18 @@ type CreatorOrderDraft = {
   paymentSchedule: IQuotationPaymentScheduleTerm[];
 };
 
-type PaymentDebtCollectionStatus = 'CHUA_DEN' | 'CAN_XU_LY' | 'THU_1_PHAN' | 'HOAN_TAT';
+type PaymentDebtCollectionStatus = 'CHUA_KICH_HOAT' | 'DA_KICH_HOAT' | 'THU_1_PHAN' | 'HOAN_TAT';
 
 const PAYMENT_DEBT_STATUS_LABELS: Record<PaymentDebtCollectionStatus, string> = {
-  CHUA_DEN: 'Chưa đến',
-  CAN_XU_LY: 'Cần xử lý',
+  CHUA_KICH_HOAT: 'Chưa kích hoạt',
+  DA_KICH_HOAT: 'Đã kích hoạt',
   THU_1_PHAN: 'Thu 1 phần',
   HOAN_TAT: 'Hoàn tất'
 };
 
 const PAYMENT_DEBT_STATUS_STYLES: Record<PaymentDebtCollectionStatus, string> = {
-  CHUA_DEN: 'bg-slate-100 text-slate-600',
-  CAN_XU_LY: 'bg-[#fef3c7] text-[#78350f]',
+  CHUA_KICH_HOAT: 'bg-slate-100 text-slate-600',
+  DA_KICH_HOAT: 'bg-[#fef3c7] text-[#78350f]',
   THU_1_PHAN: 'bg-[#dbeafe] text-[#1d4ed8]',
   HOAN_TAT: 'bg-[#dcfce7] text-[#166534]'
 };
@@ -346,7 +338,9 @@ const normalizePaymentSchedule = (
     condition: item.condition || '',
     amount: Math.max(0, Math.round(Number(item.amount) || 0)),
     expectedDate: item.expectedDate || '',
-    dueDate: item.dueDate || ''
+    dueDate: item.dueDate || '',
+    activatedAt: item.activatedAt || '',
+    activatedBy: item.activatedBy || ''
   }));
 };
 
@@ -800,10 +794,12 @@ const QuotationDetails: React.FC = () => {
   }, [editingCreatorLineId, formData, isNew, showOrderLineModal]);
 
   const isLocked = formData.status === QuotationStatus.LOCKED;
+  const canEditQuotation = !isLocked;
   const userRole = user?.role as UserRole | undefined;
   const cancelRequestStatus = formData.cancelRequestStatus || 'NONE';
   const hasPendingCancelRequest = cancelRequestStatus === 'CHO_DUYET';
   const canConfirmByRole = [UserRole.SALES_REP, UserRole.SALES_LEADER, UserRole.ADMIN, UserRole.FOUNDER].includes(userRole || UserRole.SALES_REP);
+  const canCreateReceiptApprovalByRole = canConfirmByRole;
   const canLockByRole = userRole === UserRole.ACCOUNTANT;
   const canCancelByRole = userRole === UserRole.ACCOUNTANT;
   const canApproveCancelByRole = userRole === UserRole.ADMIN || userRole === UserRole.FOUNDER;
@@ -817,24 +813,20 @@ const QuotationDetails: React.FC = () => {
     formData.transactionStatus !== 'DA_DUYET' &&
     cancelRequestStatus !== 'CHO_DUYET';
   const canApproveCancelNow = hasPendingCancelRequest && canApproveCancelByRole;
-  const canLockNow = canLockStage && canLockByRole && canLockByTransaction && !hasPendingCancelRequest;
-  const canCreateReceiptApproval = canLockStage && canLockByRole && !hasPendingCancelRequest && !hasReceiptApprovalRequest;
-  const lockButtonTitle = !canLockStage
-    ? 'Cần Confirm trước khi Lock'
+  const canCreateReceiptApproval =
+    canLockStage &&
+    canCreateReceiptApprovalByRole &&
+    !hasPendingCancelRequest &&
+    !hasReceiptApprovalRequest;
+  const createReceiptApprovalTitle = !canLockStage
+    ? 'Cần Confirm trước khi tạo phiếu duyệt thu'
     : hasPendingCancelRequest
       ? 'SO đang có yêu cầu hủy chờ duyệt'
-    : !canLockByRole
-      ? 'Chỉ Kế toán được khóa SO'
-      : !canLockByTransaction
-        ? 'Cần kế toán duyệt giao dịch trước'
-        : 'Khóa SO';
-  const createReceiptApprovalTitle = hasPendingCancelRequest
-    ? 'SO đang có yêu cầu hủy chờ duyệt'
-    : formData.transactionStatus === 'CHO_DUYET'
-      ? 'SO đã có phiếu duyệt thu chờ kế toán xử lý'
-      : formData.transactionStatus === 'DA_DUYET'
-        ? 'SO đã có phiếu duyệt thu được duyệt'
-        : 'Tạo phiếu duyệt thu cho SO này';
+      : formData.transactionStatus === 'CHO_DUYET'
+        ? 'SO đã có phiếu duyệt thu chờ kế toán xử lý'
+        : formData.transactionStatus === 'DA_DUYET'
+          ? 'SO đã có phiếu duyệt thu được duyệt'
+          : 'Tạo phiếu duyệt thu cho SO này';
   const normalizedStatus =
     formData.status === QuotationStatus.SALE_ORDER ? QuotationStatus.SALE_CONFIRMED : formData.status;
   const workflowPaymentMetrics = useMemo(() => {
@@ -952,11 +944,6 @@ const QuotationDetails: React.FC = () => {
 
     return 'draft';
   }, [cancelRequestStatus, formData.serviceProcessStatus, formData.status, linkedContract?.status, normalizedStatus, workflowPaymentMetrics]);
-
-  const recordStatusLabel = useMemo(() => {
-    const current = STATUS_STEPS.find((step) => step.id === workflowStatusId);
-    return current?.label || 'Nháp';
-  }, [workflowStatusId]);
 
   const stepIndex = useMemo(
     () => STATUS_STEPS.findIndex((step) => step.id === workflowStatusId),
@@ -1260,7 +1247,7 @@ const QuotationDetails: React.FC = () => {
     }
 
     setShowConfirmModal(false);
-    alert('Đã xác nhận sale. Kế toán tạo phiếu duyệt thu ở bước tiếp theo.');
+    alert('Đã xác nhận sale. Sales có thể tạo phiếu duyệt thu ở bước tiếp theo.');
   };
 
   const handleOpenCreateReceiptApproval = () => {
@@ -1279,13 +1266,13 @@ const QuotationDetails: React.FC = () => {
 
   const handleLock = () => {
     if (!formData.id) {
-      alert('Cần lưu SO trước khi khóa');
+      alert('Cần lưu SO trước khi chuyển sang Đã kích hoạt');
       return;
     }
 
     const res = lockQuotationAfterAccounting(formData.id, user?.id || 'system', userRole);
     if (!res.ok || !res.quotation) {
-      alert(res.error || 'Không thể khóa SO');
+      alert(res.error || 'Không thể chuyển SO sang Đã kích hoạt');
       return;
     }
 
@@ -1295,7 +1282,7 @@ const QuotationDetails: React.FC = () => {
     });
     setLinkedContract(getContractByQuotationId(res.quotation.id) || null);
     syncLinkedContract(res.quotation);
-    alert('Đã khóa đơn hàng và tạo hồ sơ học viên');
+    alert('SO đã chuyển sang trạng thái Đã kích hoạt');
   };
 
   const handleRequestCancel = () => {
@@ -1355,11 +1342,11 @@ const QuotationDetails: React.FC = () => {
 
     if (stepId === 'in_progress') {
       if (!canLockByRole) {
-        alert('Chỉ Kế toán được khóa SO');
+        alert('Chỉ Kế toán được chuyển SO sang Đã kích hoạt');
         return;
       }
       if (!canLockByTransaction) {
-        alert('Cần kế toán duyệt giao dịch trước khi khóa SO');
+        alert('Cần giao dịch được duyệt trước khi chuyển sang Đã kích hoạt');
         return;
       }
       if (hasPendingCancelRequest) {
@@ -1385,11 +1372,11 @@ const QuotationDetails: React.FC = () => {
       };
     }
     if (stepId === 'in_progress') {
-      if (!canLockByRole) return { clickable: false, title: 'Chỉ Kế toán được khóa SO (trong SO hoặc màn hình giao dịch)' };
+      if (!canLockByRole) return { clickable: false, title: 'Chỉ Kế toán được chuyển SO sang Đã kích hoạt' };
       if (hasPendingCancelRequest) return { clickable: false, title: 'SO đang có yêu cầu hủy chờ duyệt' };
       if (!canLockByTransaction) return { clickable: false, title: 'Cần giao dịch được duyệt trước' };
-      if (isLocked) return { clickable: false, title: 'SO đã ở trạng thái đang thực hiện' };
-      return { clickable: true, title: 'Chuyển SO sang Đang thực hiện' };
+      if (isLocked) return { clickable: false, title: 'SO đang ở trạng thái Đã kích hoạt' };
+      return { clickable: true, title: 'Chuyển SO sang Đã kích hoạt' };
     }
     if (stepId === 'stopped') {
       return { clickable: false, title: 'Bước dừng xử lý' };
@@ -1404,6 +1391,7 @@ const QuotationDetails: React.FC = () => {
     Math.max(0, unitPrice * (1 - discountPercent / 100));
 
   const openNewOrderLineModal = () => {
+    if (!canEditQuotation) return;
     setEditingCreatorLineId(null);
     setProgramDropdownOpen(false);
     setOrderLineDraft(createOrderDraft(formData));
@@ -1411,6 +1399,7 @@ const QuotationDetails: React.FC = () => {
   };
 
   const openEditOrderLineModal = (lineId: string) => {
+    if (!canEditQuotation) return;
     const foundLine = creatorLineItems.find((item) => item.id === lineId);
     if (!foundLine) return;
     setEditingCreatorLineId(lineId);
@@ -1772,7 +1761,9 @@ const QuotationDetails: React.FC = () => {
           installmentLabel: existing?.installmentLabel || step.installmentLabel,
           condition: existing?.condition || step.condition,
           expectedDate: existing?.expectedDate || '',
-          dueDate: existing?.dueDate || ''
+          dueDate: existing?.dueDate || '',
+          activatedAt: existing?.activatedAt || '',
+          activatedBy: existing?.activatedBy || ''
         };
       });
 
@@ -1830,40 +1821,157 @@ const QuotationDetails: React.FC = () => {
     }));
   };
 
-  const paymentDebtRows = useMemo(() => {
-    const totalPaid = formData.id
-      ? getTransactions()
-          .filter((transaction) => transaction.quotationId === formData.id && transaction.status === 'DA_DUYET')
-          .reduce((sum, transaction) => sum + toNumberOrZero(transaction.amount), 0)
-      : 0;
+  const handlePaymentDebtScheduleFieldChange = (
+    lineItemId: string,
+    termId: string,
+    field: 'expectedDate' | 'dueDate',
+    inputValue: string
+  ) => {
+    const sourceItems = editableOrderLineItems;
+    const nextItems = sourceItems.map((item) => {
+      if (item.id !== lineItemId) return item;
 
-    let paidPool = totalPaid;
+      const lineTotal =
+        Math.max(0, toNumberOrZero(item.total)) ||
+        calculateOrderDraftLineTotal(item.unitPrice || 0, item.discount || 0);
+
+      return {
+        ...item,
+        paymentSchedule: normalizePaymentSchedule(item.paymentSchedule, lineTotal).map((term) =>
+          term.id !== termId
+            ? term
+            : {
+                ...term,
+                [field]: fromInputDate(inputValue, field === 'expectedDate' ? term.expectedDate : term.dueDate) || ''
+              }
+        )
+      };
+    });
+
+    syncEditableOrderLineItems(nextItems);
+
+    if (!formData.id) return;
+
+    updateQuotation({
+      ...formData,
+      lineItems: nextItems,
+      updatedAt: new Date().toISOString()
+    });
+  };
+
+  const handleActivateInstallment = (lineItemId: string, termId: string) => {
+    if (userRole !== UserRole.ACCOUNTANT) {
+      alert('Chỉ Kế toán được kích hoạt các lần thu tiếp theo');
+      return;
+    }
+
+    if (!formData.id) {
+      alert('Cần lưu SO trước khi kích hoạt lần thu');
+      return;
+    }
+
+    const sourceQuotation = getQuotations().find((quotation) => quotation.id === formData.id) || formData;
+    const actor = user?.name || user?.id || 'system';
+    const activatedAt = new Date().toISOString();
+
+    const nextLineItems = (Array.isArray(sourceQuotation.lineItems) ? sourceQuotation.lineItems : []).map((item) => {
+      if (item.id !== lineItemId) return item;
+
+      const lineTotal =
+        Math.max(0, toNumberOrZero(item.total)) ||
+        calculateOrderDraftLineTotal(item.unitPrice || 0, item.discount || 0);
+
+      return {
+        ...item,
+        paymentSchedule: normalizePaymentSchedule(item.paymentSchedule, lineTotal).map((term) =>
+          term.id === termId
+            ? {
+                ...term,
+                activatedAt: term.activatedAt || activatedAt,
+                activatedBy: term.activatedBy || actor
+              }
+            : term
+        )
+      };
+    });
+
+    const updatedQuotation: IQuotation = {
+      ...sourceQuotation,
+      lineItems: nextLineItems,
+      updatedAt: activatedAt
+    };
+
+    updateQuotation(updatedQuotation);
+    setCreatorLineItems(nextLineItems);
+    setFormData((prev) => ({
+      ...prev,
+      lineItems: nextLineItems,
+      updatedAt: activatedAt
+    }));
+  };
+
+  const paymentDebtRows = useMemo(() => {
+    const approvedTransactions = formData.id
+      ? getTransactions().filter((transaction) => transaction.quotationId === formData.id && transaction.status === 'DA_DUYET')
+      : [];
+    const totalPaid = approvedTransactions.reduce((sum, transaction) => sum + toNumberOrZero(transaction.amount), 0);
+    const paidByInstallment = new Map<string, number>();
+    let legacyPaidPool = 0;
+
+    approvedTransactions.forEach((transaction) => {
+      const amount = Math.max(0, toNumberOrZero(transaction.amount));
+      const installmentKey = String(transaction.installmentTermId || '').trim();
+
+      if (installmentKey) {
+        paidByInstallment.set(installmentKey, (paidByInstallment.get(installmentKey) || 0) + amount);
+        return;
+      }
+
+      legacyPaidPool += amount;
+    });
+
     const rows = editableOrderLineItems.flatMap((item, itemIndex) => {
       const lineTotal = Math.max(0, toNumberOrZero(item.total) || calculateOrderDraftLineTotal(item.unitPrice || 0, item.discount || 0));
       const schedule = normalizePaymentSchedule(item.paymentSchedule, lineTotal);
 
       return schedule.map((term, termIndex) => {
         const mustCollect = Math.max(0, toNumberOrZero(term.amount));
-        const paidAmount = Math.min(mustCollect, Math.max(paidPool, 0));
-        paidPool = Math.max(paidPool - paidAmount, 0);
-        const remainingAmount = Math.max(mustCollect - paidAmount, 0);
-        const dueTimestamp = term.dueDate ? new Date(term.dueDate).getTime() : Number.NaN;
+        const directPaidAmount = Math.max(0, paidByInstallment.get(term.id) || 0);
+        let paidAmount = Math.min(mustCollect, directPaidAmount);
 
-        let status: PaymentDebtCollectionStatus = 'CAN_XU_LY';
+        if (paidAmount < mustCollect && legacyPaidPool > 0) {
+          const legacyApplied = Math.min(mustCollect - paidAmount, legacyPaidPool);
+          paidAmount += legacyApplied;
+          legacyPaidPool = Math.max(0, legacyPaidPool - legacyApplied);
+        }
+
+        const remainingAmount = Math.max(mustCollect - paidAmount, 0);
+        const isAutoActivated =
+          termIndex === 0 &&
+          (normalizedStatus === QuotationStatus.SALE_CONFIRMED || formData.status === QuotationStatus.LOCKED);
+        const isActivated = Boolean(term.activatedAt) || isAutoActivated;
+
+        let status: PaymentDebtCollectionStatus = 'CHUA_KICH_HOAT';
         if (remainingAmount <= 0) status = 'HOAN_TAT';
         else if (paidAmount > 0) status = 'THU_1_PHAN';
-        else if (!Number.isNaN(dueTimestamp) && dueTimestamp > Date.now()) status = 'CHUA_DEN';
+        else if (isActivated) status = 'DA_KICH_HOAT';
 
         return {
           id: `${item.id}-${term.id || termIndex + 1}`,
+          lineItemId: item.id,
+          termId: term.id,
+          termNo: Number(term.termNo || termIndex + 1),
           lineLabel: item.name || item.servicePackage || `Dòng ${itemIndex + 1}`,
           installmentLabel: term.installmentLabel || `Lần ${term.termNo || termIndex + 1}`,
           condition: term.condition || '-',
+          paidAmount,
           mustCollect,
           remainingAmount,
           status,
           expectedDate: term.expectedDate,
-          dueDate: term.dueDate
+          dueDate: term.dueDate,
+          canActivate: userRole === UserRole.ACCOUNTANT && status === 'CHUA_KICH_HOAT',
+          activatedBy: term.activatedBy || (isAutoActivated ? 'Tự động từ Confirm Sale' : '')
         };
       });
     });
@@ -1874,7 +1982,7 @@ const QuotationDetails: React.FC = () => {
       totalMustCollect: rows.reduce((sum, row) => sum + row.mustCollect, 0),
       totalRemaining: rows.reduce((sum, row) => sum + row.remainingAmount, 0)
     };
-  }, [editableOrderLineItems, formData.id]);
+  }, [editableOrderLineItems, formData.id, formData.status, normalizedStatus, userRole]);
 
   const approvedRefundAmount = Math.max(0, toNumberOrZero(formData.refundAmount));
   const totalMustCollectAmount = Math.max(paymentDebtRows.totalMustCollect, toNumberOrZero(formData.finalAmount || formData.amount));
@@ -1893,56 +2001,98 @@ const QuotationDetails: React.FC = () => {
 
         {paymentDebtRows.rows.length > 0 ? (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1180px] text-left">
+            <table className="w-full min-w-[1220px] text-left">
               <colgroup>
-                <col className="w-[25%]" />
-                <col className="w-[8%]" />
-                <col className="w-[26%]" />
+                <col className="w-[9%]" />
+                <col className="w-[24%]" />
                 <col className="w-[10%]" />
                 <col className="w-[10%]" />
                 <col className="w-[10%]" />
-                <col className="w-[5.5%]" />
-                <col className="w-[5.5%]" />
+                <col className="w-[10%]" />
+                <col className="w-[11%]" />
+                <col className="w-[11%]" />
+                <col className="w-[5%]" />
               </colgroup>
               <thead className="bg-slate-50">
                 <tr>
-                  <th className="whitespace-nowrap px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.04em] text-slate-500">Gói dịch vụ</th>
                   <th className="whitespace-nowrap px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.04em] text-slate-500">Đợt thu</th>
                   <th className="whitespace-nowrap px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.04em] text-slate-500">Điều kiện đóng</th>
                   <th className="whitespace-nowrap px-3 py-1.5 text-right text-[11px] font-bold uppercase tracking-[0.04em] text-slate-500">Phải thu</th>
+                  <th className="whitespace-nowrap px-3 py-1.5 text-right text-[11px] font-bold uppercase tracking-[0.04em] text-slate-500">Đã thu</th>
                   <th className="whitespace-nowrap px-3 py-1.5 text-right text-[11px] font-bold uppercase tracking-[0.04em] text-slate-500">Còn thiếu</th>
                   <th className="whitespace-nowrap px-3 py-1.5 text-center text-[11px] font-bold uppercase tracking-[0.04em] text-slate-500">Trạng thái</th>
-                  <th className="whitespace-nowrap px-3 py-1.5 text-center text-[11px] font-bold uppercase tracking-[0.04em] text-slate-500">Thời gian dự kiến</th>
-                  <th className="whitespace-nowrap px-3 py-1.5 text-center text-[11px] font-bold uppercase tracking-[0.04em] text-slate-500">Thời gian cần đóng</th>
+                  <th className="whitespace-nowrap px-3 py-1.5 text-center text-[11px] font-bold uppercase tracking-[0.04em] text-slate-500">TG dự kiến</th>
+                  <th className="whitespace-nowrap px-3 py-1.5 text-center text-[11px] font-bold uppercase tracking-[0.04em] text-slate-500">TG cần đóng</th>
+                  <th className="whitespace-nowrap px-3 py-1.5 text-center text-[11px] font-bold uppercase tracking-[0.04em] text-slate-500">Kích hoạt</th>
                 </tr>
               </thead>
               <tbody>
                 {paymentDebtRows.rows.map((row) => (
                   <tr key={row.id} className="border-b border-slate-50 last:border-b-0">
-                    <td className="whitespace-nowrap px-3 py-1 align-top text-[13px] font-medium text-slate-800">{row.lineLabel}</td>
                     <td className="whitespace-nowrap px-3 py-1 align-top text-[12px] text-slate-700">{row.installmentLabel}</td>
                     <td className="whitespace-nowrap px-3 py-1 align-top text-[12px] text-slate-600">{row.condition || '-'}</td>
                     <td className="whitespace-nowrap px-3 py-1 align-top text-right text-[12px] font-semibold text-slate-800">{formatCurrencyValue(row.mustCollect)}</td>
+                    <td className="whitespace-nowrap px-3 py-1 align-top text-right text-[12px] font-semibold text-emerald-700">{formatCurrencyValue(row.paidAmount)}</td>
                     <td className="whitespace-nowrap px-3 py-1 align-top text-right text-[12px] font-semibold text-amber-700">{formatCurrencyValue(row.remainingAmount)}</td>
                     <td className="whitespace-nowrap px-3 py-1 align-top text-center">
                       <span className={`inline-flex rounded-sm px-1.5 py-0.5 text-[10px] font-semibold ${PAYMENT_DEBT_STATUS_STYLES[row.status]}`}>
                         {PAYMENT_DEBT_STATUS_LABELS[row.status]}
                       </span>
                     </td>
-                    <td className="whitespace-nowrap px-3 py-1 align-top text-center text-[12px] text-slate-600">{formatDisplayDate(row.expectedDate) || '-'}</td>
-                    <td className="whitespace-nowrap px-3 py-1 align-top text-center text-[12px] text-slate-600">{formatDisplayDate(row.dueDate) || '-'}</td>
+                    <td className="px-3 py-1 align-top text-center">
+                      <input
+                        type="date"
+                        value={toInputDate(row.expectedDate)}
+                        onChange={(event) => handlePaymentDebtScheduleFieldChange(row.lineItemId, row.termId, 'expectedDate', event.target.value)}
+                        className="h-8 w-[138px] rounded-md border border-slate-200 px-2 text-[12px] text-slate-700 outline-none transition focus:border-blue-400"
+                      />
+                    </td>
+                    <td className="px-3 py-1 align-top text-center">
+                      <input
+                        type="date"
+                        value={toInputDate(row.dueDate)}
+                        onChange={(event) => handlePaymentDebtScheduleFieldChange(row.lineItemId, row.termId, 'dueDate', event.target.value)}
+                        className="h-8 w-[138px] rounded-md border border-slate-200 px-2 text-[12px] text-slate-700 outline-none transition focus:border-blue-400"
+                      />
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-1 align-top text-center">
+                      {row.status === 'CHUA_KICH_HOAT' ? (
+                        <button
+                          type="button"
+                          disabled={!row.canActivate}
+                          onClick={() => handleActivateInstallment(row.lineItemId, row.termId)}
+                          title={row.canActivate ? 'Kích hoạt lần thu này' : 'Chỉ Kế toán được kích hoạt'}
+                          className={`inline-flex items-center rounded-md border px-2 py-1 text-[10px] font-semibold transition ${
+                            row.canActivate
+                              ? 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'
+                              : 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
+                          }`}
+                        >
+                          Kích hoạt
+                        </button>
+                      ) : row.status === 'DA_KICH_HOAT' ? (
+                        <span
+                          className="inline-flex items-center rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] font-semibold text-amber-700"
+                          title={row.activatedBy || 'Đã kích hoạt'}
+                        >
+                          Đã bật
+                        </span>
+                      ) : (
+                        <span className="text-[11px] text-slate-300">-</span>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
               <tfoot className="bg-slate-50">
                 <tr className="border-t border-slate-100">
-                  <td className="whitespace-nowrap px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.04em] text-slate-500" colSpan={3}>
+                  <td className="whitespace-nowrap px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.04em] text-slate-500" colSpan={2}>
                     Tổng
                   </td>
                   <td className="whitespace-nowrap px-3 py-1.5 text-right text-[12px] font-bold text-slate-900">{formatCurrencyValue(paymentDebtRows.totalMustCollect)}</td>
+                  <td className="whitespace-nowrap px-3 py-1.5 text-right text-[12px] font-bold text-emerald-700">{formatCurrencyValue(paymentDebtRows.totalPaid)}</td>
                   <td className="whitespace-nowrap px-3 py-1.5 text-right text-[12px] font-bold text-amber-700">{formatCurrencyValue(paymentDebtRows.totalRemaining)}</td>
-                  <td className="whitespace-nowrap px-3 py-1.5 text-center text-[11px] text-slate-500">Đã thu: {formatCurrencyValue(paymentDebtRows.totalPaid)}</td>
-                  <td className="px-3 py-1.5" colSpan={2} />
+                  <td className="px-3 py-1.5" colSpan={4} />
                 </tr>
               </tfoot>
             </table>
@@ -2094,7 +2244,9 @@ const QuotationDetails: React.FC = () => {
                       <select
                         className="flex-1 rounded border border-slate-300 bg-blue-50 px-3 py-1.5 text-[13px] outline-none transition-colors focus:border-blue-500"
                         value={formData.createdBy || user?.id || ''}
+                        disabled={!canEditQuotation}
                         onChange={(e) => {
+                          if (!canEditQuotation) return;
                           const selectedSale = salesOwnerOptions.find((option) => option.id === e.target.value);
                           setFormData((prev) => ({
                             ...prev,
@@ -2118,7 +2270,8 @@ const QuotationDetails: React.FC = () => {
                           type="date"
                           className="w-full rounded border border-slate-300 bg-white px-3 py-1.5 text-[13px] outline-none transition-colors focus:border-blue-500"
                           value={formData.expirationDate || ''}
-                          onChange={(e) => setFormData((prev) => ({ ...prev, expirationDate: e.target.value }))}
+                          disabled={!canEditQuotation}
+                          onChange={(e) => canEditQuotation && setFormData((prev) => ({ ...prev, expirationDate: e.target.value }))}
                         />
                       </div>
                     </div>
@@ -2153,8 +2306,8 @@ const QuotationDetails: React.FC = () => {
                         {creatorLineItems.map((item) => (
                           <tr
                             key={item.id}
-                            className="cursor-pointer border-b border-slate-100 transition-colors hover:bg-slate-50"
-                            onClick={() => openEditOrderLineModal(item.id)}
+                            className={`${canEditQuotation ? 'cursor-pointer hover:bg-slate-50' : 'cursor-default'} border-b border-slate-100 transition-colors`}
+                            onClick={() => canEditQuotation && openEditOrderLineModal(item.id)}
                           >
                             <td className="align-top p-3 text-slate-700">{item.servicePackage || '-'}</td>
                             <td className="align-top p-3 text-slate-500">
@@ -2194,7 +2347,11 @@ const QuotationDetails: React.FC = () => {
                         ))}
                         <tr className="bg-slate-50/30">
                           <td colSpan={5} className="p-3">
-                            <button onClick={openNewOrderLineModal} className="flex items-center gap-1 font-bold text-blue-600 transition-all hover:underline">
+                            <button
+                              onClick={openNewOrderLineModal}
+                              disabled={!canEditQuotation}
+                              className="flex items-center gap-1 font-bold text-blue-600 transition-all hover:underline disabled:cursor-not-allowed disabled:text-slate-400 disabled:no-underline"
+                            >
                               <Plus size={14} /> Thêm đơn hàng
                             </button>
                           </td>
@@ -2210,7 +2367,8 @@ const QuotationDetails: React.FC = () => {
                       <label className="mb-1 block text-[10px] font-bold uppercase text-slate-600">Loại dịch vụ</label>
                       <select
                         value={formData.serviceType || 'Training'}
-                        onChange={(e) => setFormData((prev) => ({ ...prev, serviceType: e.target.value as IQuotation['serviceType'] }))}
+                        onChange={(e) => canEditQuotation && setFormData((prev) => ({ ...prev, serviceType: e.target.value as IQuotation['serviceType'] }))}
+                        disabled={!canEditQuotation}
                         className="h-9 w-full rounded border border-slate-300 bg-white px-3 py-1.5 text-[13px]"
                       >
                         <option value="Training">Đào tạo</option>
@@ -2222,9 +2380,9 @@ const QuotationDetails: React.FC = () => {
                       <label className="mb-1 block text-[10px] font-bold uppercase text-slate-600">Mã lớp dự kiến</label>
                       <ClassCodeLookupInput
                         value={formData.classCode || ''}
-                        onChange={(value) => setFormData((prev) => ({ ...prev, classCode: value }))}
+                        onChange={(value) => canEditQuotation && setFormData((prev) => ({ ...prev, classCode: value }))}
                         loadOptions={loadClassCodeOptions}
-                        disabled={isLocked}
+                        disabled={!canEditQuotation}
                         placeholder="VD: DE-A1-02/2026"
                         inputClassName="h-9 w-full rounded border border-slate-300 bg-white px-3 py-1.5 text-[13px] outline-none focus:border-blue-500"
                         buttonClassName="h-9 rounded border border-slate-300 bg-white px-3 text-[12px] font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100"
@@ -2234,7 +2392,8 @@ const QuotationDetails: React.FC = () => {
                       <label className="mb-1 block text-[10px] font-bold uppercase text-slate-600">Lịch học mong muốn</label>
                       <input
                         value={formData.schedule || ''}
-                        onChange={(e) => setFormData((prev) => ({ ...prev, schedule: e.target.value }))}
+                        onChange={(e) => canEditQuotation && setFormData((prev) => ({ ...prev, schedule: e.target.value }))}
+                        disabled={!canEditQuotation}
                         className="h-9 w-full rounded border border-slate-300 bg-white px-3 py-1.5 text-[13px]"
                         placeholder="VD: T2-T4-T6, 19:00-21:00"
                       />
@@ -2243,7 +2402,8 @@ const QuotationDetails: React.FC = () => {
                       <label className="mb-1 block text-[10px] font-bold uppercase text-slate-600">Ghi chú chính sách giá</label>
                       <input
                         value={formData.pricingNote || ''}
-                        onChange={(e) => setFormData((prev) => ({ ...prev, pricingNote: e.target.value }))}
+                        onChange={(e) => canEditQuotation && setFormData((prev) => ({ ...prev, pricingNote: e.target.value }))}
+                        disabled={!canEditQuotation}
                         className="h-9 w-full rounded border border-slate-300 bg-white px-3 py-1.5 text-[13px]"
                         placeholder="Nêu lý do giảm giá/chính sách áp dụng..."
                       />
@@ -2253,7 +2413,8 @@ const QuotationDetails: React.FC = () => {
                         <label className="mb-1 block text-[10px] font-bold uppercase text-slate-600">Thông tin khác</label>
                         <textarea
                           value={formData.internalNote || ''}
-                          onChange={(e) => setFormData((prev) => ({ ...prev, internalNote: e.target.value }))}
+                          onChange={(e) => canEditQuotation && setFormData((prev) => ({ ...prev, internalNote: e.target.value }))}
+                          disabled={!canEditQuotation}
                           className="h-14 w-full resize-none rounded border border-slate-300 bg-white px-3 py-2 text-[13px]"
                           placeholder="Ghi chú nội bộ hoặc yêu cầu xử lý..."
                         />
@@ -2262,7 +2423,8 @@ const QuotationDetails: React.FC = () => {
                         <input
                           type="checkbox"
                           checked={!!formData.needInvoice}
-                          onChange={(e) => setFormData((prev) => ({ ...prev, needInvoice: e.target.checked }))}
+                          onChange={(e) => canEditQuotation && setFormData((prev) => ({ ...prev, needInvoice: e.target.checked }))}
+                          disabled={!canEditQuotation}
                           className="mr-2 rounded border-slate-300"
                         />
                         KH cần in hóa đơn VAT
@@ -2567,6 +2729,7 @@ const QuotationDetails: React.FC = () => {
     ) : null;
 
   const handleSaveContractDraft = () => {
+    if (!canEditQuotation) return;
     const savedQuotation = persistQuotation({ syncContract: false });
     syncLinkedContract(savedQuotation);
     alert('Đã lưu dữ liệu hợp đồng tách riêng và đồng bộ vào trang Hợp đồng');
@@ -2910,20 +3073,12 @@ const QuotationDetails: React.FC = () => {
               </button>
             )}
             <button
-              onClick={handleLock}
-              disabled={!canLockNow}
-              title={lockButtonTitle}
-              className="px-3 py-1.5 rounded border text-xs font-semibold disabled:text-slate-400"
-            >
-              Lock
-            </button>
-            <button
               onClick={handlePrintQuotation}
               className="px-3 py-1.5 rounded bg-blue-600 text-white text-xs font-semibold inline-flex items-center gap-1"
             >
               <Printer size={14} /> In báo giá
             </button>
-            {canLockByRole && canLockStage && (
+            {canCreateReceiptApprovalByRole && (
               <button
                 onClick={handleOpenCreateReceiptApproval}
                 disabled={!canCreateReceiptApproval}
@@ -2932,12 +3087,6 @@ const QuotationDetails: React.FC = () => {
               >
                 Tạo phiếu duyệt thu
               </button>
-            )}
-            <span className="px-2 py-1 text-xs font-semibold rounded bg-blue-50 text-blue-700">
-              Trạng thái: {recordStatusLabel}
-            </span>
-            {formData.transactionStatus && formData.transactionStatus !== 'NONE' && (
-              <span className="px-2 py-1 text-xs border rounded bg-slate-50">Giao dịch: {formData.transactionStatus}</span>
             )}
             {cancelRequestStatus !== 'NONE' && (
               <span className="px-2 py-1 text-xs border rounded bg-amber-50 border-amber-200 text-amber-700">
@@ -2981,11 +3130,8 @@ const QuotationDetails: React.FC = () => {
             </div>
             <div className="flex items-start justify-between mb-6">
               <div>
-                <div className="flex items-center gap-2 mb-2">
+                <div className="mb-2">
                   <h1 className="text-4xl font-bold text-slate-900">{isNew ? 'Báo giá mới' : formData.soCode}</h1>
-                  <span className="px-2 py-1 text-xs font-semibold rounded bg-blue-50 text-blue-700">
-                    {recordStatusLabel}
-                  </span>
                 </div>
                 {linkedContract && (
                   <div className="inline-flex items-center gap-2 rounded border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-600">
@@ -3000,7 +3146,7 @@ const QuotationDetails: React.FC = () => {
               </div>
             </div>
 
-            <div className="quotation-screen-only mb-8 grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
+            <div className="quotation-screen-only mb-8 grid grid-cols-1 gap-x-8 gap-y-5 md:grid-cols-2">
               <div>
                 <label className="text-xs font-bold uppercase text-blue-800">Khách hàng</label>
                 <div className="relative">
@@ -3068,24 +3214,6 @@ const QuotationDetails: React.FC = () => {
                   placeholder="Nhập số điện thoại"
                 />
               </div>
-              <div>
-                <label className="text-xs font-bold uppercase text-blue-800">Gói dịch vụ</label>
-                <input
-                  className="w-full border-b py-1 outline-none text-slate-700"
-                  value={quotationServicePackageSummary}
-                  readOnly
-                  disabled
-                />
-              </div>
-              <div>
-                <label className="text-xs font-bold uppercase text-blue-800">{approvedRefundAmount > 0 ? 'Tổng phải thu' : 'Giá tiền'}</label>
-                <input
-                  className="w-full border-b py-1 font-semibold text-slate-800 outline-none"
-                  value={quotationAmountDisplay}
-                  readOnly
-                  disabled
-                />
-              </div>
               {approvedRefundAmount > 0 && (
                 <>
                   <div>
@@ -3118,7 +3246,7 @@ const QuotationDetails: React.FC = () => {
                   disabled={isLocked}
                 />
               </div>
-              <div className="xl:col-span-2">
+              <div>
                 <label className="text-xs font-bold uppercase text-blue-800">Địa chỉ khách hàng</label>
                 <input
                   className="w-full border-b py-1 outline-none"
@@ -3354,18 +3482,21 @@ const QuotationDetails: React.FC = () => {
                         <input
                           type="text"
                           value={contractDraft.templateName}
-                          onFocus={() => setContractTemplateDropdownOpen(true)}
+                          onFocus={() => canEditQuotation && setContractTemplateDropdownOpen(true)}
                           onChange={(e) => {
+                            if (!canEditQuotation) return;
                             const templateName = e.target.value;
                             setContractDraft((prev) => ({ ...prev, templateName }));
                             setContractTemplateDropdownOpen(true);
                           }}
+                          disabled={!canEditQuotation}
                           className="w-full rounded border bg-white px-3 py-2 pr-10 outline-none focus:border-blue-500"
                           placeholder="Tìm hoặc chọn mẫu hợp đồng"
                         />
                         <button
                           type="button"
-                          onClick={() => setContractTemplateDropdownOpen((prev) => !prev)}
+                          onClick={() => canEditQuotation && setContractTemplateDropdownOpen((prev) => !prev)}
+                          disabled={!canEditQuotation}
                           className="absolute inset-y-0 right-2 my-auto inline-flex h-7 w-7 items-center justify-center rounded text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700"
                           title="Xổ danh sách mẫu hợp đồng"
                         >
@@ -3375,7 +3506,7 @@ const QuotationDetails: React.FC = () => {
                           />
                         </button>
                       </div>
-                      {contractTemplateDropdownOpen && (
+                      {canEditQuotation && contractTemplateDropdownOpen && (
                         <div className="absolute left-0 right-0 z-20 mt-1 max-h-56 overflow-y-auto rounded border border-slate-200 bg-white p-1 shadow-lg">
                           {filteredContractTemplateOptions.length > 0 ? (
                             filteredContractTemplateOptions.map((contractOption) => (
@@ -3422,13 +3553,14 @@ const QuotationDetails: React.FC = () => {
                             <input
                               type="text"
                               value={getContractFieldValue(field.key)}
-                              onChange={(e) => setContractDraft((prev) => ({
+                              onChange={(e) => canEditQuotation && setContractDraft((prev) => ({
                                 ...prev,
                                 templateFields: {
                                   ...prev.templateFields,
                                   [field.key]: e.target.value
                                 }
                               }))}
+                              disabled={!canEditQuotation}
                               className="w-full rounded border px-3 py-2 outline-none focus:border-blue-500"
                               placeholder={field.placeholder}
                             />
@@ -3450,7 +3582,12 @@ const QuotationDetails: React.FC = () => {
                     </div>
 
                     <div className="flex flex-wrap justify-end gap-2">
-                      <button type="button" onClick={handleSaveContractDraft} className="inline-flex items-center gap-2 rounded bg-blue-600 px-4 py-2 text-xs font-semibold text-white">
+                      <button
+                        type="button"
+                        onClick={handleSaveContractDraft}
+                        disabled={!canEditQuotation}
+                        className="inline-flex items-center gap-2 rounded bg-blue-600 px-4 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+                      >
                         <Save size={14} /> Lưu contract riêng
                       </button>
                       {formData.id && (
@@ -3460,9 +3597,6 @@ const QuotationDetails: React.FC = () => {
                       )}
                     </div>
 
-                    <div className="pt-2">
-                      {paymentDebtSection}
-                    </div>
                 </div>
               </div>
             )}
@@ -3651,7 +3785,7 @@ const QuotationDetails: React.FC = () => {
             <h3 className="text-xl font-bold mb-4">Xác nhận đơn hàng (Sale Confirmed)</h3>
             <div className="space-y-4">
               <p className="text-sm leading-6 text-slate-600">
-                Xác nhận chuyển báo giá sang trạng thái <span className="font-semibold text-slate-900">Sale Confirmed</span>. Sau đó kế toán sẽ tạo phiếu duyệt thu cho SO này.
+                Xác nhận chuyển báo giá sang trạng thái <span className="font-semibold text-slate-900">Sale Confirmed</span>. Sau đó sales sẽ tạo phiếu duyệt thu cho SO này.
               </p>
 
               <div className="flex justify-end gap-3">

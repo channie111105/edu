@@ -114,15 +114,15 @@ const FieldBlock: React.FC<{
   title,
   children,
 }) => (
-  <div className={className} title={title}>
-    <label className={['field-label', labelClassName].filter(Boolean).join(' ')}>
-      {label}
-      {required && <span className="text-red-500"> *</span>}
-      {requiredHint && <span className="text-red-500"> {requiredHint}</span>}
-    </label>
-    {children}
-  </div>
-);
+    <div className={className} title={title}>
+      <label className={['field-label', labelClassName].filter(Boolean).join(' ')}>
+        {label}
+        {required && <span className="text-red-500"> *</span>}
+        {requiredHint && <span className="text-red-500"> {requiredHint}</span>}
+      </label>
+      {children}
+    </div>
+  );
 
 const SectionShell: React.FC<{
   title: React.ReactNode;

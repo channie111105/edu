@@ -72,6 +72,7 @@ const FinanceInventory: React.FC = () => {
                     <table className="w-full text-left">
                         <thead className="bg-slate-50 text-slate-500 uppercase text-xs font-bold">
                             <tr>
+                                <th className="px-6 py-4 w-16 text-center">STT</th>
                                 <th className="px-6 py-4">Mã SP</th>
                                 <th className="px-6 py-4">Tên Sản phẩm</th>
                                 <th className="px-6 py-4">Danh mục</th>
@@ -81,8 +82,9 @@ const FinanceInventory: React.FC = () => {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                            {ITEMS.map((item) => (
+                            {ITEMS.map((item, index) => (
                                 <tr key={item.id} className="hover:bg-slate-50 transition-colors">
+                                    <td className="px-6 py-4 text-center font-semibold text-slate-500">{index + 1}</td>
                                     <td className="px-6 py-4 font-mono text-xs text-slate-500">{item.id}</td>
                                     <td className="px-6 py-4 text-sm font-bold text-slate-900">{item.name}</td>
                                     <td className="px-6 py-4">

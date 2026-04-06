@@ -56,7 +56,6 @@ import {
   LayoutGrid, // Pivot Icon
   List as ListIcon, // List Icon
   Settings, // Settings Icon for Column Selector
-  Eye, // Eye icon for column
   FileSpreadsheet, // Excel Icon
   Download, // Download Icon
   XCircle, // Error Icon
@@ -369,7 +368,25 @@ const Leads: React.FC = () => {
 
   // --- DUPLICATE CHECK STATE ---
   const [showDuplicateModal, setShowDuplicateModal] = useState(false);
-  const [selectedDuplicateGroup, setSelectedDuplicateGroup] = useState<any | null>(null);
+  const getLeadCreatedAtTimestamp = (lead: ILead) => {
+    const timestamp = new Date(lead.createdAt || '').getTime();
+    return Number.isNaN(timestamp) ? 0 : timestamp;
+  };
+
+  const formatDuplicateLeadCreatedAt = (value?: string) => {
+    if (!value) return '-';
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? '-' : date.toLocaleDateString('vi-VN');
+  };
+
+  const getDuplicateLeadOwner = (ownerId?: string) =>
+    SALES_REPS.find((rep) => rep.id === ownerId || rep.name === ownerId);
+
+  const getDuplicateLeadOwnerLabel = (lead: ILead) =>
+    getDuplicateLeadOwner(lead.ownerId)?.name || lead.ownerId || 'Chưa phân';
+
+  const getDuplicateLeadCampusLabel = (lead: ILead) =>
+    lead.company || (lead as any).city || '-';
 
   const duplicateGroups = useMemo(() => {
     const groups: { [key: string]: ILead[] } = {};
@@ -381,9 +398,28 @@ const Leads: React.FC = () => {
       }
     });
     return Object.entries(groups)
-      .filter(([_, group]) => group.length > 1)
-      .map(([phone, group]) => ({ phone, leads: group }));
+      .map(([phone, group]) => ({
+        phone,
+        leads: group
+          .filter((lead) => normalizeLeadStatus(lead.status as string) !== STANDARD_LEAD_STATUS.LOST)
+          .sort((a, b) => getLeadCreatedAtTimestamp(a) - getLeadCreatedAtTimestamp(b)),
+      }))
+      .filter((group) => group.leads.length > 1)
+      .sort((a, b) => a.phone.localeCompare(b.phone));
   }, [leads]);
+
+  const duplicateGroupSections = useMemo(() => {
+    let rowNumber = 0;
+    return duplicateGroups.map((group, groupIndex) => ({
+      phone: group.phone,
+      groupIndex,
+      totalLeads: group.leads.length,
+      rows: group.leads.map((lead) => ({
+        lead,
+        stt: ++rowNumber,
+      })),
+    }));
+  }, [duplicateGroups]);
   const [activeModalTab, setActiveModalTab] = useState<'notes' | 'extra'>('notes');
 
 
@@ -1909,7 +1945,7 @@ const Leads: React.FC = () => {
   const compactMetaCellClass = 'whitespace-nowrap px-2 py-1 align-middle text-[12px] text-slate-600';
   const flatRibbonButtonClass = 'inline-flex items-center gap-1 rounded-sm border border-transparent px-2 py-1 text-[11px] font-semibold text-slate-700 transition-colors hover:border-[#d8dee8] hover:bg-white hover:text-slate-900';
   const compactToolbarButtonClass = 'inline-flex items-center gap-1 rounded-sm border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900';
-  const leadTableColSpan = visibleColumns.length + 1;
+  const leadTableColSpan = visibleColumns.length + 2;
 
   return decodeMojibakeReactNode(
     <>
@@ -2720,6 +2756,7 @@ const Leads: React.FC = () => {
                     <th className={`${compactHeaderCellClass} w-8 text-center`}>
                       <input type="checkbox" className="rounded border-slate-300" onChange={handleSelectAll} checked={selectedLeadIds.length === filteredLeads.length && filteredLeads.length > 0} />
                     </th>
+                    <th className={`${compactHeaderCellClass} w-12 text-center`}>STT</th>
                     {visibleColumns.includes('opportunity') && <th className={compactHeaderCellClass}>T\u00ean li\u00ean h\u1ec7</th>}
                     {visibleColumns.includes('contact') && <th className={compactHeaderCellClass}>T\u00ean li\u00ean h\u1ec7 ph\u1ee5</th>}
                     {visibleColumns.includes('company') && <th className={compactHeaderCellClass}>CÃ†Â¡ sÃ¡Â»Å¸ / CÃƒÂ´ng ty</th>}
@@ -2748,7 +2785,7 @@ const Leads: React.FC = () => {
                   {filteredLeads.length === 0 ? (
                     <tr><td colSpan={leadTableColSpan} className="px-3 py-4 text-center text-[12px] text-slate-400">No data available</td></tr>
                   ) : (
-                    filteredLeads.map(lead => {
+                    filteredLeads.map((lead, index) => {
                       // Helper: Find next activity
                       // @ts-ignore
                       const nextActivity = (lead.activities || []).find(a => a.type === 'activity');
@@ -2772,6 +2809,7 @@ const Leads: React.FC = () => {
                           <td className="px-2 py-1 text-center align-middle" onClick={(e) => e.stopPropagation()}>
                             <input type="checkbox" className="rounded border-slate-300 w-3.5 h-3.5" checked={selectedLeadIds.includes(lead.id)} onClick={(e) => handleSelectLeadCheckbox(lead.id, e)} onChange={() => { }} />
                           </td>
+                          <td className={`${compactBodyCellClass} text-center font-semibold text-slate-500`}>{index + 1}</td>
 
                           {visibleColumns.includes('opportunity') && (
                             <td className={compactMetaCellClass}>
@@ -4128,12 +4166,17 @@ const Leads: React.FC = () => {
         {showDuplicateModal && (
           <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowDuplicateModal(false)}></div>
-            <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in zoom-in-95 flex flex-col max-h-[80vh]">
+            <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-6xl overflow-hidden animate-in zoom-in-95 flex flex-col max-h-[85vh]">
               <div className="p-5 border-b border-slate-200 flex justify-between items-center bg-amber-50 shrink-0">
-                <h3 className="text-lg font-bold text-amber-900 flex items-center gap-2">
-                  <AlertTriangle size={20} className="text-amber-600" />
-                  Danh sÃƒÂ¡ch Lead trÃƒÂ¹ng SÃ¡Â»â€˜ Ã„â€˜iÃ¡Â»â€¡n thoÃ¡ÂºÂ¡i
-                </h3>
+                <div>
+                  <h3 className="text-lg font-bold text-amber-900 flex items-center gap-2">
+                    <AlertTriangle size={20} className="text-amber-600" />
+                    Danh sách Lead trùng Số điện thoại
+                  </h3>
+                  <p className="mt-1 text-sm text-amber-800/80">
+                    Các lead trùng được gom theo từng SĐT và hiển thị liền nhau. Bấm vào dòng để mở nhanh lead tương ứng.
+                  </p>
+                </div>
                 <button onClick={() => setShowDuplicateModal(false)} className="text-slate-400 hover:text-slate-600"><X size={24} /></button>
               </div>
 
@@ -4141,137 +4184,82 @@ const Leads: React.FC = () => {
                 {duplicateGroups.length === 0 ? (
                   <div className="text-center py-10">
                     <CheckCircle size={48} className="mx-auto text-green-500 mb-4 opacity-20" />
-                    <p className="text-slate-500">TuyÃ¡Â»â€¡t vÃ¡Â»Âi! KhÃƒÂ´ng tÃƒÂ¬m thÃ¡ÂºÂ¥y Lead nÃƒÂ o bÃ¡Â»â€¹ trÃƒÂ¹ng SÃ„ÂT.</p>
+                    <p className="text-slate-500">Không tìm thấy lead nào đang bị trùng SĐT.</p>
                   </div>
                 ) : (
-                  <div className="space-y-3">
-                    {duplicateGroups.map((group) => (
-                      <div
-                        key={group.phone}
-                        onClick={() => setSelectedDuplicateGroup(group)}
-                        className="p-4 border border-slate-200 rounded-xl hover:border-blue-400 hover:bg-blue-50 cursor-pointer transition-all group"
-                      >
-                        <div className="flex justify-between items-center">
-                          <div>
-                            <p className="font-bold text-slate-900 group-hover:text-blue-700">SÃ„ÂT: {group.phone}</p>
-                            <p className="text-sm text-slate-500">{group.leads.length} bÃ¡ÂºÂ£n ghi bÃ¡Â»â€¹ trÃƒÂ¹ng</p>
-                          </div>
-                          <div className="flex -space-x-2">
-                            {group.leads.slice(0, 3).map((l: any) => (
-                              <div key={l.id} className="w-8 h-8 rounded-full border-2 border-white bg-slate-100 flex items-center justify-center text-[10px] font-bold text-slate-600 shadow-sm" title={l.name}>
-                                {l.name.charAt(0)}
-                              </div>
-                            ))}
-                            {group.leads.length > 3 && (
-                              <div className="w-8 h-8 rounded-full border-2 border-white bg-slate-200 flex items-center justify-center text-[10px] font-bold text-slate-500 shadow-sm">
-                                +{group.leads.length - 3}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                        <div className="mt-2 text-xs flex gap-2">
-                          {group.leads.map((l: any) => (
-                            <span key={l.id} className="bg-white px-2 py-0.5 rounded border border-slate-200 text-slate-600">{l.name}</span>
+                  <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full border-collapse">
+                        <thead className="sticky top-0 z-10 bg-slate-50">
+                          <tr>
+                            <th className={`${compactHeaderCellClass} w-16 text-center`}>STT</th>
+                            <th className={`${compactHeaderCellClass} w-32`}>Ngày tạo</th>
+                            <th className={compactHeaderCellClass}>Tên</th>
+                            <th className={compactHeaderCellClass}>SĐT</th>
+                            <th className={compactHeaderCellClass}>Ng phụ trách</th>
+                            <th className={compactHeaderCellClass}>Chi nhánh</th>
+                            <th className={`${compactHeaderCellClass} text-center`}>Trạng thái</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {duplicateGroupSections.map((group) => (
+                            <React.Fragment key={group.phone}>
+                              <tr className="bg-amber-50/70">
+                                <td colSpan={7} className="border-b border-amber-100 px-3 py-2">
+                                  <div className="flex items-center justify-between gap-3">
+                                    <div className="text-sm font-semibold text-amber-900">
+                                      Nhóm trùng #{group.groupIndex + 1} • SĐT {group.phone}
+                                    </div>
+                                    <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">
+                                      {group.totalLeads} lead trùng
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
+                              {group.rows.map(({ lead, stt }) => {
+                                const allocationStatus = getAllocationStatusMeta(lead);
+                                return (
+                                  <tr
+                                    key={lead.id}
+                                    onClick={() => { setSelectedLead(lead); setShowDuplicateModal(false); }}
+                                    className="cursor-pointer border-b border-slate-100 transition-colors hover:bg-blue-50/60"
+                                    title={`Mở lead: ${lead.name}`}
+                                  >
+                                    <td className={`${compactBodyCellClass} text-center font-semibold text-slate-500`}>{stt}</td>
+                                    <td className={compactBodyCellClass}>{formatDuplicateLeadCreatedAt(lead.createdAt)}</td>
+                                    <td className={`${compactBodyCellClass} max-w-[260px]`}>
+                                      <div className="truncate font-semibold text-slate-900" title={lead.name}>{lead.name || '-'}</div>
+                                    </td>
+                                    <td className={`${compactBodyCellClass} font-semibold text-slate-700`}>{lead.phone || '-'}</td>
+                                    <td className={`${compactBodyCellClass} max-w-[200px]`}>
+                                      <div className="truncate" title={getDuplicateLeadOwnerLabel(lead)}>
+                                        {getDuplicateLeadOwnerLabel(lead)}
+                                      </div>
+                                    </td>
+                                    <td className={`${compactBodyCellClass} max-w-[180px]`}>
+                                      <div className="truncate" title={getDuplicateLeadCampusLabel(lead)}>
+                                        {getDuplicateLeadCampusLabel(lead)}
+                                      </div>
+                                    </td>
+                                    <td className="px-2 py-1 text-center align-middle">
+                                      <span className={`inline-flex max-w-[110px] justify-center rounded-sm border px-1.5 py-0 text-[10px] font-semibold ${allocationStatus.className}`}>
+                                        {allocationStatus.label}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </React.Fragment>
                           ))}
-                        </div>
-                      </div>
-                    ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 )}
               </div>
-            </div>
-          </div>
-        )}
-
-        {/* SIDE-BY-SIDE COMPARISON MODAL */}
-        {selectedDuplicateGroup && (
-          <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-slate-900/30 backdrop-blur-sm" onClick={() => setSelectedDuplicateGroup(null)}></div>
-            <div className="relative bg-white rounded-lg shadow-2xl w-full max-w-7xl overflow-hidden animate-in slide-in-from-bottom-4 flex flex-col max-h-[95vh]">
-              <div className="p-4 border-b border-slate-200 flex justify-between items-center bg-slate-50 shrink-0">
-                <div>
-                  <h3 className="text-xl font-black text-slate-900 flex items-center gap-2 uppercase tracking-tighter">
-                    <Database size={24} className="text-blue-600" />
-                    So sÃƒÂ¡nh Lead trÃƒÂ¹ng: {selectedDuplicateGroup.phone}
-                  </h3>
-                  <p className="text-sm text-slate-500">Xem vÃƒÂ  so sÃƒÂ¡nh thÃƒÂ´ng tin giÃ¡Â»Â¯a cÃƒÂ¡c bÃ¡ÂºÂ£n ghi Ã„â€˜Ã¡Â»Æ’ quyÃ¡ÂºÂ¿t Ã„â€˜Ã¡Â»â€¹nh xÃ¡Â»Â­ lÃƒÂ½.</p>
-                </div>
-                <button onClick={() => setSelectedDuplicateGroup(null)} className="p-2 hover:bg-slate-200 rounded transition-colors"><X size={24} /></button>
-              </div>
-
-              <div className="flex-1 overflow-x-auto overflow-y-auto p-4 custom-scrollbar bg-slate-100">
-                <div className="flex gap-3 w-full pb-2">
-                  {selectedDuplicateGroup.leads.map((lead: ILead) => (
-                    <div key={lead.id} className="flex-1 min-w-[300px] bg-white rounded-md border border-slate-200 hover:border-blue-400 transition-all shadow-sm flex flex-col">
-                      <div className="p-3 border-b border-slate-100 bg-slate-50/50 flex justify-between items-start">
-                        <div>
-                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider">ID: {lead.id}</p>
-                          <h4 className="font-bold text-slate-900 text-base">{lead.name}</h4>
-                          <span className="text-[10px] bg-blue-100 text-blue-700 font-bold px-2 py-0.5 rounded mt-1 inline-block uppercase">
-                            {getLeadStatusLabel(lead.status as string)}
-                          </span>
-                        </div>
-                        <button
-                          onClick={() => { setSelectedLead(lead); setSelectedDuplicateGroup(null); setShowDuplicateModal(false); }}
-                          className="p-1.5 bg-white border border-slate-200 rounded text-blue-600 hover:bg-blue-600 hover:text-white transition-all shadow-sm"
-                          title="ChÃ¡Â»â€°nh sÃ¡Â»Â­a Lead nÃƒÂ y"
-                        >
-                          <Eye size={16} />
-                        </button>
-                      </div>
-
-                      <div className="p-3 space-y-3 text-sm flex-1">
-                        <section>
-                          <p className="text-[9px] font-bold text-slate-400 uppercase mb-1 tracking-widest">ThÃƒÂ´ng tin cÃ†Â¡ bÃ¡ÂºÂ£n</p>
-                          <div className="space-y-1 bg-slate-50 p-2 rounded-md border border-slate-100">
-                            <div className="flex justify-between"><span className="text-slate-500 text-xs">SÃ„ÂT:</span> <span className="font-bold text-slate-900">{lead.phone}</span></div>
-                            <div className="flex justify-between"><span className="text-slate-500 text-xs">Email:</span> <span className="font-medium text-slate-700 truncate max-w-[150px]" title={lead.email}>{lead.email || '-'}</span></div>
-                            <div className="flex justify-between"><span className="text-slate-500 text-xs">CÃ†Â¡ sÃ¡Â»Å¸:</span> <span className="font-medium text-slate-700">{lead.company || '-'}</span></div>
-                            <div className="flex justify-between"><span className="text-slate-500 text-xs">D.xÃ†Â°ng:</span> <span className="font-medium text-slate-700">{(lead as any).title || '-'}</span></div>
-                          </div>
-                        </section>
-
-                        <section>
-                          <p className="text-[9px] font-bold text-slate-400 uppercase mb-1 tracking-widest">Marketing & NguÃ¡Â»â€œn</p>
-                          <div className="space-y-1 bg-slate-50 p-2 rounded-md border border-slate-100">
-                            <div className="flex justify-between"><span className="text-slate-500 text-xs">NguÃ¡Â»â€œn:</span> <span className="font-medium text-slate-700">{lead.source || '-'}</span></div>
-                            <div className="flex justify-between"><span className="text-slate-500 text-xs">ChiÃ¡ÂºÂ¿n dÃ¡Â»â€¹ch:</span> <span className="font-medium text-slate-700">{lead.marketingData?.campaign || '-'}</span></div>
-                            <div className="flex justify-between"><span className="text-slate-500 text-xs">Ng.giÃ¡Â»â€ºi thiÃ¡Â»â€¡u:</span> <span className="font-medium text-slate-700">{(lead as any).referredBy || '-'}</span></div>
-                            <div className="flex justify-between items-start"><span className="text-slate-500 text-xs">Tags:</span> <div className="flex flex-wrap gap-1 justify-end">{lead.marketingData?.tags?.length ? lead.marketingData.tags.map((t: string) => <span key={t} className="bg-white border text-[9px] px-1 rounded-sm">{t}</span>) : '-'}</div></div>
-                          </div>
-                        </section>
-
-                        <section>
-                          <p className="text-[9px] font-bold text-slate-400 uppercase mb-1 tracking-widest">LÃ¡Â»â€¹ch sÃ¡Â»Â­ & PhÃ¡Â»Â¥ trÃƒÂ¡ch</p>
-                          <div className="space-y-1 bg-slate-50 p-2 rounded-md border border-slate-100">
-                            <div className="flex justify-between"><span className="text-slate-500 text-xs">NgÃƒÂ y tÃ¡ÂºÂ¡o:</span> <span className="font-medium text-slate-700">{new Date(lead.createdAt).toLocaleDateString('vi-VN')}</span></div>
-                            <div className="flex justify-between"><span className="text-slate-500 text-xs">PhÃ¡Â»Â¥ trÃƒÂ¡ch:</span> <span className="font-bold text-blue-600">{SALES_REPS.find(r => r.id === lead.ownerId)?.name || 'ChÃ†Â°a phÃƒÂ¢n'}</span></div>
-                          </div>
-                        </section>
-
-                        <section>
-                          <p className="text-[9px] font-bold text-slate-400 uppercase mb-1 tracking-widest">Ghi chÃƒÂº</p>
-                          <div className="bg-slate-50 p-2 rounded-md border border-slate-100 text-[11px] text-slate-600 min-h-[50px] leading-relaxed">
-                            {lead.notes || 'KhÃƒÂ´ng cÃƒÂ³ ghi chÃƒÂº.'}
-                          </div>
-                        </section>
-                      </div>
-
-                      <div className="p-3 border-t border-slate-50 bg-slate-50/30 flex gap-2">
-                        <button
-                          onClick={() => { if (confirm("XÃƒÂ³a bÃ¡ÂºÂ£n ghi trÃƒÂ¹ng nÃƒÂ y?")) { const filtered = leads.filter(l => l.id !== lead.id); setLeads(filtered); saveLeads(filtered); setSelectedDuplicateGroup((prev: any) => ({ ...prev!, leads: prev!.leads.filter((l: any) => l.id !== lead.id) })); } }}
-                          className="flex-1 py-1.5 border border-red-200 text-red-600 hover:bg-red-50 rounded text-[11px] font-bold transition-all uppercase"
-                        >
-                          XÃƒÂ³a
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="p-3 border-t border-slate-200 bg-slate-50 flex justify-end shrink-0">
-                <button onClick={() => setSelectedDuplicateGroup(null)} className="px-8 py-2 bg-slate-900 text-white font-bold rounded shadow hover:bg-slate-800 transition-all text-sm uppercase">Xong</button>
+              <div className="border-t border-slate-200 bg-slate-50 px-5 py-3 text-xs text-slate-500">
+                Đang hiển thị {duplicateGroupSections.length} nhóm trùng và{' '}
+                {duplicateGroupSections.reduce((total, group) => total + group.totalLeads, 0)} lead cần rà soát.
               </div>
             </div>
           </div>

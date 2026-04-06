@@ -127,6 +127,7 @@ const ContractApprovalQueue: React.FC = () => {
         <table className="w-full text-left text-sm">
           <thead className="bg-slate-50 text-slate-500 font-bold uppercase text-xs border-b border-slate-200">
             <tr>
+              <th className="px-4 py-3 w-16 text-center">STT</th>
               <th className="px-4 py-3">Admission</th>
               <th className="px-4 py-3">Học viên</th>
               <th className="px-4 py-3">SO liên quan</th>
@@ -137,8 +138,9 @@ const ContractApprovalQueue: React.FC = () => {
           </thead>
           <tbody className="divide-y divide-slate-100">
             {rows.length > 0 ? (
-              rows.map(({ admission, student, quotation }) => (
+              rows.map(({ admission, student, quotation }, index) => (
                 <tr key={admission.id} className="hover:bg-slate-50">
+                  <td className="px-4 py-3 text-center font-semibold text-slate-500">{index + 1}</td>
                   <td className="px-4 py-3 font-bold text-indigo-700">{admission.code}</td>
                   <td className="px-4 py-3">
                     <div className="font-semibold text-slate-900">{student?.name || 'N/A'}</div>
@@ -173,7 +175,7 @@ const ContractApprovalQueue: React.FC = () => {
               ))
             ) : (
               <tr>
-                <td colSpan={6} className="text-center py-12 text-slate-500">Không có admission chờ duyệt.</td>
+                <td colSpan={7} className="text-center py-12 text-slate-500">Không có admission chờ duyệt.</td>
               </tr>
             )}
           </tbody>

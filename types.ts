@@ -459,6 +459,7 @@ export interface ITransaction {
   customerId: string;
   studentName?: string;
   relatedEntityLabel?: string;
+  recipientPayerName?: string;
   amount: number;
   method: 'CHUYEN_KHOAN' | 'TIEN_MAT' | 'THE' | 'OTHER';
   proofType?: 'UNC' | 'PHIEU_THU' | 'NONE';
@@ -468,6 +469,9 @@ export interface ITransaction {
   paidAt?: number;
   createdAt: number;
   approvedAt?: number;
+  adminApprovedAt?: number;
+  adminApprovedBy?: string;
+  adminLockedQuotation?: boolean;
   rejectedAt?: number;
   createdBy: string;
   businessGroupHint?: 'THU' | 'CHI' | 'DIEU_CHINH';
@@ -830,6 +834,8 @@ export interface IQuotationPaymentScheduleTerm {
   amount: number;
   expectedDate?: string;
   dueDate?: string;
+  activatedAt?: string;
+  activatedBy?: string;
 }
 
 export interface IQuotation {
@@ -965,12 +971,14 @@ export interface IActualTransaction {
   type: TransactionType; // Thu / Chi
   category: string; // Salary, Tuition, Electricity...
   title: string; // Description
+  recipientPayerName?: string;
   amount: number;
   department: string; // Sale, OPS, Marketing
   cashAccount?: string;
   voucherNumber?: string;
   date: string;
   status: TransactionStatus;
+  processResult?: 'DA_THU' | 'DA_CHI';
   proof?: string; // Image URL/Code
   attachmentName?: string;
   attachmentUrl?: string;

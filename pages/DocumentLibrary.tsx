@@ -230,7 +230,7 @@ const normalizeText = (value: string) =>
         .replace('Quyáº¿t Ä‘á»‹nh bá»• nhiá»‡m TPKD', 'Hướng dẫn onboard nhân sự mới');
 
 const NORMALIZED_DOCUMENTS: Document[] = [
-    ...MOCK_DOCUMENTS.map((doc) => ({
+    ...MOCK_DOCUMENTS.map((doc): Document => ({
         ...doc,
         documentCode:
             doc.id === '1' ? 'DOC-TC-001' :
@@ -255,11 +255,12 @@ const NORMALIZED_DOCUMENTS: Document[] = [
             doc.id === '4' ? 'Phạm Hoàng Long' :
             'Vũ Thu Trang',
         tags: [normalizeCategory(doc.category), normalizeDepartment(doc.department)],
-        status:
+        status: (
             doc.id === '2' || doc.id === '3' ? 'expiring' :
             doc.id === '4' ? 'expired' :
-            'active',
-        approvalStatus: doc.id === '3' ? 'draft' : 'approved',
+            'active'
+        ) as DocumentStatus,
+        approvalStatus: (doc.id === '3' ? 'draft' : 'approved') as DocumentApprovalStatus,
         contentText:
             doc.id === '1' ? 'Quy trình thu học phí áp dụng cho toàn hệ thống, bao gồm cách ghi nhận công nợ, xác nhận đợt thanh toán và phối hợp giữa kinh doanh với tài chính.' :
             doc.id === '2' ? 'Quy định đào tạo 2025 quy định khung lịch học, nguyên tắc bảo lưu, điều kiện mở lớp và trách nhiệm của học vụ, đào tạo, giáo viên.' :
@@ -695,6 +696,7 @@ const DocumentLibrary = () => {
                         <table className="w-full text-left border-collapse">
                             <thead className="bg-gray-50/80 sticky top-0 z-10 backdrop-blur-sm">
                                 <tr className="border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                                    <th className="px-6 py-4 w-16 text-center">STT</th>
                                     <th className="px-6 py-4 w-[30%]">Tên tài liệu</th>
                                     <th className="px-6 py-4">Ban hành ngày</th>
                                     <th className="px-6 py-4">Hiệu lực từ</th>
@@ -704,12 +706,13 @@ const DocumentLibrary = () => {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-100">
-                                {filteredDocs.map((doc) => (
+                                {filteredDocs.map((doc, index) => (
                                     <tr
                                         key={doc.id}
                                         className="hover:bg-blue-50/50 transition-colors cursor-pointer group"
                                         onClick={() => { setSelectedDoc(doc); setIsDetailOpen(true); }}
                                     >
+                                        <td className="px-6 py-4 text-center text-sm font-semibold text-slate-500">{index + 1}</td>
                                         <td className="px-6 py-4">
                                             <div className="flex items-start gap-4">
                                                 <div className="mt-1 p-2.5 bg-gray-50 rounded-lg group-hover:bg-white border border-gray-100 group-hover:border-gray-200 transition-all shrink-0 text-slate-600">
@@ -766,7 +769,7 @@ const DocumentLibrary = () => {
                                 ))}
                                 {filteredDocs.length === 0 && (
                                     <tr>
-                                        <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
+                                        <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
                                             <div className="flex flex-col items-center justify-center">
                                                 <div className="bg-gray-50 p-4 rounded-full mb-3">
                                                     <Search size={24} className="text-gray-300" />

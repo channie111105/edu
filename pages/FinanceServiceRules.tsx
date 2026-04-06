@@ -78,6 +78,7 @@ const FinanceServiceRules: React.FC = () => {
            <table className="w-full text-left border-collapse">
               <thead className="bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-500 uppercase">
                  <tr>
+                    <th className="px-6 py-4 w-16 text-center">STT</th>
                     <th className="px-6 py-4">Sản phẩm / Gói</th>
                     <th className="px-6 py-4">Điều kiện (Khi đóng xong...)</th>
                     <th className="px-6 py-4 text-center">Hành động</th>
@@ -87,8 +88,9 @@ const FinanceServiceRules: React.FC = () => {
                  </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                 {rules.map((rule) => (
+                 {rules.map((rule, index) => (
                     <tr key={rule.id} className={`hover:bg-slate-50 transition-colors ${!rule.active ? 'opacity-50 bg-slate-50' : ''}`}>
+                       <td className="px-6 py-4 text-center font-semibold text-slate-500">{index + 1}</td>
                        <td className="px-6 py-4">
                           <div className="flex items-center gap-2 font-bold text-slate-900 text-sm">
                              <Package size={16} className="text-blue-600" /> {rule.product}

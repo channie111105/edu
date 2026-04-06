@@ -1,6 +1,6 @@
 ﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Calendar, Check, Columns3, FileText, Filter, History, Rows3, UploadCloud } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { ArrowLeft, Calendar, Check, Columns3, Download, FileText, Filter, History, Paperclip, Printer, Rows3, UploadCloud } from 'lucide-react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import {
   IActualTransaction,
@@ -27,7 +27,7 @@ import PinnedSearchInput, { PinnedSearchChip } from '../components/PinnedSearchI
 import { filterByLogAudience, getActualTransactionLogAudience, LogAudienceFilter } from '../utils/logAudience';
 
 type BusinessGroup = 'THU' | 'CHI' | 'DIEU_CHINH';
-type ApprovalStage = 'CHO_DUYET' | 'KE_TOAN_DUYET' | 'CEO_DUYET' | 'HOAN_TAT' | 'TU_CHOI';
+type ApprovalStage = 'CHO_DUYET' | 'KE_TOAN_XAC_NHAN' | 'DA_DUYET' | 'DA_THU_CHI' | 'TU_CHOI';
 type ApprovalFilter = 'ALL' | ApprovalStage;
 type QuickFilter = 'ALL' | 'IN' | 'OUT' | 'WITH_CONTRACT' | 'NO_CONTRACT' | 'INTERNAL';
 type TimeRangeType = 'all' | 'today' | 'yesterday' | 'thisWeek' | 'last7Days' | 'last30Days' | 'thisMonth' | 'lastMonth' | 'custom';
@@ -38,6 +38,7 @@ type ColumnId =
   | 'businessGroup'
   | 'businessType'
   | 'relatedEntity'
+  | 'recipientPayerName'
   | 'contractCode'
   | 'amount'
   | 'paymentMethod'
@@ -59,14 +60,18 @@ type TransactionFormState = {
   transactionCode: string;
   type: TransactionType;
   cashAccount: string;
-  voucherNumber: string;
   attachmentName: string;
   attachmentUrl: string;
   date: string;
-  note: string;
+  recipientPayerName: string;
 };
 
+type ProcessResult = 'DA_THU' | 'DA_CHI';
 type MoneyOutModalAction = 'VIEW' | 'PROCESS' | 'ATTACH';
+type FinanceMoneyOutLocationState = {
+  prefillSearch?: string;
+  relatedSourceTransactionId?: string;
+};
 
 type MoneyOutRow = {
   actual: IActualTransaction;
@@ -79,6 +84,7 @@ type MoneyOutRow = {
   businessGroupLabel: string;
   businessType: string;
   relatedEntity: string;
+  recipientPayerName: string;
   contractCode: string;
   contractReferenceLabel: string;
   paymentMethodLabel: string;
@@ -89,6 +95,8 @@ type MoneyOutRow = {
   approvalStage: ApprovalStage;
   requiresCeoApproval: boolean;
   approvalNote: string;
+  processedResult: ProcessResult | null;
+  isProcessed: boolean;
   processedStatusLabel: string;
   processedStatusTone: string;
   accountingTypeLabel: string;
@@ -96,17 +104,33 @@ type MoneyOutRow = {
 
 const MONEY_ACCOUNTS = ['STK ngân hàng', 'Tiền mặt'];
 const APPROVAL_FILTER_LABEL_MAP: Record<ApprovalFilter, string> = {
-  ALL: 'Tất cả stage',
+  ALL: 'Tất cả trạng thái',
   CHO_DUYET: 'Chờ duyệt',
-  KE_TOAN_DUYET: 'Kế toán duyệt',
-  CEO_DUYET: 'CEO duyệt',
-  HOAN_TAT: 'Hoàn tất',
+  KE_TOAN_XAC_NHAN: 'KT xác nhận',
+  DA_DUYET: 'Duyệt',
+  DA_THU_CHI: 'Đã thu / Đã chi',
   TU_CHOI: 'Từ chối'
 };
+const APPROVAL_FILTER_OPTIONS: ApprovalFilter[] = ['ALL', 'CHO_DUYET', 'KE_TOAN_XAC_NHAN', 'DA_DUYET', 'DA_THU_CHI', 'TU_CHOI'];
 const TYPE_META: Record<TransactionType, { label: string; badge: string }> = {
   IN: { label: 'Thu', badge: 'bg-emerald-50 text-emerald-700' },
   OUT: { label: 'Chi', badge: 'bg-rose-50 text-rose-700' }
 };
+const PROCESS_RESULT_META: Record<ProcessResult, { label: string; tone: string; inlineTone: string; buttonTone: string }> = {
+  DA_THU: {
+    label: 'Đã thu',
+    tone: 'bg-emerald-100 text-emerald-700',
+    inlineTone: 'text-emerald-700',
+    buttonTone: 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+  },
+  DA_CHI: {
+    label: 'Đã chi',
+    tone: 'bg-rose-100 text-rose-700',
+    inlineTone: 'text-rose-700',
+    buttonTone: 'border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100'
+  }
+};
+const getProcessResultForTransactionType = (type: TransactionType): ProcessResult => (type === 'OUT' ? 'DA_CHI' : 'DA_THU');
 const TIME_RANGE_OPTIONS: Array<{ id: TimeRangeType; label: string }> = [
   { id: 'all', label: 'Tất cả thời gian' },
   { id: 'today', label: 'Hôm nay' },
@@ -123,7 +147,7 @@ const GROUP_BY_OPTIONS: Array<{ key: MoneyOutGroupByKey; label: string }> = [
   { key: 'businessGroup', label: 'Nhóm NV' },
   { key: 'businessType', label: 'Loại nghiệp vụ' },
   { key: 'paymentMethod', label: 'Thanh toán' },
-  { key: 'cashAccount', label: 'Tài khoản tiền' },
+  { key: 'cashAccount', label: 'Hình thức thu / chi' },
   { key: 'creator', label: 'Người tạo' }
 ];
 const COLUMN_OPTIONS: Array<{ id: ColumnId; label: string; align?: 'left' | 'right' }> = [
@@ -131,6 +155,7 @@ const COLUMN_OPTIONS: Array<{ id: ColumnId; label: string; align?: 'left' | 'rig
   { id: 'businessGroup', label: 'Nhóm nghiệp vụ' },
   { id: 'businessType', label: 'Loại nghiệp vụ' },
   { id: 'relatedEntity', label: 'Đối tượng liên quan' },
+  { id: 'recipientPayerName', label: 'Người nhận / nộp' },
   { id: 'contractCode', label: 'Hợp đồng' },
   { id: 'amount', label: 'Số tiền', align: 'right' },
   { id: 'paymentMethod', label: 'Hình thức thanh toán' },
@@ -138,12 +163,12 @@ const COLUMN_OPTIONS: Array<{ id: ColumnId; label: string; align?: 'left' | 'rig
   { id: 'paymentDate', label: 'Ngày thanh toán' },
   { id: 'creator', label: 'Người tạo' },
   { id: 'createdAt', label: 'Ngày tạo' },
-  { id: 'approvalStage', label: 'Trạng thái duyệt' },
   { id: 'approvalNote', label: 'Ghi chú' },
   { id: 'transactionCode', label: 'Mã thu chi' },
   { id: 'accountingType', label: 'Phân loại' },
-  { id: 'cashAccount', label: 'Tài khoản tiền' },
+  { id: 'cashAccount', label: 'Hình thức thu / chi' },
   { id: 'voucherNumber', label: 'Số chứng từ' },
+  { id: 'approvalStage', label: 'Trạng thái duyệt' },
   { id: 'processedStatus', label: 'Trạng thái' },
   { id: 'actualDate', label: 'Ngày thu/chi' },
   { id: 'attachment', label: 'Attach chứng từ' }
@@ -152,10 +177,11 @@ const DEFAULT_VISIBLE_COLUMNS: ColumnId[] = [
   'approvalTransactionCode',
   'businessType',
   'relatedEntity',
+  'recipientPayerName',
   'contractCode',
   'amount',
-  'voucherNumber',
   'paymentDate',
+  'voucherNumber',
   'approvalStage'
 ];
 
@@ -382,10 +408,22 @@ const normalize = (value?: string) =>
     .replace(/[\u0300-\u036f]/g, '')
     .trim();
 
-const getProcessedStatusMeta = (type: TransactionType) =>
-  type === 'OUT'
-    ? { label: 'Đã xử lý (đã chi)', tone: 'bg-rose-100 text-rose-700' }
-    : { label: 'Đã xử lý (đã thu)', tone: 'bg-emerald-100 text-emerald-700' };
+const getProcessResultFromLog = (item: IActualTransactionLog): ProcessResult | null => {
+  if (item.action !== 'UPDATE_STATUS' && item.action !== 'UPDATE') return null;
+
+  const message = normalize(item.message);
+  if (message.includes('da thu') || message.includes('da nhan duoc tien')) return 'DA_THU';
+  if (message.includes('da chi') || message.includes('da dua tien')) return 'DA_CHI';
+  return null;
+};
+
+const getProcessedStatusMeta = (processedResult: ProcessResult | null) => {
+  if (!processedResult) return { label: 'Chưa xác nhận thu/chi', tone: 'bg-slate-100 text-slate-600' };
+  return {
+    label: PROCESS_RESULT_META[processedResult].label,
+    tone: PROCESS_RESULT_META[processedResult].tone
+  };
+};
 
 const getBusinessGroupLabel = (group: BusinessGroup) => {
   if (group === 'THU') return 'Thu';
@@ -458,14 +496,22 @@ const getPaymentMethodLabel = (transaction?: ITransaction, actual?: IActualTrans
 const getApprovalStage = (
   transaction: ITransaction | undefined,
   quotation: IQuotation | undefined,
-  requiresCeoApproval: boolean
+  actualTransactionProcessed: boolean
 ): ApprovalStage => {
-  if (!transaction) return 'HOAN_TAT';
+  if (!transaction) return actualTransactionProcessed ? 'DA_THU_CHI' : 'DA_DUYET';
   if (transaction.status === 'TU_CHOI') return 'TU_CHOI';
-  if (quotation?.status === QuotationStatus.LOCKED) return 'HOAN_TAT';
   if (transaction.status === 'CHO_DUYET') return 'CHO_DUYET';
-  if (requiresCeoApproval) return 'CEO_DUYET';
-  return 'KE_TOAN_DUYET';
+
+  const hasLegacyAdminApproval =
+    Boolean(quotation?.lockedAt) &&
+    typeof transaction.approvedAt === 'number' &&
+    Number.isFinite(new Date(quotation.lockedAt as string).getTime()) &&
+    new Date(quotation.lockedAt as string).getTime() >= transaction.approvedAt;
+
+  if (typeof transaction.adminApprovedAt === 'number' || hasLegacyAdminApproval) {
+    return actualTransactionProcessed ? 'DA_THU_CHI' : 'DA_DUYET';
+  }
+  return 'KE_TOAN_XAC_NHAN';
 };
 
 const buildFallbackTransactionCode = (item: IActualTransaction, index: number) => {
@@ -524,12 +570,15 @@ const buildActualTransactionFromSource = (transaction: ITransaction, existing?: 
     type,
     category: existing?.category || defaultLabel,
     title: existing?.title || transaction.note || transaction.relatedEntityLabel || transaction.studentName || defaultLabel,
+    recipientPayerName:
+      existing?.recipientPayerName || transaction.recipientPayerName || transaction.relatedEntityLabel || transaction.studentName || undefined,
     amount: transaction.amount,
     department: existing?.department || 'Kế toán',
     cashAccount: existing?.cashAccount || (transaction.method === 'TIEN_MAT' ? 'Tiền mặt' : 'STK ngân hàng'),
     voucherNumber: existing?.voucherNumber || transaction.bankRefCode || '',
     date: existing?.date || (Number.isNaN(sourceDate.getTime()) ? new Date().toISOString().slice(0, 10) : sourceDate.toISOString().slice(0, 10)),
-    status: type === 'OUT' ? 'PAID' : 'RECEIVED',
+    status: existing?.status || (type === 'OUT' ? 'PAID' : 'RECEIVED'),
+    processResult: existing?.processResult,
     proof: existing?.proof || transaction.bankRefCode || proofFile?.name || undefined,
     attachmentName: existing?.attachmentName || proofFile?.name,
     attachmentUrl: existing?.attachmentUrl || proofFile?.url,
@@ -621,11 +670,10 @@ const getEmptyFormState = (transactionCode: string): TransactionFormState => ({
   transactionCode,
   type: 'OUT',
   cashAccount: 'STK ngân hàng',
-  voucherNumber: '',
   attachmentName: '',
   attachmentUrl: '',
   date: new Date().toISOString().slice(0, 10),
-  note: ''
+  recipientPayerName: ''
 });
 
 const readFileAsDataUrl = (file: File) =>
@@ -636,19 +684,34 @@ const readFileAsDataUrl = (file: File) =>
     reader.readAsDataURL(file);
   });
 
-const ApprovalStageBadge: React.FC<{ stage: ApprovalStage; requiresCeoApproval: boolean }> = ({ stage, requiresCeoApproval }) => {
-  const meta: Record<ApprovalStage, { label: string; tone: string }> = {
-    CHO_DUYET: { label: 'Chờ duyệt', tone: 'bg-amber-50 text-amber-700 border border-amber-200' },
-    KE_TOAN_DUYET: { label: 'Kế toán duyệt', tone: 'bg-blue-50 text-blue-700 border border-blue-200' },
-    CEO_DUYET: {
-      label: requiresCeoApproval ? 'CEO duyệt' : 'Hoàn tất',
-      tone: 'bg-violet-50 text-violet-700 border border-violet-200'
-    },
-    HOAN_TAT: { label: 'Hoàn tất', tone: 'bg-emerald-50 text-emerald-700 border border-emerald-200' },
-    TU_CHOI: { label: 'Từ chối', tone: 'bg-rose-50 text-rose-700 border border-rose-200' }
+const getApprovalStageLabel = (stage: ApprovalStage, businessGroup?: BusinessGroup, processedResult?: ProcessResult | null) => {
+  if (stage === 'DA_THU_CHI') {
+    if (processedResult) return PROCESS_RESULT_META[processedResult].label;
+    if (businessGroup === 'CHI') return 'Đã chi';
+    if (businessGroup === 'THU') return 'Đã thu';
+  }
+
+  return APPROVAL_FILTER_LABEL_MAP[stage];
+};
+
+const ApprovalStageBadge: React.FC<{ stage: ApprovalStage; businessGroup: BusinessGroup; processedResult?: ProcessResult | null }> = ({
+  stage,
+  businessGroup,
+  processedResult
+}) => {
+  const meta: Record<ApprovalStage, { tone: string }> = {
+    CHO_DUYET: { tone: 'bg-amber-50 text-amber-700 border border-amber-200' },
+    KE_TOAN_XAC_NHAN: { tone: 'bg-sky-50 text-sky-700 border border-sky-200' },
+    DA_DUYET: { tone: 'bg-blue-50 text-blue-700 border border-blue-200' },
+    DA_THU_CHI: { tone: 'bg-emerald-50 text-emerald-700 border border-emerald-200' },
+    TU_CHOI: { tone: 'bg-rose-50 text-rose-700 border border-rose-200' }
   };
 
-  return <span className={`inline-flex rounded-full px-3 py-1 text-xs font-bold whitespace-nowrap ${meta[stage].tone}`}>{meta[stage].label}</span>;
+  return (
+    <span className={`inline-flex rounded-full px-3 py-1 text-xs font-bold whitespace-nowrap ${meta[stage].tone}`}>
+      {getApprovalStageLabel(stage, businessGroup, processedResult)}
+    </span>
+  );
 };
 
 const DetailSheetRow: React.FC<{ label: string; value: React.ReactNode; className?: string }> = ({ label, value, className }) => (
@@ -699,6 +762,85 @@ const StepWorkflowBar: React.FC<{ currentStep: number; labels: string[] }> = ({ 
   </div>
 );
 
+const EnterpriseWorkflowBar: React.FC<{ currentStep: number; labels: string[] }> = ({ currentStep, labels }) => (
+  <div className="flex items-center text-[11px] font-semibold">
+    {labels.map((label, index) => {
+      const stepNumber = index + 1;
+      const isCurrent = stepNumber === currentStep;
+      const isCompleted = stepNumber < currentStep;
+      const className = isCurrent
+        ? 'border-[#1d4ed8] bg-[#1d4ed8] text-white'
+        : isCompleted
+          ? 'border-[#bfd3f2] bg-[#eef4ff] text-[#1d4ed8]'
+          : 'border-[#dee2e6] bg-[#f5f6f7] text-[#6b7280]';
+      const clipPath =
+        index === 0
+          ? 'polygon(0 0, calc(100% - 12px) 0, 100% 50%, calc(100% - 12px) 100%, 0 100%)'
+          : index === labels.length - 1
+            ? 'polygon(12px 0, 100% 0, 100% 100%, 12px 100%, 0 50%)'
+            : 'polygon(12px 0, calc(100% - 12px) 0, 100% 50%, calc(100% - 12px) 100%, 12px 100%, 0 50%)';
+
+      return (
+        <div
+          key={label}
+          className={`relative flex h-8 min-w-[96px] items-center justify-center border px-4 ${className} ${index > 0 ? '-ml-[7px]' : ''}`}
+          style={{ clipPath, zIndex: labels.length - index }}
+        >
+          <span className="truncate">{label}</span>
+        </div>
+      );
+    })}
+  </div>
+);
+
+const CompactSheetRow: React.FC<{ label: string; value: React.ReactNode; noBorder?: boolean }> = ({ label, value, noBorder = false }) => (
+  <div className={`flex items-start gap-4 py-2 ${noBorder ? '' : 'border-b border-[#eef1f4]'}`}>
+    <div className="w-[124px] shrink-0 text-[11px] font-medium uppercase tracking-[0.04em] text-[#666666]">{label}</div>
+    <div className="min-w-0 flex-1 text-[13px] font-semibold text-[#111827]">{value}</div>
+  </div>
+);
+
+const CompactStatusPill: React.FC<{ label: string; tone: 'blue' | 'green' | 'amber' | 'rose' | 'slate' }> = ({ label, tone }) => {
+  const toneClass =
+    tone === 'blue'
+      ? 'border-[#bfdbfe] bg-[#eff6ff] text-[#1d4ed8]'
+      : tone === 'green'
+        ? 'border-[#bbf7d0] bg-[#f0fdf4] text-[#15803d]'
+        : tone === 'amber'
+          ? 'border-[#fde68a] bg-[#fffbeb] text-[#b45309]'
+          : tone === 'rose'
+            ? 'border-[#fecdd3] bg-[#fff1f2] text-[#be123c]'
+            : 'border-[#d1d5db] bg-[#f9fafb] text-[#475569]';
+
+  return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${toneClass}`}>{label}</span>;
+};
+
+const CompactAttachmentLink: React.FC<{ name?: string; url?: string }> = ({ name, url }) => {
+  if (!name) return <span className="text-[13px] font-medium text-[#9ca3af]">Chưa attach chứng từ</span>;
+
+  if (url) {
+    return (
+      <a
+        href={url}
+        target="_blank"
+        rel="noreferrer"
+        className="inline-flex max-w-full items-center gap-1 text-[13px] font-medium text-[#1d4ed8] hover:text-[#1e40af] hover:underline"
+        title={name}
+      >
+        <Paperclip size={12} />
+        <span className="truncate">{name}</span>
+      </a>
+    );
+  }
+
+  return (
+    <span className="inline-flex max-w-full items-center gap-1 text-[13px] font-medium text-[#475569]" title={name}>
+      <Paperclip size={12} />
+      <span className="truncate">{name}</span>
+    </span>
+  );
+};
+
 const AttachmentPreview: React.FC<{ name?: string; url?: string; emptyLabel?: string }> = ({
   name,
   url,
@@ -730,11 +872,13 @@ const AttachmentPreview: React.FC<{ name?: string; url?: string; emptyLabel?: st
 
 const FinanceMoneyOut: React.FC = () => {
   const { user } = useAuth();
+  const location = useLocation();
   const navigate = useNavigate();
   const columnMenuRef = useRef<HTMLDivElement | null>(null);
   const filterMenuRef = useRef<HTMLDivElement | null>(null);
   const timeMenuRef = useRef<HTMLDivElement | null>(null);
   const quickFilterMenuRef = useRef<HTMLDivElement | null>(null);
+  const navigationPrefillKeyRef = useRef<string | null>(null);
   const [transactions, setTransactions] = useState<IActualTransaction[]>([]);
   const [sourceTransactions, setSourceTransactions] = useState<ITransaction[]>([]);
   const [quotations, setQuotations] = useState<IQuotation[]>([]);
@@ -827,6 +971,32 @@ const FinanceMoneyOut: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    const navigationState = location.state as FinanceMoneyOutLocationState | null;
+    const prefillSearch = navigationState?.prefillSearch?.trim();
+    if (!prefillSearch) return;
+
+    const consumeKey = `${location.key}:${navigationState?.relatedSourceTransactionId || prefillSearch}`;
+    if (navigationPrefillKeyRef.current === consumeKey) return;
+
+    navigationPrefillKeyRef.current = consumeKey;
+    setSearchTerm(prefillSearch);
+    setTypeFilter('ALL');
+    setTimeRangeType('all');
+    setCustomStartDate('');
+    setCustomEndDate('');
+    setDraftTimeRangeType('all');
+    setDraftCustomStartDate('');
+    setDraftCustomEndDate('');
+    setApprovalFilter('ALL');
+    setBusinessGroupFilter('ALL');
+    setBusinessTypeFilter('ALL');
+    setPaymentMethodFilter('ALL');
+    setCreatorFilter('ALL');
+    setCashAccountFilter('ALL');
+    setGroupBy([]);
+  }, [location.key, location.state]);
+
+  useEffect(() => {
     if (!isColumnMenuOpen && !isAdvancedFilterOpen && !isTimeMenuOpen && !isQuickFilterOpen) return;
 
     const handleClickOutside = (event: MouseEvent) => {
@@ -859,6 +1029,26 @@ const FinanceMoneyOut: React.FC = () => {
     }, {});
   }, [logs]);
 
+  const processedResultByTransactionId = useMemo(() => {
+    const map = new Map<string, ProcessResult>();
+
+    transactions.forEach((item) => {
+      if (item.processResult === 'DA_THU' || item.processResult === 'DA_CHI') {
+        map.set(item.id, item.processResult);
+      }
+    });
+
+    [...logs]
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .forEach((item) => {
+        if (map.has(item.transactionId)) return;
+        const result = getProcessResultFromLog(item);
+        if (result) map.set(item.transactionId, result);
+      });
+
+    return map;
+  }, [logs, transactions]);
+
   const sourceTransactionMap = useMemo(() => new Map(sourceTransactions.map((item) => [item.id, item])), [sourceTransactions]);
   const quotationMap = useMemo(() => new Map(quotations.map((item) => [item.id, item])), [quotations]);
   const contractByQuotationId = useMemo(
@@ -877,8 +1067,10 @@ const FinanceMoneyOut: React.FC = () => {
       const linkedContract = quotation?.id ? contractByQuotationId.get(quotation.id) : undefined;
       const businessGroup = inferBusinessGroup(source, actual);
       const requiresCeoApproval = source ? businessGroup !== 'THU' || source.amount >= 100_000_000 : businessGroup !== 'THU';
-      const approvalStage = getApprovalStage(source, quotation, requiresCeoApproval);
-      const processedStatus = getProcessedStatusMeta(actual.type);
+      const processedResult = processedResultByTransactionId.get(actual.id) || null;
+      const actualTransactionProcessed = processedResult !== null;
+      const approvalStage = getApprovalStage(source, quotation, actualTransactionProcessed);
+      const processedStatus = getProcessedStatusMeta(processedResult);
       const sourceIndex = source?.id ? sourceIndexMap.get(source.id) : undefined;
       const contractDisplay = getContractDisplay(quotation, linkedContract, source, businessGroup);
 
@@ -894,6 +1086,13 @@ const FinanceMoneyOut: React.FC = () => {
         businessType: inferBusinessType(source, businessGroup, actual),
         relatedEntity:
           source?.relatedEntityLabel || source?.studentName || quotation?.customerName || actual.title || actual.category || '-',
+        recipientPayerName:
+          source?.recipientPayerName ||
+          actual.recipientPayerName ||
+          source?.relatedEntityLabel ||
+          source?.studentName ||
+          quotation?.customerName ||
+          '-',
         contractCode: contractDisplay.code,
         contractReferenceLabel: contractDisplay.reference,
         paymentMethodLabel: getPaymentMethodLabel(source, actual),
@@ -904,12 +1103,14 @@ const FinanceMoneyOut: React.FC = () => {
         approvalStage,
         requiresCeoApproval,
         approvalNote: source?.note || actual.title || '-',
+        processedResult,
+        isProcessed: actualTransactionProcessed,
         processedStatusLabel: processedStatus.label,
         processedStatusTone: processedStatus.tone,
         accountingTypeLabel: TYPE_META[actual.type].label
       };
     });
-  }, [contractByQuotationId, creatorDirectory, quotationMap, sourceIndexMap, sourceTransactionMap, transactions]);
+  }, [contractByQuotationId, creatorDirectory, processedResultByTransactionId, quotationMap, sourceIndexMap, sourceTransactionMap, transactions]);
 
   const businessTypeOptions = useMemo(
     () => Array.from(new Set(rows.map((row) => row.businessType).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'vi')),
@@ -964,6 +1165,7 @@ const FinanceMoneyOut: React.FC = () => {
           row.businessGroupLabel,
           row.businessType,
           row.relatedEntity,
+          row.recipientPayerName,
           row.contractCode,
           row.contractReferenceLabel,
           row.paymentMethodLabel,
@@ -971,9 +1173,11 @@ const FinanceMoneyOut: React.FC = () => {
           row.paymentDateLabel,
           row.creatorLabel,
           row.createdAtLabel,
-          APPROVAL_FILTER_LABEL_MAP[row.approvalStage],
+          getApprovalStageLabel(row.approvalStage, row.businessGroup, row.processedResult),
           row.approvalNote,
           row.actual.transactionCode,
+          row.actual.recipientPayerName,
+          row.source?.recipientPayerName,
           row.accountingTypeLabel,
           row.actual.cashAccount,
           row.actual.voucherNumber,
@@ -1001,7 +1205,7 @@ const FinanceMoneyOut: React.FC = () => {
   const getGroupByValue = (row: MoneyOutRow, key: MoneyOutGroupByKey) => {
     switch (key) {
       case 'approvalStage':
-        return APPROVAL_FILTER_LABEL_MAP[row.approvalStage];
+        return getApprovalStageLabel(row.approvalStage, row.businessGroup, row.processedResult);
       case 'businessGroup':
         return row.businessGroupLabel;
       case 'businessType':
@@ -1046,7 +1250,7 @@ const FinanceMoneyOut: React.FC = () => {
     if (timeRangeType !== 'all') {
       chips.push({ key: 'time', label: `Thời gian: ${getTimeRangeLabel(timeRangeType, customStartDate, customEndDate)}` });
     }
-    if (approvalFilter !== 'ALL') chips.push({ key: 'approval', label: `Stage: ${APPROVAL_FILTER_LABEL_MAP[approvalFilter]}` });
+    if (approvalFilter !== 'ALL') chips.push({ key: 'approval', label: `Trạng thái: ${APPROVAL_FILTER_LABEL_MAP[approvalFilter]}` });
     if (businessGroupFilter !== 'ALL') chips.push({ key: 'businessGroup', label: `Nhóm NV: ${getBusinessGroupLabel(businessGroupFilter)}` });
     if (businessTypeFilter !== 'ALL') chips.push({ key: 'businessType', label: `Nghiệp vụ: ${businessTypeFilter}` });
     if (paymentMethodFilter !== 'ALL') chips.push({ key: 'paymentMethod', label: `Thanh toán: ${paymentMethodFilter}` });
@@ -1234,13 +1438,43 @@ const FinanceMoneyOut: React.FC = () => {
       transactionCode: item.transactionCode || buildFallbackTransactionCode(item, 0),
       type: item.type,
       cashAccount: item.cashAccount || inferCashAccount(item),
-      voucherNumber: item.voucherNumber || '',
       attachmentName: item.attachmentName || '',
       attachmentUrl: item.attachmentUrl || '',
       date: item.date,
-      note: item.title || ''
+      recipientPayerName: item.recipientPayerName || item.title || ''
     });
     setIsModalOpen(true);
+  };
+
+  const handleProcessSelection = (item: IActualTransaction, result: ProcessResult) => {
+    const expectedResult = getProcessResultForTransactionType(item.type);
+    if (result !== expectedResult) {
+      alert(`Phiếu ${item.type === 'OUT' ? 'chi' : 'thu'} chỉ được xác nhận "${PROCESS_RESULT_META[expectedResult].label}".`);
+      return;
+    }
+
+    if (!item.attachmentName?.trim() && !item.proof?.trim()) {
+      alert('Vui lòng attach chứng từ trước khi xác nhận thu/chi.');
+      return;
+    }
+
+    const updatedItem: IActualTransaction = {
+      ...item,
+      status: result === 'DA_CHI' ? 'PAID' : 'RECEIVED',
+      processResult: result,
+      proof: item.proof || item.attachmentName || undefined
+    };
+
+    if (!updateActualTransaction(updatedItem)) {
+      alert('Không thể cập nhật trạng thái thu chi.');
+      return;
+    }
+
+    createLog(
+      item.id,
+      'UPDATE_STATUS',
+      `${PROCESS_RESULT_META[result].label} cho phiếu ${item.transactionCode || buildFallbackTransactionCode(item, 0)}`
+    );
   };
 
   const handleAttachmentChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -1258,8 +1492,8 @@ const FinanceMoneyOut: React.FC = () => {
       return;
     }
 
-    if (!formData.transactionCode.trim() || !formData.voucherNumber.trim()) {
-      alert('Vui lòng nhập đủ Mã thu chi và Số chứng từ.');
+    if (!formData.transactionCode.trim()) {
+      alert('Không tìm thấy Mã thu chi để cập nhật.');
       return;
     }
 
@@ -1288,14 +1522,16 @@ const FinanceMoneyOut: React.FC = () => {
       transactionCode: formData.transactionCode.trim(),
       type: formData.type,
       category: existing.category || defaultLabel,
-      title: formData.note.trim() || existing.title || defaultLabel,
+      title: existing.title || defaultLabel,
+      recipientPayerName: formData.recipientPayerName.trim() || existing.recipientPayerName || undefined,
       amount: existing.amount || 0,
       department: existing.department || 'Kế toán',
       cashAccount: formData.cashAccount,
-      voucherNumber: formData.voucherNumber.trim(),
+      voucherNumber: existing.voucherNumber,
       date: formData.date,
-      status: formData.type === 'OUT' ? 'PAID' : 'RECEIVED',
-      proof: attachmentName || formData.voucherNumber.trim() || undefined,
+      status: existing.processResult === 'DA_CHI' ? 'PAID' : existing.processResult === 'DA_THU' ? 'RECEIVED' : existing.status,
+      processResult: existing.processResult,
+      proof: attachmentName || existing.proof || undefined,
       attachmentName: attachmentName || undefined,
       attachmentUrl: attachmentUrl || undefined,
       relatedId: existing.relatedId,
@@ -1305,7 +1541,16 @@ const FinanceMoneyOut: React.FC = () => {
 
     const ok = updateActualTransaction(item);
     if (!ok) return;
-    createLog(item.id, 'UPDATE', `Cập nhật phiếu ${item.transactionCode}: số chứng từ ${item.voucherNumber}`);
+
+    if (modalAction === 'PROCESS') {
+      createLog(
+        item.id,
+        'UPDATE_STATUS',
+        item.type === 'IN' ? `Đã nhận được tiền cho phiếu ${item.transactionCode}` : `Đã đưa tiền cho phiếu ${item.transactionCode}`
+      );
+    } else {
+      createLog(item.id, 'UPDATE', `Cập nhật phiếu ${item.transactionCode}`);
+    }
 
     closeModal();
   };
@@ -1318,7 +1563,6 @@ const FinanceMoneyOut: React.FC = () => {
   const canSave =
     Boolean(editingTransactionId) &&
     Boolean(formData.transactionCode.trim()) &&
-    Boolean(formData.voucherNumber.trim()) &&
     hasAttachment;
   const isViewMode = modalAction === 'VIEW';
   const modalTitle =
@@ -1327,32 +1571,78 @@ const FinanceMoneyOut: React.FC = () => {
     modalAction === 'ATTACH'
       ? 'Mở chi tiết phiếu để cập nhật file chứng từ đính kèm trước khi hoàn tất.'
       : modalAction === 'PROCESS'
-        ? 'Mở chi tiết phiếu và xác nhận đã thu hoặc đã chi. Chỉ được lưu khi đã có chứng từ đính kèm.'
+        ? `Xác nhận ${formData.type === 'IN' ? 'đã nhận được tiền' : 'đã đưa tiền'} cho phiếu này. Chỉ được lưu khi đã có chứng từ đính kèm.`
         : 'Màn hình xem chi tiết hiển thị toàn bộ thông tin của phiếu thu chi, giống thao tác xem chi tiết.';
-  const saveButtonLabel = modalAction === 'ATTACH' ? 'Lưu chứng từ' : formData.type === 'IN' ? 'Lưu đã thu' : 'Lưu đã chi';
+  const saveButtonLabel =
+    modalAction === 'ATTACH' ? 'Lưu chứng từ' : formData.type === 'IN' ? 'Xác nhận đã thu' : 'Xác nhận đã chi';
+  const currentProcessedStatus = getProcessedStatusMeta(editingRow?.processedResult || null);
+  const currentAttachmentName = selectedAttachment?.name || formData.attachmentName;
+  const currentAttachmentUrl = selectedAttachment ? undefined : formData.attachmentUrl;
+  const currentWorkflowStep = !editingRow
+    ? 1
+    : editingRow.approvalStage === 'CHO_DUYET'
+      ? 1
+      : editingRow.approvalStage === 'KE_TOAN_XAC_NHAN'
+        ? 2
+        : editingRow.approvalStage === 'DA_DUYET'
+          ? 3
+          : 4;
+  const handlePrintCurrentTransaction = () => {
+    window.print();
+  };
+
+  const handleExportCurrentTransaction = () => {
+    if (!editingRow) return;
+
+    const exportPayload = {
+      approvalTransactionCode: editingRow.approvalTransactionCode,
+      approvalReferenceLabel: editingRow.approvalReferenceLabel,
+      businessGroup: editingRow.businessGroupLabel,
+      businessType: editingRow.businessType,
+      relatedEntity: editingRow.relatedEntity,
+      contractCode: editingRow.contractCode,
+      contractReferenceLabel: editingRow.contractReferenceLabel,
+      amount: editingRow.actual.amount,
+      paymentMethod: editingRow.paymentMethodLabel,
+      proof: editingRow.proofValue,
+      paymentDate: editingRow.paymentDateLabel,
+      recipientPayerName: formData.recipientPayerName.trim() || editingRow.actual.recipientPayerName || editingRow.actual.title || '',
+      creator: editingRow.creatorLabel,
+      createdAt: editingRow.createdAtLabel,
+      approvalStage: getApprovalStageLabel(editingRow.approvalStage, editingRow.businessGroup, editingRow.processedResult),
+      transactionCode: formData.transactionCode.trim() || editingRow.actual.transactionCode || '',
+      accountingType: TYPE_META[formData.type].label,
+      cashAccount: formData.cashAccount,
+      processedStatus: currentProcessedStatus.label,
+      actualDate: dateLabelFormat(formData.date),
+      attachmentName: currentAttachmentName || '',
+      attachmentUrl: currentAttachmentUrl || ''
+    };
+
+    const blob = new Blob([JSON.stringify(exportPayload, null, 2)], { type: 'application/json;charset=utf-8' });
+    const downloadUrl = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = downloadUrl;
+    anchor.download = `${editingRow.approvalTransactionCode || editingRow.actual.transactionCode || 'phieu-thu-chi'}.json`;
+    anchor.click();
+    URL.revokeObjectURL(downloadUrl);
+  };
   const detailPresentation = useMemo(() => {
     if (!editingRow) return null;
-    const currentProcessedStatus = getProcessedStatusMeta(formData.type);
-    const currentAttachmentName = selectedAttachment?.name || formData.attachmentName;
-    const currentAttachmentUrl = selectedAttachment ? undefined : formData.attachmentUrl;
-    const workflowStep =
-      editingRow.approvalStage === 'CHO_DUYET'
-        ? 1
-        : editingRow.approvalStage === 'KE_TOAN_DUYET' || editingRow.approvalStage === 'CEO_DUYET'
-          ? 2
-          : 3;
+    const currentProcessedTone =
+      editingRow.processedResult === 'DA_CHI' ? ('orange' as const) : editingRow.processedResult === 'DA_THU' ? ('green' as const) : ('slate' as const);
 
     return {
       stats: [
         { label: 'Số tiền', value: moneyFormat(editingRow.actual.amount), tone: 'blue' as const },
         {
           label: 'Trạng thái duyệt',
-          value: APPROVAL_FILTER_LABEL_MAP[editingRow.approvalStage],
+          value: getApprovalStageLabel(editingRow.approvalStage, editingRow.businessGroup, editingRow.processedResult),
           tone: editingRow.approvalStage === 'TU_CHOI' ? ('orange' as const) : ('slate' as const)
         },
-        { label: 'Trạng thái', value: currentProcessedStatus.label, tone: formData.type === 'IN' ? ('green' as const) : ('orange' as const) }
+        { label: 'Trạng thái', value: currentProcessedStatus.label, tone: currentProcessedTone }
       ],
-      workflowStep,
+      workflowStep: currentWorkflowStep,
       leftColumn: [
         {
           label: 'Mã giao dịch',
@@ -1379,19 +1669,24 @@ const FinanceMoneyOut: React.FC = () => {
         { label: 'Thanh toán', value: editingRow.paymentMethodLabel },
         { label: 'Chứng từ', value: editingRow.proofValue },
         { label: 'Ngày thanh toán', value: editingRow.paymentDateLabel },
-        { label: 'Ghi chú', value: editingRow.approvalNote }
+        { label: 'Người nhận / nộp', value: formData.recipientPayerName.trim() || editingRow.actual.recipientPayerName || editingRow.actual.title || '-' }
       ],
       rightColumn: [
         { label: 'Người tạo', value: editingRow.creatorLabel },
         { label: 'Ngày tạo', value: editingRow.createdAtLabel },
         {
           label: 'Trạng thái duyệt',
-          value: <ApprovalStageBadge stage={editingRow.approvalStage} requiresCeoApproval={editingRow.requiresCeoApproval} />
+          value: (
+            <ApprovalStageBadge
+              stage={editingRow.approvalStage}
+              businessGroup={editingRow.businessGroup}
+              processedResult={editingRow.processedResult}
+            />
+          )
         },
         { label: 'Mã thu chi', value: formData.transactionCode.trim() || editingRow.actual.transactionCode || '-' },
         { label: 'Phân loại', value: TYPE_META[formData.type].label },
-        { label: 'Tài khoản tiền', value: formData.cashAccount || '-' },
-        { label: 'Số chứng từ', value: formData.voucherNumber.trim() || '-' },
+        { label: 'Hình thức thu / chi', value: formData.cashAccount || '-' },
         {
           label: 'Trạng thái xử lý',
           value: (
@@ -1404,7 +1699,7 @@ const FinanceMoneyOut: React.FC = () => {
         { label: 'Attach chứng từ', value: <AttachmentPreview name={currentAttachmentName} url={currentAttachmentUrl} /> }
       ]
     };
-  }, [editingRow, formData, selectedAttachment]);
+  }, [currentAttachmentName, currentAttachmentUrl, currentProcessedStatus, currentWorkflowStep, editingRow, formData]);
 
   const renderCell = (row: MoneyOutRow, columnId: ColumnId) => {
     switch (columnId) {
@@ -1436,6 +1731,14 @@ const FinanceMoneyOut: React.FC = () => {
             >
               {row.relatedEntity}
             </button>
+          </td>
+        );
+      case 'recipientPayerName':
+        return (
+          <td className="px-4 py-4 text-sm text-slate-700 align-top">
+            <div className="max-w-[220px] truncate font-medium text-slate-800" title={row.recipientPayerName}>
+              {row.recipientPayerName}
+            </div>
           </td>
         );
       case 'contractCode':
@@ -1470,11 +1773,11 @@ const FinanceMoneyOut: React.FC = () => {
       case 'approvalStage':
         return (
           <td className="px-4 py-4">
-            <ApprovalStageBadge stage={row.approvalStage} requiresCeoApproval={row.requiresCeoApproval} />
+            <ApprovalStageBadge stage={row.approvalStage} businessGroup={row.businessGroup} processedResult={row.processedResult} />
           </td>
         );
       case 'approvalNote':
-        return <td className="px-4 py-4 text-sm text-slate-700 min-w-[220px] whitespace-pre-wrap break-words">{row.approvalNote}</td>;
+        return <td className="px-4 py-4 text-sm text-slate-700 whitespace-pre-wrap break-words">{row.approvalNote}</td>;
       case 'transactionCode':
         return (
           <td className="px-4 py-4">
@@ -1521,11 +1824,15 @@ const FinanceMoneyOut: React.FC = () => {
     }
   };
 
-  const renderMoneyOutRow = (row: MoneyOutRow) => {
+  const renderMoneyOutRow = (row: MoneyOutRow, rowNumber: number) => {
     const itemLogs = (logsByTransaction[row.actual.id] || []).sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
     const filteredItemLogs = filterByLogAudience(itemLogs, logAudienceFilter, getActualTransactionLogAudience);
+    const canProcessMoney = row.approvalStage === 'DA_DUYET' && !row.isProcessed;
+    const selectedProcessMeta = row.processedResult ? PROCESS_RESULT_META[row.processedResult] : null;
+    const availableProcessResult = getProcessResultForTransactionType(row.actual.type);
+    const availableProcessMeta = PROCESS_RESULT_META[availableProcessResult];
 
     return (
       <React.Fragment key={row.actual.id}>
@@ -1534,47 +1841,54 @@ const FinanceMoneyOut: React.FC = () => {
           onClick={() => openTransactionModal(row.actual, 'VIEW')}
           title={`Xem chi tiết ${row.relatedEntity}`}
         >
-          {visibleColumns.map((columnId) => (
-            <React.Fragment key={columnId}>{renderCell(row, columnId)}</React.Fragment>
+          <td className="px-4 py-4 text-center font-semibold text-slate-500 align-top">{rowNumber}</td>
+          {visibleColumnOptions.map((column) => (
+            <React.Fragment key={column.id}>{renderCell(row, column.id)}</React.Fragment>
           ))}
-          <td className="w-[170px] min-w-[170px] px-4 py-4 text-right align-top">
-            <div className="ml-auto flex max-w-[160px] flex-wrap items-center justify-end gap-x-3 gap-y-2">
-              <button
-                onClick={(event) => {
-                  event.stopPropagation();
-                  openTransactionModal(row.actual, 'PROCESS');
-                }}
-                className={`text-xs font-semibold hover:underline inline-flex items-center gap-1 ${
-                  row.actual.type === 'IN' ? 'text-emerald-700' : 'text-rose-700'
-                }`}
-              >
-                <Check size={12} /> {row.actual.type === 'IN' ? 'Đã thu' : 'Đã chi'}
-              </button>
-              <button
-                onClick={(event) => {
-                  event.stopPropagation();
-                  openTransactionModal(row.actual, 'ATTACH');
-                }}
-                className="text-xs font-semibold text-slate-700 hover:underline inline-flex items-center gap-1"
-              >
-                <UploadCloud size={12} /> Attach chứng từ
-              </button>
-              <button
-                onClick={(event) => {
-                  event.stopPropagation();
-                  setExpandedLogId(expandedLogId === row.actual.id ? null : row.actual.id);
-                }}
-                className="text-xs font-semibold text-blue-600 hover:underline inline-flex items-center gap-1"
-              >
-                <History size={12} /> Log note
-              </button>
+          <td className="w-[220px] min-w-[220px] px-4 py-4 text-right align-top">
+            <div className="ml-auto flex max-w-[210px] flex-col items-end gap-2">
+              {selectedProcessMeta ? (
+                <span className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold ${selectedProcessMeta.inlineTone}`}>
+                  <Check size={12} /> {selectedProcessMeta.label}
+                </span>
+              ) : canProcessMoney ? (
+                <button
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    handleProcessSelection(row.actual, availableProcessResult);
+                  }}
+                  className={`inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs font-bold transition-colors ${availableProcessMeta.buttonTone}`}
+                >
+                  <Check size={12} /> {availableProcessMeta.label}
+                </button>
+              ) : null}
+              <div className="flex flex-wrap justify-end gap-x-3 gap-y-2">
+                <button
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    openTransactionModal(row.actual, 'ATTACH');
+                  }}
+                  className="text-xs font-semibold text-slate-700 hover:underline inline-flex items-center gap-1"
+                >
+                  <UploadCloud size={12} /> Attach chứng từ
+                </button>
+                <button
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setExpandedLogId(expandedLogId === row.actual.id ? null : row.actual.id);
+                  }}
+                  className="text-xs font-semibold text-blue-600 hover:underline inline-flex items-center gap-1"
+                >
+                  <History size={12} /> Log note
+                </button>
+              </div>
             </div>
           </td>
         </tr>
 
         {expandedLogId === row.actual.id && (
           <tr className="bg-slate-50">
-            <td colSpan={visibleColumns.length + 1} className="px-6 py-4">
+            <td colSpan={visibleColumns.length + 2} className="px-6 py-4">
               <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
                 <p className="text-xs font-bold uppercase text-slate-500">Lịch sử log note</p>
                 <LogAudienceFilterControl value={logAudienceFilter} onChange={setLogAudienceFilter} />
@@ -1614,6 +1928,24 @@ const FinanceMoneyOut: React.FC = () => {
                 Phiếu thu chi được đồng bộ từ `Duyệt giao dịch`. Màn hình này chỉ cập nhật phần kế toán và chứng từ đính kèm.
               </p>
             </div>
+          </div>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => undefined}
+              disabled
+              className="hidden"
+            >
+              Về Kế toán
+            </button>
+            <button
+              type="button"
+              onClick={() => undefined}
+              disabled
+              className="hidden"
+            >
+              Giả lập Admin
+            </button>
           </div>
         </div>
 
@@ -1812,7 +2144,7 @@ const FinanceMoneyOut: React.FC = () => {
                               onChange={(e) => setApprovalFilter(e.target.value as ApprovalFilter)}
                               className="w-full border-0 bg-transparent px-0 py-0 text-sm font-medium leading-5 text-slate-700 outline-none"
                             >
-                              {(['ALL', 'CHO_DUYET', 'KE_TOAN_DUYET', 'CEO_DUYET', 'HOAN_TAT', 'TU_CHOI'] as ApprovalFilter[]).map((item) => (
+                              {APPROVAL_FILTER_OPTIONS.map((item) => (
                                 <option key={item} value={item}>
                                   {APPROVAL_FILTER_LABEL_MAP[item]}
                                 </option>
@@ -2001,10 +2333,11 @@ const FinanceMoneyOut: React.FC = () => {
 
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[1240px] table-fixed text-left">
+          <div className="overflow-x-hidden">
+            <table className="w-full table-fixed text-left">
               <thead className="bg-slate-50 text-slate-500 uppercase text-[11px] font-bold">
                 <tr>
+                  <th className="w-16 px-4 py-4 text-center">STT</th>
                   {visibleColumnOptions.map((column) => (
                     <th
                       key={column.id}
@@ -2019,23 +2352,26 @@ const FinanceMoneyOut: React.FC = () => {
               <tbody className="divide-y divide-slate-100">
                 {filteredRows.length ? (
                   groupBy.length === 0 ? (
-                    filteredRows.map((row) => renderMoneyOutRow(row))
+                    filteredRows.map((row, index) => renderMoneyOutRow(row, index + 1))
                   ) : (
-                    groupedRows.map((group) => (
+                    (() => {
+                      let rowNumber = 0;
+                      return groupedRows.map((group) => (
                       <React.Fragment key={group.label}>
                         <tr className="bg-slate-50/80">
-                          <td colSpan={visibleColumns.length + 1} className="px-4 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">
+                          <td colSpan={visibleColumns.length + 2} className="px-4 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">
                             {group.label}
                             <span className="ml-2 rounded-full bg-slate-200 px-2 py-0.5 text-[10px] text-slate-700">{group.items.length}</span>
                           </td>
                         </tr>
-                        {group.items.map((row) => renderMoneyOutRow(row))}
+                        {group.items.map((row) => renderMoneyOutRow(row, ++rowNumber))}
                       </React.Fragment>
-                    ))
+                    ));
+                    })()
                   )
                 ) : (
                   <tr>
-                    <td colSpan={visibleColumns.length + 1} className="text-center py-10 text-slate-500">
+                    <td colSpan={visibleColumns.length + 2} className="text-center py-10 text-slate-500">
                       Chưa có phiếu thu chi nào được đồng bộ từ Duyệt giao dịch phù hợp với bộ lọc hiện tại.
                     </td>
                   </tr>
@@ -2046,184 +2382,325 @@ const FinanceMoneyOut: React.FC = () => {
         </div>
 
         {isModalOpen && (
-          <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-lg border border-slate-200 shadow-xl w-full max-w-5xl max-h-[92vh] overflow-y-auto">
-              <div className="px-5 py-3 border-b border-[#f1f5f9] sticky top-0 bg-white z-10">
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                  <div>
-                    <h2 className="text-[22px] font-bold text-slate-900">{modalTitle}</h2>
-                    <p className="text-[13px] text-slate-500">{modalDescription}</p>
-                  </div>
-                  {detailPresentation && (
-                    <div className="flex flex-col items-start gap-2 lg:items-end">
-                      <StepWorkflowBar currentStep={detailPresentation.workflowStep} labels={['Duyệt GD', 'Kế toán', 'Hoàn tất']} />
-                      <div className="grid w-full min-w-[420px] grid-cols-3 gap-0 lg:w-auto">
-                        {detailPresentation.stats.map((item) => (
-                          <DetailStat key={item.label} label={item.label} value={item.value} tone={item.tone} />
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="p-5 space-y-4">
-                <section className="border-b border-[#f1f5f9] pb-4">
-                  <div className="mb-2 flex items-center justify-between gap-3">
-                    <div className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">Chi tiết phiếu thu chi</div>
-                    {editingRow && <span className="text-[11px] font-semibold text-slate-400">{editingRow.actual.id}</span>}
-                  </div>
-
-                  {detailPresentation ? (
-                    <div className="grid gap-6 lg:grid-cols-[1.5fr_1fr]">
-                      <div className="divide-y divide-[#f1f5f9]">
-                        {detailPresentation.leftColumn.map((field) => (
-                          <DetailSheetRow key={field.label} label={field.label} value={field.value} />
-                        ))}
-                      </div>
-                      <div className="divide-y divide-[#f1f5f9]">
-                        {detailPresentation.rightColumn.map((field) => (
-                          <DetailSheetRow key={field.label} label={field.label} value={field.value} />
-                        ))}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-sm text-slate-600">
-                      Không tìm thấy dữ liệu chi tiết cho phiếu thu chi này.
-                    </div>
-                  )}
-                </section>
-
-                {!isViewMode && (
-                  <section>
-                    <div className="mb-3">
-                      <h3 className="text-[14px] font-bold text-slate-900">Cập nhật xử lý thu chi</h3>
-                      <p className="text-[12px] text-slate-500">
-                        {modalAction === 'ATTACH'
-                          ? 'Gắn hoặc thay thế chứng từ đính kèm cho phiếu.'
-                          : `Khi xác nhận ${formData.type === 'IN' ? 'đã thu' : 'đã chi'}, bắt buộc phải có chứng từ đính kèm mới được lưu.`}
-                      </p>
-                    </div>
-
-                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                      <div>
-                        <label className="text-[11px] font-semibold uppercase tracking-[0.04em] text-slate-500">Mã thu chi</label>
-                        <input
-                          type="text"
-                          value={formData.transactionCode}
-                          onChange={(e) => setFormData((prev) => ({ ...prev, transactionCode: e.target.value }))}
-                          className="mt-1 w-full rounded-sm border border-slate-200 px-3 py-2 text-[13px]"
-                          placeholder="Ví dụ: TC0001"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="text-[11px] font-semibold uppercase tracking-[0.04em] text-slate-500">Phân loại</label>
-                        <select
-                          value={formData.type}
-                          onChange={(e) => setFormData((prev) => ({ ...prev, type: e.target.value as TransactionType }))}
-                          className="mt-1 w-full rounded-sm border border-slate-200 px-3 py-2 text-[13px]"
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
+            <div className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-[3px] border border-[#d8dadd] bg-white shadow-[0_18px_38px_rgba(15,23,42,0.10)]">
+              {isViewMode ? (
+                <>
+                  <div className="border-b border-[#dee2e6] bg-[#f6f7f9] px-4 py-2">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={handlePrintCurrentTransaction}
+                          className="inline-flex items-center gap-1 rounded-[2px] border border-[#d8dadd] bg-white px-3 py-1 text-[12px] font-medium text-[#374151] hover:bg-[#f8f9fa]"
                         >
-                          <option value="OUT">Chi</option>
-                          <option value="IN">Thu</option>
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="text-[11px] font-semibold uppercase tracking-[0.04em] text-slate-500">Tài khoản tiền</label>
-                        <select
-                          value={formData.cashAccount}
-                          onChange={(e) => setFormData((prev) => ({ ...prev, cashAccount: e.target.value }))}
-                          className="mt-1 w-full rounded-sm border border-slate-200 px-3 py-2 text-[13px]"
+                          <Printer size={13} />
+                          Print
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleExportCurrentTransaction}
+                          disabled={!editingRow}
+                          className={`inline-flex items-center gap-1 rounded-[2px] border border-[#d8dadd] px-3 py-1 text-[12px] font-medium ${
+                            editingRow ? 'bg-white text-[#374151] hover:bg-[#f8f9fa]' : 'bg-[#f3f4f6] text-[#9ca3af] cursor-not-allowed'
+                          }`}
                         >
-                          {MONEY_ACCOUNTS.map((account) => (
-                            <option key={account} value={account}>
-                              {account}
-                            </option>
-                          ))}
-                        </select>
+                          <Download size={13} />
+                          Export
+                        </button>
                       </div>
 
-                      <div>
-                        <label className="text-[11px] font-semibold uppercase tracking-[0.04em] text-slate-500">Số chứng từ</label>
-                        <input
-                          type="text"
-                          value={formData.voucherNumber}
-                          onChange={(e) => setFormData((prev) => ({ ...prev, voucherNumber: e.target.value }))}
-                          className="mt-1 w-full rounded-sm border border-slate-200 px-3 py-2 text-[13px]"
-                          placeholder="Ví dụ: PT-2026-0103 / PC-014 / UNC-2026-0201"
-                        />
-                      </div>
+                      <EnterpriseWorkflowBar currentStep={currentWorkflowStep} labels={['Chờ duyệt', 'KT xác nhận', 'Duyệt', 'Đã thu/chi']} />
+                    </div>
+                  </div>
 
-                      <div>
-                        <label className="text-[11px] font-semibold uppercase tracking-[0.04em] text-slate-500">Trạng thái</label>
-                        <div className="mt-1 flex h-[38px] items-center rounded-sm border border-slate-200 bg-slate-50 px-3 text-[13px] font-semibold text-slate-700">
-                          {getProcessedStatusMeta(formData.type).label}
+                  <div className="border-b border-[#eef1f4] bg-white px-4 py-4">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                      <div className="min-w-0">
+                        <h2 className="text-[16px] font-semibold text-[#111827]">{modalTitle}</h2>
+                        <div className="mt-2 flex flex-wrap items-end gap-x-4 gap-y-1">
+                          <span className="text-[18px] font-semibold tracking-[-0.01em] text-[#111827]">
+                            {editingRow?.approvalTransactionCode || '-'}
+                          </span>
+                          <span className="text-[18px] font-bold text-[#1d4ed8]">{editingRow ? moneyFormat(editingRow.actual.amount) : '-'}</span>
                         </div>
                       </div>
 
-                      <div>
-                        <label className="text-[11px] font-semibold uppercase tracking-[0.04em] text-slate-500">Ngày thu/chi</label>
-                        <input
-                          type="date"
-                          value={formData.date}
-                          onChange={(e) => setFormData((prev) => ({ ...prev, date: e.target.value }))}
-                          className="mt-1 w-full rounded-sm border border-slate-200 px-3 py-2 text-[13px]"
-                        />
-                      </div>
-
-                      <div className="md:col-span-2">
-                        <label className="text-[11px] font-semibold uppercase tracking-[0.04em] text-slate-500">Attach chứng từ</label>
-                        <label className="mt-1 flex cursor-pointer items-center justify-between gap-3 rounded-sm border border-dashed border-slate-300 px-3 py-2 text-[13px] text-slate-600 hover:bg-slate-50">
-                          <span className="truncate">{selectedAttachment?.name || formData.attachmentName || 'Chọn file chứng từ'}</span>
-                          <span className="inline-flex shrink-0 items-center gap-2 rounded-sm bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-700">
-                            <UploadCloud size={14} />
-                            Attach
-                          </span>
-                          <input type="file" accept=".pdf,image/*" className="hidden" onChange={handleAttachmentChange} />
-                        </label>
-                        <p className={`mt-1.5 text-[11px] font-medium ${hasAttachment ? 'text-emerald-600' : 'text-rose-600'}`}>
-                          {hasAttachment
-                            ? 'Đã có chứng từ đính kèm, có thể lưu phiếu.'
-                            : 'Chưa có chứng từ đính kèm. Nút lưu sẽ bị khóa cho đến khi attach chứng từ.'}
-                        </p>
-                      </div>
-
-                      <div className="md:col-span-2">
-                        <label className="text-[11px] font-semibold uppercase tracking-[0.04em] text-slate-500">Ghi chú kế toán</label>
-                        <textarea
-                          value={formData.note}
-                          onChange={(e) => setFormData((prev) => ({ ...prev, note: e.target.value }))}
-                          className="mt-1 min-h-[78px] w-full rounded-sm border border-slate-200 px-3 py-2 text-[13px]"
-                          placeholder="Ghi chú nội bộ nếu cần..."
-                        />
-                      </div>
+                      {editingRow && (
+                        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-[12px]">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[#666666]">Trạng thái duyệt</span>
+                            <CompactStatusPill
+                              label={getApprovalStageLabel(editingRow.approvalStage, editingRow.businessGroup, editingRow.processedResult)}
+                              tone={
+                                editingRow.approvalStage === 'TU_CHOI'
+                                  ? 'rose'
+                                  : editingRow.approvalStage === 'CHO_DUYET'
+                                    ? 'amber'
+                                    : editingRow.approvalStage === 'KE_TOAN_XAC_NHAN'
+                                      ? 'blue'
+                                      : 'green'
+                              }
+                            />
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[#666666]">Trạng thái xử lý</span>
+                            <CompactStatusPill
+                              label={currentProcessedStatus.label}
+                              tone={editingRow.processedResult === 'DA_CHI' ? 'rose' : editingRow.processedResult === 'DA_THU' ? 'green' : 'slate'}
+                            />
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  </section>
-                )}
-              </div>
+                  </div>
 
-              <div className="px-5 py-3 border-t border-[#f1f5f9] flex justify-end gap-2 sticky bottom-0 bg-white">
-                <button
-                  onClick={closeModal}
-                  className="rounded-sm border border-slate-200 px-3 py-1.5 text-[12px] font-semibold text-slate-700 hover:bg-slate-50"
-                >
-                  {isViewMode ? 'Đóng' : 'Hủy'}
-                </button>
-                {!isViewMode && (
-                  <button
-                    onClick={() => {
-                      void handleSubmit();
-                    }}
-                    disabled={!canSave}
-                    className={`rounded-sm px-3 py-1.5 text-[12px] font-bold ${
-                      canSave ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                    }`}
-                  >
-                    {saveButtonLabel}
-                  </button>
-                )}
-              </div>
+                  <div className="overflow-y-auto bg-white px-4 py-4">
+                    {editingRow ? (
+                      <div className="grid grid-cols-1 gap-x-8 gap-y-4 lg:grid-cols-2">
+                        <div>
+                          <div className="border-t border-[#eef1f4]">
+                            <CompactSheetRow
+                              label="Mã giao dịch"
+                              value={
+                                <div className="min-w-0">
+                                  <div>{editingRow.approvalTransactionCode}</div>
+                                  <div className="mt-0.5 text-[12px] font-medium text-[#94a3b8]">{editingRow.approvalReferenceLabel}</div>
+                                </div>
+                              }
+                            />
+                            <CompactSheetRow label="Nhóm nghiệp vụ" value={editingRow.businessGroupLabel} />
+                            <CompactSheetRow label="Loại nghiệp vụ" value={editingRow.businessType} />
+                            <CompactSheetRow label="Đối tượng" value={editingRow.relatedEntity} />
+                            <CompactSheetRow
+                              label="Hợp đồng"
+                              noBorder
+                              value={
+                                <div className="min-w-0">
+                                  <div>{editingRow.contractCode}</div>
+                                  <div className="mt-0.5 text-[12px] font-medium text-[#94a3b8]">{editingRow.contractReferenceLabel}</div>
+                                </div>
+                              }
+                            />
+                          </div>
+
+                          <div className="mt-3 border-t border-[#eef1f4]">
+                            <CompactSheetRow label="Số tiền" value={moneyFormat(editingRow.actual.amount)} />
+                            <CompactSheetRow label="Hình thức" value={editingRow.paymentMethodLabel} />
+                            <CompactSheetRow label="Chứng từ" value={<span className="break-all">{editingRow.proofValue}</span>} />
+                            <CompactSheetRow label="Ngày thanh toán" value={<span className="whitespace-nowrap">{editingRow.paymentDateLabel}</span>} />
+                            <CompactSheetRow
+                              label="Người nhận / nộp"
+                              noBorder
+                              value={formData.recipientPayerName.trim() || editingRow.actual.recipientPayerName || editingRow.actual.title || '-'}
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="border-t border-[#eef1f4]">
+                            <CompactSheetRow label="Người tạo" value={editingRow.creatorLabel} />
+                            <CompactSheetRow label="Ngày tạo" value={<span className="whitespace-nowrap">{editingRow.createdAtLabel}</span>} />
+                            <CompactSheetRow
+                              label="Trạng thái duyệt"
+                              value={
+                                <CompactStatusPill
+                                  label={getApprovalStageLabel(editingRow.approvalStage, editingRow.businessGroup, editingRow.processedResult)}
+                                  tone={
+                                    editingRow.approvalStage === 'TU_CHOI'
+                                      ? 'rose'
+                                      : editingRow.approvalStage === 'CHO_DUYET'
+                                        ? 'amber'
+                                        : editingRow.approvalStage === 'KE_TOAN_XAC_NHAN'
+                                          ? 'blue'
+                                          : 'green'
+                                  }
+                                />
+                              }
+                            />
+                            <CompactSheetRow label="Mã thu chi" value={formData.transactionCode.trim() || editingRow.actual.transactionCode || '-'} />
+                            <CompactSheetRow label="Phân loại" value={TYPE_META[formData.type].label} noBorder />
+                          </div>
+
+                          <div className="mt-3 border-t border-[#eef1f4]">
+                            <CompactSheetRow label="Hình thức thu / chi" value={formData.cashAccount || '-'} />
+                            <CompactSheetRow
+                              label="Trạng thái xử lý"
+                              value={
+                                <CompactStatusPill
+                                  label={currentProcessedStatus.label}
+                                  tone={editingRow.processedResult === 'DA_CHI' ? 'rose' : editingRow.processedResult === 'DA_THU' ? 'green' : 'slate'}
+                                />
+                              }
+                            />
+                            <CompactSheetRow label="Ngày thu/chi" value={<span className="whitespace-nowrap">{dateLabelFormat(formData.date)}</span>} />
+                            <CompactSheetRow
+                              label="Attach chứng từ"
+                              noBorder
+                              value={<CompactAttachmentLink name={editingRow.actual.attachmentName} url={editingRow.actual.attachmentUrl} />}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="rounded-[2px] border border-dashed border-[#dee2e6] bg-[#fafafa] px-4 py-5 text-sm text-slate-600">
+                        Không tìm thấy dữ liệu chi tiết cho phiếu thu chi này.
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="sticky bottom-0 flex justify-end gap-2 border-t border-[#dee2e6] bg-white px-4 py-3">
+                    <button
+                      onClick={closeModal}
+                      className="rounded-[2px] border border-[#dee2e6] px-4 py-2 text-[12px] font-medium text-[#374151] hover:bg-[#f8f9fa]"
+                    >
+                      Đóng
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="border-b border-[#dee2e6] bg-[#fbfbfc] px-5 py-4">
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                      <div className="min-w-0">
+                        <h2 className="text-[16px] font-semibold leading-6 text-[#111827]">{modalTitle}</h2>
+                        <div className="mt-2 flex flex-wrap items-center gap-x-6 gap-y-1 text-[12px]">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[#666666]">Số tiền:</span>
+                            <span className="font-bold text-[#1d4ed8]">{editingRow ? moneyFormat(editingRow.actual.amount) : '-'}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[#666666]">Trạng thái:</span>
+                            <span className="font-semibold text-[#111827]">{currentProcessedStatus.label}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {editingRow && (
+                        <div className="flex flex-col items-start gap-2 lg:items-end">
+                          <EnterpriseWorkflowBar currentStep={currentWorkflowStep} labels={['Chờ duyệt', 'KT xác nhận', 'Duyệt', 'Đã thu/chi']} />
+                          <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-[12px]">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[#666666]">Trạng thái duyệt:</span>
+                              <span className="font-semibold text-[#111827]">
+                                {getApprovalStageLabel(editingRow.approvalStage, editingRow.businessGroup, editingRow.processedResult)}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[#666666]">Trạng thái:</span>
+                              <span className="font-semibold text-[#b45309]">{currentProcessedStatus.label}</span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="overflow-y-auto px-5 py-4">
+                    {editingRow ? (
+                      <div className="rounded-[2px] border border-[#dee2e6] bg-white p-4">
+                        <div className="grid grid-cols-1 gap-x-4 gap-y-3 md:grid-cols-2">
+                          <div>
+                            <label className="block text-[12px] font-medium text-[#666666]">Mã thu chi</label>
+                            <div className="mt-1 flex min-h-[36px] items-center rounded-[2px] border border-[#dee2e6] bg-[#f8f9fa] px-3 text-[13px] font-medium text-[#111827]">
+                              {formData.transactionCode || '-'}
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="block text-[12px] font-medium text-[#666666]">Phân loại</label>
+                            <div className="mt-1 flex min-h-[36px] items-center rounded-[2px] border border-[#dee2e6] bg-[#f8f9fa] px-3 text-[13px] font-medium text-[#111827]">
+                              {TYPE_META[formData.type].label}
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="block text-[12px] font-medium text-[#666666]">Hình thức thu / chi</label>
+                            <select
+                              value={formData.cashAccount}
+                              onChange={(e) => setFormData((prev) => ({ ...prev, cashAccount: e.target.value }))}
+                              className="mt-1 h-9 w-full rounded-[2px] border border-[#dee2e6] bg-white px-3 text-[13px] text-[#111827] outline-none focus:border-[#94a3b8]"
+                            >
+                              {MONEY_ACCOUNTS.map((account) => (
+                                <option key={account} value={account}>
+                                  {account}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div>
+                            <label className="block text-[12px] font-medium text-[#666666]">Trạng thái</label>
+                            <div className="mt-1 flex min-h-[36px] items-center rounded-[2px] border border-[#dee2e6] bg-[#f8f9fa] px-3 text-[13px] font-medium text-[#111827]">
+                              {currentProcessedStatus.label}
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="block text-[12px] font-medium text-[#666666]">Ngày thu/chi</label>
+                            <div className="mt-1 flex min-h-[36px] items-center rounded-[2px] border border-[#dee2e6] bg-[#f8f9fa] px-3 text-[13px] font-medium text-[#111827]">
+                              {dateLabelFormat(formData.date)}
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="block text-[12px] font-medium text-[#666666]">Người nhận / nộp</label>
+                            <input
+                              type="text"
+                              value={formData.recipientPayerName}
+                              onChange={(e) => setFormData((prev) => ({ ...prev, recipientPayerName: e.target.value }))}
+                              className="mt-1 h-9 w-full rounded-[2px] border border-[#dee2e6] bg-white px-3 text-[13px] text-[#111827] outline-none focus:border-[#94a3b8]"
+                              placeholder={formData.type === 'IN' ? 'Nhập người nộp tiền' : 'Nhập người nhận tiền'}
+                            />
+                          </div>
+
+                          <div className="md:col-span-2">
+                            <label className="block text-[12px] font-medium text-[#666666]">Attach chứng từ</label>
+                            <label className="relative mt-1 block cursor-pointer">
+                              <span className="flex min-h-[36px] items-center rounded-[2px] border border-[#dee2e6] bg-white px-3 pr-10 text-[13px] text-[#111827]">
+                                <span className="truncate">{currentAttachmentName || 'Chọn file chứng từ'}</span>
+                              </span>
+                              <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-[#6b7280]">
+                                <Paperclip size={14} />
+                              </span>
+                              <input type="file" accept=".pdf,image/*" className="hidden" onChange={handleAttachmentChange} />
+                            </label>
+                            <p className={`mt-1 text-[11px] ${hasAttachment ? 'text-[#6b7280]' : 'text-[#dc2626]'}`}>
+                              {hasAttachment
+                                ? 'Đã có chứng từ đính kèm.'
+                                : 'Chưa có chứng từ đính kèm. Nút lưu sẽ bị khóa cho đến khi attach chứng từ.'}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="rounded-[2px] border border-dashed border-[#dee2e6] bg-[#fafafa] px-4 py-5 text-sm text-slate-600">
+                        Không tìm thấy dữ liệu phiếu thu chi để cập nhật.
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="sticky bottom-0 flex justify-end gap-2 border-t border-[#dee2e6] bg-white px-5 py-3">
+                    <button
+                      onClick={closeModal}
+                      className="rounded-[2px] border border-[#dee2e6] px-4 py-2 text-[12px] font-medium text-[#4b5563] hover:bg-[#f8f9fa]"
+                    >
+                      Hủy
+                    </button>
+                    <button
+                      onClick={() => {
+                        void handleSubmit();
+                      }}
+                      disabled={!canSave}
+                      className={`rounded-[2px] px-4 py-2 text-[12px] font-semibold ${
+                        canSave ? 'bg-[#1d4ed8] text-white hover:bg-[#1e40af]' : 'bg-[#e5e7eb] text-[#9ca3af] cursor-not-allowed'
+                      }`}
+                    >
+                      {saveButtonLabel}
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         )}

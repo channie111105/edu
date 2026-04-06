@@ -83,6 +83,7 @@ const FinanceGatewayLogs: React.FC = () => {
            <table className="w-full text-left">
               <thead className="bg-[#F8FAFC] border-b border-slate-200 text-[#475569] uppercase text-xs font-bold">
                  <tr>
+                    <th className="px-6 py-4 font-bold text-sm w-16 text-center">STT</th>
                     <th className="px-6 py-4 font-bold text-sm">Thời gian</th>
                     <th className="px-6 py-4 font-bold text-sm">Cổng TT</th>
                     <th className="px-6 py-4 font-bold text-sm">Mã GD</th>
@@ -93,8 +94,9 @@ const FinanceGatewayLogs: React.FC = () => {
                  </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-sm">
-                 {LOGS.map((log) => (
+                 {LOGS.map((log, index) => (
                     <tr key={log.id} className="hover:bg-slate-50 transition-colors">
+                       <td className="px-6 py-4 text-center text-sm font-semibold text-[#475569]">{index + 1}</td>
                        <td className="px-6 py-4 text-[#334155] font-mono text-xs">{log.time}</td>
                        <td className="px-6 py-4 font-bold text-[#111418]">{log.gateway}</td>
                        <td className="px-6 py-4 text-blue-600 font-medium font-mono text-xs">{log.txnRef}</td>

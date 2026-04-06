@@ -1,5 +1,5 @@
 ﻿import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, FileText, GraduationCap, PauseCircle, RefreshCcw } from 'lucide-react';
+import { ArrowLeft, FileText } from 'lucide-react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { cancelAdmission, createAdmission } from '../services/enrollmentFlow.service';
@@ -30,6 +30,8 @@ import {
   getQuotations,
   getStudentClaims,
   getStudents,
+  getStudentAllowedPrograms,
+  getStudentClassEligibility,
   getTeachers,
   getTrainingClasses,
   quotationLinksToStudent,
@@ -39,7 +41,7 @@ import {
   updateStudent
 } from '../utils/storage';
 import { decodeMojibakeText } from '../utils/mojibake';
-type DetailTabKey = 'overview' | 'classroom' | 'finance';
+type DetailTabKey = 'overview' | 'classroom';
 type ClaimModalMode = 'create' | 'process' | 'cancel';
 type ClaimFormState = {
   claimType: StudentClaimType;
@@ -51,8 +53,10 @@ type ClaimFormState = {
   requestedDate: string;
   expectedReturnDate: string;
   reserveUntilDate: string;
+  proposedCampusId: string;
   proposedClassId: string;
   proposedClassCode: string;
+  resolvedCampusId: string;
   resolvedClassId: string;
   resolvedClassCode: string;
   levelOrSubject: string;
@@ -74,8 +78,7 @@ type StudentLifecycleStatus =
 
 const DETAIL_TABS: Array<{ key: DetailTabKey; label: string }> = [
   { key: 'overview', label: '\u0054\u1ed5ng quan' },
-  { key: 'classroom', label: '\u0047hi danh \u0026 l\u1edbp h\u1ecdc' },
-  { key: 'finance', label: '\u0054\u00e0i ch\u00ednh' }
+  { key: 'classroom', label: '\u0047hi danh \u0026 l\u1edbp h\u1ecdc' }
 ];
 
 const LEGACY_STUDENT_STATUS_LABELS: Record<StudentLifecycleStatus, string> = {
@@ -143,6 +146,9 @@ const CLAIM_STATUS_LABELS: Record<StudentClaimStatus, string> = Object.fromEntri
   CLAIM_STATUS_OPTIONS.map((item) => [item.value, item.label])
 ) as Record<StudentClaimStatus, string>;
 
+const CLAIM_TYPE_CREATE_OPTIONS = CLAIM_TYPE_OPTIONS.filter((item) => item.value !== 'KHONG_CO');
+const CLAIM_STATUS_CREATE_OPTIONS = CLAIM_STATUS_OPTIONS.filter((item) => item.value !== 'KHONG_CO');
+
 const CLAIM_ASSIGNEE_OPTIONS: Record<StudentClaimType, string[]> = {
   KHONG_CO: [],
   CHUYEN_LOP: ['Học vụ', 'Đào tạo'],
@@ -162,8 +168,10 @@ const EMPTY_CLAIM_FORM: ClaimFormState = {
   requestedDate: '',
   expectedReturnDate: '',
   reserveUntilDate: '',
+  proposedCampusId: '',
   proposedClassId: '',
   proposedClassCode: '',
+  resolvedCampusId: '',
   resolvedClassId: '',
   resolvedClassCode: '',
   levelOrSubject: '',
@@ -198,16 +206,6 @@ const normalizeEnrollmentText = (value?: string) =>
     .replace(/Lá»›p dá»± kiáº¿n/g, 'Lớp dự kiến')
     .replace(/Chuyá»ƒn lá»›p/g, 'Chuyển lớp');
 
-const badgeClassByStatus = (status?: string) => {
-  if (status === 'DA_DUYET' || status === 'DANG_HOC' || status === 'DA_GHI_DANH') return 'bg-emerald-100 text-emerald-700';
-  if (status === 'CHO_DUYET' || status === 'CHO_GHI_DANH') return 'bg-amber-100 text-amber-700';
-  if (status === 'TAM_DUNG' || status === 'BAO_LUU') return 'bg-orange-100 text-orange-700';
-  if (status === 'HOAN_THANH') return 'bg-violet-100 text-violet-700';
-  if (status === 'DUNG' || status === 'TU_CHOI' || status === 'NGHI_HOC') return 'bg-rose-100 text-rose-700';
-  if (status === QuotationStatus.LOCKED) return 'bg-blue-100 text-blue-700';
-  return 'bg-slate-100 text-slate-600';
-};
-
 const compactBadgeClassByStatus = (status?: string) => {
   if (status === 'DA_DUYET' || status === 'DANG_HOC' || status === 'DA_GHI_DANH') return 'bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-100';
   if (status === 'CHO_DUYET' || status === 'CHO_GHI_DANH') return 'bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-100';
@@ -226,33 +224,161 @@ const compactBadgeClassByClaimStatus = (status?: StudentClaimStatus) => {
   return 'bg-slate-50 text-slate-600 ring-1 ring-inset ring-slate-200';
 };
 
-const CompactFieldRow: React.FC<{ label: string; value?: React.ReactNode; className?: string; valueClassName?: string }> = ({
+const CompactFieldRow: React.FC<{ label: string; value?: React.ReactNode; className?: string; valueClassName?: string; truncateValue?: boolean }> = ({
   label,
   value,
   className = '',
-  valueClassName = ''
+  valueClassName = '',
+  truncateValue = true
 }) => (
   <div className={`flex items-baseline gap-3 py-1.5 ${className}`.trim()}>
     <div className="min-w-[112px] shrink-0 text-[11px] font-medium text-slate-500">{label}</div>
-    <div className={`min-w-0 truncate text-[13px] font-medium text-slate-900 ${valueClassName}`.trim()}>{value || '--'}</div>
+    <div className={`min-w-0 text-[13px] font-medium text-slate-900 ${truncateValue ? 'truncate' : ''} ${valueClassName}`.trim()}>{value || '--'}</div>
   </div>
 );
 
-const FinanceSheetRow: React.FC<{ label: string; value?: React.ReactNode; valueClassName?: string }> = ({
-  label,
-  value,
-  valueClassName = ''
-}) => (
-  <div className="flex items-baseline gap-2 py-1">
-    <div className="w-[112px] shrink-0 text-[11px] font-bold text-slate-500">{label}</div>
-    <div className={`min-w-0 truncate text-[13px] font-semibold text-slate-800 ${valueClassName}`.trim()}>{value || '--'}</div>
-  </div>
-);
-
-const FINANCE_WORKFLOW_STEPS = ['Phát sinh', 'Đang thu', 'Quá hạn', 'Đã thu đủ'] as const;
+const CompactBadgeList: React.FC<{ values: string[]; emptyLabel?: string }> = ({ values, emptyLabel = '--' }) =>
+  values.length ? (
+    <div className="flex flex-wrap gap-1.5">
+      {values.map((value) => (
+        <span key={value} className="inline-flex rounded-md bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-700 ring-1 ring-inset ring-slate-200">
+          {value}
+        </span>
+      ))}
+    </div>
+  ) : (
+    <span>{emptyLabel}</span>
+  );
 
 const getDetailTabFromParam = (value: string | null): DetailTabKey =>
-  value === 'classroom' || value === 'finance' || value === 'overview' ? value : 'overview';
+  value === 'classroom' || value === 'overview' ? value : 'overview';
+
+const normalizeQuickStatusText = (value?: string) =>
+  decodeMojibakeText(String(value || ''))
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const getUniqueValues = (values: Array<string | undefined | null>) =>
+  Array.from(
+    new Set(
+      values
+        .map((item) => normalizeQuickStatusText(item || ''))
+        .filter(Boolean)
+    )
+  );
+
+const normalizeProgramLabel = (value?: string) => {
+  const normalized = normalizeQuickStatusText(value);
+  if (!normalized) return '';
+  const hskMatch = normalized.match(/^HSK\s*([1-6])$/i);
+  if (hskMatch) return `HSK${hskMatch[1]}`;
+  const levelMatch = normalized.match(/^(A1|A2|B1|B2|C1|C2)$/i);
+  if (levelMatch) return levelMatch[1].toUpperCase();
+  return normalized;
+};
+
+const extractProgramTokens = (value?: string) => {
+  const normalized = normalizeQuickStatusText(value);
+  if (!normalized) return [];
+  const matches = normalized.match(/\b(HSK\s*[1-6]|A1|A2|B1|B2|C1|C2|APS|Visa|Hồ sơ)\b/gi) || [];
+  return Array.from(new Set(matches.map((item) => normalizeProgramLabel(item)).filter(Boolean)));
+};
+
+const getQuotationProgramLabels = (quotation?: IQuotation) => {
+  if (!quotation) return [];
+  const linePrograms = (quotation.lineItems || []).flatMap((item) => [
+    ...(item.programs || []).map((program) => normalizeProgramLabel(program)),
+    ...extractProgramTokens(item.courseName),
+    ...extractProgramTokens(item.name)
+  ]);
+  const fallbackPrograms = linePrograms.length ? [] : extractProgramTokens(quotation.product);
+  return Array.from(new Set([...linePrograms, ...fallbackPrograms].filter(Boolean)));
+};
+
+const getCertificateLabel = ({
+  studentLevel,
+  classLevel,
+  classLanguage,
+  classCode,
+  certificateInfo,
+  product
+}: {
+  studentLevel?: string;
+  classLevel?: string;
+  classLanguage?: string;
+  classCode?: string;
+  certificateInfo?: string;
+  product?: string;
+}) => {
+  const candidates = [certificateInfo, classLevel, studentLevel, classLanguage, classCode, product]
+    .map((item) => normalizeQuickStatusText(item))
+    .filter(Boolean);
+
+  const chineseSource = candidates.some((item) => /\b(hsk|trung|chinese)\b/i.test(item));
+  for (const item of candidates) {
+    const hskRangeMatch = item.match(/\bHSK\s*([1-6])\s*[-–]\s*(?:HSK\s*)?([1-6])\b/i);
+    if (hskRangeMatch) return `Trung HSK${hskRangeMatch[1]}-HSK${hskRangeMatch[2]}`;
+  }
+
+  for (const item of candidates) {
+    const levelRangeMatch = item.match(/\b(A1|A2|B1|B2)\s*[-–]\s*(A1|A2|B1|B2)\b/i);
+    if (levelRangeMatch) return `${chineseSource ? 'Trung' : 'Đức'} ${levelRangeMatch[1].toUpperCase()}-${levelRangeMatch[2].toUpperCase()}`;
+  }
+
+  for (const item of candidates) {
+    const hskMatch = item.match(/\bHSK\s*([1-6])\b/i);
+    if (hskMatch) return `Trung HSK${hskMatch[1]}`;
+  }
+
+  for (const item of candidates) {
+    const levelMatch = item.match(/\b(A1|A2|B1|B2)\b/i);
+    if (levelMatch) return `${chineseSource ? 'Trung' : 'Đức'} ${levelMatch[1].toUpperCase()}`;
+  }
+
+  return '--';
+};
+
+const getCertificateBadgeClass = (value: string) => {
+  if (value === '--') return 'bg-slate-50 text-slate-600 ring-1 ring-inset ring-slate-200';
+  if (value.includes('HSK')) return 'bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-100';
+  return 'bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-100';
+};
+
+const toLogValue = (value: unknown): string => {
+  if (typeof value === 'boolean') return value ? 'Có' : 'Không';
+  if (value === undefined || value === null) return '--';
+  const normalized = String(value).trim();
+  if (!normalized || normalized === '--/--/----') return '--';
+  return normalized ? normalized : '--';
+};
+
+const buildChangeLogMessage = (
+  prefix: string,
+  changes: Array<{ label: string; before?: unknown; after?: unknown }>
+) => {
+  const normalized = changes
+    .map((item) => ({
+      label: item.label,
+      before: toLogValue(item.before),
+      after: toLogValue(item.after)
+    }))
+    .filter((item) => item.before !== item.after);
+
+  if (!normalized.length) return prefix;
+  return `${prefix}: ${normalized.map((item) => `${item.label} ${item.before} -> ${item.after}`).join('; ')}`;
+};
+
+const buildDetailLogMessage = (
+  prefix: string,
+  details: Array<{ label: string; value?: unknown }>
+) => {
+  const normalized = details
+    .map((item) => ({ label: item.label, value: toLogValue(item.value) }))
+    .filter((item) => item.value !== '--');
+
+  if (!normalized.length) return prefix;
+  return `${prefix}: ${normalized.map((item) => `${item.label} ${item.value}`).join('; ')}`;
+};
 
 const ContractStudentDetail: React.FC = () => {
   const { id } = useParams();
@@ -283,7 +409,7 @@ const ContractStudentDetail: React.FC = () => {
   const [claimModalMode, setClaimModalMode] = useState<ClaimModalMode | null>(null);
   const [selectedClaim, setSelectedClaim] = useState<IStudentClaim | null>(null);
   const [enrollForm, setEnrollForm] = useState({ quotationId: '', campusId: 'Hà Nội', classId: '', note: '' });
-  const [transferForm, setTransferForm] = useState({ classId: '', effectiveDate: '', reason: '' });
+  const [transferForm, setTransferForm] = useState({ campusId: 'Hà Nội', classId: '', effectiveDate: '', reason: '' });
   const [pauseForm, setPauseForm] = useState({ startDate: '', reason: '', expectedReturnDate: '', note: '' });
   const [editForm, setEditForm] = useState({ name: '', dob: '', phone: '', email: '', campus: '', payerName: '', note: '' });
   const [claimForm, setClaimForm] = useState<ClaimFormState>(EMPTY_CLAIM_FORM);
@@ -315,9 +441,17 @@ const ContractStudentDetail: React.FC = () => {
   }, [id]);
 
   useEffect(() => {
-    const nextTab = getDetailTabFromParam(searchParams.get('tab'));
+    const requestedTab = searchParams.get('tab');
+    const nextTab = getDetailTabFromParam(requestedTab);
     setActiveTab((prev) => (prev === nextTab ? prev : nextTab));
-  }, [searchParams]);
+    if (requestedTab && nextTab === 'overview' && requestedTab !== 'overview') {
+      setSearchParams((prev) => {
+        const params = new URLSearchParams(prev);
+        params.delete('tab');
+        return params;
+      }, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
 
   const handleTabChange = (tab: DetailTabKey) => {
     setActiveTab(tab);
@@ -330,14 +464,20 @@ const ContractStudentDetail: React.FC = () => {
   };
 
   const student = useMemo(() => students.find((item) => item.id === id), [id, students]);
-  const linkedQuotation = useMemo(() => {
-    if (!student) return undefined;
-    return (
-      quotations.find((item) => item.status === QuotationStatus.LOCKED && quotationLinksToStudent(item, student)) ||
-      quotations.find((item) => quotationLinksToStudent(item, student)) ||
-      quotations.find((item) => item.id === student.soId)
+  const linkedQuotations = useMemo(() => {
+    if (!student) return [];
+    const matched = quotations.filter(
+      (item) => quotationLinksToStudent(item, student) || (!!student.soId && item.id === student.soId)
     );
+
+    return Array.from(new Map(matched.map((item) => [item.id, item])).values()).sort((left, right) => {
+      const leftLocked = left.status === QuotationStatus.LOCKED ? 1 : 0;
+      const rightLocked = right.status === QuotationStatus.LOCKED ? 1 : 0;
+      if (leftLocked !== rightLocked) return rightLocked - leftLocked;
+      return new Date(right.updatedAt || right.lockedAt || right.createdAt).getTime() - new Date(left.updatedAt || left.lockedAt || left.createdAt).getTime();
+    });
   }, [quotations, student]);
+  const linkedQuotation = linkedQuotations[0];
 
   useEffect(() => {
     if (!profileEditMode || !student) return;
@@ -368,15 +508,89 @@ const ContractStudentDetail: React.FC = () => {
       ? classes.find((item) => item.id === student?.classId || item.code === student?.classId || item.code === student?.className)
       : undefined);
   const teacher = teachers.find((item) => item.id === currentClass?.teacherId);
-  const relatedContract =
-    (linkedQuotation ? getContractByQuotationId(linkedQuotation.id) : undefined) || contracts.find((item) => item.studentId === student?.id);
-  const availableLockedQuotations = useMemo(() => {
-    if (!student) return [];
-    return quotations.filter((item) => item.status === QuotationStatus.LOCKED && quotationLinksToStudent(item, student));
-  }, [quotations, student]);
+  const relatedContracts = useMemo(
+    () =>
+      Array.from(
+        new Map(
+          [
+            ...linkedQuotations.map((item) => getContractByQuotationId(item.id)).filter(Boolean),
+            ...contracts.filter((item) => item.studentId === student?.id)
+          ].map((item) => [item!.id, item!])
+        ).values()
+      ),
+    [contracts, linkedQuotations, student?.id]
+  );
+  const availableLockedQuotations = useMemo(
+    () => linkedQuotations.filter((item) => item.status === QuotationStatus.LOCKED),
+    [linkedQuotations]
+  );
+  const studentAllowedPrograms = useMemo(
+    () => getStudentAllowedPrograms(student, quotations),
+    [quotations, student]
+  );
+  const eligibleActiveClasses = useMemo(
+    () =>
+      student
+        ? classes.filter(
+            (item) => item.status === 'ACTIVE' && getStudentClassEligibility(student, item, quotations).ok
+          )
+        : [],
+    [classes, quotations, student]
+  );
   const classOptions = useMemo(
-    () => classes.filter((item) => item.status === 'ACTIVE' && item.id !== currentClass?.id && item.code !== currentClass?.code),
-    [classes, currentClass?.code, currentClass?.id]
+    () =>
+      eligibleActiveClasses.filter((item) => item.id !== currentClass?.id && item.code !== currentClass?.code),
+    [currentClass?.code, currentClass?.id, eligibleActiveClasses]
+  );
+  const findClassByValue = (value?: string) => {
+    const normalizedValue = value?.trim();
+    if (!normalizedValue) return undefined;
+    return classes.find((item) => item.id === normalizedValue || item.code === normalizedValue);
+  };
+  const resolveClassCampus = (id?: string, code?: string) => findClassByValue(id)?.campus || findClassByValue(code)?.campus || '';
+  const allCampusOptions = useMemo(
+    () => Array.from(new Set(classes.map((item) => item.campus).filter(Boolean) as string[])).sort(),
+    [classes]
+  );
+  const enrollCampusOptions = useMemo(() => {
+    const source = new Set<string>();
+    [latestAdmission?.campusId, student?.campus, currentClass?.campus].filter(Boolean).forEach((item) => source.add(item as string));
+    eligibleActiveClasses.forEach((item) => {
+      if (item.campus) source.add(item.campus);
+    });
+    return Array.from(source).sort();
+  }, [currentClass?.campus, eligibleActiveClasses, latestAdmission?.campusId, student?.campus]);
+  const enrollAvailableClasses = useMemo(
+    () => eligibleActiveClasses.filter((item) => !enrollForm.campusId || item.campus === enrollForm.campusId),
+    [eligibleActiveClasses, enrollForm.campusId]
+  );
+  const transferCampusOptions = useMemo(() => {
+    const source = new Set<string>();
+    if (currentClass?.campus) source.add(currentClass.campus);
+    classOptions.forEach((item) => {
+      if (item.campus) source.add(item.campus);
+    });
+    return Array.from(source).sort();
+  }, [classOptions, currentClass?.campus]);
+  const transferAvailableClasses = useMemo(
+    () => classOptions.filter((item) => !transferForm.campusId || item.campus === transferForm.campusId),
+    [classOptions, transferForm.campusId]
+  );
+  const claimCampusOptions = useMemo(() => {
+    const source = new Set<string>();
+    if (currentClass?.campus) source.add(currentClass.campus);
+    classOptions.forEach((item) => {
+      if (item.campus) source.add(item.campus);
+    });
+    return Array.from(source).sort();
+  }, [classOptions, currentClass?.campus]);
+  const claimProposedClassOptions = useMemo(
+    () => classOptions.filter((item) => !claimForm.proposedCampusId || item.campus === claimForm.proposedCampusId),
+    [classOptions, claimForm.proposedCampusId]
+  );
+  const claimResolvedClassOptions = useMemo(
+    () => classOptions.filter((item) => !claimForm.resolvedCampusId || item.campus === claimForm.resolvedCampusId),
+    [classOptions, claimForm.resolvedCampusId]
   );
   const latestClaim = claims[0];
   const latestPendingClaim = claims.find((item) => item.claimStatus === 'CHO_XU_LY');
@@ -397,8 +611,19 @@ const ContractStudentDetail: React.FC = () => {
     requestedDate: source?.requestedDate || '',
     expectedReturnDate: source?.expectedReturnDate || '',
     reserveUntilDate: source?.reserveUntilDate || '',
+    proposedCampusId:
+      resolveClassCampus(source?.proposedClassId, source?.proposedClassCode) ||
+      currentClass?.campus ||
+      classOptions[0]?.campus ||
+      '',
     proposedClassId: source?.proposedClassId || '',
     proposedClassCode: source?.proposedClassCode || '',
+    resolvedCampusId:
+      resolveClassCampus(source?.resolvedClassId || source?.proposedClassId, source?.resolvedClassCode || source?.proposedClassCode) ||
+      resolveClassCampus(source?.proposedClassId, source?.proposedClassCode) ||
+      currentClass?.campus ||
+      classOptions[0]?.campus ||
+      '',
     resolvedClassId: source?.resolvedClassId || '',
     resolvedClassCode: source?.resolvedClassCode || '',
     levelOrSubject: source?.levelOrSubject || '',
@@ -412,13 +637,17 @@ const ContractStudentDetail: React.FC = () => {
 
   useEffect(() => {
     if (!student) return;
+    const defaultEnrollCampus = latestAdmission?.campusId || student.campus || currentClass?.campus || enrollCampusOptions[0] || allCampusOptions[0] || 'Hà Nội';
     setEnrollForm({
       quotationId: linkedQuotation?.id || availableLockedQuotations[0]?.id || '',
-      campusId: latestAdmission?.campusId || student.campus || currentClass?.campus || 'Hà Nội',
-      classId: currentClass?.id || '',
+      campusId: defaultEnrollCampus,
+      classId:
+        eligibleActiveClasses.some((item) => item.id === currentClass?.id) && currentClass?.campus === defaultEnrollCampus
+          ? currentClass?.id || ''
+          : '',
       note: ''
     });
-    setTransferForm({ classId: '', effectiveDate: '', reason: '' });
+    setTransferForm({ campusId: currentClass?.campus || transferCampusOptions[0] || allCampusOptions[0] || 'Hà Nội', classId: '', effectiveDate: '', reason: '' });
     setPauseForm({ startDate: '', reason: '', expectedReturnDate: '', note: '' });
     setEditForm({
       name: student.name || '',
@@ -429,7 +658,7 @@ const ContractStudentDetail: React.FC = () => {
       payerName: student.payerName || '',
       note: student.note || ''
     });
-  }, [availableLockedQuotations, currentClass?.campus, currentClass?.id, latestAdmission?.campusId, linkedQuotation?.id, student]);
+  }, [allCampusOptions, availableLockedQuotations, currentClass?.campus, currentClass?.id, eligibleActiveClasses, enrollCampusOptions, latestAdmission?.campusId, linkedQuotation?.id, student, transferCampusOptions]);
 
   const studentStatusKey = useMemo<StudentLifecycleStatus>(() => {
     if (!student) return 'MOI_TAO';
@@ -446,10 +675,14 @@ const ContractStudentDetail: React.FC = () => {
   }, [currentClass?.startDate, currentClass?.status, currentClassStudent?.status, latestAdmission, linkedQuotation, student]);
 
   const studentStatusLabel = STUDENT_STATUS_LABELS[studentStatusKey];
-  const sourceProgramLabel = [linkedQuotation?.serviceType, linkedQuotation?.product].filter(Boolean).join(' - ') || '--';
-  const admissionStatusLabel =
-    latestAdmission?.status === 'DA_DUYET' ? 'Đã duyệt' : latestAdmission?.status === 'CHO_DUYET' ? 'Chờ duyệt' : 'Chưa tạo';
-  const studentNote = normalizeEnrollmentText(student?.note || latestAdmission?.note);
+  const sourceSoCodes = useMemo(() => getUniqueValues(linkedQuotations.map((item) => item.soCode)), [linkedQuotations]);
+  const sourceProductLabels = useMemo(() => getUniqueValues(linkedQuotations.map((item) => item.product)), [linkedQuotations]);
+  const sourceProgramLabels = useMemo(
+    () => Array.from(new Set(linkedQuotations.flatMap((item) => getQuotationProgramLabels(item)))),
+    [linkedQuotations]
+  );
+  const sourceSalespeople = useMemo(() => getUniqueValues(linkedQuotations.map((item) => item.salespersonName)), [linkedQuotations]);
+  const profileNote = normalizeEnrollmentText(student?.note || latestAdmission?.note || linkedQuotation?.internalNote);
   const currentClassStatusLabel =
     studentStatusKey === 'TAM_DUNG'
       ? 'Tạm dừng'
@@ -457,67 +690,48 @@ const ContractStudentDetail: React.FC = () => {
         ? 'Hoàn thành'
         : studentStatusKey === 'DANG_HOC'
           ? 'Đang học'
-          : studentStatusKey === 'DA_GHI_DANH'
+        : studentStatusKey === 'DA_GHI_DANH'
             ? 'Đã ghi danh'
             : '--';
-  const quickWarnings = useMemo(() => {
-    const warnings: string[] = [];
-    if (student?.enrollmentStatus !== 'DA_GHI_DANH') warnings.push('Chưa ghi danh');
-    if ((currentClassStudent?.debtTerms || []).some((item) => item.termNo === 2 && item.status !== 'PAID')) warnings.push('Thiếu đợt 2');
-    if (latestAdmission?.status === 'CHO_DUYET') warnings.push('Chờ duyệt');
-    if (studentStatusKey === 'TAM_DUNG') warnings.push('Tạm dừng');
-    if (linkedQuotation?.serviceType === 'StudyAbroad' || linkedQuotation?.product?.includes('Du học')) warnings.push('Chờ đủ điều kiện du học');
-    if (latestPendingClaim) warnings.push(`Claim chờ xử lý: ${CLAIM_TYPE_LABELS[latestPendingClaim.claimType]}`);
-    return warnings;
-  }, [currentClassStudent?.debtTerms, latestAdmission?.status, latestPendingClaim, linkedQuotation?.product, linkedQuotation?.serviceType, student?.enrollmentStatus, studentStatusKey]);
-  const totalValue = linkedQuotation?.finalAmount || linkedQuotation?.amount || 0;
-  const paidValue = relatedContract?.paidValue || 0;
-  const remainingValue = Math.max(totalValue - paidValue, 0);
-  const debtScheduleRows = (currentClassStudent?.debtTerms || []).map((item) => {
-    const isPaid = item.status === 'PAID';
-    const isOverdue = item.status === 'OVERDUE';
-    return {
-      key: item.termNo,
-      termLabel: `Đợt ${item.termNo}`,
-      dueDate: formatDate(item.dueDate),
-      receivable: item.amount,
-      paid: isPaid ? item.amount : 0,
-      remaining: isPaid ? 0 : item.amount,
-      statusLabel: isPaid ? 'Đã thu' : isOverdue ? 'Đã quá hạn' : 'Đang thu',
-      statusClassName: isPaid
-        ? 'bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-100'
-        : isOverdue
-          ? 'bg-orange-50 text-orange-700 ring-1 ring-inset ring-orange-100'
-          : 'bg-slate-100 text-slate-700 ring-1 ring-inset ring-slate-200'
-    };
+  const remainingValue = Math.max(
+    linkedQuotations.reduce((sum, item) => sum + (item.finalAmount || item.amount || 0), 0) -
+      relatedContracts.reduce((sum, item) => sum + (item.paidValue || 0), 0),
+    0
+  );
+  const certificateLabel = getCertificateLabel({
+    studentLevel: student?.level,
+    classLevel: currentClass?.level,
+    classLanguage: currentClass?.language,
+    classCode: currentClass?.code,
+    certificateInfo: linkedQuotation?.certificateInfo,
+    product: linkedQuotation?.product
   });
-  const overdueDebtCount = debtScheduleRows.filter((item) => item.statusLabel === 'Đã quá hạn').length;
+  const nextDebtDueDate =
+    currentClassStudent?.nearestDueDate ||
+    currentClassStudent?.debtTerms?.find((item) => item.status !== 'PAID')?.dueDate;
+  const debtTerms = currentClassStudent?.debtTerms || [];
+  const hasOverdueDebt = debtTerms.some((item) => item.status === 'OVERDUE');
   const financeStatusKey =
-    remainingValue <= 0 ? 'DA_THU_DU' : overdueDebtCount > 0 ? 'QUA_HAN' : debtScheduleRows.length > 0 ? 'DANG_THU' : 'PHAT_SINH';
-  const financeStatusMeta =
-    financeStatusKey === 'DA_THU_DU'
+    remainingValue <= 0 ? 'DA_THU_DU' : hasOverdueDebt ? 'QUA_HAN' : debtTerms.length > 0 ? 'DANG_THU' : 'PHAT_SINH';
+  const debtQuickStatusMeta =
+    remainingValue <= 0
       ? {
-          label: 'Đã thu đủ',
+          label: 'Không có',
           badgeClassName: 'bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-100',
-          activeStep: 3
+          timing: '--'
         }
       : financeStatusKey === 'QUA_HAN'
         ? {
-            label: 'Đã quá hạn',
+            label: 'Quá hạn',
             badgeClassName: 'bg-orange-50 text-orange-700 ring-1 ring-inset ring-orange-100',
-            activeStep: 2
+            timing: nextDebtDueDate ? `Quá hạn từ ${formatDate(nextDebtDueDate)}` : '--'
           }
-        : financeStatusKey === 'DANG_THU'
-          ? {
-              label: 'Đang thu',
-              badgeClassName: 'bg-slate-100 text-slate-700 ring-1 ring-inset ring-slate-200',
-              activeStep: 1
-            }
-          : {
-              label: 'Phát sinh',
-              badgeClassName: 'bg-slate-50 text-slate-600 ring-1 ring-inset ring-slate-200',
-              activeStep: 0
-            };
+        : {
+            label: 'Có khoản phải thu',
+            badgeClassName: 'bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-100',
+            timing: nextDebtDueDate ? `Hạn ${formatDate(nextDebtDueDate)}` : '--'
+          };
+  const hideTransferClaimMetaFields = claimModalMode === 'create' && claimForm.claimType === 'CHUYEN_LOP';
   const closeEditModal = () => {
     setShowEditModal(false);
     if (!profileEditMode) return;
@@ -538,7 +752,7 @@ const ContractStudentDetail: React.FC = () => {
   const openCreateClaimModal = () => {
     setSelectedClaim(null);
     setClaimModalMode('create');
-    const initialType = displayClaim?.claimType || 'CHUYEN_LOP';
+    const initialType = displayClaim?.claimType && displayClaim.claimType !== 'KHONG_CO' ? displayClaim.claimType : 'CHUYEN_LOP';
     setClaimForm(
       buildClaimForm(initialType, {
         claimType: initialType,
@@ -582,13 +796,27 @@ const ContractStudentDetail: React.FC = () => {
   const openEnrollModal = () => {
     if (hideClassControls) return;
     if (!canOperate) return alert('Bạn không có quyền thao tác ghi danh');
+    if (!eligibleActiveClasses.length) {
+      return alert(
+        studentAllowedPrograms.length
+          ? `Học viên chỉ có chương trình ${studentAllowedPrograms.join(', ')} nên chưa có lớp phù hợp để ghi danh`
+          : 'Học viên chưa có chương trình trong hồ sơ nên chưa thể ghi danh vào lớp'
+      );
+    }
     setShowEnrollModal(true);
   };
 
   const openTransferModal = () => {
     if (hideClassControls) return;
     if (!canOperate) return alert('Ban khong co quyen chuyen lop');
-    setTransferForm({ classId: '', effectiveDate: '', reason: '' });
+    if (!classOptions.length) {
+      return alert(
+        studentAllowedPrograms.length
+          ? `Không có lớp đích phù hợp với chương trình ${studentAllowedPrograms.join(', ')}`
+          : 'Học viên chưa có chương trình phù hợp để chuyển lớp'
+      );
+    }
+    setTransferForm({ campusId: currentClass?.campus || transferCampusOptions[0] || allCampusOptions[0] || 'Hà Nội', classId: '', effectiveDate: '', reason: '' });
     setShowTransferModal(true);
   };
 
@@ -689,7 +917,7 @@ const ContractStudentDetail: React.FC = () => {
 
   const saveProfile = () => {
     if (!student) return;
-    updateStudent({
+    const nextStudent: IStudent = {
       ...student,
       name: editForm.name.trim() || student.name,
       dob: editForm.dob,
@@ -698,13 +926,32 @@ const ContractStudentDetail: React.FC = () => {
       campus: editForm.campus,
       payerName: editForm.payerName,
       note: editForm.note
-    });
-    addStudentLog(student.id, 'UPDATE_PROFILE', 'Cập nhật thông tin hồ sơ học viên', user?.id || 'system', 'SYSTEM');
+    };
+    updateStudent(nextStudent);
+    addStudentLog(
+      student.id,
+      'UPDATE_PROFILE',
+      buildChangeLogMessage('Cập nhật thông tin hồ sơ học viên', [
+        { label: 'Họ tên', before: student.name, after: nextStudent.name },
+        { label: 'Ngày sinh', before: formatDate(student.dob), after: formatDate(nextStudent.dob) },
+        { label: 'SĐT', before: student.phone, after: nextStudent.phone },
+        { label: 'Email', before: student.email, after: nextStudent.email },
+        { label: 'Cơ sở', before: student.campus, after: nextStudent.campus },
+        { label: 'Ghi chú', before: student.note, after: nextStudent.note }
+      ]),
+      user?.id || 'system',
+      'SYSTEM'
+    );
     closeEditModal();
     loadData();
   };
 
   const appendStudentNote = (baseNote?: string, nextNote?: string) => [baseNote, nextNote].filter(Boolean).join('\n');
+  const getClassDisplayName = (id?: string, code?: string) => {
+    if (code) return code;
+    if (!id) return '--';
+    return classes.find((item) => item.id === id || item.code === id)?.code || id;
+  };
 
   const submitClaim = () => {
     if (!student || !claimModalMode) return;
@@ -761,7 +1008,20 @@ const ContractStudentDetail: React.FC = () => {
       addStudentLog(
         student.id,
         'CREATE_CLAIM',
-        `Tạo claim ${CLAIM_TYPE_LABELS[claimForm.claimType]} - ${CLAIM_STATUS_LABELS[claimForm.claimStatus]}${reason ? `: ${reason}` : ''}`,
+        buildDetailLogMessage(`Tạo claim ${CLAIM_TYPE_LABELS[claimForm.claimType]}`, [
+          { label: 'Trạng thái', value: CLAIM_STATUS_LABELS[nextStatus] },
+          { label: 'Ai xử lý', value: claimForm.assignedDepartment },
+          { label: 'Lớp đề xuất', value: getClassDisplayName(claimForm.proposedClassId, claimForm.proposedClassCode) },
+          { label: 'Lớp xử lý', value: getClassDisplayName(claimForm.resolvedClassId, claimForm.resolvedClassCode) },
+          { label: 'Level/môn', value: claimForm.levelOrSubject.trim() },
+          { label: 'Ngày mong muốn', value: formatDate(claimForm.requestedDate) },
+          { label: 'Ngày hiệu lực', value: formatDate(claimForm.effectiveDate) },
+          { label: 'Ngày quay lại', value: formatDate(claimForm.expectedReturnDate) },
+          { label: 'Bảo lưu đến', value: formatDate(claimForm.reserveUntilDate) },
+          { label: 'Lý do', value: reason },
+          { label: 'Mô tả', value: claimForm.detail.trim() },
+          { label: 'Ghi chú', value: note }
+        ]),
         actor,
         'SYSTEM'
       );
@@ -773,66 +1033,71 @@ const ContractStudentDetail: React.FC = () => {
     if (!selectedClaim) return;
 
     if (claimModalMode === 'process' && nextStatus === 'DA_XU_LY') {
-      if (claimForm.claimType === 'CHUYEN_LOP' && claimForm.resolvedClassId) {
-        const targetClass = classes.find((item) => item.id === claimForm.resolvedClassId || item.code === claimForm.resolvedClassId);
-        if (targetClass) {
+      try {
+        if (claimForm.claimType === 'CHUYEN_LOP' && claimForm.resolvedClassId) {
+          const targetClass = classes.find((item) => item.id === claimForm.resolvedClassId || item.code === claimForm.resolvedClassId);
+          if (targetClass) {
+            if (currentClassStudent?.classId) {
+              transferStudentClass(student.id, currentClassStudent.classId, targetClass.id);
+              addClassLog(currentClassStudent.classId, 'CLAIM_TRANSFER_OUT', `Claim chuyển lớp cho ${student.name} sang ${targetClass.code}`, actor);
+            } else {
+              addStudentToClass(targetClass.id, student.id);
+            }
+            updateStudent({
+              ...student,
+              classId: targetClass.id,
+              className: targetClass.code,
+              campus: targetClass.campus || student.campus,
+              status: StudentStatus.ENROLLED,
+              enrollmentStatus: 'DA_GHI_DANH',
+              note: appendStudentNote(student.note, `Claim chuyển lớp đã xử lý${resultNote ? `: ${resultNote}` : ''}`)
+            });
+            addClassLog(targetClass.id, 'CLAIM_TRANSFER_IN', `Tiếp nhận ${student.name} từ claim chuyển lớp`, actor);
+          }
+        }
+
+        if (claimForm.claimType === 'TAM_DUNG' || claimForm.claimType === 'BAO_LUU') {
           if (currentClassStudent?.classId) {
-            transferStudentClass(student.id, currentClassStudent.classId, targetClass.id);
-            addClassLog(currentClassStudent.classId, 'CLAIM_TRANSFER_OUT', `Claim chuyển lớp cho ${student.name} sang ${targetClass.code}`, actor);
-          } else {
-            addStudentToClass(targetClass.id, student.id);
+            updateClassStudentStatus(currentClassStudent.classId, student.id, 'BAO_LUU');
+            addClassLog(currentClassStudent.classId, 'CLAIM_PAUSE_STUDENT', `${student.name} ${claimForm.claimType === 'BAO_LUU' ? 'bảo lưu' : 'tạm dừng'} từ claim`, actor);
           }
           updateStudent({
             ...student,
-            classId: targetClass.id,
-            className: targetClass.code,
-            campus: targetClass.campus || student.campus,
-            status: StudentStatus.ENROLLED,
+            status: StudentStatus.RESERVED,
             enrollmentStatus: 'DA_GHI_DANH',
-            note: appendStudentNote(student.note, `Claim chuyển lớp đã xử lý${resultNote ? `: ${resultNote}` : ''}`)
+            note: appendStudentNote(
+              student.note,
+              `${claimForm.claimType === 'BAO_LUU' ? 'Bảo lưu' : 'Tạm dừng'} từ ${claimForm.effectiveDate || claimForm.requestedDate || '--'}${claimForm.reserveUntilDate || claimForm.expectedReturnDate ? ` đến ${claimForm.reserveUntilDate || claimForm.expectedReturnDate}` : ''}`
+            )
           });
-          addClassLog(targetClass.id, 'CLAIM_TRANSFER_IN', `Tiếp nhận ${student.name} từ claim chuyển lớp`, actor);
         }
-      }
 
-      if (claimForm.claimType === 'TAM_DUNG' || claimForm.claimType === 'BAO_LUU') {
-        if (currentClassStudent?.classId) {
-          updateClassStudentStatus(currentClassStudent.classId, student.id, 'BAO_LUU');
-          addClassLog(currentClassStudent.classId, 'CLAIM_PAUSE_STUDENT', `${student.name} ${claimForm.claimType === 'BAO_LUU' ? 'bảo lưu' : 'tạm dừng'} từ claim`, actor);
+        if (claimForm.claimType === 'HOC_LAI' && claimForm.resolvedClassId) {
+          const targetClass = classes.find((item) => item.id === claimForm.resolvedClassId || item.code === claimForm.resolvedClassId);
+          if (targetClass) {
+            if (currentClassStudent?.classId) transferStudentClass(student.id, currentClassStudent.classId, targetClass.id);
+            else addStudentToClass(targetClass.id, student.id);
+            updateStudent({
+              ...student,
+              classId: targetClass.id,
+              className: targetClass.code,
+              campus: targetClass.campus || student.campus,
+              status: StudentStatus.ENROLLED,
+              enrollmentStatus: 'DA_GHI_DANH',
+              note: appendStudentNote(student.note, `Học lại lớp ${targetClass.code}${resultNote ? `: ${resultNote}` : ''}`)
+            });
+          }
         }
-        updateStudent({
-          ...student,
-          status: StudentStatus.RESERVED,
-          enrollmentStatus: 'DA_GHI_DANH',
-          note: appendStudentNote(
-            student.note,
-            `${claimForm.claimType === 'BAO_LUU' ? 'Bảo lưu' : 'Tạm dừng'} từ ${claimForm.effectiveDate || claimForm.requestedDate || '--'}${claimForm.reserveUntilDate || claimForm.expectedReturnDate ? ` đến ${claimForm.reserveUntilDate || claimForm.expectedReturnDate}` : ''}`
-          )
-        });
-      }
 
-      if (claimForm.claimType === 'HOC_LAI' && claimForm.resolvedClassId) {
-        const targetClass = classes.find((item) => item.id === claimForm.resolvedClassId || item.code === claimForm.resolvedClassId);
-        if (targetClass) {
-          if (currentClassStudent?.classId) transferStudentClass(student.id, currentClassStudent.classId, targetClass.id);
-          else addStudentToClass(targetClass.id, student.id);
+        if (claimForm.claimType === 'KHAC' && claimForm.affectsStudentStatus) {
           updateStudent({
             ...student,
-            classId: targetClass.id,
-            className: targetClass.code,
-            campus: targetClass.campus || student.campus,
-            status: StudentStatus.ENROLLED,
-            enrollmentStatus: 'DA_GHI_DANH',
-            note: appendStudentNote(student.note, `Học lại lớp ${targetClass.code}${resultNote ? `: ${resultNote}` : ''}`)
+            note: appendStudentNote(student.note, `Claim khác đã xử lý${resultNote ? `: ${resultNote}` : policyNote ? `: ${policyNote}` : ''}`)
           });
         }
-      }
-
-      if (claimForm.claimType === 'KHAC' && claimForm.affectsStudentStatus) {
-        updateStudent({
-          ...student,
-          note: appendStudentNote(student.note, `Claim khác đã xử lý${resultNote ? `: ${resultNote}` : policyNote ? `: ${policyNote}` : ''}`)
-        });
+      } catch (error: any) {
+        alert(error?.message || 'Không thể xử lý claim');
+        return;
       }
     }
 
@@ -843,10 +1108,32 @@ const ContractStudentDetail: React.FC = () => {
       updatedAt: new Date().toISOString(),
       updatedBy: actor
     });
+    const claimLogMessage = buildChangeLogMessage(
+      `${claimModalMode === 'cancel' ? 'Hủy' : 'Xử lý'} claim ${CLAIM_TYPE_LABELS[claimForm.claimType]}`,
+      [
+        { label: 'Trạng thái', before: CLAIM_STATUS_LABELS[selectedClaim.claimStatus], after: CLAIM_STATUS_LABELS[nextStatus] },
+        { label: 'Ai xử lý', before: selectedClaim.assignedDepartment, after: claimForm.assignedDepartment },
+        { label: 'Lý do', before: selectedClaim.reason, after: reason },
+        { label: 'Ghi chú', before: selectedClaim.note, after: note },
+        { label: 'Mô tả', before: selectedClaim.detail, after: claimForm.detail.trim() },
+        { label: 'Lớp đề xuất', before: getClassDisplayName(selectedClaim.proposedClassId, selectedClaim.proposedClassCode), after: getClassDisplayName(claimForm.proposedClassId, claimForm.proposedClassCode) },
+        { label: 'Lớp xử lý', before: getClassDisplayName(selectedClaim.resolvedClassId, selectedClaim.resolvedClassCode), after: getClassDisplayName(claimForm.resolvedClassId, claimForm.resolvedClassCode) },
+        { label: 'Level/môn', before: selectedClaim.levelOrSubject, after: claimForm.levelOrSubject.trim() },
+        { label: 'Ngày mong muốn', before: formatDate(selectedClaim.requestedDate), after: formatDate(claimForm.requestedDate) },
+        { label: 'Ngày hiệu lực', before: formatDate(selectedClaim.effectiveDate), after: formatDate(claimForm.effectiveDate) },
+        { label: 'Ngày quay lại', before: formatDate(selectedClaim.expectedReturnDate), after: formatDate(claimForm.expectedReturnDate) },
+        { label: 'Bảo lưu đến', before: formatDate(selectedClaim.reserveUntilDate), after: formatDate(claimForm.reserveUntilDate) },
+        { label: 'Ghi chú xử lý', before: selectedClaim.resultNote, after: resultNote },
+        { label: 'Chính sách quay lại', before: selectedClaim.policyNote, after: policyNote },
+        { label: 'Giữ học phí', before: selectedClaim.keepFeeConfirmed, after: claimForm.keepFeeConfirmed },
+        { label: 'Giữ chỗ', before: selectedClaim.keepSlot, after: claimForm.keepSlot },
+        { label: 'Ảnh hưởng trạng thái', before: selectedClaim.affectsStudentStatus, after: claimForm.affectsStudentStatus }
+      ]
+    );
     addStudentLog(
       student.id,
       claimModalMode === 'cancel' ? 'CANCEL_CLAIM' : 'PROCESS_CLAIM',
-      `${claimModalMode === 'cancel' ? 'Hủy' : 'Xử lý'} claim ${CLAIM_TYPE_LABELS[claimForm.claimType]} - ${CLAIM_STATUS_LABELS[nextStatus]}${note ? `: ${note}` : ''}`,
+      claimLogMessage,
       actor,
       'SYSTEM'
     );
@@ -869,7 +1156,7 @@ const ContractStudentDetail: React.FC = () => {
   return (
     <div className="mx-auto max-w-7xl bg-[#f6f7f9] p-4 font-sans text-slate-800">
       <div className="flex flex-col rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3">
+        <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3">
           <div className="flex flex-wrap items-center gap-2">
             <button onClick={() => navigate('/contracts')} className="inline-flex items-center gap-1.5 rounded-lg border border-transparent px-2.5 py-1.5 text-sm font-medium text-slate-500 hover:border-slate-300 hover:bg-white hover:text-slate-800">
               <ArrowLeft size={14} />
@@ -878,28 +1165,11 @@ const ContractStudentDetail: React.FC = () => {
             <button onClick={() => setShowEditModal(true)} className="inline-flex items-center gap-1.5 rounded-lg border border-transparent px-3 py-1.5 text-sm font-medium text-slate-700 hover:border-slate-300 hover:bg-white">
               Chỉnh sửa hồ sơ
             </button>
-            {!hideClassControls ? <button onClick={openEnrollModal} disabled={!availableLockedQuotations.length || latestAdmission?.status === 'CHO_DUYET'} className="inline-flex items-center gap-1.5 rounded-lg border border-transparent px-3 py-1.5 text-sm font-medium text-slate-700 hover:border-slate-300 hover:bg-white disabled:cursor-not-allowed disabled:text-slate-400">
-              <GraduationCap size={14} />
-              Ghi danh vào lớp
-            </button> : null}
-            {!hideClassControls ? <button onClick={openTransferModal} disabled={!currentClassStudent?.classId || !classOptions.length} className="inline-flex items-center gap-1.5 rounded-lg border border-transparent px-3 py-1.5 text-sm font-medium text-slate-700 hover:border-slate-300 hover:bg-white disabled:cursor-not-allowed disabled:text-slate-400">
-              <RefreshCcw size={14} />
-              Chuyển lớp
-            </button> : null}
-            {!hideClassControls ? <button onClick={openPauseModal} disabled={!currentClassStudent?.classId || studentStatusKey !== 'DANG_HOC'} className="inline-flex items-center gap-1.5 rounded-lg border border-transparent px-3 py-1.5 text-sm font-medium text-slate-700 hover:border-slate-300 hover:bg-white disabled:cursor-not-allowed disabled:text-slate-400">
-              <PauseCircle size={14} />
-              Tạm dừng
-            </button> : null}
             <button onClick={() => linkedQuotation && navigate(`/contracts/quotations/${linkedQuotation.id}`)} disabled={!linkedQuotation} className="inline-flex items-center gap-1.5 rounded-lg border border-transparent px-3 py-1.5 text-sm font-medium text-slate-700 hover:border-slate-300 hover:bg-white disabled:cursor-not-allowed disabled:text-slate-400">
               <FileText size={14} />
               Xem SO
             </button>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className={`rounded-full px-3 py-1 text-xs font-semibold ${badgeClassByStatus(studentStatusKey)}`}>{studentStatusLabel}</span>
-            <span className={`rounded-full px-3 py-1 text-xs font-semibold ${badgeClassByStatus(latestAdmission?.status || 'CHUA_TAO')}`}>{latestAdmission?.status || 'CHƯA TẠO'}</span>
-            {linkedQuotation?.status === QuotationStatus.LOCKED ? <span className={`rounded-full px-3 py-1 text-xs font-semibold ${badgeClassByStatus(linkedQuotation.status)}`}>Locked</span> : null}
-        </div>
         </div>
 
         <div className="border-b border-slate-200 px-4 py-4">
@@ -909,7 +1179,7 @@ const ContractStudentDetail: React.FC = () => {
                 <h1 className="text-2xl font-bold text-slate-900">{student.name}</h1>
                 <span className="text-sm text-slate-400">{student.code}</span>
               </div>
-              <div className="mt-1 text-sm text-slate-500">{student.phone || 'Chưa có số điện thoại'} {linkedQuotation?.soCode ? `• SO ${linkedQuotation.soCode}` : ''}</div>
+              <div className="mt-1 text-sm text-slate-500">{student.phone || 'Chưa có số điện thoại'} {sourceSoCodes.length ? `• SO ${sourceSoCodes.join(', ')}` : ''}</div>
             </div>
           </div>
         </div>
@@ -926,17 +1196,11 @@ const ContractStudentDetail: React.FC = () => {
                   <CompactFieldRow label="SĐT" value={student.phone || '--'} />
                   <CompactFieldRow label="Email" value={student.email || '--'} />
                   <CompactFieldRow label="Cơ sở" value={latestAdmission?.campusId || student.campus || '--'} />
-                </div>
-              </section>
-
-              <section className="border-t border-slate-200 pt-4">
-                <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.08em] text-[#666666]">THÔNG TIN NGUỒN</div>
-                <div className="space-y-0.5">
-                  <CompactFieldRow label="SO nguồn" value={linkedQuotation?.soCode || '--'} />
-                  <CompactFieldRow label="Gói dịch vụ" value={sourceProgramLabel} valueClassName="whitespace-nowrap" />
-                  <CompactFieldRow label="Sale phụ trách" value={linkedQuotation?.salespersonName || '--'} />
+                  <CompactFieldRow label="SO nguồn" value={<CompactBadgeList values={sourceSoCodes} />} truncateValue={false} valueClassName="whitespace-normal" />
+                  <CompactFieldRow label="Sản phẩm" value={<CompactBadgeList values={sourceProductLabels} />} truncateValue={false} valueClassName="whitespace-normal" />
+                  <CompactFieldRow label="Chương trình" value={<CompactBadgeList values={sourceProgramLabels} />} truncateValue={false} valueClassName="whitespace-normal" />
+                  <CompactFieldRow label="Sale phụ trách" value={<CompactBadgeList values={sourceSalespeople} />} truncateValue={false} valueClassName="whitespace-normal" />
                   <CompactFieldRow label="Ngày kích hoạt" value={formatDate(student.createdAt || linkedQuotation?.lockedAt)} />
-                  <CompactFieldRow label="Người thanh toán" value={student.payerName || linkedQuotation?.customerName || '--'} />
                 </div>
               </section>
             </div>
@@ -946,20 +1210,14 @@ const ContractStudentDetail: React.FC = () => {
                 <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.08em] text-[#666666]">TRẠNG THÁI NHANH</div>
                 <div className="space-y-0.5">
                   <CompactFieldRow label="Trạng thái học viên" value={<span className={`inline-flex rounded-md px-2 py-0.5 text-[11px] font-medium ${compactBadgeClassByStatus(studentStatusKey)}`}>{studentStatusLabel}</span>} valueClassName="whitespace-nowrap" />
-                  <CompactFieldRow label="Admission" value={<span className={`inline-flex rounded-md px-2 py-0.5 text-[11px] font-medium ${compactBadgeClassByStatus(latestAdmission?.status || 'CHUA_TAO')}`}>{admissionStatusLabel}</span>} valueClassName="whitespace-nowrap" />
+                  <CompactFieldRow label="Cơ sở hiện tại" value={currentClass?.campus || latestAdmission?.campusId || student.campus || '--'} valueClassName="whitespace-nowrap" />
                   <CompactFieldRow label="Lớp hiện tại" value={currentClass?.code || '--'} valueClassName="whitespace-nowrap" />
                   <CompactFieldRow label="Trạng thái lớp" value={<span className={`inline-flex rounded-md px-2 py-0.5 text-[11px] font-medium ${compactBadgeClassByStatus(studentStatusKey)}`}>{currentClassStatusLabel}</span>} valueClassName="whitespace-nowrap" />
+                  <CompactFieldRow label="Chứng chỉ" value={<span className={`inline-flex rounded-md px-2 py-0.5 text-[11px] font-medium ${getCertificateBadgeClass(certificateLabel)}`}>{certificateLabel}</span>} valueClassName="whitespace-nowrap" />
+                  <CompactFieldRow label="Trạng thái công nợ" value={<span className={`inline-flex rounded-md px-2 py-0.5 text-[11px] font-medium ${debtQuickStatusMeta.badgeClassName}`}>{debtQuickStatusMeta.label}</span>} valueClassName="whitespace-nowrap" />
+                  <CompactFieldRow label="Số tiền công nợ" value={formatMoney(remainingValue)} valueClassName="whitespace-nowrap" />
+                  <CompactFieldRow label="Thời gian công nợ" value={debtQuickStatusMeta.timing} valueClassName="whitespace-nowrap" />
                 </div>
-              </section>
-
-              <section className="border-t border-slate-200 pt-4">
-                <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.08em] text-[#666666]">CẢNH BÁO NHANH</div>
-                <div className="flex flex-wrap gap-1.5">
-                  {quickWarnings.length > 0 ? quickWarnings.map((warning) => (
-                    <div key={warning} className="inline-flex rounded-md bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700 ring-1 ring-inset ring-amber-100 whitespace-nowrap">{warning}</div>
-                  )) : <div className="text-[13px] text-slate-500">Không có cảnh báo.</div>}
-                </div>
-                <div className="mt-2 truncate text-[13px] text-slate-700">{studentNote || '--'}</div>
               </section>
 
               <section className="border-t border-slate-200 pt-4">
@@ -993,6 +1251,13 @@ const ContractStudentDetail: React.FC = () => {
                 </div>
               </section>
             </div>
+
+            <section className="xl:col-span-2 xl:border-t xl:border-slate-200 xl:pt-4">
+              <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.08em] text-[#666666]">GHI CHÚ</div>
+              <div className="rounded-xl bg-slate-50 px-4 py-3 text-[13px] leading-6 text-slate-700 whitespace-pre-wrap">
+                {profileNote || 'Chưa có ghi chú.'}
+              </div>
+            </section>
           </div>
         </div> : null}
         <div className="order-1 border-b border-slate-200 px-4 pt-3">
@@ -1010,7 +1275,6 @@ const ContractStudentDetail: React.FC = () => {
             <div className="space-y-0 divide-y divide-[#eeeeee]">
               <section className="pb-4">
                 <div className="mb-3 flex flex-wrap items-center gap-2">
-                  <button onClick={() => setShowEditModal(true)} className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-[13px] font-medium text-slate-700">Chỉnh sửa hồ sơ</button>
                   <button onClick={openEnrollModal} disabled={!availableLockedQuotations.length || latestAdmission?.status === 'CHO_DUYET'} className="rounded-md border border-blue-600 bg-blue-600 px-3 py-1.5 text-[13px] font-medium text-white disabled:cursor-not-allowed disabled:opacity-40">Ghi danh vào lớp</button>
                   <button onClick={openTransferModal} disabled={!currentClassStudent?.classId || !classOptions.length} className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-[13px] font-medium text-slate-700 disabled:cursor-not-allowed disabled:opacity-40">Chuyển lớp</button>
                   <button onClick={openPauseModal} disabled={studentStatusKey !== 'DANG_HOC'} className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-[13px] font-medium text-slate-700 disabled:cursor-not-allowed disabled:opacity-40">Tạm dừng</button>
@@ -1069,194 +1333,102 @@ const ContractStudentDetail: React.FC = () => {
           </div>
         ) : null}
 
-        {activeTab === 'finance' ? (
-          <div className="order-2 px-4 py-4">
-            <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-              <section className="border-b border-slate-200 px-4 py-3">
-                <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-                  <div className="min-w-0">
-                    <div className="mb-2 flex flex-wrap items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => navigate('/finance/transaction/new')}
-                        className="rounded-sm border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
-                      >
-                        Tạo phiếu thu
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => navigate('/admin/templates')}
-                        className="rounded-sm border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
-                      >
-                        Gửi thông báo nợ
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => window.print()}
-                        className="rounded-sm border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
-                      >
-                        In công nợ
-                      </button>
-                    </div>
-                    <div className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">Chi tiết công nợ học viên</div>
-                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-slate-600">
-                      <span className="font-semibold text-slate-900">{student.name}</span>
-                      <span>{student.code}</span>
-                      <span>{linkedQuotation?.soCode ? `SO ${linkedQuotation.soCode}` : 'SO --'}</span>
-                    </div>
-                  </div>
-
-                  <div className="flex min-w-0 flex-col gap-3 xl:items-end">
-                    <div className="flex flex-wrap gap-x-5 gap-y-2 xl:justify-end">
-                      <div className="whitespace-nowrap text-right">
-                        <div className="text-[10px] font-bold uppercase tracking-[0.06em] text-slate-500">Tổng giá trị</div>
-                        <div className="mt-0.5 text-[14px] font-bold text-slate-900">{formatMoney(totalValue)}</div>
-                      </div>
-                      <div className="whitespace-nowrap text-right">
-                        <div className="text-[10px] font-bold uppercase tracking-[0.06em] text-slate-500">Đã thu</div>
-                        <div className="mt-0.5 text-[14px] font-bold text-emerald-700">{formatMoney(paidValue)}</div>
-                      </div>
-                      <div className="whitespace-nowrap text-right">
-                        <div className="text-[10px] font-bold uppercase tracking-[0.06em] text-slate-500">Công nợ</div>
-                        <div className={`mt-0.5 text-[14px] font-bold ${remainingValue > 0 ? 'text-orange-700' : 'text-slate-900'}`}>{formatMoney(remainingValue)}</div>
-                      </div>
-                    </div>
-
-                    <div className="w-full xl:w-auto">
-                      <div className="mb-1 flex items-center justify-between gap-3">
-                        <div className="text-[10px] font-bold uppercase tracking-[0.06em] text-slate-500">Trạng thái công nợ</div>
-                        <span className={`inline-flex rounded-sm px-2 py-0.5 text-[11px] font-semibold ${financeStatusMeta.badgeClassName}`}>
-                          {financeStatusMeta.label}
-                        </span>
-                      </div>
-                      <div className="flex min-w-0 overflow-hidden rounded-sm border border-slate-200 bg-slate-50">
-                        {FINANCE_WORKFLOW_STEPS.map((step, index) => {
-                          const isActive = index === financeStatusMeta.activeStep;
-                          const isComplete = index < financeStatusMeta.activeStep;
-                          const stepClassName = isActive
-                            ? financeStatusMeta.activeStep === 3
-                              ? 'bg-emerald-600 text-white'
-                              : financeStatusMeta.activeStep === 2
-                                ? 'bg-orange-600 text-white'
-                                : 'bg-slate-700 text-white'
-                            : isComplete
-                              ? 'bg-slate-600 text-white'
-                              : 'bg-slate-50 text-slate-500';
-
-                          return (
-                            <div
-                              key={step}
-                              className={`relative flex min-w-[92px] items-center justify-center px-4 py-1.5 text-[10px] font-bold uppercase tracking-[0.05em] ${stepClassName}`}
-                              style={index === 0 ? undefined : { clipPath: 'polygon(10px 0, 100% 0, 100% 100%, 0 100%, 10px 50%)' }}
-                            >
-                              <span className="whitespace-nowrap">{step}</span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </section>
-
-              <section className="border-b border-slate-200 px-4 py-3">
-                <div className="grid gap-x-8 gap-y-4 xl:grid-cols-2">
-                  <div className="min-w-0">
-                    <div className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">Thông tin học viên</div>
-                    <div className="space-y-0.5">
-                      <FinanceSheetRow label="Mã học viên" value={student.code} />
-                      <FinanceSheetRow label="Tên học viên" value={student.name} />
-                      <FinanceSheetRow label="SĐT" value={student.phone || '--'} />
-                      <FinanceSheetRow label="Người thanh toán" value={student.payerName || linkedQuotation?.customerName || '--'} />
-                      <FinanceSheetRow label="Sale phụ trách" value={linkedQuotation?.salespersonName || '--'} />
-                      <FinanceSheetRow
-                        label="Trạng thái"
-                        value={<span className={`inline-flex rounded-sm px-2 py-0.5 text-[11px] font-semibold ${financeStatusMeta.badgeClassName}`}>{financeStatusMeta.label}</span>}
-                        valueClassName="whitespace-nowrap"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="min-w-0">
-                    <div className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">Thông tin khóa học</div>
-                    <div className="space-y-0.5">
-                      <FinanceSheetRow label="Sản phẩm" value={linkedQuotation?.product || sourceProgramLabel} />
-                      <FinanceSheetRow label="SO nguồn" value={linkedQuotation?.soCode || '--'} valueClassName="whitespace-nowrap" />
-                      <FinanceSheetRow label="Lớp hiện tại" value={currentClass?.code || '--'} valueClassName="whitespace-nowrap" />
-                      <FinanceSheetRow label="Ngày bắt đầu" value={formatDate(currentClass?.startDate || currentClassStudent?.startDate)} valueClassName="whitespace-nowrap" />
-                      <FinanceSheetRow label="Ngày kết thúc" value={formatDate(currentClass?.endDate)} valueClassName="whitespace-nowrap" />
-                      <FinanceSheetRow label="Cơ sở" value={currentClass?.campus || student.campus || '--'} />
-                    </div>
-                  </div>
-                </div>
-              </section>
-
-              <section className="px-4 py-3">
-                <div className="mb-2 flex items-center justify-between gap-3">
-                  <div className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">Chi tiết đợt đóng</div>
-                  <div className="text-[11px] font-medium text-slate-500">
-                    {debtScheduleRows.length ? `${debtScheduleRows.length} đợt thanh toán` : 'Chưa có lịch đóng phí'}
-                  </div>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[860px] text-left">
-                    <thead className="border-y border-slate-200 bg-slate-50 text-[10px] font-bold uppercase tracking-[0.06em] text-slate-500">
-                      <tr>
-                        <th className="whitespace-nowrap px-2 py-1.5">Đợt đóng</th>
-                        <th className="whitespace-nowrap px-2 py-1.5">Hạn thu</th>
-                        <th className="whitespace-nowrap px-2 py-1.5 text-right">Phải thu</th>
-                        <th className="whitespace-nowrap px-2 py-1.5 text-right">Đã thu</th>
-                        <th className="whitespace-nowrap px-2 py-1.5 text-right">Còn thiếu</th>
-                        <th className="whitespace-nowrap px-2 py-1.5">Trạng thái</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {debtScheduleRows.length ? (
-                        debtScheduleRows.map((item) => (
-                          <tr key={item.key} className="border-b border-slate-100 last:border-b-0">
-                            <td className="whitespace-nowrap px-2 py-1 text-[12px] font-semibold text-slate-900">{item.termLabel}</td>
-                            <td className="whitespace-nowrap px-2 py-1 text-[12px] text-slate-700">{item.dueDate}</td>
-                            <td className="whitespace-nowrap px-2 py-1 text-right text-[12px] font-semibold text-slate-800">{formatMoney(item.receivable)}</td>
-                            <td className="whitespace-nowrap px-2 py-1 text-right text-[12px] font-semibold text-emerald-700">{formatMoney(item.paid)}</td>
-                            <td className="whitespace-nowrap px-2 py-1 text-right text-[12px] font-semibold text-orange-700">{formatMoney(item.remaining)}</td>
-                            <td className="whitespace-nowrap px-2 py-1">
-                              <span className={`inline-flex rounded-sm px-2 py-0.5 text-[11px] font-semibold ${item.statusClassName}`}>{item.statusLabel}</span>
-                            </td>
-                          </tr>
-                        ))
-                      ) : (
-                        <tr>
-                          <td colSpan={6} className="whitespace-nowrap px-2 py-3 text-center text-[12px] text-slate-400">
-                            Chưa có dữ liệu công nợ.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                    {debtScheduleRows.length ? (
-                      <tfoot className="border-t border-slate-200 bg-slate-50">
-                        <tr>
-                          <td className="whitespace-nowrap px-2 py-1.5 text-[12px] font-bold text-slate-900" colSpan={2}>
-                            Tổng cộng
-                          </td>
-                          <td className="whitespace-nowrap px-2 py-1.5 text-right text-[12px] font-bold text-slate-900">{formatMoney(totalValue)}</td>
-                          <td className="whitespace-nowrap px-2 py-1.5 text-right text-[12px] font-bold text-emerald-700">{formatMoney(paidValue)}</td>
-                          <td className="whitespace-nowrap px-2 py-1.5 text-right text-[12px] font-bold text-orange-700">{formatMoney(remainingValue)}</td>
-                          <td className="whitespace-nowrap px-2 py-1.5 text-[12px] font-semibold text-slate-600">{financeStatusMeta.label}</td>
-                        </tr>
-                      </tfoot>
-                    ) : null}
-                  </table>
-                </div>
-              </section>
-            </div>
-          </div>
-        ) : null}
       </div>
 
-      {showEditModal ? <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4"><div className="w-full max-w-2xl rounded-2xl bg-white p-5 shadow-2xl"><div className="mb-4 flex items-center justify-between"><h3 className="text-lg font-bold text-slate-900">Chỉnh sửa hồ sơ học viên</h3><button onClick={closeEditModal} className="text-sm font-medium text-slate-500">Đóng</button></div><div className="grid gap-3 md:grid-cols-2"><input value={editForm.name} onChange={(event) => setEditForm((prev) => ({ ...prev, name: event.target.value }))} className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm" placeholder="Họ tên" /><input value={editForm.dob} onChange={(event) => setEditForm((prev) => ({ ...prev, dob: event.target.value }))} className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm" placeholder="Ngày sinh" /><input value={editForm.phone} onChange={(event) => setEditForm((prev) => ({ ...prev, phone: event.target.value }))} className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm" placeholder="SĐT" /><input value={editForm.email} onChange={(event) => setEditForm((prev) => ({ ...prev, email: event.target.value }))} className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm" placeholder="Email" /><input value={editForm.campus} onChange={(event) => setEditForm((prev) => ({ ...prev, campus: event.target.value }))} className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm" placeholder="Cơ sở mong muốn" /><input value={editForm.payerName} onChange={(event) => setEditForm((prev) => ({ ...prev, payerName: event.target.value }))} className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm" placeholder="Người thanh toán" /></div><textarea value={editForm.note} onChange={(event) => setEditForm((prev) => ({ ...prev, note: event.target.value }))} className="mt-3 h-24 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" placeholder="Ghi chú" /><div className="mt-4 flex justify-end gap-2"><button onClick={closeEditModal} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700">Hủy</button><button onClick={saveProfile} className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white">Lưu thay đổi</button></div></div></div> : null}
-      {claimModalMode ? (
+      {showEditModal ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
-          <div className="w-full max-w-3xl rounded-2xl bg-white p-5 shadow-2xl">
+          <div className="w-full max-w-2xl rounded-2xl bg-white p-5 shadow-2xl">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-lg font-bold text-slate-900">Chỉnh sửa hồ sơ học viên</h3>
+              <button onClick={closeEditModal} className="text-sm font-medium text-slate-500">Đóng</button>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">
+                  Trường họ tên học viên
+                </label>
+                <input
+                  value={editForm.name}
+                  onChange={(event) => setEditForm((prev) => ({ ...prev, name: event.target.value }))}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
+                  placeholder="Nhập họ tên học viên"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">
+                  Trường ngày sinh
+                </label>
+                <input
+                  value={editForm.dob}
+                  onChange={(event) => setEditForm((prev) => ({ ...prev, dob: event.target.value }))}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
+                  placeholder="Nhập ngày sinh"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">
+                  Trường số điện thoại
+                </label>
+                <input
+                  value={editForm.phone}
+                  onChange={(event) => setEditForm((prev) => ({ ...prev, phone: event.target.value }))}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
+                  placeholder="Nhập số điện thoại học viên"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">
+                  Trường email
+                </label>
+                <input
+                  value={editForm.email}
+                  onChange={(event) => setEditForm((prev) => ({ ...prev, email: event.target.value }))}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
+                  placeholder="Nhập email học viên"
+                />
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">
+                  Trường cơ sở theo học
+                </label>
+                <input
+                  value={editForm.campus}
+                  onChange={(event) => setEditForm((prev) => ({ ...prev, campus: event.target.value }))}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
+                  placeholder="Nhập cơ sở theo học hoặc cơ sở mong muốn"
+                />
+              </div>
+
+            </div>
+
+            <div className="mt-3">
+              <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">
+                Trường ghi chú hồ sơ
+              </label>
+              <textarea
+                value={editForm.note}
+                onChange={(event) => setEditForm((prev) => ({ ...prev, note: event.target.value }))}
+                className="h-24 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
+                placeholder="Nhập ghi chú thêm cho hồ sơ học viên"
+              />
+            </div>
+
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={closeEditModal} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700">Hủy</button>
+              <button onClick={saveProfile} className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white">Lưu thay đổi</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {claimModalMode ? (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/50 p-4">
+          <div className="flex min-h-full items-start justify-center py-4 sm:items-center">
+            <div className="flex w-full max-w-3xl max-h-[calc(100vh-2rem)] flex-col overflow-hidden rounded-2xl bg-white p-5 shadow-2xl">
             <div className="mb-4 flex items-center justify-between">
               <div>
                 <h3 className="text-lg font-bold text-slate-900">{claimModalMode === 'create' ? 'Tạo claim' : claimModalMode === 'process' ? 'Xử lý claim' : 'Hủy claim'}</h3>
@@ -1264,8 +1436,9 @@ const ContractStudentDetail: React.FC = () => {
               </div>
               <button onClick={closeClaimModal} className="text-sm font-medium text-slate-500">Đóng</button>
             </div>
+            <div className="min-h-0 flex-1 overflow-y-auto pr-1">
             <div className="space-y-4">
-              <div className="grid gap-3 md:grid-cols-2">
+              <div className={`grid gap-3 ${hideTransferClaimMetaFields ? 'md:grid-cols-1' : 'md:grid-cols-2'}`}>
                 <div>
                   <label className="mb-1 block text-sm font-semibold text-slate-700">Claim type</label>
                   <select
@@ -1276,7 +1449,7 @@ const ContractStudentDetail: React.FC = () => {
                         buildClaimForm(nextType, {
                           reason: prev.reason,
                           note: prev.note,
-                          claimStatus: nextType === 'KHONG_CO' ? 'KHONG_CO' : 'CHO_XU_LY',
+                          claimStatus: 'CHO_XU_LY',
                           currentClassId: currentClass?.id || currentClassStudent?.classId,
                           currentClassCode: currentClass?.code || currentClassStudent?.classId
                         })
@@ -1285,35 +1458,43 @@ const ContractStudentDetail: React.FC = () => {
                     disabled={claimModalMode !== 'create'}
                     className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm disabled:bg-slate-50"
                   >
-                    {CLAIM_TYPE_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                    {(claimModalMode === 'create' ? CLAIM_TYPE_CREATE_OPTIONS : CLAIM_TYPE_OPTIONS).map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
                   </select>
                 </div>
-                <div>
-                  <label className="mb-1 block text-sm font-semibold text-slate-700">Claim status</label>
-                  <select
-                    value={claimModalMode === 'cancel' ? 'DA_HUY' : claimForm.claimStatus}
-                    onChange={(event) => setClaimForm((prev) => ({ ...prev, claimStatus: event.target.value as StudentClaimStatus }))}
-                    disabled={claimModalMode === 'cancel'}
-                    className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm disabled:bg-slate-50"
-                  >
-                    {(claimModalMode === 'process' ? CLAIM_STATUS_OPTIONS.filter((item) => ['CHO_XU_LY', 'DA_XU_LY', 'TU_CHOI'].includes(item.value)) : CLAIM_STATUS_OPTIONS).map((item) => (
-                      <option key={item.value} value={item.value}>{item.label}</option>
-                    ))}
-                  </select>
-                </div>
+                {!hideTransferClaimMetaFields ? (
+                  <div>
+                    <label className="mb-1 block text-sm font-semibold text-slate-700">Claim status</label>
+                    <select
+                      value={claimModalMode === 'cancel' ? 'DA_HUY' : claimForm.claimStatus}
+                      onChange={(event) => setClaimForm((prev) => ({ ...prev, claimStatus: event.target.value as StudentClaimStatus }))}
+                      disabled={claimModalMode === 'cancel'}
+                      className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm disabled:bg-slate-50"
+                    >
+                      {(claimModalMode === 'process'
+                        ? CLAIM_STATUS_OPTIONS.filter((item) => ['CHO_XU_LY', 'DA_XU_LY', 'TU_CHOI'].includes(item.value))
+                        : claimModalMode === 'create'
+                          ? CLAIM_STATUS_CREATE_OPTIONS
+                          : CLAIM_STATUS_OPTIONS).map((item) => (
+                        <option key={item.value} value={item.value}>{item.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                ) : null}
               </div>
 
               <div className="grid gap-3 md:grid-cols-2">
-                <div>
-                  <label className="mb-1 block text-sm font-semibold text-slate-700">Ai xử lý</label>
-                  <select
-                    value={claimForm.assignedDepartment}
-                    onChange={(event) => setClaimForm((prev) => ({ ...prev, assignedDepartment: event.target.value }))}
-                    className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
-                  >
-                    {CLAIM_ASSIGNEE_OPTIONS[claimForm.claimType].map((item) => <option key={item} value={item}>{item}</option>)}
-                  </select>
-                </div>
+                {!hideTransferClaimMetaFields ? (
+                  <div>
+                    <label className="mb-1 block text-sm font-semibold text-slate-700">Ai xử lý</label>
+                    <select
+                      value={claimForm.assignedDepartment}
+                      onChange={(event) => setClaimForm((prev) => ({ ...prev, assignedDepartment: event.target.value }))}
+                      className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
+                    >
+                      {CLAIM_ASSIGNEE_OPTIONS[claimForm.claimType].map((item) => <option key={item} value={item}>{item}</option>)}
+                    </select>
+                  </div>
+                ) : null}
                 {(claimForm.claimType === 'TAM_DUNG' || claimForm.claimType === 'BAO_LUU') && claimModalMode === 'create' ? (
                   <div>
                     <label className="mb-1 block text-sm font-semibold text-slate-700">Lý do</label>
@@ -1333,25 +1514,54 @@ const ContractStudentDetail: React.FC = () => {
                   </div>
                 ) : null}
                 {(claimForm.claimType === 'CHUYEN_LOP' || (claimForm.claimType === 'HOC_LAI' && claimModalMode === 'process')) && claimModalMode !== 'cancel' ? (
-                  <div>
-                    <label className="mb-1 block text-sm font-semibold text-slate-700">{claimForm.claimType === 'HOC_LAI' ? 'Học lại lớp nào' : claimModalMode === 'create' ? 'Lớp đề xuất mới' : 'Lớp mới'}</label>
-                    <select
-                      value={claimModalMode === 'create' ? claimForm.proposedClassId : claimForm.resolvedClassId}
-                      onChange={(event) => {
-                        const selected = classes.find((item) => item.id === event.target.value);
-                        setClaimForm((prev) => ({
-                          ...prev,
-                          ...(claimModalMode === 'create'
-                            ? { proposedClassId: event.target.value, proposedClassCode: selected?.code || '' }
-                            : { resolvedClassId: event.target.value, resolvedClassCode: selected?.code || '' })
-                        }));
-                      }}
-                      className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
-                    >
-                      <option value="">{claimModalMode === 'create' ? '-- Không bắt buộc --' : '-- Chọn lớp --'}</option>
-                      {classes.filter((item) => item.status === 'ACTIVE').map((item) => <option key={item.id} value={item.id}>{item.code} - {item.campus}</option>)}
-                    </select>
-                  </div>
+                  <>
+                    <div>
+                      <label className="mb-1 block text-sm font-semibold text-slate-700">{claimModalMode === 'create' ? 'Cơ sở đề xuất' : 'Cơ sở xử lý'}</label>
+                      <select
+                        value={claimModalMode === 'create' ? claimForm.proposedCampusId : claimForm.resolvedCampusId}
+                        onChange={(event) => {
+                          const nextCampus = event.target.value;
+                          setClaimForm((prev) => ({
+                            ...prev,
+                            ...(claimModalMode === 'create'
+                              ? { proposedCampusId: nextCampus, proposedClassId: '', proposedClassCode: '' }
+                              : { resolvedCampusId: nextCampus, resolvedClassId: '', resolvedClassCode: '' })
+                          }));
+                        }}
+                        className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
+                      >
+                        <option value="">-- Chọn cơ sở --</option>
+                        {(claimCampusOptions.length ? claimCampusOptions : allCampusOptions).map((campus) => <option key={campus} value={campus}>{campus}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-sm font-semibold text-slate-700">{claimForm.claimType === 'HOC_LAI' ? 'Học lại lớp nào' : claimModalMode === 'create' ? 'Lớp đề xuất mới' : 'Lớp mới'}</label>
+                      <select
+                        value={claimModalMode === 'create' ? claimForm.proposedClassId : claimForm.resolvedClassId}
+                        onChange={(event) => {
+                          const selected = classes.find((item) => item.id === event.target.value);
+                          setClaimForm((prev) => ({
+                            ...prev,
+                            ...(claimModalMode === 'create'
+                              ? {
+                                  proposedCampusId: selected?.campus || prev.proposedCampusId,
+                                  proposedClassId: event.target.value,
+                                  proposedClassCode: selected?.code || ''
+                                }
+                              : {
+                                  resolvedCampusId: selected?.campus || prev.resolvedCampusId,
+                                  resolvedClassId: event.target.value,
+                                  resolvedClassCode: selected?.code || ''
+                                })
+                          }));
+                        }}
+                        className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
+                      >
+                        <option value="">{claimModalMode === 'create' ? '-- Không bắt buộc --' : '-- Chọn lớp --'}</option>
+                        {(claimModalMode === 'create' ? claimProposedClassOptions : claimResolvedClassOptions).map((item) => <option key={item.id} value={item.id}>{item.code} - {item.campus}{item.level ? ` - ${item.level}` : ''}</option>)}
+                      </select>
+                    </div>
+                  </>
                 ) : null}
               </div>
 
@@ -1381,6 +1591,10 @@ const ContractStudentDetail: React.FC = () => {
                     </>
                   ) : (
                     <>
+                      <div>
+                        <label className="mb-1 block text-sm font-semibold text-slate-700">Cơ sở hiện tại</label>
+                        <input value={currentClass?.campus || student?.campus || '--'} disabled className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2.5 text-sm" />
+                      </div>
                       <div>
                         <label className="mb-1 block text-sm font-semibold text-slate-700">Lớp hiện tại</label>
                         <input value={currentClass?.code || currentClassStudent?.classId || '--'} disabled className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2.5 text-sm" />
@@ -1490,16 +1704,125 @@ const ContractStudentDetail: React.FC = () => {
 
               {selectedClaim ? <div className="rounded-xl bg-slate-50 px-3 py-2 text-sm text-slate-600">Claim hiện tại: <span className="font-semibold text-slate-900">{CLAIM_TYPE_LABELS[selectedClaim.claimType]}</span> • <span className="font-semibold text-slate-900">{CLAIM_STATUS_LABELS[selectedClaim.claimStatus]}</span></div> : null}
             </div>
-            <div className="mt-4 flex justify-end gap-2">
+            </div>
+            <div className="mt-4 flex justify-end gap-2 border-t border-slate-200 pt-4">
               <button onClick={closeClaimModal} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700">Hủy</button>
               <button onClick={submitClaim} className={`rounded-xl px-4 py-2 text-sm font-semibold text-white ${claimModalMode === 'cancel' ? 'bg-rose-600' : 'bg-slate-900'}`}>{claimModalMode === 'create' ? 'Tạo claim' : claimModalMode === 'process' ? 'Lưu xử lý' : 'Xác nhận hủy'}</button>
             </div>
           </div>
         </div>
+        </div>
       ) : null}
       {false ? <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4"><div className="w-full max-w-xl rounded-2xl bg-white p-5 shadow-2xl"><div className="mb-4 flex items-center justify-between"><div><h3 className="text-lg font-bold text-slate-900">{claimModalMode === 'create' ? 'Tạo claim' : claimModalMode === 'process' ? 'Xử lý claim' : 'Hủy claim'}</h3><p className="mt-1 text-sm text-slate-500">{student.name} • {student.code}</p></div><button onClick={closeClaimModal} className="text-sm font-medium text-slate-500">Đóng</button></div><div className="space-y-3"><div className="grid gap-3 md:grid-cols-2"><div><label className="mb-1 block text-sm font-semibold text-slate-700">Claim type</label><select value={claimForm.claimType} onChange={(event) => setClaimForm((prev) => ({ ...prev, claimType: event.target.value as StudentClaimType, claimStatus: claimModalMode === 'create' && event.target.value === 'KHONG_CO' ? 'KHONG_CO' : prev.claimStatus === 'KHONG_CO' ? 'CHO_XU_LY' : prev.claimStatus }))} disabled={claimModalMode !== 'create'} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm disabled:bg-slate-50">{CLAIM_TYPE_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div><div><label className="mb-1 block text-sm font-semibold text-slate-700">Claim status</label><select value={claimModalMode === 'cancel' ? 'DA_HUY' : claimForm.claimStatus} onChange={(event) => setClaimForm((prev) => ({ ...prev, claimStatus: event.target.value as StudentClaimStatus }))} disabled={claimModalMode === 'cancel'} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm disabled:bg-slate-50">{(claimModalMode === 'process' ? CLAIM_STATUS_OPTIONS.filter((item) => ['CHO_XU_LY', 'DA_XU_LY', 'TU_CHOI'].includes(item.value)) : CLAIM_STATUS_OPTIONS).map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div></div><div><label className="mb-1 block text-sm font-semibold text-slate-700">Lý do</label><textarea value={claimForm.reason} onChange={(event) => setClaimForm((prev) => ({ ...prev, reason: event.target.value }))} className="h-24 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" placeholder="Nhập lý do claim" /></div><div><label className="mb-1 block text-sm font-semibold text-slate-700">Ghi chú</label><textarea value={claimForm.note} onChange={(event) => setClaimForm((prev) => ({ ...prev, note: event.target.value }))} className="h-24 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" placeholder={claimModalMode === 'cancel' ? 'Nhập ghi chú hủy claim' : 'Nhập ghi chú xử lý'} /></div>{selectedClaim ? <div className="rounded-xl bg-slate-50 px-3 py-2 text-sm text-slate-600">Claim hiện tại: <span className="font-semibold text-slate-900">{CLAIM_TYPE_LABELS[selectedClaim.claimType]}</span> • <span className="font-semibold text-slate-900">{CLAIM_STATUS_LABELS[selectedClaim.claimStatus]}</span></div> : null}</div><div className="mt-4 flex justify-end gap-2"><button onClick={closeClaimModal} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700">Hủy</button><button onClick={submitClaim} className={`rounded-xl px-4 py-2 text-sm font-semibold text-white ${claimModalMode === 'cancel' ? 'bg-rose-600' : 'bg-slate-900'}`}>{claimModalMode === 'create' ? 'Tạo claim' : claimModalMode === 'process' ? 'Lưu xử lý' : 'Xác nhận hủy'}</button></div></div></div> : null}
-      {showEnrollModal ? <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4"><div className="w-full max-w-xl rounded-2xl bg-white p-5 shadow-2xl"><div className="mb-4 flex items-center justify-between"><h3 className="text-lg font-bold text-slate-900">Ghi danh vào lớp</h3><button onClick={() => setShowEnrollModal(false)} className="text-sm font-medium text-slate-500">Đóng</button></div><div className="space-y-3"><select value={enrollForm.quotationId} onChange={(event) => setEnrollForm((prev) => ({ ...prev, quotationId: event.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"><option value="">-- Chọn SO --</option>{availableLockedQuotations.map((quotation) => <option key={quotation.id} value={quotation.id}>{quotation.soCode} - {quotation.customerName}</option>)}</select><div className="grid gap-3 md:grid-cols-2"><select value={enrollForm.campusId} onChange={(event) => setEnrollForm((prev) => ({ ...prev, campusId: event.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm">{['Hà Nội', 'HCM', 'Đà Nẵng'].map((campus) => <option key={campus} value={campus}>{campus}</option>)}</select><select value={enrollForm.classId} onChange={(event) => setEnrollForm((prev) => ({ ...prev, classId: event.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"><option value="">-- Chọn lớp --</option>{classes.filter((item) => item.status === 'ACTIVE').map((item) => <option key={item.id} value={item.id}>{item.code} - {item.campus}</option>)}</select></div><textarea value={enrollForm.note} onChange={(event) => setEnrollForm((prev) => ({ ...prev, note: event.target.value }))} className="h-24 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" placeholder="Ghi chú" /></div><div className="mt-4 flex justify-end gap-2"><button onClick={() => setShowEnrollModal(false)} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700">Hủy</button><button onClick={submitEnroll} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white">Lưu ghi danh</button></div></div></div> : null}
-      {showTransferModal ? <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4"><div className="w-full max-w-xl rounded-2xl bg-white p-5 shadow-2xl"><div className="mb-4 flex items-center justify-between"><h3 className="text-lg font-bold text-slate-900">Chuy?n l?p</h3><button onClick={() => setShowTransferModal(false)} className="text-sm font-medium text-slate-500">��ng</button></div><div className="space-y-3"><div><label className="mb-1 block text-sm font-semibold text-slate-700">L?p hi?n t?i</label><input value={currentClass?.code || currentClassStudent?.classId || '--'} disabled className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2.5 text-sm" /></div><div><label className="mb-1 block text-sm font-semibold text-slate-700">L?p d? xu?t chuy?n sang</label><select value={transferForm.classId} onChange={(event) => setTransferForm((prev) => ({ ...prev, classId: event.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"><option value="">-- Ch?n l?p d�ch --</option>{classOptions.map((item) => <option key={item.id} value={item.id}>{item.code} - {item.campus}</option>)}</select></div><div><label className="mb-1 block text-sm font-semibold text-slate-700">Ng�y chuy?n</label><input type="date" value={transferForm.effectiveDate} onChange={(event) => setTransferForm((prev) => ({ ...prev, effectiveDate: event.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" /></div><div><label className="mb-1 block text-sm font-semibold text-slate-700">L� do</label><textarea value={transferForm.reason} onChange={(event) => setTransferForm((prev) => ({ ...prev, reason: event.target.value }))} className="h-24 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" placeholder="L� do chuy?n l?p" /></div></div><div className="mt-4 flex justify-end gap-2"><button onClick={() => setShowTransferModal(false)} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700">H?y</button><button onClick={submitTransfer} className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white">X�c nh?n chuy?n l?p</button></div></div></div> : null}
+      {showEnrollModal ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
+          <div className="w-full max-w-xl rounded-2xl bg-white p-5 shadow-2xl">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-lg font-bold text-slate-900">Ghi danh vào lớp</h3>
+              <button onClick={() => setShowEnrollModal(false)} className="text-sm font-medium text-slate-500">Đóng</button>
+            </div>
+            <div className="space-y-3">
+              <select value={enrollForm.quotationId} onChange={(event) => setEnrollForm((prev) => ({ ...prev, quotationId: event.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm">
+                <option value="">-- Chọn SO --</option>
+                {availableLockedQuotations.map((quotation) => <option key={quotation.id} value={quotation.id}>{quotation.soCode} - {quotation.customerName}</option>)}
+              </select>
+              <div className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                Chỉ hiển thị lớp khớp chương trình học viên: {studentAllowedPrograms.length ? studentAllowedPrograms.join(', ') : '--'}
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-sm font-semibold text-slate-700">Cơ sở</label>
+                  <select
+                    value={enrollForm.campusId}
+                    onChange={(event) =>
+                      setEnrollForm((prev) => ({
+                        ...prev,
+                        campusId: event.target.value,
+                        classId: enrollAvailableClasses.find((item) => item.id === prev.classId)?.campus === event.target.value ? prev.classId : ''
+                      }))
+                    }
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
+                  >
+                    {(enrollCampusOptions.length ? enrollCampusOptions : allCampusOptions).map((campus) => <option key={campus} value={campus}>{campus}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-semibold text-slate-700">Lớp</label>
+                  <select value={enrollForm.classId} onChange={(event) => setEnrollForm((prev) => ({ ...prev, classId: event.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm">
+                    <option value="">-- Chọn lớp --</option>
+                    {enrollAvailableClasses.map((item) => <option key={item.id} value={item.id}>{item.code} - {item.campus}{item.level ? ` - ${item.level}` : ''}</option>)}
+                  </select>
+                </div>
+              </div>
+              <textarea value={enrollForm.note} onChange={(event) => setEnrollForm((prev) => ({ ...prev, note: event.target.value }))} className="h-24 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" placeholder="Ghi chú" />
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={() => setShowEnrollModal(false)} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700">Hủy</button>
+              <button onClick={submitEnroll} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white">Lưu ghi danh</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {showTransferModal ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
+          <div className="w-full max-w-xl rounded-2xl bg-white p-5 shadow-2xl">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-lg font-bold text-slate-900">Chuyển lớp</h3>
+              <button onClick={() => setShowTransferModal(false)} className="text-sm font-medium text-slate-500">Đóng</button>
+            </div>
+            <div className="space-y-3">
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-sm font-semibold text-slate-700">Cơ sở hiện tại</label>
+                  <input value={currentClass?.campus || student?.campus || '--'} disabled className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2.5 text-sm" />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-semibold text-slate-700">Lớp hiện tại</label>
+                  <input value={currentClass?.code || currentClassStudent?.classId || '--'} disabled className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2.5 text-sm" />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-semibold text-slate-700">Cơ sở chuyển đến</label>
+                  <select
+                    value={transferForm.campusId}
+                    onChange={(event) =>
+                      setTransferForm((prev) => ({
+                        ...prev,
+                        campusId: event.target.value,
+                        classId: transferAvailableClasses.find((item) => item.id === prev.classId)?.campus === event.target.value ? prev.classId : ''
+                      }))
+                    }
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
+                  >
+                    {(transferCampusOptions.length ? transferCampusOptions : allCampusOptions).map((campus) => <option key={campus} value={campus}>{campus}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-semibold text-slate-700">Lớp đề xuất chuyển sang</label>
+                  <select value={transferForm.classId} onChange={(event) => setTransferForm((prev) => ({ ...prev, classId: event.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm">
+                    <option value="">-- Chọn lớp đích --</option>
+                    {transferAvailableClasses.map((item) => <option key={item.id} value={item.id}>{item.code} - {item.campus}{item.level ? ` - ${item.level}` : ''}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                Chỉ hiển thị lớp khớp chương trình học viên: {studentAllowedPrograms.length ? studentAllowedPrograms.join(', ') : '--'}
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-semibold text-slate-700">Ngày chuyển</label>
+                <input type="date" value={transferForm.effectiveDate} onChange={(event) => setTransferForm((prev) => ({ ...prev, effectiveDate: event.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-semibold text-slate-700">Lý do</label>
+                <textarea value={transferForm.reason} onChange={(event) => setTransferForm((prev) => ({ ...prev, reason: event.target.value }))} className="h-24 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" placeholder="Lý do chuyển lớp" />
+              </div>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={() => setShowTransferModal(false)} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700">Hủy</button>
+              <button onClick={submitTransfer} className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white">Xác nhận chuyển lớp</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {showPauseModal ? <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4"><div className="w-full max-w-xl rounded-2xl bg-white p-5 shadow-2xl"><div className="mb-4 flex items-center justify-between"><h3 className="text-lg font-bold text-slate-900">T?m d?ng</h3><button onClick={() => setShowPauseModal(false)} className="text-sm font-medium text-slate-500">��ng</button></div><div className="space-y-3"><div><label className="mb-1 block text-sm font-semibold text-slate-700">Ng�y b?t d?u t?m d?ng</label><input type="date" value={pauseForm.startDate} onChange={(event) => setPauseForm((prev) => ({ ...prev, startDate: event.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" /></div><div><label className="mb-1 block text-sm font-semibold text-slate-700">L� do</label><textarea value={pauseForm.reason} onChange={(event) => setPauseForm((prev) => ({ ...prev, reason: event.target.value }))} className="h-24 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" placeholder="L� do t?m d?ng" /></div><div><label className="mb-1 block text-sm font-semibold text-slate-700">Ng�y d? ki?n quay l?i</label><input type="date" value={pauseForm.expectedReturnDate} onChange={(event) => setPauseForm((prev) => ({ ...prev, expectedReturnDate: event.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" /></div><div><label className="mb-1 block text-sm font-semibold text-slate-700">Ghi ch�</label><textarea value={pauseForm.note} onChange={(event) => setPauseForm((prev) => ({ ...prev, note: event.target.value }))} className="h-20 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" placeholder="Ghi ch� th�m" /></div></div><div className="mt-4 flex justify-end gap-2"><button onClick={() => setShowPauseModal(false)} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700">H?y</button><button onClick={submitPause} className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white">Luu t?m d?ng</button></div></div></div> : null}
     </div>
   );

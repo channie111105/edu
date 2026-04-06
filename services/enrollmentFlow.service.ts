@@ -12,6 +12,7 @@ import {
   addAdmission,
   createStudentsFromQuotation,
   createStudentFromQuotation,
+  validateStudentClassEligibility,
   getAdmissions,
   getQuotations,
   getStudents,
@@ -152,6 +153,11 @@ export const createAdmission = (payload: CreateAdmissionPayload): IAdmission => 
     throw new Error('Không tìm thấy báo giá đã Khóa để ghi danh');
   }
 
+  const eligibility = validateStudentClassEligibility(payload.studentId, payload.classId);
+  if (!eligibility.ok) {
+    throw new Error(eligibility.reason || 'Học viên không phù hợp với lớp đã chọn');
+  }
+
   const next = getAdmissions().length + 1;
   const item: IAdmission = {
     id: `ADM-${Date.now()}`,
@@ -231,6 +237,11 @@ export const approveAdmission = (
 
   if (!linkedQuotation) {
     return { ok: false, error: 'Không tìm thấy SO liên quan để duyệt ghi danh' };
+  }
+
+  const eligibility = validateStudentClassEligibility(admission.studentId, admission.classId);
+  if (!eligibility.ok) {
+    return { ok: false, error: eligibility.reason || 'Học viên không phù hợp với lớp đã chọn' };
   }
 
   const approvedAt = new Date().toISOString();

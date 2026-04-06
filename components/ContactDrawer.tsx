@@ -1,8 +1,8 @@
 ﻿import React, { useEffect, useMemo, useState } from 'react';
-import { IContact, IContract, IDeal, ContractStatus } from '../types';
-import { Building2, Calendar, CheckCircle2, Clock, CreditCard, DollarSign, ExternalLink, Globe, Plus, Receipt, Save, ShieldCheck, Tag, X } from 'lucide-react';
+import { IContact } from '../types';
+import { Building2, Calendar, Clock, Globe, Receipt, Save, Tag, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { getContracts, getContactById, getDeals } from '../utils/storage';
+import { getContactById } from '../utils/storage';
 import CreateMeetingModal from './CreateMeetingModal';
 import { MeetingCustomerOption } from '../utils/meetingHelpers';
 
@@ -13,7 +13,7 @@ interface ContactDrawerProps {
     onUpdate: (updatedContact: IContact) => void;
 }
 
-type ContactTab = 'details' | 'notes' | 'sales' | 'invoicing';
+type ContactTab = 'details' | 'notes';
 
 const inputClassName = 'h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-800 shadow-sm outline-none transition placeholder:font-normal placeholder:text-slate-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-100';
 const panelClassName = 'rounded-lg border border-slate-300 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.05)]';
@@ -65,8 +65,6 @@ const ContactDrawer: React.FC<ContactDrawerProps> = ({ contact: initialContact, 
     const { user } = useAuth();
     const [contact, setContact] = useState<IContact | null>(null);
     const [activeTab, setActiveTab] = useState<ContactTab>('details');
-    const [deals, setDeals] = useState<IDeal[]>([]);
-    const [contracts, setContracts] = useState<IContract[]>([]);
     const [noteContent, setNoteContent] = useState('');
     const [isCreateMeetingModalOpen, setIsCreateMeetingModalOpen] = useState(false);
 
@@ -75,30 +73,17 @@ const ContactDrawer: React.FC<ContactDrawerProps> = ({ contact: initialContact, 
         setContact(initialContact);
         setActiveTab('details');
         setNoteContent('');
-        const relatedDeals = getDeals().filter((deal) => deal.leadId === initialContact.id || (initialContact.dealIds || []).includes(deal.id));
-        setDeals(relatedDeals);
-        setContracts(getContracts().filter((contract) => relatedDeals.some((deal) => deal.id === contract.dealId)));
     }, [initialContact]);
 
-    const financialStats = useMemo(() => {
-        const totalDealValue = deals.reduce((sum, deal) => sum + Number(deal.value || 0), 0);
-        const totalContractValue = contracts.reduce((sum, contract) => sum + Number(contract.totalValue || 0), 0);
-        const totalPaid = contracts.reduce((sum, contract) => sum + Number(contract.paidValue || 0), 0);
-        const totalDebt = Math.max(totalContractValue - totalPaid, 0);
-        const activeContracts = contracts.filter((contract) => contract.status === ContractStatus.ACTIVE || contract.status === ContractStatus.SIGNED).length;
-        const meetingCount = (contact?.activities || []).filter((activity: any) => activity.type === 'meeting').length;
-        return { activeContracts, dealCount: deals.length, meetingCount, totalContractValue, totalDealValue, totalDebt, totalPaid };
-    }, [contact, contracts, deals]);
+    const contactStats = useMemo(() => {
+        const activities = Array.isArray(contact?.activities) ? contact.activities : [];
+        const meetingCount = activities.filter((activity: any) => activity.type === 'meeting').length;
+        const noteCount = activities.filter((activity: any) => activity.type === 'note').length;
+        return { meetingCount, noteCount, activityCount: activities.length };
+    }, [contact]);
 
     if (!isOpen || !contact) return null;
 
-    const money = (amount: number) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount || 0);
-    const compactMoney = (amount: number) => {
-        const abs = Math.abs(amount || 0);
-        if (abs >= 1_000_000_000) return `${(amount / 1_000_000_000).toFixed(1)}B`;
-        if (abs >= 1_000_000) return `${(amount / 1_000_000).toFixed(1)}M`;
-        return new Intl.NumberFormat('vi-VN').format(amount || 0);
-    };
     const dateTime = (value?: string) => {
         if (!value) return '-';
         const date = new Date(value);
@@ -305,26 +290,6 @@ const ContactDrawer: React.FC<ContactDrawerProps> = ({ contact: initialContact, 
         </div>
     );
 
-    const renderSalesTab = () => (
-        <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-            <div className={`${panelClassName} overflow-hidden self-start`}>
-                <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3"><div><div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">Kinh doanh</div><div className="mt-0.5 text-[15px] font-semibold text-slate-900">Cơ hội bán hàng</div></div><button className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100"><Plus size={13} />Tạo cơ hội</button></div>
-                <div className="divide-y divide-slate-200">{deals.length === 0 ? <div className="px-4 py-8 text-center text-sm font-medium text-slate-500">Contact này chưa có cơ hội bán hàng nào được liên kết.</div> : deals.map((deal) => <div key={deal.id} className="flex items-center justify-between gap-4 px-4 py-3 hover:bg-blue-50/40"><div className="min-w-0"><div className="truncate text-sm font-semibold text-slate-900">{deal.title}</div><div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs font-medium text-slate-500"><span>{deal.stage}</span><span className="text-slate-300">•</span><span>{dateTime(deal.createdAt)}</span></div></div><div className="text-right"><div className="text-sm font-semibold text-slate-900">{money(deal.value || 0)}</div><div className="text-[11px] font-medium text-slate-500">Doanh thu dự kiến</div></div></div>)}</div>
-            </div>
-            <div className="space-y-4 self-start">
-                <div className={`${panelClassName} p-4`}><div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">Tổng quan</div><div className="mt-3 space-y-2"><SummaryRow icon={DollarSign} label="Giá trị cơ hội" value={compactMoney(financialStats.totalDealValue)} hint="Tổng giá trị" /><SummaryRow icon={Receipt} label="Đã ký" value={String(contracts.length)} hint="Hợp đồng đã tạo" /><SummaryRow icon={ShieldCheck} label="SO" value={String(financialStats.activeContracts)} hint="Hợp đồng đang chạy" /></div></div>
-                <div className={`${panelClassName} overflow-hidden`}><div className="border-b border-slate-200 px-4 py-3"><div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">Hợp đồng</div><div className="mt-0.5 text-[15px] font-semibold text-slate-900">Chứng từ liên quan</div></div><div className="divide-y divide-slate-200">{contracts.length === 0 ? <div className="px-4 py-6 text-center text-sm font-medium text-slate-500">Chưa có hợp đồng liên kết.</div> : contracts.map((contract) => <div key={contract.id} className="px-4 py-3"><div className="flex items-start justify-between gap-4"><div className="min-w-0"><div className="flex items-center gap-2"><div className="truncate text-sm font-semibold text-slate-900">{contract.code}</div><span className={['rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide', contract.status === ContractStatus.ACTIVE || contract.status === ContractStatus.SIGNED ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-300 bg-slate-100 text-slate-600'].join(' ')}>{contract.status}</span></div><div className="mt-0.5 text-xs font-medium text-slate-500">Ngày ký: {contract.signedDate ? dateTime(contract.signedDate) : '-'}</div></div><div className="text-right text-sm font-semibold text-slate-900">{money(contract.totalValue)}</div></div></div>)}</div></div>
-            </div>
-        </div>
-    );
-
-    const renderInvoicingTab = () => (
-        <div className="space-y-6">
-            <div className="grid gap-4 md:grid-cols-3"><MetricCard icon={Receipt} label="Đã xuất" value={compactMoney(financialStats.totalContractValue)} hint={money(financialStats.totalContractValue)} /><MetricCard icon={CheckCircle2} label="Đã thu" value={compactMoney(financialStats.totalPaid)} hint={money(financialStats.totalPaid)} /><MetricCard icon={CreditCard} label="Còn lại" value={compactMoney(financialStats.totalDebt)} hint={money(financialStats.totalDebt)} /></div>
-            <div className={`${panelClassName} overflow-hidden`}><div className="border-b border-slate-200 px-5 py-4"><div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Công nợ / hóa đơn</div><div className="mt-1 text-base font-semibold text-slate-900">Tiến độ thanh toán theo hợp đồng</div></div><div className="divide-y divide-slate-200">{contracts.length === 0 ? <div className="px-5 py-10 text-center text-sm font-medium text-slate-500">Chưa có dữ liệu thanh toán cho contact này.</div> : contracts.map((contract) => { const paymentPercent = contract.totalValue > 0 ? Math.min(100, Math.round((contract.paidValue / contract.totalValue) * 100)) : 0; return <div key={contract.id} className="px-5 py-4"><div className="flex items-center justify-between gap-4"><div className="min-w-0"><div className="truncate text-sm font-semibold text-slate-900">{contract.code}</div><div className="mt-1 text-xs font-medium text-slate-500">Khách hàng: {contract.customerName || contact.name}</div></div><div className="text-right"><div className="text-sm font-semibold text-slate-900">{money(contract.paidValue)} / {money(contract.totalValue)}</div><div className="mt-1 text-xs font-medium text-slate-500">Đã thu {paymentPercent}%</div></div></div><div className="mt-3 h-2 rounded-full bg-slate-100"><div className="h-2 rounded-full bg-blue-500" style={{ width: `${paymentPercent}%` }} /></div></div>; })}</div></div>
-        </div>
-    );
-
     return (
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 font-sans">
             <div className="absolute inset-0 bg-slate-900/35 backdrop-blur-sm" onClick={onClose} />
@@ -343,12 +308,12 @@ const ContactDrawer: React.FC<ContactDrawerProps> = ({ contact: initialContact, 
                                 <div className="mt-2 flex flex-wrap items-center gap-2"><span className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700"><Tag size={11} className="text-blue-600" />{contact.source || 'Chưa có nguồn'}</span><span className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700"><Globe size={11} className="text-blue-600" />{contact.targetCountry || 'Chưa có thị trường'}</span><span className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700"><Building2 size={11} className="text-blue-600" />{contact.company || contact.city || 'Chưa có đơn vị'}</span></div>
                             </div>
                         </div>
-                        <div className="grid w-full max-w-[360px] grid-cols-2 gap-2"><MetricCard icon={ExternalLink} label="Cơ hội" value={String(financialStats.dealCount)} hint="Đã liên kết" /><MetricCard icon={Calendar} label="Lịch hẹn" value={String(financialStats.meetingCount)} hint="Đã tạo" /><MetricCard icon={DollarSign} label="Doanh số" value={compactMoney(financialStats.totalContractValue)} hint="Tổng giá trị" /><MetricCard icon={ShieldCheck} label="SO" value={String(financialStats.activeContracts)} hint="Đang chạy" /></div>
+                        <div className="grid w-full max-w-[360px] grid-cols-2 gap-2"><MetricCard icon={Calendar} label="Lịch hẹn" value={String(contactStats.meetingCount)} hint="Đã tạo" /><MetricCard icon={Clock} label="Hoạt động" value={String(contactStats.activityCount)} hint={`${contactStats.noteCount} ghi chú nội bộ`} /></div>
                         <button onClick={onClose} className="rounded-md p-2 text-slate-500 transition hover:bg-white hover:text-slate-800"><X size={18} /></button>
                     </div>
                 </div>
-                <div className="custom-scrollbar flex-1 min-h-0 overflow-y-auto bg-[#f7f9fc] px-4 py-3">{activeTab === 'details' && (currentType === 'company' ? renderCompanyDetailTab() : renderDetailTab())}{activeTab === 'notes' && renderNotesTab()}{activeTab === 'sales' && renderSalesTab()}{activeTab === 'invoicing' && renderInvoicingTab()}</div>
-                <div className="border-t border-slate-300 bg-white px-4 py-2.5"><div className="grid grid-cols-4 gap-2"><TabButton active={activeTab === 'details'} label={currentType === 'company' ? 'Thông tin công ty' : 'Liên hệ & địa chỉ'} onClick={() => setActiveTab('details')} /><TabButton active={activeTab === 'notes'} label="Ghi chú nội bộ" onClick={() => setActiveTab('notes')} /><TabButton active={activeTab === 'sales'} label="Kinh doanh" onClick={() => setActiveTab('sales')} /><TabButton active={activeTab === 'invoicing'} label="Công nợ / hóa đơn" onClick={() => setActiveTab('invoicing')} /></div></div>
+                <div className="custom-scrollbar flex-1 min-h-0 overflow-y-auto bg-[#f7f9fc] px-4 py-3">{activeTab === 'details' && (currentType === 'company' ? renderCompanyDetailTab() : renderDetailTab())}{activeTab === 'notes' && renderNotesTab()}</div>
+                <div className="border-t border-slate-300 bg-white px-4 py-2.5"><div className="grid grid-cols-2 gap-2"><TabButton active={activeTab === 'details'} label={currentType === 'company' ? 'Thông tin công ty' : 'Liên hệ & địa chỉ'} onClick={() => setActiveTab('details')} /><TabButton active={activeTab === 'notes'} label="Ghi chú nội bộ" onClick={() => setActiveTab('notes')} /></div></div>
                 <div className="flex items-center justify-between border-t border-slate-300 bg-slate-50 px-4 py-3"><div className="text-xs font-medium text-slate-500">Cập nhật lần cuối: <span className="font-semibold text-slate-800">{dateTime(contact.updatedAt || contact.createdAt)}</span></div><div className="flex items-center gap-2.5"><button onClick={onClose} className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">Hủy</button><button onClick={save} className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700"><Save size={15} />Lưu</button></div></div>
             </div>
             <CreateMeetingModal isOpen={isCreateMeetingModalOpen} onClose={() => setIsCreateMeetingModalOpen(false)} salesPersonId={user?.id || 'u2'} salesPersonName={user?.name || 'Sales Rep'} lockedCustomer={lockedMeetingCustomer} onCreated={() => { const refreshed = getContactById(contact.id); if (refreshed) { setContact(refreshed); onUpdate(refreshed); } }} />

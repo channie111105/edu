@@ -176,6 +176,7 @@ const Students: React.FC = () => {
         <table className="w-full text-left text-sm">
           <thead className="bg-slate-50 text-slate-500 font-bold uppercase text-xs border-b border-slate-200">
             <tr>
+              <th className="px-6 py-4 w-16 text-center">STT</th>
               <th className="px-6 py-4">Ma HV</th>
               <th className="px-6 py-4">Hoc vien</th>
               <th className="px-6 py-4">Co so / Lop</th>
@@ -185,12 +186,13 @@ const Students: React.FC = () => {
           </thead>
           <tbody className="divide-y divide-slate-100">
             {filteredData.length > 0 ? (
-              filteredData.map((student) => {
+              filteredData.map((student, index) => {
                 const enrollmentStatus = student.enrollmentStatus || (student.status === StudentStatus.ENROLLED ? 'DA_GHI_DANH' : 'CHUA_GHI_DANH');
                 const hasPendingAdmission = admissions.some((a) => a.studentId === student.id && a.status === 'CHO_DUYET');
                 const canEnroll = enrollmentStatus === 'CHUA_GHI_DANH' && hasLockedQuotation(student.id) && !hasPendingAdmission;
                 return (
                   <tr key={student.id} className="hover:bg-slate-50">
+                    <td className="px-6 py-4 text-center font-semibold text-slate-500">{index + 1}</td>
                     <td className="px-6 py-4 font-mono font-bold text-slate-700">{student.code}</td>
                     <td className="px-6 py-4">
                       <div className="font-bold text-slate-900">{student.name}</div>
@@ -228,7 +230,7 @@ const Students: React.FC = () => {
               })
             ) : (
               <tr>
-                <td colSpan={5} className="text-center py-12 text-slate-500">Khong co hoc vien phu hop.</td>
+                <td colSpan={6} className="text-center py-12 text-slate-500">Khong co hoc vien phu hop.</td>
               </tr>
             )}
           </tbody>

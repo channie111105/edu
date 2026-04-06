@@ -61,6 +61,7 @@ const TrainingToday: React.FC = () => {
                         <table className="w-full text-left border-collapse">
                             <thead>
                                 <tr className="bg-slate-50 text-slate-500 text-xs uppercase font-bold border-b border-slate-200">
+                                    <th className="px-6 py-4 w-16 text-center">STT</th>
                                     <th className="px-6 py-4">Thời gian</th>
                                     <th className="px-6 py-4">Lớp học</th>
                                     <th className="px-6 py-4">Giảng viên & Phòng</th>
@@ -69,8 +70,9 @@ const TrainingToday: React.FC = () => {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
-                                {TODAY_CLASSES.map((cls) => (
+                                {TODAY_CLASSES.map((cls, index) => (
                                     <tr key={cls.id} className="hover:bg-slate-50 transition-colors group">
+                                        <td className="px-6 py-4 text-center font-semibold text-slate-500">{index + 1}</td>
                                         <td className="px-6 py-4">
                                             <div className="flex items-center gap-3">
                                                 <div className={`w-12 h-12 rounded-lg flex flex-col items-center justify-center border font-bold ${cls.status === 'completed' ? 'bg-slate-100 border-slate-200 text-slate-500' :

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+﻿import React, { useEffect, useRef, useState } from 'react';
 import {
   Building2,
   CalendarRange,
@@ -8,11 +8,13 @@ import {
   Download,
   Filter,
   Layers3,
+  Pencil,
   Plus,
   Save,
   TrendingUp,
   X,
 } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 import {
   DealStage,
   IDeal,
@@ -20,6 +22,7 @@ import {
   ISalesKpiTarget,
   ISalesTeam,
   QuotationStatus,
+  UserRole,
 } from '../types';
 import {
   getDeals,
@@ -28,6 +31,9 @@ import {
   getSalesTeams,
   upsertSalesKpis,
 } from '../utils/storage';
+import { decodeMojibakeReactNode } from '../utils/mojibake';
+import SalesRoleTestSwitcher from '../components/SalesRoleTestSwitcher';
+import { useSalesTestRole } from '../utils/salesTestRole';
 
 type MemberProfile = {
   userId: string;
@@ -72,6 +78,7 @@ type TeamKpiRow = {
 };
 
 type TimeFilterValue = '1m' | '3m' | '6m' | '12m' | 'all' | 'custom';
+type KpiModalMode = 'create' | 'edit';
 
 const TIME_FILTER_OPTIONS: Array<{
   value: TimeFilterValue;
@@ -270,9 +277,15 @@ const getStatusMeta = (progress: number) => {
 const sanitizeNumericInput = (value: string) => value.replace(/[^\d]/g, '');
 
 const SalesKPIs: React.FC = () => {
+  const { user } = useAuth();
+  const { salesTestRole } = useSalesTestRole(user?.role);
   const currentMonth = getMonthKey(new Date());
   const today = new Date();
   const currentMonthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+  const canManageKpis =
+    user?.role === UserRole.ADMIN ||
+    user?.role === UserRole.FOUNDER ||
+    salesTestRole === UserRole.SALES_LEADER;
 
   const [timeFilter, setTimeFilter] = useState<TimeFilterValue>('1m');
   const [customStartDate, setCustomStartDate] = useState(toDateInputValue(currentMonthStart));
@@ -284,6 +297,8 @@ const SalesKPIs: React.FC = () => {
   const [quotations, setQuotations] = useState<IQuotation[]>([]);
   const [deals, setDeals] = useState<IDeal[]>([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [modalMode, setModalMode] = useState<KpiModalMode>('create');
+  const [editingMemberId, setEditingMemberId] = useState<string | null>(null);
   const [draftPeriod, setDraftPeriod] = useState(currentMonth);
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
   const [copyPreviousMonth, setCopyPreviousMonth] = useState(false);
@@ -742,7 +757,10 @@ const SalesKPIs: React.FC = () => {
   };
 
   const openCreateModal = () => {
+    if (!canManageKpis) return;
     const defaultIds = (filteredRoster.length ? filteredRoster : roster).map((member) => member.userId);
+    setModalMode('create');
+    setEditingMemberId(null);
     setDraftPeriod(defaultKpiPeriod);
     setCopyPreviousMonth(false);
     setSelectedMemberIds(defaultIds);
@@ -750,8 +768,24 @@ const SalesKPIs: React.FC = () => {
     setShowCreateModal(true);
   };
 
+  const openEditModal = (memberId: string) => {
+    if (!canManageKpis) return;
+    const editableMember = roster.find((member) => member.userId === memberId);
+    if (!editableMember) return;
+
+    setModalMode('edit');
+    setEditingMemberId(memberId);
+    setDraftPeriod(defaultKpiPeriod);
+    setCopyPreviousMonth(false);
+    setSelectedMemberIds([memberId]);
+    setDraftTargets(buildDraftTargets(defaultKpiPeriod, [memberId], false));
+    setShowCreateModal(true);
+  };
+
   const closeCreateModal = () => {
     setShowCreateModal(false);
+    setModalMode('create');
+    setEditingMemberId(null);
     setCopyPreviousMonth(false);
     setSelectedMemberIds([]);
     setDraftTargets({});
@@ -768,6 +802,7 @@ const SalesKPIs: React.FC = () => {
   };
 
   const handleToggleMember = (memberId: string) => {
+    if (modalMode === 'edit') return;
     const nextIds = selectedMemberIds.includes(memberId)
       ? selectedMemberIds.filter((item) => item !== memberId)
       : [...selectedMemberIds, memberId];
@@ -776,6 +811,7 @@ const SalesKPIs: React.FC = () => {
   };
 
   const handleToggleAllMembers = () => {
+    if (modalMode === 'edit') return;
     const allIds = roster.map((member) => member.userId);
     const nextIds = selectedMemberIds.length === allIds.length ? [] : allIds;
     setSelectedMemberIds(nextIds);
@@ -798,6 +834,7 @@ const SalesKPIs: React.FC = () => {
   };
 
   const handleSaveKpis = (keepOpen: boolean) => {
+    if (!canManageKpis) return;
     if (selectedMemberIds.length === 0) {
       setNotice('Cần chọn ít nhất một nhân sự để lưu KPI.');
       return;
@@ -833,10 +870,17 @@ const SalesKPIs: React.FC = () => {
     const nextTargets = upsertSalesKpis(payload);
     setKpiTargets(nextTargets);
     setNotice(
-      keepOpen
-        ? `Đã lưu KPI ${getPeriodLabel(draftPeriod)}. Bạn có thể tạo tiếp cho nhóm khác.`
-        : `Đã lưu KPI ${getPeriodLabel(draftPeriod)} thành công.`
+      modalMode === 'edit'
+        ? `Đã cập nhật KPI ${getPeriodLabel(draftPeriod)} thành công.`
+        : keepOpen
+          ? `Đã lưu KPI ${getPeriodLabel(draftPeriod)}. Bạn có thể tạo tiếp cho nhóm khác.`
+          : `Đã lưu KPI ${getPeriodLabel(draftPeriod)} thành công.`
     );
+
+    if (modalMode === 'edit') {
+      closeCreateModal();
+      return;
+    }
 
     if (keepOpen) {
       setSelectedMemberIds([]);
@@ -937,12 +981,19 @@ const SalesKPIs: React.FC = () => {
     window.URL.revokeObjectURL(url);
   };
 
-  return (
+  const editingMember =
+    editingMemberId ? roster.find((member) => member.userId === editingMemberId) || null : null;
+  const isEditMode = modalMode === 'edit';
+
+  return decodeMojibakeReactNode(
     <div className="flex h-full flex-col overflow-hidden bg-[#f5f8fd] text-slate-900">
       <div className="mx-auto flex w-full max-w-[1480px] flex-1 flex-col gap-4 overflow-y-auto px-5 py-5 lg:px-7">
         <div className="space-y-2">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900">KPIs & Mục tiêu Kinh doanh</h1>
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-3xl font-bold tracking-tight text-slate-900">KPIs & Mục tiêu</h1>
+              <SalesRoleTestSwitcher />
+            </div>
 
             <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2 md:justify-end xl:w-auto xl:grid-cols-[220px_176px_176px_148px] xl:gap-1.5">
               <div ref={timeFilterRef} className="relative min-w-0">
@@ -1171,7 +1222,7 @@ const SalesKPIs: React.FC = () => {
                 </h3>
               </div>
               <div className="rounded-md bg-emerald-50 p-2 text-emerald-600">
-                <Save size={16} />
+                <CheckCircle2 size={16} />
               </div>
             </div>
           </div>
@@ -1214,6 +1265,7 @@ const SalesKPIs: React.FC = () => {
             <table className="min-w-full text-left">
               <thead className="bg-slate-50 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
                 <tr>
+                  <th className="px-4 py-2.5 text-center w-16">STT</th>
                   <th className="px-4 py-2.5">Team</th>
                   <th className="px-4 py-2.5 text-right">Nhân sự</th>
                   <th className="px-4 py-2.5 text-right">Target doanh thu</th>
@@ -1226,15 +1278,16 @@ const SalesKPIs: React.FC = () => {
               <tbody className="divide-y divide-slate-100">
                 {teamRows.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-[13px] text-slate-500">
+                    <td colSpan={8} className="px-4 py-8 text-center text-[13px] text-slate-500">
                       Chưa có dữ liệu KPI team theo bộ lọc hiện tại.
                     </td>
                   </tr>
                 ) : (
-                  teamRows.map((row) => {
+                  teamRows.map((row, index) => {
                     const status = getStatusMeta(row.progress);
                     return (
                       <tr key={row.teamId} className="hover:bg-slate-50/70">
+                        <td className="px-4 py-3 text-center font-semibold text-slate-500">{index + 1}</td>
                         <td className="px-4 py-3">
                           <div className="font-semibold text-slate-900">{row.teamName}</div>
                           <div className="mt-0.5 text-[13px] text-slate-500">
@@ -1279,20 +1332,23 @@ const SalesKPIs: React.FC = () => {
             <div>
               <h2 className="text-[17px] font-bold text-slate-900">KPI Cá nhân</h2>
             </div>
-            <button
-              type="button"
-              onClick={openCreateModal}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-[13px] font-semibold text-blue-700 transition hover:bg-blue-100"
-            >
-              <Plus size={15} />
-              Tạo KPI cá nhân
-            </button>
+            {canManageKpis ? (
+              <button
+                type="button"
+                onClick={openCreateModal}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-[13px] font-semibold text-blue-700 transition hover:bg-blue-100"
+              >
+                <Plus size={15} />
+                Tạo KPI cá nhân
+              </button>
+            ) : null}
           </div>
 
           <div className="overflow-x-auto">
             <table className="min-w-full text-left">
               <thead className="bg-slate-50 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
                 <tr>
+                  <th className="px-4 py-2.5 text-center w-16">STT</th>
                   <th className="px-4 py-2.5">Nhân sự</th>
                   <th className="px-4 py-2.5">Team / Cơ sở</th>
                   <th className="px-4 py-2.5 text-right">Target doanh thu</th>
@@ -1300,20 +1356,22 @@ const SalesKPIs: React.FC = () => {
                   <th className="px-4 py-2.5 text-right">Target HĐ</th>
                   <th className="px-4 py-2.5 text-right">HĐ thực tế</th>
                   <th className="px-4 py-2.5">Tiến độ</th>
+                  {canManageKpis ? <th className="px-4 py-2.5 text-right">Thao tác</th> : null}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {memberRows.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-[13px] text-slate-500">
+                    <td colSpan={canManageKpis ? 9 : 8} className="px-4 py-8 text-center text-[13px] text-slate-500">
                       Chưa có nhân sự hoặc KPI khớp với bộ lọc.
                     </td>
                   </tr>
                 ) : (
-                  memberRows.map((row) => {
+                  memberRows.map((row, index) => {
                     const status = getStatusMeta(row.progress);
                     return (
                       <tr key={row.userId} className="hover:bg-slate-50/70">
+                        <td className="px-4 py-3 text-center font-semibold text-slate-500">{index + 1}</td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2.5">
                             <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-blue-100 bg-blue-50 text-[13px] font-bold text-blue-700">
@@ -1352,6 +1410,18 @@ const SalesKPIs: React.FC = () => {
                             </span>
                           </div>
                         </td>
+                        {canManageKpis ? (
+                          <td className="px-4 py-3 text-right">
+                            <button
+                              type="button"
+                              onClick={() => openEditModal(row.userId)}
+                              className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[12px] font-semibold text-slate-700 transition hover:border-blue-200 hover:text-blue-700"
+                            >
+                              <Pencil size={14} />
+                              Sửa KPI
+                            </button>
+                          </td>
+                        ) : null}
                       </tr>
                     );
                   })
@@ -1363,26 +1433,37 @@ const SalesKPIs: React.FC = () => {
 
       </div>
 
-      {showCreateModal ? (
+      {canManageKpis && showCreateModal ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 px-4 py-4 backdrop-blur-sm">
           <div className="flex max-h-[95vh] w-full max-w-[1100px] flex-col overflow-hidden rounded-[16px] border border-slate-200 bg-white shadow-2xl">
             <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 px-4 py-3.5">
-              <h3 className="shrink-0 text-[22px] font-bold tracking-tight text-slate-900">Thiết lập KPI theo tháng</h3>
+              <div>
+                <h3 className="shrink-0 text-[22px] font-bold tracking-tight text-slate-900">
+                  {isEditMode ? 'Chỉnh sửa KPI cá nhân' : 'Thiết lập KPI theo tháng'}
+                </h3>
+                {isEditMode && editingMember ? (
+                  <p className="mt-0.5 text-[13px] text-slate-500">
+                    Đang chỉnh KPI cho <span className="font-semibold text-slate-700">{editingMember.name}</span>
+                  </p>
+                ) : null}
+              </div>
 
               <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
                 <div className="flex flex-wrap items-center gap-2">
-                  <label className="flex h-9 items-center gap-2 rounded-md border border-slate-200 bg-white px-2.5">
-                    <input
-                      type="checkbox"
-                      checked={copyPreviousMonth}
-                      onChange={(event) => handleToggleCopyPrevious(event.target.checked)}
-                      className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <div className="flex items-center gap-1.5 text-[13px] font-semibold text-slate-800">
-                      <Copy size={14} className="text-blue-600" />
-                      Copy KPI từ tháng trước
-                    </div>
-                  </label>
+                  {!isEditMode ? (
+                    <label className="flex h-9 items-center gap-2 rounded-md border border-slate-200 bg-white px-2.5">
+                      <input
+                        type="checkbox"
+                        checked={copyPreviousMonth}
+                        onChange={(event) => handleToggleCopyPrevious(event.target.checked)}
+                        className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <div className="flex items-center gap-1.5 text-[13px] font-semibold text-slate-800">
+                        <Copy size={14} className="text-blue-600" />
+                        Copy KPI từ tháng trước
+                      </div>
+                    </label>
+                  ) : null}
 
                   <input
                     type="month"
@@ -1411,19 +1492,26 @@ const SalesKPIs: React.FC = () => {
                 <div className="rounded-lg border border-slate-200 bg-white">
                   <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2">
                     <div>
-                      <h4 className="text-[15px] font-bold text-slate-900">Chọn nhân sự áp dụng</h4>
+                      <h4 className="text-[15px] font-bold text-slate-900">
+                        {isEditMode ? 'Nhân sự đang áp dụng' : 'Chọn nhân sự áp dụng'}
+                      </h4>
                     </div>
-                    <button
-                      type="button"
-                      onClick={handleToggleAllMembers}
-                      className="rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-700 transition hover:bg-blue-100"
-                    >
-                      {selectedMemberIds.length === roster.length ? 'Bỏ chọn all' : 'Chọn all'}
-                    </button>
+                    {!isEditMode ? (
+                      <button
+                        type="button"
+                        onClick={handleToggleAllMembers}
+                        className="rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-700 transition hover:bg-blue-100"
+                      >
+                        {selectedMemberIds.length === roster.length ? 'Bỏ chọn all' : 'Chọn all'}
+                      </button>
+                    ) : null}
                   </div>
 
                   <div className="max-h-[480px] space-y-2.5 overflow-y-auto px-2.5 py-2.5">
-                    {teams.map((team) => (
+                    {(isEditMode && editingMember
+                      ? teams.filter((team) => team.members.some((member) => member.userId === editingMember.userId))
+                      : teams
+                    ).map((team) => (
                       <div key={team.id} className="space-y-1.5">
                         <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
                           {team.name} • {team.branch}
@@ -1443,6 +1531,7 @@ const SalesKPIs: React.FC = () => {
                                 type="checkbox"
                                 checked={checked}
                                 onChange={() => handleToggleMember(member.userId)}
+                                disabled={isEditMode}
                                 className="mt-1 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                               />
                               <div>
@@ -1547,16 +1636,18 @@ const SalesKPIs: React.FC = () => {
                   className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-[13px] font-semibold text-blue-700 transition hover:bg-blue-100"
                 >
                   <Save size={15} />
-                  Lưu KPI
+                  {isEditMode ? 'Lưu cập nhật' : 'Lưu KPI'}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => handleSaveKpis(true)}
-                  className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-[13px] font-semibold text-white transition hover:bg-blue-700"
-                >
-                  <Plus size={15} />
-                  Lưu & Tạo tiếp
-                </button>
+                {!isEditMode ? (
+                  <button
+                    type="button"
+                    onClick={() => handleSaveKpis(true)}
+                    className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-[13px] font-semibold text-white transition hover:bg-blue-700"
+                  >
+                    <Plus size={15} />
+                    Lưu & Tạo tiếp
+                  </button>
+                ) : null}
               </div>
             </div>
           </div>
