@@ -150,6 +150,7 @@ export const NAV_ITEMS = [
   // --- ROLE SALES REP (Updated) ---
   { label: 'My Leads', path: '/sales/my-leads', icon: Inbox, roles: [UserRole.SALES_REP, UserRole.SALES_LEADER] }, // NEW
   { label: 'My Contacts', path: '/sales/my-contacts', icon: Contact2, roles: [UserRole.SALES_REP] }, // NEW
+  { label: 'Pipeline', path: '/pipeline', icon: KanbanSquare, roles: [UserRole.SALES_REP, UserRole.SALES_LEADER] },
 
   { label: 'KPIs & Mục tiêu', path: '/sales/kpis', icon: Target, roles: [UserRole.SALES_REP] }, // NEW KPI PAGE
   { label: 'Lịch hẹn (Test/Visit)', path: '/sales/meetings', icon: CalendarClock, roles: [UserRole.SALES_REP, UserRole.FOUNDER, UserRole.ADMIN] }, // Removed SALES_LEADER and TEACHER

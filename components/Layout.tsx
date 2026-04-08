@@ -23,7 +23,11 @@ const Layout: React.FC = () => {
     navigate('/module-selection');
   };
 
-  const isSalesSection = location.pathname === '/sales' || location.pathname.startsWith('/sales/');
+  const isSalesSection =
+    location.pathname === '/sales' ||
+    location.pathname.startsWith('/sales/') ||
+    location.pathname === '/pipeline' ||
+    location.pathname.startsWith('/pipeline/');
   const isEnrollmentSection =
     location.pathname === '/contracts' ||
     location.pathname.startsWith('/contracts/') ||
@@ -35,7 +39,7 @@ const Layout: React.FC = () => {
     if (!hasAccess) return false;
 
     if (isSalesSection) {
-      return item.path === '/' || item.path.startsWith('/sales/');
+      return item.path === '/' || item.path === '/pipeline' || item.path.startsWith('/sales/');
     }
 
     if (isEnrollmentSection) {

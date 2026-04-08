@@ -2132,9 +2132,10 @@ const SLALeadList: React.FC = () => {
          </div>
 
          {showAssignModal && (
-            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-               <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={closeAssignModal}></div>
-               <div className="relative w-full max-w-2xl overflow-hidden rounded-lg bg-white shadow-2xl">
+            <div className="fixed inset-0 z-[100] overflow-y-auto bg-slate-900/60 p-4 backdrop-blur-sm">
+               <div className="absolute inset-0" onClick={closeAssignModal}></div>
+               <div className="relative flex min-h-full items-center justify-center py-4">
+                  <div className="relative flex max-h-[calc(100vh-2rem)] w-full max-w-2xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl">
                   <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-4 py-3">
                      <h3 className="flex items-center gap-2 text-[15px] font-bold text-slate-900">
                         <UserPlus size={18} className="text-blue-600" />
@@ -2145,7 +2146,7 @@ const SLALeadList: React.FC = () => {
                      </button>
                   </div>
 
-                  <div className="space-y-4 p-4">
+                  <div className="min-h-0 space-y-4 overflow-y-auto p-4">
                      <div className="flex items-start gap-2 rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-[12px] text-blue-800">
                         <Users size={16} className="mt-0.5 shrink-0" />
                         <p>Bạn đang phân bổ <span className="font-bold">{selectedReclaimCount}</span> lead thu hồi cho nhân viên kinh doanh.</p>
@@ -2235,7 +2236,7 @@ const SLALeadList: React.FC = () => {
                      </div>
                   </div>
 
-                  <div className="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 px-4 py-3">
+                  <div className="flex shrink-0 justify-end gap-2 border-t border-slate-200 bg-slate-50 px-4 py-3">
                      <button onClick={closeAssignModal} className="rounded-sm px-3 py-1.5 text-[12px] font-bold text-slate-600 hover:bg-slate-200">Huy</button>
                      <button
                         onClick={handleAssignReclaimedLead}
@@ -2246,6 +2247,7 @@ const SLALeadList: React.FC = () => {
                      </button>
                   </div>
                </div>
+                  </div>
             </div>
          )}
 
