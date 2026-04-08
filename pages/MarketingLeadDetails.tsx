@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import LeadTagManager from '../components/LeadTagManager';
 import { FIXED_LEAD_TAGS, getLeadById, saveLead, getTags, saveTags } from '../utils/storage';
 import { useAuth } from '../contexts/AuthContext';
-import { LEAD_STATUS_OPTIONS, normalizeLeadStatusKey, toLeadStatusValue } from '../utils/leadStatus';
+import { getLeadStatusLabel, LEAD_STATUS_OPTIONS, normalizeLeadStatusKey, toLeadStatusValue } from '../utils/leadStatus';
 import {
     ArrowLeft, Phone, Mail, MessageCircle, Clock,
     Tag, MapPin, TrendingUp, Database, Calendar,

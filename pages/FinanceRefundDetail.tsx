@@ -16,19 +16,25 @@ import { useAuth } from '../contexts/AuthContext';
 import LogAudienceFilterControl from '../components/LogAudienceFilter';
 import { IRefundLog, IRefundRequest, RefundStatus, UserRole } from '../types';
 import { addRefundLog, getQuotations, getRefundLogs, getRefunds, updateQuotation, updateRefund } from '../utils/storage';
+import { canRefundSyncToMoneyOut, syncActualTransactionFromRefund } from '../services/refundFlow.service';
 import { filterByLogAudience, getRefundLogAudience, LogAudienceFilter } from '../utils/logAudience';
 
 const STATUS_META: Record<RefundStatus, { label: string; tone: string; dot: string }> = {
-   NHAP: { label: 'Nháp', tone: 'bg-slate-100 text-slate-700 border-slate-200', dot: 'bg-slate-400' },
-   SALE_XAC_NHAN: { label: 'Sale xác nhận', tone: 'bg-blue-50 text-blue-700 border-blue-200', dot: 'bg-blue-500' },
-   KE_TOAN_KIEM_TRA: { label: 'Kế toán kiểm tra', tone: 'bg-amber-50 text-amber-700 border-amber-200', dot: 'bg-amber-500' },
-   CEO_DUYET: { label: 'CEO duyệt', tone: 'bg-violet-50 text-violet-700 border-violet-200', dot: 'bg-violet-500' },
-   DA_HOAN: { label: 'Đã hoàn', tone: 'bg-emerald-100 text-emerald-700 border-emerald-200', dot: 'bg-emerald-500' },
-   TU_CHOI: { label: 'Từ chối', tone: 'bg-red-50 text-red-700 border-red-200', dot: 'bg-red-500' },
-   HUY_YEU_CAU: { label: 'Huỷ yêu cầu', tone: 'bg-slate-200 text-slate-600 border-slate-300', dot: 'bg-slate-400' }
+   DRAFT: { label: 'Nh\u00e1p', tone: 'bg-slate-100 text-slate-700 border-slate-200', dot: 'bg-slate-400' },
+   CHO_DUYET: { label: 'Ch\u1edd duy\u1ec7t', tone: 'bg-blue-50 text-blue-700 border-blue-200', dot: 'bg-blue-500' },
+   KE_TOAN_XAC_NHAN: { label: 'KT x\u00e1c nh\u1eadn', tone: 'bg-amber-50 text-amber-700 border-amber-200', dot: 'bg-amber-500' },
+   DA_DUYET: { label: 'Duy\u1ec7t', tone: 'bg-violet-50 text-violet-700 border-violet-200', dot: 'bg-violet-500' },
+   DA_THU_CHI: { label: '\u0110\u00e3 thu / \u0111\u00e3 chi', tone: 'bg-emerald-100 text-emerald-700 border-emerald-200', dot: 'bg-emerald-500' },
+   NHAP: { label: 'Nh\u00e1p', tone: 'bg-slate-100 text-slate-700 border-slate-200', dot: 'bg-slate-400' },
+   SALE_XAC_NHAN: { label: 'Ch\u1edd duy\u1ec7t', tone: 'bg-blue-50 text-blue-700 border-blue-200', dot: 'bg-blue-500' },
+   KE_TOAN_KIEM_TRA: { label: 'KT x\u00e1c nh\u1eadn', tone: 'bg-amber-50 text-amber-700 border-amber-200', dot: 'bg-amber-500' },
+   CEO_DUYET: { label: 'Duy\u1ec7t', tone: 'bg-violet-50 text-violet-700 border-violet-200', dot: 'bg-violet-500' },
+   DA_HOAN: { label: '\u0110\u00e3 thu / \u0111\u00e3 chi', tone: 'bg-emerald-100 text-emerald-700 border-emerald-200', dot: 'bg-emerald-500' },
+   TU_CHOI: { label: 'T\u1eeb ch\u1ed1i', tone: 'bg-red-50 text-red-700 border-red-200', dot: 'bg-red-500' },
+   HUY_YEU_CAU: { label: 'Hu\u1ef7 y\u00eau c\u1ea7u', tone: 'bg-slate-200 text-slate-600 border-slate-300', dot: 'bg-slate-400' }
 };
 
-const STATUS_STEPS: RefundStatus[] = ['NHAP', 'SALE_XAC_NHAN', 'KE_TOAN_KIEM_TRA', 'CEO_DUYET', 'DA_HOAN'];
+const STATUS_STEPS: RefundStatus[] = ['DRAFT', 'CHO_DUYET', 'KE_TOAN_XAC_NHAN', 'DA_DUYET', 'DA_THU_CHI'];
 
 const formatCurrency = (value?: number | null) => {
    if (value === null || value === undefined) return '--';
@@ -50,21 +56,21 @@ const formatDateTime = (value?: string) => {
 const normalizeRefundStatus = (status: unknown): RefundStatus => {
    const token = String(status || '').trim().toUpperCase();
 
-   if (token === 'NHAP') return 'NHAP';
-   if (token === 'SALE_XAC_NHAN' || token === 'CHO_SALE_DUYET') return 'SALE_XAC_NHAN';
-   if (token === 'KE_TOAN_KIEM_TRA' || token === 'CHO_KE_TOAN_DUYET') return 'KE_TOAN_KIEM_TRA';
-   if (token === 'CEO_DUYET') return 'CEO_DUYET';
-   if (token === 'DA_HOAN' || token === 'DA_HOAN_TIEN') return 'DA_HOAN';
+   if (token === 'DRAFT' || token === 'NHAP') return 'DRAFT';
+   if (token === 'CHO_DUYET' || token === 'SALE_XAC_NHAN' || token === 'CHO_SALE_DUYET') return 'CHO_DUYET';
+   if (token === 'KE_TOAN_XAC_NHAN' || token === 'KE_TOAN_KIEM_TRA' || token === 'CHO_KE_TOAN_DUYET') return 'KE_TOAN_XAC_NHAN';
+   if (token === 'DA_DUYET' || token === 'CEO_DUYET') return 'DA_DUYET';
+   if (token === 'DA_THU_CHI' || token === 'DA_HOAN' || token === 'DA_HOAN_TIEN') return 'DA_THU_CHI';
    if (token === 'TU_CHOI' || token === 'DA_TU_CHOI') return 'TU_CHOI';
    if (token === 'HUY_YEU_CAU') return 'HUY_YEU_CAU';
 
-   return 'NHAP';
+   return 'DRAFT';
 };
 
 const normalizeRefund = (item: Partial<IRefundRequest>): IRefundRequest => ({
    id: item.id || `REF-${Date.now()}`,
    createdAt: item.createdAt || new Date().toISOString(),
-   studentName: item.studentName || 'Chưa cập nhật',
+   studentName: item.studentName || 'ChÆ°a cáº­p nháº­t',
    soCode: item.soCode || '',
    contractCode: item.contractCode || '',
    program: item.program || '',
@@ -75,9 +81,9 @@ const normalizeRefund = (item: Partial<IRefundRequest>): IRefundRequest => ({
       item.retainedAmount === null || item.retainedAmount === undefined ? null : Number(item.retainedAmount || 0),
    approvedAmount:
       item.approvedAmount === null || item.approvedAmount === undefined ? null : Number(item.approvedAmount || 0),
-   reason: item.reason || 'Lý do khác',
+   reason: item.reason || 'LÃ½ do khÃ¡c',
    refundBasis: item.refundBasis || '',
-   createdBy: item.createdBy || 'Hệ thống',
+   createdBy: item.createdBy || 'Há»‡ thá»‘ng',
    ownerName: item.ownerName || '',
    status: normalizeRefundStatus(item.status),
    paymentVoucherCode: item.paymentVoucherCode || '',
@@ -98,7 +104,7 @@ const syncQuotationRefundAmount = (soCode?: string) => {
 
    const totalApprovedRefund = getRefunds()
       .map((item) => normalizeRefund(item))
-      .filter((item) => item.soCode === soCode && (item.status === 'CEO_DUYET' || item.status === 'DA_HOAN'))
+      .filter((item) => item.soCode === soCode && (item.status === 'DA_DUYET' || item.status === 'DA_THU_CHI'))
       .reduce((sum, item) => sum + getRefundAmountToSync(item), 0);
 
    updateQuotation({
@@ -165,59 +171,67 @@ type RefundAction = {
    id: string;
    label: string;
    nextStatus: RefundStatus;
-   noteTitle: string;
    buttonClassName: string;
+   requiresReason?: boolean;
+   confirmMessage?: string;
 };
 
-const canHandleSale = (role?: UserRole) =>
-   role === UserRole.SALES_REP || role === UserRole.SALES_LEADER || role === UserRole.ADMIN;
+const canSubmitRefund = (role?: UserRole) => Boolean(role);
 
-const canHandleAccounting = (role?: UserRole) =>
-   role === UserRole.ACCOUNTANT || role === UserRole.ADMIN;
-
-const canHandleCeo = (role?: UserRole) =>
-   role === UserRole.FOUNDER || role === UserRole.ADMIN;
+const canHandleFinanceApproval = (role?: UserRole) =>
+   role === UserRole.ACCOUNTANT || role === UserRole.ADMIN || role === UserRole.FOUNDER;
 
 const getAvailableActions = (refund: IRefundRequest, role?: UserRole): RefundAction[] => {
    const actions: RefundAction[] = [];
 
-   if (refund.status === 'NHAP' && canHandleSale(role)) {
+   if (refund.status === 'DRAFT' && canSubmitRefund(role)) {
       actions.push({
-         id: 'sale_confirm',
-         label: 'Sale duyệt',
-         nextStatus: 'SALE_XAC_NHAN',
-         noteTitle: 'Nhập log note khi Sale duyệt',
-         buttonClassName: 'bg-blue-600 text-white hover:bg-blue-700'
+         id: 'submit_refund',
+         label: 'Tr\u00ecnh duy\u1ec7t',
+         nextStatus: 'CHO_DUYET',
+         buttonClassName: 'bg-slate-900 text-white hover:bg-slate-800'
       });
    }
 
-   if (refund.status === 'SALE_XAC_NHAN' && canHandleAccounting(role)) {
+   if (refund.status === 'CHO_DUYET' && canHandleFinanceApproval(role)) {
       actions.push({
-         id: 'accounting_review',
-         label: 'Kế toán duyệt',
-         nextStatus: 'KE_TOAN_KIEM_TRA',
-         noteTitle: 'Nhập log note khi kế toán kiểm tra',
-         buttonClassName: 'bg-amber-500 text-white hover:bg-amber-600'
+         id: 'reject_refund',
+         label: 'T\u1eeb ch\u1ed1i',
+         nextStatus: 'TU_CHOI',
+         buttonClassName: 'border border-rose-200 bg-white text-rose-700 hover:bg-rose-50',
+         requiresReason: true
       });
-   }
-
-   if (refund.status === 'KE_TOAN_KIEM_TRA' && canHandleCeo(role)) {
       actions.push({
-         id: 'ceo_approve',
-         label: 'CEO duyệt',
-         nextStatus: 'CEO_DUYET',
-         noteTitle: 'Nhập log note khi CEO duyệt',
-         buttonClassName: 'bg-violet-600 text-white hover:bg-violet-700'
-      });
-   }
-
-   if (refund.status === 'CEO_DUYET' && canHandleAccounting(role)) {
-      actions.push({
-         id: 'mark_refunded',
-         label: 'Đánh dấu đã hoàn',
-         nextStatus: 'DA_HOAN',
-         noteTitle: 'Nhập log note khi hoàn tiền xong',
+         id: 'accounting_confirm',
+         label: 'KT x\u00e1c nh\u1eadn',
+         nextStatus: 'KE_TOAN_XAC_NHAN',
          buttonClassName: 'bg-emerald-600 text-white hover:bg-emerald-700'
+      });
+   }
+
+   if (refund.status === 'KE_TOAN_XAC_NHAN' && canHandleFinanceApproval(role)) {
+      actions.push({
+         id: 'reject_refund',
+         label: 'T\u1eeb ch\u1ed1i',
+         nextStatus: 'TU_CHOI',
+         buttonClassName: 'border border-rose-200 bg-white text-rose-700 hover:bg-rose-50',
+         requiresReason: true
+      });
+      actions.push({
+         id: 'admin_approve',
+         label: 'Duy\u1ec7t',
+         nextStatus: 'DA_DUYET',
+         buttonClassName: 'bg-emerald-600 text-white hover:bg-emerald-700'
+      });
+   }
+
+   if (refund.status === 'DA_DUYET' && canHandleFinanceApproval(role)) {
+      actions.push({
+         id: 'undo_approve',
+         label: 'H\u1ee7y duy\u1ec7t',
+         nextStatus: 'KE_TOAN_XAC_NHAN',
+         buttonClassName: 'border border-amber-300 bg-white text-amber-700 hover:bg-amber-50',
+         confirmMessage: `B\u1ea1n c\u00f3 ch\u1eafc mu\u1ed1n h\u1ee7y duy\u1ec7t y\u00eau c\u1ea7u ho\u00e0n ti\u1ec1n ${refund.id}?`
       });
    }
 
@@ -254,10 +268,10 @@ const FinanceRefundDetail: React.FC = () => {
       if (!refund) return [];
 
       return [
-         { label: 'Đã đóng', value: formatCurrency(refund.paidAmount), tone: 'text-slate-900' },
-         { label: 'Đề nghị hoàn', value: formatCurrency(refund.requestedAmount), tone: 'text-orange-600' },
-         { label: 'Giữ lại', value: formatCurrency(refund.retainedAmount), tone: 'text-amber-600' },
-         { label: 'Duyệt hoàn', value: formatCurrency(refund.approvedAmount), tone: 'text-emerald-600' }
+         { label: 'ÄÃ£ Ä‘Ã³ng', value: formatCurrency(refund.paidAmount), tone: 'text-slate-900' },
+         { label: 'Äá» nghá»‹ hoÃ n', value: formatCurrency(refund.requestedAmount), tone: 'text-orange-600' },
+         { label: 'Giá»¯ láº¡i', value: formatCurrency(refund.retainedAmount), tone: 'text-amber-600' },
+         { label: 'Duyá»‡t hoÃ n', value: formatCurrency(refund.approvedAmount), tone: 'text-emerald-600' }
       ];
    }, [refund]);
 
@@ -271,6 +285,7 @@ const FinanceRefundDetail: React.FC = () => {
       if (!refund) return [];
       return getAvailableActions(refund, user?.role);
    }, [refund, user?.role]);
+   const canOpenMoneyOut = useMemo(() => Boolean(refund && canRefundSyncToMoneyOut(refund.status)), [refund]);
    const filteredLogs = useMemo(
       () => filterByLogAudience(logs, logAudienceFilter, getRefundLogAudience),
       [logAudienceFilter, logs]
@@ -279,17 +294,35 @@ const FinanceRefundDetail: React.FC = () => {
    const handleWorkflowAction = (action: RefundAction) => {
       if (!refund) return;
 
-      const input = window.prompt(action.noteTitle, noteDraft.trim());
-      if (input === null) return;
+      if (action.confirmMessage && !window.confirm(action.confirmMessage)) return;
 
-      const note = input.trim();
-      const nextRefund: IRefundRequest = { ...refund, status: action.nextStatus };
+      let note = noteDraft.trim();
+      if (action.requiresReason) {
+         const input = window.prompt('Nhập lý do từ chối hoàn tiền:', note || 'Thiếu chứng từ');
+         if (input === null) return;
+
+         note = input.trim();
+         if (!note) {
+            window.alert('Cần nhập lý do từ chối.');
+            return;
+         }
+      }
+
+      const nextRefund: IRefundRequest = {
+         ...refund,
+         status: action.nextStatus,
+         approvedAmount:
+            action.nextStatus === 'KE_TOAN_XAC_NHAN' || action.nextStatus === 'DA_DUYET' || action.nextStatus === 'DA_THU_CHI'
+               ? refund.approvedAmount ?? refund.requestedAmount
+               : refund.approvedAmount
+      };
       const updated = updateRefund(nextRefund);
       if (!updated) {
-         window.alert('Không thể cập nhật trạng thái hoàn tiền.');
+         window.alert('KhÃ´ng thá»ƒ cáº­p nháº­t tráº¡ng thÃ¡i hoÃ n tiá»n.');
          return;
       }
 
+      syncActualTransactionFromRefund(nextRefund, user?.id || user?.name || 'system');
       syncQuotationRefundAmount(refund.soCode);
 
       addRefundLog({
@@ -297,9 +330,9 @@ const FinanceRefundDetail: React.FC = () => {
          refundId: refund.id,
          action: note
             ? `${action.label}: ${note}`
-            : `${action.label} chuyển trạng thái sang ${STATUS_META[action.nextStatus].label}`,
+            : `${action.label} chuyá»ƒn tráº¡ng thÃ¡i sang ${STATUS_META[action.nextStatus].label}`,
          createdAt: new Date().toISOString(),
-         createdBy: user?.name || user?.role || 'Hệ thống'
+         createdBy: user?.name || user?.role || 'Há»‡ thá»‘ng'
       });
 
       setNoteDraft('');
@@ -310,7 +343,7 @@ const FinanceRefundDetail: React.FC = () => {
 
       const trimmed = noteDraft.trim();
       if (!trimmed) {
-         window.alert('Nhập log note trước khi lưu.');
+         window.alert('Nháº­p log note trÆ°á»›c khi lÆ°u.');
          return;
       }
 
@@ -319,7 +352,7 @@ const FinanceRefundDetail: React.FC = () => {
          refundId: refund.id,
          action: `Log note: ${trimmed}`,
          createdAt: new Date().toISOString(),
-         createdBy: user?.name || user?.role || 'Hệ thống'
+         createdBy: user?.name || user?.role || 'Há»‡ thá»‘ng'
       });
       setNoteDraft('');
    };
@@ -328,14 +361,14 @@ const FinanceRefundDetail: React.FC = () => {
       return (
          <div className="flex min-h-screen items-center justify-center bg-[#f5f6f8] p-6">
             <div className="w-full max-w-md rounded-md border border-slate-200 bg-white p-6 shadow-sm">
-               <div className="text-base font-bold text-slate-900">Không tìm thấy hồ sơ hoàn tiền</div>
-               <div className="mt-2 text-[13px] text-slate-500">Bản ghi có thể đã bị xoá hoặc chưa tồn tại.</div>
+               <div className="text-base font-bold text-slate-900">KhÃ´ng tÃ¬m tháº¥y há»“ sÆ¡ hoÃ n tiá»n</div>
+               <div className="mt-2 text-[13px] text-slate-500">Báº£n ghi cÃ³ thá»ƒ Ä‘Ã£ bá»‹ xoÃ¡ hoáº·c chÆ°a tá»“n táº¡i.</div>
                <button
                   type="button"
                   onClick={() => navigate('/refunds')}
                   className="mt-4 rounded-md bg-slate-900 px-3 py-2 text-[13px] font-semibold text-white"
                >
-                  Quay lại danh sách
+                  Quay láº¡i danh sÃ¡ch
                </button>
             </div>
          </div>
@@ -357,16 +390,16 @@ const FinanceRefundDetail: React.FC = () => {
                            >
                               <ArrowLeft size={14} />
                            </button>
-                           <span>Hoàn tiền</span>
+                           <span>HoÃ n tiá»n</span>
                            <ChevronRight size={12} />
                            <span className="font-semibold text-slate-500">{refund.id}</span>
                         </div>
                         <div className="truncate text-[26px] font-black leading-none text-slate-900">
-                           {refund.id} • {refund.studentName}
+                           {refund.id} â€¢ {refund.studentName}
                         </div>
                         <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-400">
-                           <span>Tạo ngày {formatDate(refund.createdAt)}</span>
-                           <span>Người tạo: {refund.createdBy || '--'}</span>
+                           <span>Táº¡o ngÃ y {formatDate(refund.createdAt)}</span>
+                           <span>NgÆ°á»i táº¡o: {refund.createdBy || '--'}</span>
                         </div>
                      </div>
 
@@ -410,13 +443,13 @@ const FinanceRefundDetail: React.FC = () => {
                         <section className="rounded-md border border-slate-200 bg-white p-4">
                            <SectionTitle title="Document Info" />
                            <div className="mt-3">
-                              <RowField label="Học viên" value={refund.studentName} />
-                              <RowField label="Hồ sơ" value={refund.soCode || '--'} />
-                              <RowField label="Hợp đồng" value={refund.contractCode} />
-                              <RowField label="Chương trình / khóa học" value={refund.program || '--'} />
-                              <RowField label="Người phụ trách hồ sơ" value={refund.ownerName || '--'} />
+                              <RowField label="Há»c viÃªn" value={refund.studentName} />
+                              <RowField label="Há»“ sÆ¡" value={refund.soCode || '--'} />
+                              <RowField label="Há»£p Ä‘á»“ng" value={refund.contractCode} />
+                              <RowField label="ChÆ°Æ¡ng trÃ¬nh / khÃ³a há»c" value={refund.program || '--'} />
+                              <RowField label="NgÆ°á»i phá»¥ trÃ¡ch há»“ sÆ¡" value={refund.ownerName || '--'} />
                               <RowField
-                                 label="Người tạo, ngày tạo, trạng thái"
+                                 label="NgÆ°á»i táº¡o, ngÃ y táº¡o, tráº¡ng thÃ¡i"
                                  value={
                                     <div className="space-y-0.5">
                                        <div>{refund.createdBy || '--'}</div>
@@ -432,10 +465,11 @@ const FinanceRefundDetail: React.FC = () => {
                         <section className="rounded-md border border-slate-200 bg-white p-4">
                            <SectionTitle title="Financial Info" />
                            <div className="mt-3">
-                              <RowField label="Số tiền đã đóng" value={formatCurrency(refund.paidAmount)} />
-                              <RowField label="Khoản thu liên quan" value={refund.relatedPaymentCode || '--'} />
-                              <RowField label="Số tiền đề nghị hoàn" value={formatCurrency(refund.requestedAmount)} />
-                              <RowField label="Số tiền dự kiến giữ lại" value={formatCurrency(refund.retainedAmount)} />
+                              <RowField label="Sá»‘ tiá»n Ä‘Ã£ Ä‘Ã³ng" value={formatCurrency(refund.paidAmount)} />
+                              <RowField label="Khoáº£n thu liÃªn quan" value={refund.relatedPaymentCode || '--'} />
+                              <RowField label="Sá»‘ tiá»n Ä‘á» nghá»‹ hoÃ n" value={formatCurrency(refund.requestedAmount)} />
+                              <RowField label="Sá»‘ tiá»n Ä‘á»“ng Ã½ hoÃ n" value={formatCurrency(refund.approvedAmount)} />
+                              <RowField label="Sá»‘ tiá»n dá»± kiáº¿n giá»¯ láº¡i" value={formatCurrency(refund.retainedAmount)} />
                            </div>
                         </section>
                      </div>
@@ -444,26 +478,26 @@ const FinanceRefundDetail: React.FC = () => {
                         <SectionTitle title="Reasons & Documents" />
                         <div className="mt-3 grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
                            <div className="space-y-3">
-                              <RowField label="Lý do hoàn" value={refund.reason || '--'} multiline />
-                              <RowField label="Căn cứ / chính sách áp dụng" value={refund.refundBasis || '--'} multiline />
-                              <RowField label="Ghi chú nội bộ" value={refund.note || '--'} multiline />
+                              <RowField label="LÃ½ do hoÃ n" value={refund.reason || '--'} multiline />
+                              <RowField label="CÄƒn cá»© / chÃ­nh sÃ¡ch Ã¡p dá»¥ng" value={refund.refundBasis || '--'} multiline />
+                              <RowField label="Ghi chÃº ná»™i bá»™" value={refund.note || '--'} multiline />
                            </div>
 
                            <div className="space-y-4 rounded-md border border-slate-100 bg-slate-50/50 p-3">
                               <div>
                                  <div className="mb-2 flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">
                                     <FileText size={14} className="text-slate-400" />
-                                    File minh chứng
+                                    File minh chá»©ng
                                  </div>
-                                 <FileChipList items={refund.evidenceFiles} emptyText="Chưa có file minh chứng." />
+                                 <FileChipList items={refund.evidenceFiles} emptyText="ChÆ°a cÃ³ file minh chá»©ng." />
                               </div>
 
                               <div>
                                  <div className="mb-2 flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">
                                     <FolderOpen size={14} className="text-slate-400" />
-                                    Tài liệu liên quan
+                                    TÃ i liá»‡u liÃªn quan
                                  </div>
-                                 <FileChipList items={refund.relatedDocuments} emptyText="Chưa có tài liệu liên quan." />
+                                 <FileChipList items={refund.relatedDocuments} emptyText="ChÆ°a cÃ³ tÃ i liá»‡u liÃªn quan." />
                               </div>
                            </div>
                         </div>
@@ -475,8 +509,8 @@ const FinanceRefundDetail: React.FC = () => {
                         <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
                            <ShieldCheck size={14} className="text-slate-400" />
                            <div>
-                              <div className="text-[14px] font-extrabold uppercase tracking-[0.18em] text-slate-700">Phê duyệt hoàn tiền</div>
-                              <div className="text-[11px] text-slate-400">Sale, kế toán, CEO và log note</div>
+                              <div className="text-[14px] font-extrabold uppercase tracking-[0.18em] text-slate-700">PhÃª duyá»‡t hoÃ n tiá»n</div>
+                              <div className="text-[11px] text-slate-400">Sale, káº¿ toÃ¡n, CEO vÃ  log note</div>
                            </div>
                         </div>
 
@@ -489,7 +523,7 @@ const FinanceRefundDetail: React.FC = () => {
                                  value={noteDraft}
                                  onChange={(event) => setNoteDraft(event.target.value)}
                                  className="min-h-[84px] w-full rounded-md border border-slate-200 px-3 py-2 text-[13px] text-slate-900 outline-none transition-colors focus:border-blue-400"
-                                 placeholder="Nhập ghi chú xử lý, lý do duyệt hoặc lưu ý..."
+                                 placeholder="Nháº­p ghi chÃº xá»­ lÃ½, lÃ½ do duyá»‡t hoáº·c lÆ°u Ã½..."
                               />
                            </div>
 
@@ -498,7 +532,7 @@ const FinanceRefundDetail: React.FC = () => {
                               onClick={handleAddLogNote}
                               className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-[13px] font-semibold text-slate-700 transition-colors hover:bg-slate-50"
                            >
-                              Lưu log note
+                              LÆ°u log note
                            </button>
 
                            {availableActions.length > 0 ? (
@@ -516,8 +550,25 @@ const FinanceRefundDetail: React.FC = () => {
                               </div>
                            ) : (
                               <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 px-3 py-3 text-[12px] text-slate-500">
-                                 Không có bước duyệt khả dụng cho vai trò hiện tại hoặc hồ sơ đã ở trạng thái cuối.
+                                 KhÃ´ng cÃ³ bÆ°á»›c duyá»‡t kháº£ dá»¥ng cho vai trÃ² hiá»‡n táº¡i hoáº·c há»“ sÆ¡ Ä‘Ã£ á»Ÿ tráº¡ng thÃ¡i cuá»‘i.
                               </div>
+                           )}
+
+                           {canOpenMoneyOut && (
+                              <button
+                                 type="button"
+                                 onClick={() =>
+                                    navigate('/finance/money-out', {
+                                       state: {
+                                          prefillSearch: refund.id,
+                                          relatedSourceTransactionId: refund.id
+                                       }
+                                    })
+                                 }
+                                 className="w-full rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[13px] font-semibold text-blue-700 transition-colors hover:bg-blue-100"
+                              >
+                                 Mở Thu Chi
+                              </button>
                            )}
                         </div>
                      </section>
@@ -526,14 +577,14 @@ const FinanceRefundDetail: React.FC = () => {
                         <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
                            <Receipt size={14} className="text-slate-400" />
                            <div>
-                              <div className="text-[14px] font-extrabold uppercase tracking-[0.18em] text-slate-700">Tổng quan xử lý</div>
-                              <div className="text-[11px] text-slate-400">Thông tin nghiệp vụ chính</div>
+                              <div className="text-[14px] font-extrabold uppercase tracking-[0.18em] text-slate-700">Tá»•ng quan xá»­ lÃ½</div>
+                              <div className="text-[11px] text-slate-400">ThÃ´ng tin nghiá»‡p vá»¥ chÃ­nh</div>
                            </div>
                         </div>
                         <div className="mt-3">
-                           <RowField label="Chứng từ chi" value={refund.paymentVoucherCode || '--'} />
-                           <RowField label="Ngày thực chi" value={formatDate(refund.payoutDate)} />
-                           <RowField label="Hồ sơ liên quan" value={refund.soCode || '--'} />
+                           <RowField label="Chá»©ng tá»« chi" value={refund.paymentVoucherCode || '--'} />
+                           <RowField label="NgÃ y thá»±c chi" value={formatDate(refund.payoutDate)} />
+                           <RowField label="Há»“ sÆ¡ liÃªn quan" value={refund.soCode || '--'} />
                         </div>
                      </section>
 
@@ -541,14 +592,14 @@ const FinanceRefundDetail: React.FC = () => {
                         <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
                            <CalendarDays size={14} className="text-slate-400" />
                            <div>
-                              <div className="text-[14px] font-extrabold uppercase tracking-[0.18em] text-slate-700">Nhật ký xử lý</div>
-                              <div className="text-[11px] text-slate-400">Tiến trình phê duyệt hoàn tiền</div>
+                              <div className="text-[14px] font-extrabold uppercase tracking-[0.18em] text-slate-700">Nháº­t kÃ½ xá»­ lÃ½</div>
+                              <div className="text-[11px] text-slate-400">Tiáº¿n trÃ¬nh phÃª duyá»‡t hoÃ n tiá»n</div>
                            </div>
                         </div>
 
                         <div className="mt-3">
                            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-                              <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Bộ lọc log note</div>
+                              <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Bá»™ lá»c log note</div>
                               <LogAudienceFilterControl value={logAudienceFilter} onChange={setLogAudienceFilter} />
                            </div>
                            {filteredLogs.length > 0 ? (
@@ -566,7 +617,7 @@ const FinanceRefundDetail: React.FC = () => {
                                  ))}
                               </div>
                            ) : (
-                              <div className="text-[12px] italic text-slate-400">Chưa có lịch sử phù hợp bộ lọc.</div>
+                              <div className="text-[12px] italic text-slate-400">ChÆ°a cÃ³ lá»‹ch sá»­ phÃ¹ há»£p bá»™ lá»c.</div>
                            )}
                         </div>
                      </section>
@@ -574,11 +625,11 @@ const FinanceRefundDetail: React.FC = () => {
                      <section className="rounded-md border border-slate-200 bg-white p-4">
                         <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
                            <UserRound size={14} className="text-slate-400" />
-                           <div className="text-[14px] font-extrabold uppercase tracking-[0.18em] text-slate-700">Phụ trách</div>
+                           <div className="text-[14px] font-extrabold uppercase tracking-[0.18em] text-slate-700">Phá»¥ trÃ¡ch</div>
                         </div>
                         <div className="mt-3 space-y-2 text-[13px] text-slate-900">
                            <div className="font-semibold">{refund.ownerName || '--'}</div>
-                           <div className="text-[11px] text-slate-400">Theo dõi hồ sơ hoàn tiền và phối hợp xử lý.</div>
+                           <div className="text-[11px] text-slate-400">Theo dÃµi há»“ sÆ¡ hoÃ n tiá»n vÃ  phá»‘i há»£p xá»­ lÃ½.</div>
                         </div>
                      </section>
                   </aside>

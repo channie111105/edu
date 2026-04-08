@@ -1102,7 +1102,7 @@ export const createTransactionFromQuotation = (quotationId: string, createdBy: s
       ? [{ id: `PF-${Date.now()}`, name: quotation.paymentProof, url: quotation.paymentProof }]
       : [],
     bankRefCode,
-    status: 'CHO_DUYET',
+    status: 'DRAFT',
     createdAt: Date.now(),
     createdBy,
     note: 'Táº¡o tá»« bÆ°á»›c Confirm Sale'
@@ -4072,6 +4072,7 @@ export const getInvoices = (): any[] => {
 
 export const saveInvoices = (data: any[]) => {
   localStorage.setItem(KEYS.INVOICES, JSON.stringify(data));
+  emitClientEvent('educrm:invoices-changed');
 };
 
 export const addInvoice = (newItem: any) => {

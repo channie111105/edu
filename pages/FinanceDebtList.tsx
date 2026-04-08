@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Calendar, Check, ChevronDown, Columns3, Filter } from 'lucide-react';
 import { getClassStudents, getContracts, getQuotations, getSalesTeams, getStudents, getTrainingClasses } from '../utils/storage';
-import { IClassStudent, IContract, IQuotation } from '../types';
+import { IClassStudent, IContract, IQuotation, QuotationStatus } from '../types';
 import PinnedSearchInput, { PinnedSearchChip } from '../components/PinnedSearchInput';
 import { decodeMojibakeReactNode } from '../utils/mojibake';
 
@@ -286,7 +286,7 @@ const buildCollectionCode = (soCode: string, studentCode: string, termNo: number
 
 const getContractCode = (contract?: IContract, quotation?: IQuotation) => {
   if (contract?.code) return contract.code;
-  if (quotation?.soCode && quotation.status === 'LOCKED') return `HD-${quotation.soCode}`;
+  if (quotation?.soCode && quotation.status === QuotationStatus.LOCKED) return `HD-${quotation.soCode}`;
   return 'Chưa có HĐ';
 };
 

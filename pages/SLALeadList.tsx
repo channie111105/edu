@@ -17,9 +17,10 @@ import {
    Filter,
    Check,
    ChevronDown,
-   Users
+   Users,
+   Search
 } from 'lucide-react';
-import { getCollaborators, getLeadById, getLeads, saveLead, saveLeads } from '../utils/storage';
+import { getCollaborators, getLeadById, getLeads, getSalesTeams, saveLead, saveLeads } from '../utils/storage';
 import { ILead, LeadStatus, UserRole } from '../types';
 import { calculateSLAWarnings, SLAWarning, SLAConfig } from '../utils/slaUtils';
 import UnifiedLeadDrawer from '../components/UnifiedLeadDrawer';
@@ -107,6 +108,7 @@ interface AssignableSalesRep {
    id: string;
    name: string;
    team: string;
+   branch?: string;
    avatar: string;
    color: string;
 }
@@ -228,6 +230,13 @@ const saveStoredSlowEvents = (items: ISlaSlowEvent[]) => {
 const text = (value?: string): string => decodeMojibakeText(value || '');
 
 const normalizeText = (value?: string): string => text(value).trim();
+
+const normalizeAssignFilterToken = (value?: string): string =>
+   text(value)
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .trim()
+      .toLowerCase();
 
 const resolveLeadBranch = (lead?: Partial<ILead> | null): string => {
    const company = normalizeText((lead as any)?.company);
@@ -383,6 +392,8 @@ const SLALeadList: React.FC = () => {
    const [selectedReclaimLeadIds, setSelectedReclaimLeadIds] = useState<string[]>([]);
    const [showAssignModal, setShowAssignModal] = useState(false);
    const [assignmentRatios, setAssignmentRatios] = useState<Record<string, string>>(() => buildEmptyAssignmentRatios());
+   const [assignRepSearch, setAssignRepSearch] = useState('');
+   const [assignCampusFilter, setAssignCampusFilter] = useState('all');
    const [collaborators, setCollaborators] = useState<ICollaboratorSlaItem[]>([]);
    const [nowTimestamp, setNowTimestamp] = useState(() => Date.now());
 
@@ -651,7 +662,7 @@ const SLALeadList: React.FC = () => {
    const reclaimList = useMemo<ReclaimLeadItem[]>(() => {
       const now = new Date();
 
-      return leads.flatMap((lead) => {
+      return leads.flatMap<ReclaimLeadItem>((lead) => {
          const currentOwnerId = getLeadResponsibleOwnerId(lead);
          const previousOwnerId = normalizeText(lead.reclaimedFromOwnerId);
          const normalizedStatus = String(lead.status || '').trim().toLowerCase();
@@ -666,7 +677,7 @@ const SLALeadList: React.FC = () => {
 
             return [{
                lead,
-               reclaimType: lead.reclaimReason === 'slow_care' ? 'slow_care' : 'picked_no_action',
+               reclaimType: (lead.reclaimReason === 'slow_care' ? 'slow_care' : 'picked_no_action') as ReclaimLeadItem['reclaimType'],
                message: lead.reclaimReason === 'slow_care'
                   ? 'Lead da bi thu hoi do cham cham soc qua 3 ngay va dang cho phan bo lai.'
                   : 'Lead da bi thu hoi do da nhan nhung khong co cap nhat theo SLA va dang cho phan bo lai.',
@@ -927,6 +938,59 @@ const SLALeadList: React.FC = () => {
       [assignmentRatioValues, selectedReclaimCount]
    );
 
+   const assignmentSalesReps = useMemo<AssignableSalesRep[]>(() => {
+      const branchByUserId = new Map<string, string>();
+      const teamByUserId = new Map<string, string>();
+
+      getSalesTeams().forEach((team) => {
+         const teamName = text(team.name);
+         const teamBranch = ensureBranch(team.branch);
+         team.members.forEach((member) => {
+            if (!member.userId) return;
+            if (!teamByUserId.has(member.userId)) {
+               teamByUserId.set(member.userId, teamName);
+            }
+            if (!branchByUserId.has(member.userId)) {
+               branchByUserId.set(member.userId, ensureBranch(member.branch || teamBranch));
+            }
+         });
+      });
+
+      return ASSIGNABLE_SALES_REPS.map((rep) => ({
+         ...rep,
+         team: teamByUserId.get(rep.id) || text(rep.team),
+         branch: branchByUserId.get(rep.id) || ''
+      }));
+   }, [showAssignModal]);
+
+   const assignmentCampusOptions = useMemo(
+      () =>
+         Array.from(new Set(assignmentSalesReps.map((rep) => rep.branch).filter(Boolean))).sort((left, right) =>
+            left.localeCompare(right, 'vi')
+         ),
+      [assignmentSalesReps]
+   );
+
+   const filteredAssignmentSalesReps = useMemo(() => {
+      const normalizedSearch = normalizeAssignFilterToken(assignRepSearch);
+
+      return assignmentSalesReps.filter((rep) => {
+         const matchesSearch =
+            !normalizedSearch ||
+            normalizeAssignFilterToken(rep.name).includes(normalizedSearch) ||
+            normalizeAssignFilterToken(rep.team).includes(normalizedSearch);
+         const matchesCampus = assignCampusFilter === 'all' || rep.branch === assignCampusFilter;
+         return matchesSearch && matchesCampus;
+      });
+   }, [assignCampusFilter, assignRepSearch, assignmentSalesReps]);
+
+   const hasAssignmentRepFilters = assignRepSearch.trim().length > 0 || assignCampusFilter !== 'all';
+
+   const resetAssignFilters = () => {
+      setAssignRepSearch('');
+      setAssignCampusFilter('all');
+   };
+
    useEffect(() => {
       const selectableIds = new Set(reclaimList.map((item) => item.lead.id));
       setSelectedReclaimLeadIds((prev) => prev.filter((id) => selectableIds.has(id)));
@@ -1027,12 +1091,15 @@ const SLALeadList: React.FC = () => {
       if (item?.lead?.id) {
          setSelectedReclaimLeadIds((prev) => prev.includes(item.lead.id) ? prev : [item.lead.id]);
       }
+      resetAssignModal();
+      resetAssignFilters();
       setShowAssignModal(true);
    };
 
    const closeAssignModal = () => {
       setShowAssignModal(false);
       resetAssignModal();
+      resetAssignFilters();
    };
 
    const updateAssignmentRatio = (repId: string, value: string) => {
@@ -1046,15 +1113,21 @@ const SLALeadList: React.FC = () => {
    };
 
    const fillAssignmentRatiosEvenly = () => {
-      const activeRepIds = ASSIGNABLE_SALES_REPS
-         .filter((rep) => assignmentRatioValues[rep.id] > 0)
-         .map((rep) => rep.id);
-      const targetRepIds = activeRepIds.length > 0 ? activeRepIds : ASSIGNABLE_SALES_REPS.map((rep) => rep.id);
+      const visibleRepIds = filteredAssignmentSalesReps.map((rep) => rep.id);
+      const scopeRepIds = visibleRepIds.length > 0
+         ? visibleRepIds
+         : hasAssignmentRepFilters
+            ? []
+            : assignmentSalesReps.map((rep) => rep.id);
+      if (scopeRepIds.length === 0) return;
+      const activeRepIds = scopeRepIds
+         .filter((repId) => assignmentRatioValues[repId] > 0);
+      const targetRepIds = activeRepIds.length > 0 ? activeRepIds : scopeRepIds;
       const baseCount = Math.floor(selectedReclaimCount / targetRepIds.length);
       let remaining = selectedReclaimCount - (baseCount * targetRepIds.length);
 
       setAssignmentRatios(
-         ASSIGNABLE_SALES_REPS.reduce<Record<string, string>>((acc, rep) => {
+         assignmentSalesReps.reduce<Record<string, string>>((acc, rep) => {
             if (!targetRepIds.includes(rep.id)) {
                acc[rep.id] = '';
                return acc;
@@ -1070,7 +1143,7 @@ const SLALeadList: React.FC = () => {
 
    const setSingleRepAssignment = (repId: string) => {
       setAssignmentRatios(
-         ASSIGNABLE_SALES_REPS.reduce<Record<string, string>>((acc, rep) => {
+         assignmentSalesReps.reduce<Record<string, string>>((acc, rep) => {
             acc[rep.id] = rep.id === repId ? String(selectedReclaimCount) : '';
             return acc;
          }, {})
@@ -1208,7 +1281,7 @@ const SLALeadList: React.FC = () => {
    };
 
    const handleAssignReclaimedLead = () => {
-      const repsWithLeads = ASSIGNABLE_SALES_REPS.filter((rep) => (assignmentLeadCounts[rep.id] || 0) > 0);
+      const repsWithLeads = assignmentSalesReps.filter((rep) => (assignmentLeadCounts[rep.id] || 0) > 0);
       if (selectedReclaimCount === 0) return;
 
       if (repsWithLeads.length === 0) {
@@ -1232,7 +1305,7 @@ const SLALeadList: React.FC = () => {
 
          const ownerId = ownerAssignments[assignmentIndex] || repsWithLeads[repsWithLeads.length - 1].id;
          assignmentIndex += 1;
-         const targetRep = ASSIGNABLE_SALES_REPS.find((rep) => rep.id === ownerId);
+         const targetRep = assignmentSalesReps.find((rep) => rep.id === ownerId);
          const previousOwnerId = lead.reclaimedFromOwnerId || getLeadResponsibleOwnerId(lead) || lead.ownerId || '';
          const previousOwnerName = getRepDisplayName(previousOwnerId);
 
@@ -1341,7 +1414,7 @@ const SLALeadList: React.FC = () => {
    }, [collaborators, leads, slowHistory, slowEvents]);
    const uniqueStatuses = useMemo(() => Array.from(new Set(leads.map(l => text(l.status)).filter(Boolean))), [leads]);
 
-   const formatChipDate = (value?: string | null) => {
+   const formatChipDate = (value?: string | Date | null) => {
       if (!value) return '';
       const date = new Date(value);
       if (Number.isNaN(date.getTime())) return value;
@@ -2139,28 +2212,73 @@ const SLALeadList: React.FC = () => {
                   <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-4 py-3">
                      <h3 className="flex items-center gap-2 text-[15px] font-bold text-slate-900">
                         <UserPlus size={18} className="text-blue-600" />
-                        Phân bổ Lead thu hồi
+                        {text('Phân bổ Lead thu hồi')}
                      </h3>
                      <button onClick={closeAssignModal} className="rounded-sm p-1 text-slate-400 hover:bg-white hover:text-slate-600">
                         <X size={18} />
                      </button>
                   </div>
 
-                  <div className="min-h-0 space-y-4 overflow-y-auto p-4">
+                   <div className="min-h-0 space-y-4 overflow-y-auto p-4">
                      <div className="flex items-start gap-2 rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-[12px] text-blue-800">
                         <Users size={16} className="mt-0.5 shrink-0" />
-                        <p>Bạn đang phân bổ <span className="font-bold">{selectedReclaimCount}</span> lead thu hồi cho nhân viên kinh doanh.</p>
+                        <p>{text('Bạn đang phân bổ')} <span className="font-bold">{selectedReclaimCount}</span> {text('lead thu hồi cho nhân viên kinh doanh.')}</p>
                      </div>
 
                      <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                        <div className="mb-3 flex flex-col gap-3 border-b border-slate-200 pb-3 sm:flex-row sm:items-center">
+                           <label className="relative block flex-1">
+                              <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                              <input
+                                 type="text"
+                                 value={assignRepSearch}
+                                 onChange={(e) => setAssignRepSearch(e.target.value)}
+                                 placeholder={text('Tìm tên sale...')}
+                                 className="w-full rounded-sm border border-slate-300 bg-white py-2 pl-9 pr-3 text-[13px] text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                              />
+                           </label>
+                           <select
+                              value={assignCampusFilter}
+                              onChange={(e) => setAssignCampusFilter(e.target.value)}
+                              className="rounded-sm border border-slate-300 bg-white px-3 py-2 text-[13px] text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 sm:w-52"
+                           >
+                              <option value="all">{text('Tất cả cơ sở')}</option>
+                              {assignmentCampusOptions.map((campus) => (
+                                 <option key={campus} value={campus}>
+                                    {campus}
+                                 </option>
+                              ))}
+                           </select>
+                           {hasAssignmentRepFilters && (
+                              <button
+                                 type="button"
+                                 onClick={resetAssignFilters}
+                                 className="rounded-sm border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-bold text-slate-700 hover:bg-slate-100"
+                              >
+                                 {text('Xóa lọc')}
+                              </button>
+                           )}
+                        </div>
+
+                        <div className="mb-3 flex items-center justify-between gap-2 text-[11px] text-slate-500">
+                           <span>
+                              {text('Hiển thị')} <span className="font-semibold text-slate-700">{filteredAssignmentSalesReps.length}</span> / {assignmentSalesReps.length} sale
+                           </span>
+                           {assignCampusFilter !== 'all' && <span>{text('Cơ sở')}: {assignCampusFilter}</span>}
+                        </div>
                         <div className="flex flex-wrap items-center justify-between gap-3">
                            <div>
-                              <p className="text-[13px] font-bold text-slate-800">Phân bổ theo số lượng</p>
-                              <p className="mt-0.5 text-[11px] text-slate-500">Nhập số lead cho từng sale. Tổng phải bằng số lead đã chọn.</p>
+                              <p className="text-[13px] font-bold text-slate-800">{text('Phân bổ theo số lượng')}</p>
+                              <p className="mt-0.5 text-[11px] text-slate-500">{text('Nhập số lead cho từng sale. Tổng phải bằng số lead đã chọn.')}</p>
                            </div>
                            <div className="flex items-center gap-2">
-                              <button type="button" onClick={fillAssignmentRatiosEvenly} className="rounded-sm border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-bold text-slate-700 hover:bg-slate-100">
-                                 Chia đều số lượng
+                              <button
+                                 type="button"
+                                 onClick={fillAssignmentRatiosEvenly}
+                                 className={`rounded-sm border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-bold text-slate-700 hover:bg-slate-100 ${filteredAssignmentSalesReps.length === 0 ? 'cursor-not-allowed opacity-50' : ''}`}
+                                 disabled={filteredAssignmentSalesReps.length === 0}
+                              >
+                                 {text('Chia đều số lượng')}
                               </button>
                               <button type="button" onClick={resetAssignModal} className="rounded-sm border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-bold text-slate-700 hover:bg-slate-100">
                                  Reset
@@ -2170,24 +2288,29 @@ const SLALeadList: React.FC = () => {
 
                         <div className="mt-3 flex flex-wrap items-end gap-x-6 gap-y-2">
                            <div>
-                              <div className="text-[11px] text-slate-500">Tổng phân bổ</div>
+                              <div className="text-[11px] text-slate-500">{text('Tổng phân bổ')}</div>
                               <div className={`text-[15px] font-bold ${assignmentRatioTotal === selectedReclaimCount ? 'text-emerald-600' : 'text-amber-600'}`}>{assignmentRatioTotal}</div>
                            </div>
                            <div>
-                              <div className="text-[11px] text-slate-500">Tổng lead</div>
+                              <div className="text-[11px] text-slate-500">{text('Tổng lead')}</div>
                               <div className="text-[15px] font-bold text-slate-900">{selectedReclaimCount}</div>
                            </div>
                            <div>
-                              <div className="text-[11px] text-slate-500">Số sale tham gia</div>
+                              <div className="text-[11px] text-slate-500">{text('Số sale tham gia')}</div>
                               <div className="text-[15px] font-bold text-slate-900">{Object.values(assignmentRatioValues).filter((value) => value > 0).length}</div>
                            </div>
                         </div>
                      </div>
 
                      <div>
-                        <label className="mb-2 block text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">Số lượng theo nhân viên</label>
+                        <label className="mb-2 block text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">{text('Số lượng theo nhân viên')}</label>
+                        {filteredAssignmentSalesReps.length === 0 ? (
+                           <div className="flex h-24 items-center justify-center rounded-md border border-dashed border-slate-200 bg-slate-50 text-[12px] text-slate-500">
+                              {text('Không tìm thấy sale phù hợp với bộ lọc hiện tại.')}
+                           </div>
+                        ) : (
                         <div className="max-h-[340px] overflow-y-auto">
-                           {ASSIGNABLE_SALES_REPS.map((rep) => {
+                           {filteredAssignmentSalesReps.map((rep) => {
                               const ratioValue = assignmentRatios[rep.id] || '';
                               const ratio = assignmentRatioValues[rep.id] || 0;
                               const leadCount = assignmentLeadCounts[rep.id] || 0;
@@ -2201,7 +2324,7 @@ const SLALeadList: React.FC = () => {
                                        </div>
                                        <div className="min-w-0 flex-1">
                                           <p className="text-[13px] font-semibold text-slate-900">{text(rep.name)}</p>
-                                          <p className="text-[11px] text-slate-500">{text(rep.team)}</p>
+                                          <p className="text-[11px] text-slate-500">{rep.branch ? `${text(rep.team)} | ${text(rep.branch)}` : text(rep.team)}</p>
                                        </div>
                                        <div className="flex items-center gap-2">
                                           <input
@@ -2219,35 +2342,36 @@ const SLALeadList: React.FC = () => {
 
                                     <div className="mt-1 flex items-center justify-between gap-3 pl-10">
                                        <p className="text-[11px] text-slate-600">
-                                          {ratio > 0 ? `Dự kiến nhận ${leadCount} lead` : 'Chưa tham gia phân bổ'}
+                                           {ratio > 0 ? `${text('Dự kiến nhận')} ${leadCount} lead` : text('Chưa tham gia phân bổ')}
                                        </p>
                                        <button
                                           type="button"
                                           onClick={() => setSingleRepAssignment(rep.id)}
                                           className="rounded-sm border border-slate-200 bg-white px-2 py-1 text-[10px] font-bold text-slate-700 hover:bg-slate-100"
                                        >
-                                          Giao hết cho sale này
+                                           {text('Giao hết cho sale này')}
                                        </button>
                                     </div>
                                  </div>
                               );
                            })}
                         </div>
+                        )}
                      </div>
                   </div>
 
-                  <div className="flex shrink-0 justify-end gap-2 border-t border-slate-200 bg-slate-50 px-4 py-3">
-                     <button onClick={closeAssignModal} className="rounded-sm px-3 py-1.5 text-[12px] font-bold text-slate-600 hover:bg-slate-200">Huy</button>
+                   <div className="flex shrink-0 justify-end gap-2 border-t border-slate-200 bg-slate-50 px-4 py-3">
+                     <button onClick={closeAssignModal} className="rounded-sm px-3 py-1.5 text-[12px] font-bold text-slate-600 hover:bg-slate-200">{text('Hủy')}</button>
                      <button
                         onClick={handleAssignReclaimedLead}
                         className={`rounded-sm px-4 py-1.5 text-[12px] font-bold text-white transition-colors ${assignmentRatioTotal === selectedReclaimCount && selectedReclaimCount > 0 ? 'bg-blue-600 hover:bg-blue-700' : 'cursor-not-allowed bg-slate-400'}`}
                         disabled={assignmentRatioTotal !== selectedReclaimCount || selectedReclaimCount === 0}
                      >
-                        Xác nhận Phân bổ
+                        {text('Xác nhận Phân bổ')}
                      </button>
+                   </div>
                   </div>
                </div>
-                  </div>
             </div>
          )}
 

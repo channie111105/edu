@@ -1,17 +1,19 @@
 ﻿import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Phone, Briefcase, Award } from 'lucide-react';
+import { Plus, Phone, Briefcase, Award, FileText, Paperclip, X } from 'lucide-react';
 import { ITeacher } from '../types';
 import { addTeacher, getTeachers, getTrainingClasses } from '../utils/storage';
 import { useAuth } from '../contexts/AuthContext';
 import PinnedSearchInput, { PinnedSearchChip } from '../components/PinnedSearchInput';
+import { DEFAULT_ATTACHMENT_ACCEPT, readFilesAsAttachmentRecords } from '../utils/fileAttachments';
 
 const DEFAULT_TEACHER: Partial<ITeacher> = {
   status: 'ACTIVE',
   teachSubjects: [],
   teachLevels: [],
   certificates: [],
-  assignedClassIds: []
+  assignedClassIds: [],
+  attachments: []
 };
 
 const TrainingTeachers: React.FC = () => {
@@ -22,6 +24,7 @@ const TrainingTeachers: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
   const [newTeacher, setNewTeacher] = useState<Partial<ITeacher>>(DEFAULT_TEACHER);
+  const [isProcessingAttachments, setIsProcessingAttachments] = useState(false);
 
   const loadData = () => {
     setTeachers(getTeachers());
@@ -99,6 +102,8 @@ const TrainingTeachers: React.FC = () => {
 
   const handleCreateTeacher = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isProcessingAttachments) return;
+
     const nextIndex = teachers.length + 1;
     const teacher: ITeacher = {
       id: `T${Date.now()}`,
@@ -115,6 +120,7 @@ const TrainingTeachers: React.FC = () => {
       teachSubjects: newTeacher.teachSubjects || [],
       teachLevels: newTeacher.teachLevels || [],
       certificates: newTeacher.certificates || [],
+      attachments: newTeacher.attachments || [],
       status: (newTeacher.status as ITeacher['status']) || 'ACTIVE',
       assignedClassIds: [],
       createdAt: new Date().toISOString(),
@@ -126,6 +132,35 @@ const TrainingTeachers: React.FC = () => {
     setNewTeacher(DEFAULT_TEACHER);
     loadData();
   };
+
+  const handleDraftAttachmentSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    try {
+      setIsProcessingAttachments(true);
+      const nextAttachments = await readFilesAsAttachmentRecords(event.target.files);
+      if (nextAttachments.length === 0) return;
+
+      setNewTeacher((prev) => ({
+        ...prev,
+        attachments: [...(prev.attachments || []), ...nextAttachments]
+      }));
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Không thể tải hồ sơ lên. Vui lòng thử lại.');
+    } finally {
+      setIsProcessingAttachments(false);
+      event.target.value = '';
+    }
+  };
+
+  const handleRemoveDraftAttachment = (attachmentId: string) => {
+    setNewTeacher((prev) => ({
+      ...prev,
+      attachments: (prev.attachments || []).filter((attachment) => attachment.id !== attachmentId)
+    }));
+  };
+
+  const odooFieldLabelClass = 'mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500';
+  const odooFieldClass =
+    'h-11 w-full rounded-md border border-slate-200 bg-white px-3.5 text-sm text-slate-700 shadow-[inset_0_1px_2px_rgba(15,23,42,0.04)] outline-none transition placeholder:text-slate-400 focus:border-sky-400 focus:ring-2 focus:ring-sky-100';
 
   return (
     <div className="p-8 max-w-[1600px] mx-auto bg-[#F8FAFC] min-h-screen font-sans text-slate-900">
@@ -257,71 +292,256 @@ const TrainingTeachers: React.FC = () => {
       </div>
 
       {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-              <h3 className="font-bold text-lg text-slate-800">Tạo Giáo viên mới</h3>
-              <button onClick={() => setShowCreateModal(false)} className="text-slate-400 hover:text-slate-600 text-2xl">&times;</button>
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/45 backdrop-blur-[2px]">
+          <div className="flex min-h-full items-center justify-center p-4 md:p-6">
+            <div className="w-full max-w-5xl overflow-hidden rounded-2xl border border-sky-100 bg-[#f5faff] shadow-[0_28px_80px_rgba(15,23,42,0.22)]">
+              <div className="border-b border-sky-100 bg-white/95 px-6 py-5 md:px-7">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <div className="mb-2 inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-sky-700">
+                      Teacher Form
+                    </div>
+                    <h3 className="text-[28px] font-semibold tracking-tight text-slate-900">Tạo Giáo viên mới</h3>
+                    <p className="mt-1 text-sm text-slate-500">
+                      Biểu mẫu hồ sơ theo kiểu sheet của Odoo, giữ nguyên dữ liệu và quy trình tạo giáo viên.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowCreateModal(false)}
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-xl text-slate-400 transition hover:border-slate-300 hover:text-slate-600"
+                    aria-label="Đóng"
+                  >
+                    &times;
+                  </button>
+                </div>
+              </div>
+
+              <form onSubmit={handleCreateTeacher} className="px-6 py-6 md:px-7">
+                <div className="overflow-hidden rounded-2xl border border-sky-100 bg-white shadow-[0_10px_35px_rgba(15,23,42,0.06)]">
+                  <div className="border-b border-sky-100 bg-[#f4faff] px-5 py-3.5">
+                    <div className="flex flex-wrap gap-2">
+                      <span className="rounded-md border border-sky-200 bg-sky-100 px-3 py-1 text-xs font-semibold text-sky-700">Form</span>
+                      <span className="rounded-md border border-sky-100 bg-white px-3 py-1 text-xs font-medium text-slate-600">
+                        Hồ sơ giáo viên
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-5 p-5 xl:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)]">
+                    <section className="rounded-xl border border-slate-200 bg-[#fcfcfd] p-5">
+                      <div className="mb-5 flex items-center gap-3">
+                        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-sky-100 text-sm font-bold text-sky-700">
+                          1
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-semibold uppercase tracking-[0.08em] text-slate-700">Thông tin cá nhân</h4>
+                          <p className="text-xs text-slate-500">Thông tin nhận diện và liên hệ cơ bản của giáo viên.</p>
+                        </div>
+                      </div>
+
+                      <div className="space-y-4">
+                        <div>
+                          <label className={odooFieldLabelClass}>Họ và tên</label>
+                          <input
+                            required
+                            className={odooFieldClass}
+                            value={newTeacher.fullName || ''}
+                            onChange={(e) => setNewTeacher({ ...newTeacher, fullName: e.target.value })}
+                          />
+                        </div>
+
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <div>
+                            <label className={odooFieldLabelClass}>Ngày sinh</label>
+                            <input
+                              type="date"
+                              className={odooFieldClass}
+                              value={newTeacher.dob || ''}
+                              onChange={(e) => setNewTeacher({ ...newTeacher, dob: e.target.value })}
+                            />
+                          </div>
+                          <div>
+                            <label className={odooFieldLabelClass}>Số điện thoại</label>
+                            <input
+                              required
+                              className={odooFieldClass}
+                              value={newTeacher.phone || ''}
+                              onChange={(e) => setNewTeacher({ ...newTeacher, phone: e.target.value })}
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className={odooFieldLabelClass}>Email</label>
+                          <input
+                            type="email"
+                            className={odooFieldClass}
+                            value={newTeacher.email || ''}
+                            onChange={(e) => setNewTeacher({ ...newTeacher, email: e.target.value })}
+                          />
+                        </div>
+                      </div>
+                    </section>
+
+                    <section className="rounded-xl border border-slate-200 bg-[#fcfcfd] p-5">
+                      <div className="mb-5 flex items-center gap-3">
+                        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-sky-100 text-sm font-bold text-sky-700">
+                          2
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-semibold uppercase tracking-[0.08em] text-slate-700">Chuyên môn và hợp đồng</h4>
+                          <p className="text-xs text-slate-500">Nhóm trường phục vụ phân công giảng dạy và quản trị nhân sự.</p>
+                        </div>
+                      </div>
+
+                      <div className="space-y-4">
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <div>
+                            <label className={odooFieldLabelClass}>Loại hợp đồng</label>
+                            <select
+                              className={odooFieldClass}
+                              value={newTeacher.contractType || 'Full-time'}
+                              onChange={(e) => setNewTeacher({ ...newTeacher, contractType: e.target.value as ITeacher['contractType'] })}
+                            >
+                              <option value="Full-time">Full-time</option>
+                              <option value="Part-time">Part-time</option>
+                              <option value="CTV">CTV</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className={odooFieldLabelClass}>Ngày vào làm</label>
+                            <input
+                              type="date"
+                              className={odooFieldClass}
+                              value={newTeacher.startDate || ''}
+                              onChange={(e) => setNewTeacher({ ...newTeacher, startDate: e.target.value })}
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className={odooFieldLabelClass}>Trình độ có thể dạy</label>
+                          <input
+                            placeholder="Ví dụ: A1, A2, IELTS"
+                            className={odooFieldClass}
+                            value={newTeacher.teachLevels?.join(', ') || ''}
+                            onChange={(e) => setNewTeacher({ ...newTeacher, teachLevels: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) })}
+                          />
+                        </div>
+
+                        <div>
+                          <label className={odooFieldLabelClass}>Môn dạy</label>
+                          <input
+                            placeholder="Ví dụ: German, English"
+                            className={odooFieldClass}
+                            value={newTeacher.teachSubjects?.join(', ') || ''}
+                            onChange={(e) => setNewTeacher({ ...newTeacher, teachSubjects: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) })}
+                          />
+                        </div>
+
+                        <div>
+                          <label className={odooFieldLabelClass}>Bằng cấp / chứng chỉ</label>
+                          <input
+                            className={odooFieldClass}
+                            value={newTeacher.certificates?.join(', ') || ''}
+                            onChange={(e) => setNewTeacher({ ...newTeacher, certificates: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) })}
+                          />
+                        </div>
+                      </div>
+                    </section>
+
+                    <section className="rounded-xl border border-slate-200 bg-[#fcfcfd] p-5 xl:col-span-2">
+                      <div className="mb-5 flex items-center gap-3">
+                        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-sky-100 text-sm font-bold text-sky-700">
+                          3
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-semibold uppercase tracking-[0.08em] text-slate-700">Hồ sơ đính kèm</h4>
+                          <p className="text-xs text-slate-500">Lưu CV, bằng cấp scan và các giấy tờ nội bộ trực tiếp trong hồ sơ giáo viên.</p>
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-dashed border-sky-200 bg-sky-50/40 p-4">
+                        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                          <div>
+                            <div className="text-sm font-semibold text-slate-700">Tệp hồ sơ giáo viên</div>
+                            <p className="mt-1 text-xs text-slate-500">Hỗ trợ PDF, ảnh, Word, Excel. Mỗi tệp tối đa 3MB vì dữ liệu đang lưu trong local storage.</p>
+                          </div>
+                          <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-sky-200 bg-white px-4 py-2 text-sm font-semibold text-sky-700 transition hover:border-sky-300 hover:bg-sky-50">
+                            <Paperclip size={15} />
+                            {isProcessingAttachments ? 'Đang tải...' : 'Thêm hồ sơ'}
+                            <input
+                              type="file"
+                              multiple
+                              accept={DEFAULT_ATTACHMENT_ACCEPT}
+                              className="hidden"
+                              disabled={isProcessingAttachments}
+                              onChange={handleDraftAttachmentSelect}
+                            />
+                          </label>
+                        </div>
+
+                        {newTeacher.attachments && newTeacher.attachments.length > 0 ? (
+                          <div className="mt-4 grid gap-2 md:grid-cols-2">
+                            {newTeacher.attachments.map((attachment) => (
+                              <div
+                                key={attachment.id}
+                                className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2"
+                              >
+                                <div className="flex min-w-0 items-center gap-2">
+                                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500">
+                                    <FileText size={14} />
+                                  </div>
+                                  <div className="min-w-0">
+                                    <div className="truncate text-sm font-medium text-slate-700">{attachment.name}</div>
+                                    <div className="text-xs text-slate-400">Sẽ được lưu cùng hồ sơ giáo viên</div>
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveDraftAttachment(attachment.id)}
+                                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-rose-200 text-rose-600 transition hover:bg-rose-50"
+                                  aria-label={`Xóa ${attachment.name}`}
+                                >
+                                  <X size={14} />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="mt-4 rounded-xl border border-slate-200 bg-white px-4 py-5 text-sm text-slate-500">
+                            Chưa có hồ sơ đính kèm.
+                          </div>
+                        )}
+                      </div>
+                    </section>
+                  </div>
+                </div>
+
+                <div className="mt-5 flex flex-col gap-4 rounded-2xl border border-sky-100 bg-white/90 px-5 py-4 md:flex-row md:items-center md:justify-between">
+                  <div className="text-sm text-slate-500">
+                    Giữ nguyên toàn bộ trường dữ liệu hiện có, chỉ tinh chỉnh bố cục và phong cách hiển thị.
+                  </div>
+                  <div className="flex justify-end gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setShowCreateModal(false)}
+                      className="rounded-md border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
+                    >
+                      Hủy bỏ
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isProcessingAttachments}
+                      className="rounded-md bg-sky-400 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-sky-500"
+                    >
+                      {isProcessingAttachments ? 'Đang xử lý hồ sơ...' : 'Lưu Giáo viên'}
+                    </button>
+                  </div>
+                </div>
+              </form>
             </div>
-
-            <form onSubmit={handleCreateTeacher} className="p-6 grid grid-cols-2 gap-6">
-              <div className="space-y-4">
-                <h4 className="font-bold text-sm text-slate-500 uppercase tracking-wider border-b border-slate-100 pb-2">1. Thông tin cá nhân</h4>
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Họ và tên</label>
-                  <input required className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" value={newTeacher.fullName || ''} onChange={(e) => setNewTeacher({ ...newTeacher, fullName: e.target.value })} />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-1">Ngày sinh</label>
-                    <input type="date" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" value={newTeacher.dob || ''} onChange={(e) => setNewTeacher({ ...newTeacher, dob: e.target.value })} />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-1">Số điện thoại</label>
-                    <input required className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" value={newTeacher.phone || ''} onChange={(e) => setNewTeacher({ ...newTeacher, phone: e.target.value })} />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Email</label>
-                  <input type="email" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" value={newTeacher.email || ''} onChange={(e) => setNewTeacher({ ...newTeacher, email: e.target.value })} />
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                <h4 className="font-bold text-sm text-slate-500 uppercase tracking-wider border-b border-slate-100 pb-2">2. Chuyên môn & Hợp đồng</h4>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-1">Loại hợp đồng</label>
-                    <select className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" value={newTeacher.contractType || 'Full-time'} onChange={(e) => setNewTeacher({ ...newTeacher, contractType: e.target.value as ITeacher['contractType'] })}>
-                      <option value="Full-time">Full-time</option>
-                      <option value="Part-time">Part-time</option>
-                      <option value="CTV">CTV</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-1">Ngày vào làm</label>
-                    <input type="date" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" value={newTeacher.startDate || ''} onChange={(e) => setNewTeacher({ ...newTeacher, startDate: e.target.value })} />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Trình độ có thể dạy</label>
-                  <input placeholder="Ví dụ: A1, A2, IELTS" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" value={newTeacher.teachLevels?.join(', ') || ''} onChange={(e) => setNewTeacher({ ...newTeacher, teachLevels: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) })} />
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Môn dạy</label>
-                  <input placeholder="Ví dụ: German, English" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" value={newTeacher.teachSubjects?.join(', ') || ''} onChange={(e) => setNewTeacher({ ...newTeacher, teachSubjects: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) })} />
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Bằng cấp / chứng chỉ</label>
-                  <input className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" value={newTeacher.certificates?.join(', ') || ''} onChange={(e) => setNewTeacher({ ...newTeacher, certificates: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) })} />
-                </div>
-              </div>
-
-              <div className="col-span-2 flex justify-end gap-3 mt-4 pt-4 border-t border-slate-100">
-                <button type="button" onClick={() => setShowCreateModal(false)} className="px-5 py-2.5 rounded-lg border border-slate-200 text-slate-600 font-bold hover:bg-slate-50">Hủy bỏ</button>
-                <button type="submit" className="px-5 py-2.5 rounded-lg bg-blue-600 text-white font-bold hover:bg-blue-700">Lưu Giáo viên</button>
-              </div>
-            </form>
           </div>
         </div>
       )}

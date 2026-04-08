@@ -22,9 +22,9 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import PinnedSearchInput, { PinnedSearchChip } from '../components/PinnedSearchInput';
 
-type ApprovalFilter = 'ALL' | 'CHO_DUYET' | 'KE_TOAN_XAC_NHAN' | 'DA_DUYET' | 'DA_THU_CHI' | 'TU_CHOI';
+type ApprovalFilter = 'ALL' | 'DRAFT' | 'CHO_DUYET' | 'KE_TOAN_XAC_NHAN' | 'DA_DUYET' | 'DA_THU_CHI' | 'TU_CHOI';
 type BusinessGroup = 'THU' | 'CHI' | 'DIEU_CHINH';
-type ApprovalStage = 'CHO_DUYET' | 'KE_TOAN_XAC_NHAN' | 'DA_DUYET' | 'DA_THU_CHI' | 'TU_CHOI';
+type ApprovalStage = 'DRAFT' | 'CHO_DUYET' | 'KE_TOAN_XAC_NHAN' | 'DA_DUYET' | 'DA_THU_CHI' | 'TU_CHOI';
 type TimeRangeType = 'all' | 'today' | 'yesterday' | 'thisWeek' | 'last7Days' | 'last30Days' | 'thisMonth' | 'lastMonth' | 'custom';
 type TimeFieldFilter = 'any' | 'createdAt' | 'paidAt' | 'approvedAt' | 'rejectedAt';
 type FinanceGroupByKey = 'approvalStage' | 'businessGroup' | 'businessType' | 'paymentMethod' | 'proof' | 'creator';
@@ -142,6 +142,7 @@ const TIME_FIELD_OPTIONS: Array<{ id: TimeFieldFilter; label: string }> = [
 
 const APPROVAL_FILTER_LABEL_MAP: Record<ApprovalFilter, string> = {
   ALL: 'Tất cả trạng thái',
+  DRAFT: 'Nháp',
   CHO_DUYET: 'Chờ duyệt',
   KE_TOAN_XAC_NHAN: 'KT xác nhận',
   DA_DUYET: 'Duyệt',
@@ -149,7 +150,7 @@ const APPROVAL_FILTER_LABEL_MAP: Record<ApprovalFilter, string> = {
   TU_CHOI: 'Từ chối'
 };
 
-const APPROVAL_FILTER_OPTIONS: ApprovalFilter[] = ['ALL', 'CHO_DUYET', 'KE_TOAN_XAC_NHAN', 'DA_DUYET', 'DA_THU_CHI', 'TU_CHOI'];
+const APPROVAL_FILTER_OPTIONS: ApprovalFilter[] = ['ALL', 'DRAFT', 'CHO_DUYET', 'KE_TOAN_XAC_NHAN', 'DA_DUYET', 'DA_THU_CHI', 'TU_CHOI'];
 
 const GROUP_BY_OPTIONS: Array<{ key: FinanceGroupByKey; label: string }> = [
   { key: 'approvalStage', label: 'Trạng thái' },
@@ -448,6 +449,7 @@ const hasLegacyAdminApproval = (transaction: ITransaction, quotation?: IQuotatio
 
 const getApprovalStage = (transaction: ITransaction, quotation: IQuotation | undefined, actualTransactionProcessed: boolean): ApprovalStage => {
   if (transaction.status === 'TU_CHOI') return 'TU_CHOI';
+  if (transaction.status === 'DRAFT') return 'DRAFT';
   if (transaction.status === 'CHO_DUYET') return 'CHO_DUYET';
   if (typeof transaction.adminApprovedAt === 'number' || hasLegacyAdminApproval(transaction, quotation)) {
     return actualTransactionProcessed ? 'DA_THU_CHI' : 'DA_DUYET';
@@ -465,6 +467,7 @@ const getApprovalStageLabel = (stage: ApprovalStage, businessGroup?: BusinessGro
 };
 
 const getUndoActionLabel = (stage: ApprovalStage) => {
+  if (stage === 'CHO_DUYET') return 'Hủy trình duyệt';
   if (stage === 'KE_TOAN_XAC_NHAN') return 'Hủy KT xác nhận';
   if (stage === 'DA_DUYET') return 'Hủy duyệt';
   return 'Hủy';
@@ -472,6 +475,10 @@ const getUndoActionLabel = (stage: ApprovalStage) => {
 
 const ApprovalStageView: React.FC<{ stage: ApprovalStage; businessGroup: BusinessGroup }> = ({ stage, businessGroup }) => {
   const stageMeta: Record<ApprovalStage, { label: string; tone: string }> = {
+    DRAFT: {
+      label: 'Nháp',
+      tone: 'bg-slate-100 text-slate-700 border border-slate-200'
+    },
     CHO_DUYET: {
       label: 'Chờ duyệt',
       tone: 'bg-amber-50 text-amber-700 border border-amber-200'
@@ -1089,12 +1096,12 @@ const FinanceTransactions: React.FC = () => {
       const duplicatedPending = transactions.find(
         (transaction) =>
           transaction.quotationId === createForm.quotationId &&
-          transaction.status === 'CHO_DUYET' &&
+          (transaction.status === 'DRAFT' || transaction.status === 'CHO_DUYET') &&
           String(transaction.installmentTermId || '') === String(createForm.installmentTermId || '')
       );
 
       if (duplicatedPending) {
-        alert('Lần thu này đã có phiếu duyệt thu chờ xử lý.');
+        alert('Lần thu này đã có phiếu duyệt thu đang ở nháp hoặc chờ xử lý.');
         return;
       }
     }
@@ -1124,7 +1131,7 @@ const FinanceTransactions: React.FC = () => {
           ? [{ id: `PF-${createdAt}`, name: createForm.proofFile.name, url: '' }]
           : [],
         bankRefCode: createForm.method === 'CHUYEN_KHOAN' && createForm.proofFile ? createForm.proofFile.name : '',
-        status: 'CHO_DUYET',
+        status: 'DRAFT',
         paidAt,
         createdAt,
         createdBy: user?.id || 'accountant',
@@ -1134,13 +1141,6 @@ const FinanceTransactions: React.FC = () => {
       };
 
       addTransaction(newTransaction);
-      if (createForm.businessGroup === 'THU' && selectedCreateQuotationRecord) {
-        updateQuotation({
-          ...selectedCreateQuotationRecord,
-          transactionStatus: 'CHO_DUYET',
-          updatedAt: new Date().toISOString()
-        });
-      }
       setIsCreateModalOpen(false);
       resetCreateForm();
       loadData();
@@ -1245,6 +1245,30 @@ const FinanceTransactions: React.FC = () => {
     });
   };
 
+  const handleSubmitForApproval = (row: TransactionRow) => {
+    const nextTransactions = transactions.map((item) =>
+      item.id === row.transaction.id
+        ? {
+            ...item,
+            status: 'CHO_DUYET' as const,
+            rejectedAt: undefined,
+            note: item.note || `Trình duyệt bởi ${user?.id || 'system'}`
+          }
+        : item
+    );
+    saveTransactions(nextTransactions);
+
+    if (row.quotation) {
+      updateQuotation({
+        ...row.quotation,
+        transactionStatus: 'CHO_DUYET',
+        updatedAt: new Date().toISOString()
+      });
+    }
+
+    loadData();
+  };
+
   const handleApprove = (id: string) => {
     const res = approveTransaction(id, user?.id || 'accountant', userRole);
     if (!res.ok) {
@@ -1328,7 +1352,7 @@ const FinanceTransactions: React.FC = () => {
   const handleComplete = (row: TransactionRow) => {
     const res = approveTransactionByAdmin(row.transaction.id, user?.id || 'system', userRole);
     if (!res.ok) {
-      alert(res.error || 'Không thể duyệt SO');
+      alert(res.error || 'Không thể cập nhật giao dịch sang trạng thái Duyệt');
       return;
     }
 
@@ -1342,6 +1366,19 @@ const FinanceTransactions: React.FC = () => {
         Không khả dụng
       </span>
     );
+
+    if (row.approvalStage === 'DRAFT') {
+      return (
+        <div className="flex justify-end gap-2">
+          <button
+            onClick={() => handleSubmitForApproval(row)}
+            className="px-2.5 py-1.5 rounded bg-slate-900 text-white text-xs font-bold inline-flex items-center gap-1"
+          >
+            <FileText size={12} /> Trình duyệt
+          </button>
+        </div>
+      );
+    }
 
     if (row.approvalStage === 'CHO_DUYET') {
       if (!canActAsAccountant) return unavailable;

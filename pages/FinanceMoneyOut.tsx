@@ -7,19 +7,24 @@ import {
   IActualTransactionLog,
   IContract,
   IQuotation,
+  IRefundRequest,
   ITransaction,
   QuotationStatus,
+  RefundStatus,
   TransactionType
 } from '../types';
 import {
   addActualTransactionLog,
+  addRefundLog,
   getActualTransactionLogs,
   getActualTransactions,
   getContracts,
   getQuotations,
+  getRefunds,
   getSalesTeams,
   getTransactions,
   saveActualTransactions,
+  updateRefund,
   updateActualTransaction
 } from '../utils/storage';
 import LogAudienceFilterControl from '../components/LogAudienceFilter';
@@ -76,6 +81,7 @@ type FinanceMoneyOutLocationState = {
 type MoneyOutRow = {
   actual: IActualTransaction;
   source?: ITransaction;
+  refundSource?: IRefundRequest;
   quotation?: IQuotation;
   linkedContract?: IContract;
   approvalTransactionCode: string;
@@ -588,6 +594,69 @@ const buildActualTransactionFromSource = (transaction: ITransaction, existing?: 
   };
 };
 
+type NormalizedRefundApprovalStatus =
+  | 'DRAFT'
+  | 'CHO_DUYET'
+  | 'KE_TOAN_XAC_NHAN'
+  | 'DA_DUYET'
+  | 'DA_THU_CHI'
+  | 'TU_CHOI'
+  | 'HUY_YEU_CAU';
+
+const normalizeRefundStatus = (status: RefundStatus | string | undefined): NormalizedRefundApprovalStatus => {
+  const token = String(status || '').trim().toUpperCase();
+
+  if (token === 'DRAFT' || token === 'NHAP') return 'DRAFT';
+  if (token === 'CHO_DUYET' || token === 'SALE_XAC_NHAN' || token === 'CHO_SALE_DUYET') return 'CHO_DUYET';
+  if (token === 'KE_TOAN_XAC_NHAN' || token === 'KE_TOAN_KIEM_TRA' || token === 'CHO_KE_TOAN_DUYET') return 'KE_TOAN_XAC_NHAN';
+  if (token === 'DA_DUYET' || token === 'CEO_DUYET') return 'DA_DUYET';
+  if (token === 'DA_THU_CHI' || token === 'DA_HOAN' || token === 'DA_HOAN_TIEN') return 'DA_THU_CHI';
+  if (token === 'TU_CHOI' || token === 'DA_TU_CHOI') return 'TU_CHOI';
+  if (token === 'HUY_YEU_CAU') return 'HUY_YEU_CAU';
+
+  return 'DRAFT';
+};
+
+const inferRefundCashAccount = (refund: IRefundRequest) => {
+  const reference = `${refund.paymentVoucherCode || ''} ${refund.note || ''}`.toUpperCase();
+  return reference.startsWith('PC') || reference.includes('TIEN MAT') ? 'Tiền mặt' : 'STK ngân hàng';
+};
+
+const buildActualTransactionFromRefund = (refund: IRefundRequest, existing?: IActualTransaction): IActualTransaction => {
+  const proofName = refund.evidenceFiles?.[0] || refund.paymentVoucherCode || undefined;
+  const payoutDate = refund.payoutDate || new Date(refund.createdAt).toISOString().slice(0, 10);
+
+  return {
+    id: existing?.id || `ATX-${refund.id}`,
+    transactionCode: existing?.transactionCode || `TC-${refund.id.replace(/[^A-Z0-9]/gi, '').slice(-8).toUpperCase()}`,
+    type: 'OUT',
+    category: existing?.category || 'Hoàn tiền',
+    title: existing?.title || refund.note || refund.reason || `Hoàn tiền ${refund.studentName}`,
+    recipientPayerName: existing?.recipientPayerName || refund.studentName || undefined,
+    amount: Math.max(0, Number(refund.approvedAmount ?? refund.requestedAmount ?? 0) || 0),
+    department: existing?.department || 'Kế toán',
+    cashAccount: existing?.cashAccount || inferRefundCashAccount(refund),
+    voucherNumber: existing?.voucherNumber || refund.paymentVoucherCode || '',
+    date: existing?.date || payoutDate,
+    status: existing?.processResult === 'DA_CHI' ? 'PAID' : existing?.status || 'APPROVED',
+    processResult: existing?.processResult,
+    proof: existing?.proof || proofName,
+    attachmentName: existing?.attachmentName || proofName,
+    attachmentUrl: existing?.attachmentUrl || '',
+    relatedId: refund.id,
+    createdBy: existing?.createdBy || refund.createdBy || 'Kế toán',
+    createdAt: existing?.createdAt || new Date(refund.createdAt || Date.now()).toISOString()
+  };
+};
+
+const getRefundApprovalStage = (refund: IRefundRequest, actualTransactionProcessed: boolean): ApprovalStage => {
+  const status = normalizeRefundStatus(refund.status);
+  if (status === 'TU_CHOI' || status === 'HUY_YEU_CAU') return 'TU_CHOI';
+  if (status === 'CHO_DUYET') return 'CHO_DUYET';
+  if (status === 'KE_TOAN_XAC_NHAN') return 'KE_TOAN_XAC_NHAN';
+  return actualTransactionProcessed ? 'DA_THU_CHI' : 'DA_DUYET';
+};
+
 const buildApprovalTransactionCode = (
   transaction: ITransaction | undefined,
   sourceIndex: number | undefined,
@@ -881,6 +950,7 @@ const FinanceMoneyOut: React.FC = () => {
   const navigationPrefillKeyRef = useRef<string | null>(null);
   const [transactions, setTransactions] = useState<IActualTransaction[]>([]);
   const [sourceTransactions, setSourceTransactions] = useState<ITransaction[]>([]);
+  const [refundSources, setRefundSources] = useState<IRefundRequest[]>([]);
   const [quotations, setQuotations] = useState<IQuotation[]>([]);
   const [contracts, setContracts] = useState<IContract[]>([]);
   const [logs, setLogs] = useState<IActualTransactionLog[]>([]);
@@ -917,6 +987,11 @@ const FinanceMoneyOut: React.FC = () => {
     const currentTransactions = getActualTransactions();
     const sourceList = getTransactions();
     const approvedSourceTransactions = sourceList.filter((item) => item.status === 'DA_DUYET');
+    const refundList = getRefunds();
+    const approvedRefundTransactions = refundList.filter((item) => {
+      const status = normalizeRefundStatus(item.status);
+      return status === 'KE_TOAN_XAC_NHAN' || status === 'DA_DUYET' || status === 'DA_THU_CHI';
+    });
     const actualByRelatedId = new Map(
       currentTransactions
         .filter((item) => item.relatedId)
@@ -925,9 +1000,17 @@ const FinanceMoneyOut: React.FC = () => {
           return [normalizedItem.relatedId as string, normalizedItem] as const;
         })
     );
-    const syncedTransactions = approvedSourceTransactions.map((source, index) =>
-      normalizeActualTransaction(buildActualTransactionFromSource(source, actualByRelatedId.get(source.id)), index)
-    );
+    const syncedTransactions = [
+      ...approvedSourceTransactions.map((source, index) =>
+        normalizeActualTransaction(buildActualTransactionFromSource(source, actualByRelatedId.get(source.id)), index)
+      ),
+      ...approvedRefundTransactions.map((refund, index) =>
+        normalizeActualTransaction(
+          buildActualTransactionFromRefund(refund, actualByRelatedId.get(refund.id)),
+          approvedSourceTransactions.length + index
+        )
+      )
+    ];
 
     if (JSON.stringify(currentTransactions) !== JSON.stringify(syncedTransactions)) {
       saveActualTransactions(syncedTransactions);
@@ -935,6 +1018,7 @@ const FinanceMoneyOut: React.FC = () => {
 
     setTransactions(syncedTransactions);
     setSourceTransactions(sourceList);
+    setRefundSources(refundList);
     setQuotations(getQuotations());
     setContracts(getContracts());
     setLogs(getActualTransactionLogs());
@@ -957,6 +1041,7 @@ const FinanceMoneyOut: React.FC = () => {
     window.addEventListener('educrm:actual-transactions-changed', loadData as EventListener);
     window.addEventListener('educrm:actual-transaction-logs-changed', loadData as EventListener);
     window.addEventListener('educrm:transactions-changed', loadData as EventListener);
+    window.addEventListener('educrm:refunds-changed', loadData as EventListener);
     window.addEventListener('educrm:quotations-changed', loadData as EventListener);
     window.addEventListener('educrm:contracts-changed', loadData as EventListener);
     window.addEventListener('educrm:sales-teams-changed', loadData as EventListener);
@@ -964,6 +1049,7 @@ const FinanceMoneyOut: React.FC = () => {
       window.removeEventListener('educrm:actual-transactions-changed', loadData as EventListener);
       window.removeEventListener('educrm:actual-transaction-logs-changed', loadData as EventListener);
       window.removeEventListener('educrm:transactions-changed', loadData as EventListener);
+      window.removeEventListener('educrm:refunds-changed', loadData as EventListener);
       window.removeEventListener('educrm:quotations-changed', loadData as EventListener);
       window.removeEventListener('educrm:contracts-changed', loadData as EventListener);
       window.removeEventListener('educrm:sales-teams-changed', loadData as EventListener);
@@ -1051,6 +1137,8 @@ const FinanceMoneyOut: React.FC = () => {
 
   const sourceTransactionMap = useMemo(() => new Map(sourceTransactions.map((item) => [item.id, item])), [sourceTransactions]);
   const quotationMap = useMemo(() => new Map(quotations.map((item) => [item.id, item])), [quotations]);
+  const quotationBySoCode = useMemo(() => new Map(quotations.filter((item) => item.soCode).map((item) => [item.soCode, item])), [quotations]);
+  const refundSourceMap = useMemo(() => new Map(refundSources.map((item) => [item.id, item])), [refundSources]);
   const contractByQuotationId = useMemo(
     () => new Map(contracts.filter((item) => item.quotationId).map((item) => [item.quotationId as string, item])),
     [contracts]
@@ -1063,30 +1151,59 @@ const FinanceMoneyOut: React.FC = () => {
   const rows = useMemo<MoneyOutRow[]>(() => {
     return transactions.map((actual) => {
       const source = actual.relatedId ? sourceTransactionMap.get(actual.relatedId) : undefined;
-      const quotation = source?.quotationId ? quotationMap.get(source.quotationId) : undefined;
+      const refundSource = !source && actual.relatedId ? refundSourceMap.get(actual.relatedId) : undefined;
+      const quotation = source?.quotationId
+        ? quotationMap.get(source.quotationId)
+        : refundSource?.soCode
+          ? quotationBySoCode.get(refundSource.soCode)
+          : undefined;
       const linkedContract = quotation?.id ? contractByQuotationId.get(quotation.id) : undefined;
-      const businessGroup = inferBusinessGroup(source, actual);
-      const requiresCeoApproval = source ? businessGroup !== 'THU' || source.amount >= 100_000_000 : businessGroup !== 'THU';
+      const businessGroup = refundSource ? 'CHI' : inferBusinessGroup(source, actual);
+      const requiresCeoApproval = refundSource
+        ? actual.amount >= 100_000_000
+        : source
+          ? businessGroup !== 'THU' || source.amount >= 100_000_000
+          : businessGroup !== 'THU';
       const processedResult = processedResultByTransactionId.get(actual.id) || null;
       const actualTransactionProcessed = processedResult !== null;
-      const approvalStage = getApprovalStage(source, quotation, actualTransactionProcessed);
+      const approvalStage = refundSource
+        ? getRefundApprovalStage(refundSource, actualTransactionProcessed)
+        : getApprovalStage(source, quotation, actualTransactionProcessed);
       const processedStatus = getProcessedStatusMeta(processedResult);
       const sourceIndex = source?.id ? sourceIndexMap.get(source.id) : undefined;
-      const contractDisplay = getContractDisplay(quotation, linkedContract, source, businessGroup);
+      const contractDisplay = refundSource
+        ? {
+            code: refundSource.contractCode || getContractDisplay(quotation, linkedContract, source, businessGroup).code,
+            reference:
+              refundSource.soCode || refundSource.contractCode
+                ? `SO: ${refundSource.soCode || refundSource.contractCode}`
+                : getContractDisplay(quotation, linkedContract, source, businessGroup).reference
+          }
+        : getContractDisplay(quotation, linkedContract, source, businessGroup);
 
       return {
         actual,
         source,
+        refundSource,
         quotation,
         linkedContract,
-        approvalTransactionCode: buildApprovalTransactionCode(source, sourceIndex, businessGroup, actual),
-        approvalReferenceLabel: getApprovalReferenceLabel(source, actual),
+        approvalTransactionCode: refundSource ? refundSource.id : buildApprovalTransactionCode(source, sourceIndex, businessGroup, actual),
+        approvalReferenceLabel: refundSource
+          ? `Hoàn tiền • ${refundSource.contractCode || refundSource.soCode || refundSource.studentName || refundSource.id}`
+          : getApprovalReferenceLabel(source, actual),
         businessGroup,
         businessGroupLabel: getBusinessGroupLabel(businessGroup),
-        businessType: inferBusinessType(source, businessGroup, actual),
+        businessType: refundSource ? 'Hoàn tiền' : inferBusinessType(source, businessGroup, actual),
         relatedEntity:
-          source?.relatedEntityLabel || source?.studentName || quotation?.customerName || actual.title || actual.category || '-',
+          refundSource?.studentName ||
+          source?.relatedEntityLabel ||
+          source?.studentName ||
+          quotation?.customerName ||
+          actual.title ||
+          actual.category ||
+          '-',
         recipientPayerName:
+          refundSource?.studentName ||
           source?.recipientPayerName ||
           actual.recipientPayerName ||
           source?.relatedEntityLabel ||
@@ -1095,14 +1212,36 @@ const FinanceMoneyOut: React.FC = () => {
           '-',
         contractCode: contractDisplay.code,
         contractReferenceLabel: contractDisplay.reference,
-        paymentMethodLabel: getPaymentMethodLabel(source, actual),
-        proofValue: source?.bankRefCode || source?.proofFiles?.[0]?.name || actual.proof || actual.attachmentName || '-',
-        paymentDateLabel: source ? dateTimeFormat(source.paidAt || source.createdAt) : dateLabelFormat(actual.date),
-        creatorLabel: creatorDirectory.get(source?.createdBy || actual.createdBy) || source?.createdBy || actual.createdBy || 'System',
-        createdAtLabel: source ? dateTimeFormat(source.createdAt) : dateTimeFormat(actual.createdAt),
+        paymentMethodLabel: refundSource ? (actual.cashAccount === 'Tiền mặt' ? 'Tiền mặt' : 'Chuyển khoản') : getPaymentMethodLabel(source, actual),
+        proofValue:
+          refundSource?.paymentVoucherCode ||
+          refundSource?.evidenceFiles?.[0] ||
+          source?.bankRefCode ||
+          source?.proofFiles?.[0]?.name ||
+          actual.proof ||
+          actual.attachmentName ||
+          '-',
+        paymentDateLabel: refundSource
+          ? refundSource.payoutDate
+            ? dateLabelFormat(refundSource.payoutDate)
+            : dateTimeFormat(new Date(refundSource.createdAt).getTime())
+          : source
+            ? dateTimeFormat(source.paidAt || source.createdAt)
+            : dateLabelFormat(actual.date),
+        creatorLabel:
+          creatorDirectory.get(refundSource?.createdBy || source?.createdBy || actual.createdBy) ||
+          refundSource?.createdBy ||
+          source?.createdBy ||
+          actual.createdBy ||
+          'System',
+        createdAtLabel: refundSource
+          ? dateTimeFormat(new Date(refundSource.createdAt).getTime())
+          : source
+            ? dateTimeFormat(source.createdAt)
+            : dateTimeFormat(actual.createdAt),
         approvalStage,
         requiresCeoApproval,
-        approvalNote: source?.note || actual.title || '-',
+        approvalNote: refundSource?.note || refundSource?.refundBasis || source?.note || actual.title || '-',
         processedResult,
         isProcessed: actualTransactionProcessed,
         processedStatusLabel: processedStatus.label,
@@ -1110,7 +1249,7 @@ const FinanceMoneyOut: React.FC = () => {
         accountingTypeLabel: TYPE_META[actual.type].label
       };
     });
-  }, [contractByQuotationId, creatorDirectory, processedResultByTransactionId, quotationMap, sourceIndexMap, sourceTransactionMap, transactions]);
+  }, [contractByQuotationId, creatorDirectory, processedResultByTransactionId, quotationBySoCode, quotationMap, refundSourceMap, sourceIndexMap, sourceTransactionMap, transactions]);
 
   const businessTypeOptions = useMemo(
     () => Array.from(new Set(rows.map((row) => row.businessType).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'vi')),
@@ -1423,6 +1562,33 @@ const FinanceMoneyOut: React.FC = () => {
     });
   };
 
+  const syncRefundAfterProcessing = (item: IActualTransaction, result?: ProcessResult) => {
+    if (!item.relatedId) return;
+
+    const refund = refundSources.find((entry) => entry.id === item.relatedId);
+    if (!refund) return;
+    const markProcessed = result === 'DA_CHI';
+
+    const nextRefund: IRefundRequest = {
+      ...refund,
+      status: markProcessed ? 'DA_THU_CHI' : refund.status,
+      paymentVoucherCode: item.voucherNumber || refund.paymentVoucherCode || item.transactionCode,
+      payoutDate: item.date || refund.payoutDate,
+      note: markProcessed ? refund.note || `Đã chi tại Thu Chi ${item.transactionCode || item.id}` : refund.note
+    };
+
+    updateRefund(nextRefund);
+    if (markProcessed) {
+      addRefundLog({
+        id: `RLOG-${Date.now()}`,
+        refundId: refund.id,
+        action: `Đã chi tại Thu Chi ${item.transactionCode || item.id}`,
+        createdAt: new Date().toISOString(),
+        createdBy: user?.name || user?.id || 'Kế toán'
+      });
+    }
+  };
+
   const closeModal = () => {
     setIsModalOpen(false);
     setEditingTransactionId(null);
@@ -1475,6 +1641,7 @@ const FinanceMoneyOut: React.FC = () => {
       'UPDATE_STATUS',
       `${PROCESS_RESULT_META[result].label} cho phiếu ${item.transactionCode || buildFallbackTransactionCode(item, 0)}`
     );
+    syncRefundAfterProcessing(updatedItem, result);
   };
 
   const handleAttachmentChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -1488,7 +1655,7 @@ const FinanceMoneyOut: React.FC = () => {
 
   const handleSubmit = async () => {
     if (!editingTransactionId) {
-      alert('Thu chi chỉ cho phép cập nhật phiếu đã chuyển từ Duyệt giao dịch.');
+      alert('Thu chi chỉ cho phép cập nhật phiếu đã chuyển từ nguồn duyệt ở trạng thái Duyệt.');
       return;
     }
 
@@ -1542,12 +1709,15 @@ const FinanceMoneyOut: React.FC = () => {
     const ok = updateActualTransaction(item);
     if (!ok) return;
 
+    syncRefundAfterProcessing(item);
+
     if (modalAction === 'PROCESS') {
       createLog(
         item.id,
         'UPDATE_STATUS',
         item.type === 'IN' ? `Đã nhận được tiền cho phiếu ${item.transactionCode}` : `Đã đưa tiền cho phiếu ${item.transactionCode}`
       );
+      syncRefundAfterProcessing(item, getProcessResultForTransactionType(item.type));
     } else {
       createLog(item.id, 'UPDATE', `Cập nhật phiếu ${item.transactionCode}`);
     }
@@ -1925,7 +2095,7 @@ const FinanceMoneyOut: React.FC = () => {
             <div>
               <h1 className="text-2xl font-bold text-slate-900">Thu chi - Danh sách</h1>
               <p className="text-sm text-slate-500">
-                Phiếu thu chi được đồng bộ từ `Duyệt giao dịch`. Màn hình này chỉ cập nhật phần kế toán và chứng từ đính kèm.
+                Phiếu thu chi được đồng bộ từ nguồn duyệt giao dịch hoặc hoàn tiền ở trạng thái `Duyệt`. Màn hình này chỉ cập nhật phần kế toán và chứng từ đính kèm.
               </p>
             </div>
           </div>
@@ -2372,7 +2542,7 @@ const FinanceMoneyOut: React.FC = () => {
                 ) : (
                   <tr>
                     <td colSpan={visibleColumns.length + 2} className="text-center py-10 text-slate-500">
-                      Chưa có phiếu thu chi nào được đồng bộ từ Duyệt giao dịch phù hợp với bộ lọc hiện tại.
+                      Chưa có phiếu thu chi nào được đồng bộ từ Duyệt giao dịch hoặc Hoàn tiền phù hợp với bộ lọc hiện tại.
                     </td>
                   </tr>
                 )}
@@ -2395,7 +2565,7 @@ const FinanceMoneyOut: React.FC = () => {
                           className="inline-flex items-center gap-1 rounded-[2px] border border-[#d8dadd] bg-white px-3 py-1 text-[12px] font-medium text-[#374151] hover:bg-[#f8f9fa]"
                         >
                           <Printer size={13} />
-                          Print
+                          In phiếu
                         </button>
                         <button
                           type="button"
@@ -2578,7 +2748,7 @@ const FinanceMoneyOut: React.FC = () => {
 
                       {editingRow && (
                         <div className="flex flex-col items-start gap-2 lg:items-end">
-                          <EnterpriseWorkflowBar currentStep={currentWorkflowStep} labels={['Chờ duyệt', 'KT xác nhận', 'Duyệt', 'Đã thu/chi']} />
+                                <EnterpriseWorkflowBar currentStep={currentWorkflowStep} labels={['Chờ duyệt', 'KT xác nhận', 'Duyệt', 'Đã thu/chi']} />
                           <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-[12px]">
                             <div className="flex items-center gap-1.5">
                               <span className="text-[#666666]">Trạng thái duyệt:</span>

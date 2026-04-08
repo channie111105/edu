@@ -809,9 +809,24 @@ const Contracts: React.FC = () => {
     () => selectedRows.filter((row) => canAssignClass(row)),
     [selectedRows]
   );
+  const selectedCancelableRows = useMemo(
+    () => selectedRows.filter((row) => row.canCancelAdmission && row.latestAdmission),
+    [selectedRows]
+  );
   const isStudentTab = activeTab === 'students';
   const isClaimFocusedTab = activeTab === 'processing' || isStudentTab;
   const isBatchEnrollMode = !selectedEnrollRow && selectedStudentIds.length > 0;
+
+  useEffect(() => {
+    if (!selectedStudentIds.length) {
+      setShowActionMenu(false);
+    }
+  }, [selectedStudentIds]);
+
+  useEffect(() => {
+    setShowActionMenu(false);
+  }, [activeTab]);
+
   const openActionEnroll = () => {
     if (!canEnrollBySales) {
       notify('Chá»‰ Sale/Admin Ä‘Æ°á»£c táº¡o ghi danh');
@@ -836,6 +851,40 @@ const Contracts: React.FC = () => {
       note: ''
     });
     setShowCreateModal(true);
+  };
+
+  const handleCancelSelectedAdmissions = () => {
+    if (!canEnrollBySales) {
+      notify('Báº¡n khÃ´ng cÃ³ quyá»n há»§y ghi danh');
+      return;
+    }
+    if (!selectedCancelableRows.length) {
+      notify('KhÃ´ng cÃ³ há»“ sÆ¡ chá» duyá»‡t phÃ¹ há»£p Ä‘á»ƒ há»§y ghi danh');
+      return;
+    }
+
+    let cancelledCount = 0;
+    selectedCancelableRows.forEach((row) => {
+      if (!row.latestAdmission) return;
+      const result = cancelAdmission(row.latestAdmission.id, user?.id || 'system');
+      if (result.ok) cancelledCount += 1;
+    });
+
+    setShowActionMenu(false);
+    setSelectedStudentIds((prev) => prev.filter((id) => !selectedCancelableRows.some((row) => row.student.id === id)));
+    loadData();
+
+    if (!cancelledCount) {
+      notify('KhÃ´ng thá»ƒ há»§y ghi danh cho danh sÃ¡ch Ä‘Ã£ chá»n');
+      return;
+    }
+
+    setActiveTab('waiting_enrollment');
+    notify(
+      cancelledCount === 1
+        ? 'ÄÃ£ há»§y ghi danh cho 1 há»c viÃªn vÃ  chuyá»ƒn vá» tab Chờ ghi danh'
+        : `ÄÃ£ há»§y ghi danh cho ${cancelledCount} há»c viÃªn vÃ  chuyá»ƒn vá» tab Chờ ghi danh`
+    );
   };
 
   const openActionAssign = () => {
@@ -1132,7 +1181,7 @@ const Contracts: React.FC = () => {
         </div>
       </div>
 
-      <div className="sticky top-0 z-20 mb-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="sticky top-0 z-20 mb-4 overflow-visible rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="flex flex-wrap items-end gap-2 border-b border-slate-200 px-4 pt-3">
           {TAB_CONFIG.map((tab) => (
             <button
@@ -1169,9 +1218,34 @@ const Contracts: React.FC = () => {
                 ) : null}
               </button>
               {showActionMenu ? (
-                <div className="absolute right-0 top-full z-20 mt-2 w-48 rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
-                  <button onClick={openActionEnroll} className="w-full rounded-xl px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-slate-50">Ghi danh</button>
-                  <button onClick={openActionAssign} className="w-full rounded-xl px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-slate-50">GÃ¡n lá»›p</button>
+                <div className="absolute right-0 top-full z-30 mt-2 w-52 rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
+                  <button
+                    onClick={openActionEnroll}
+                    disabled={!canEnrollBySales || !selectedEnrollRows.length}
+                    className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <span>Tạo ghi danh</span>
+                    <span className="text-xs text-slate-400">{selectedEnrollRows.length}</span>
+                  </button>
+                  <button
+                    onClick={openActionAssign}
+                    disabled={!selectedAssignableRows.length}
+                    className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <span>Gán lớp</span>
+                    <span className="text-xs text-slate-400">{selectedAssignableRows.length}</span>
+                  </button>
+                  <button
+                    onClick={handleCancelSelectedAdmissions}
+                    disabled={!canEnrollBySales || !selectedCancelableRows.length}
+                    className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm font-medium text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <span>Hủy ghi danh</span>
+                    <span className="text-xs text-rose-300">{selectedCancelableRows.length}</span>
+                  </button>
+                  {!selectedEnrollRows.length && !selectedAssignableRows.length && !selectedCancelableRows.length ? (
+                    <div className="px-3 py-2 text-xs text-slate-400">Danh sách đã chọn chưa có thao tác phù hợp.</div>
+                  ) : null}
                 </div>
               ) : null}
             </div>
@@ -1286,7 +1360,7 @@ const Contracts: React.FC = () => {
                           NS: {formatDisplayDate(row.student.dob)}
                           {row.teacher ? <span className="block">GV: {row.teacher.fullName}</span> : null}
                         </div>
-                        {activeTab === 'processing' && row.processingReasons.length ? (
+                        {row.processingReasons.length ? (
                           <div className="mt-1 text-[11px] font-medium text-amber-700">Cần xử lý: {row.processingReasons.join(', ')}</div>
                         ) : null}
                       </td>
@@ -1319,7 +1393,7 @@ const Contracts: React.FC = () => {
                                 disabled={!row.canEnroll || !canEnrollBySales}
                                 className="w-full rounded-lg bg-blue-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
                               >
-                                Ghi danh
+                                Tạo ghi danh
                               </button>
                               <button
                                 onClick={(event) => { event.stopPropagation(); openStudentProfile(row.student.id); }}
@@ -1328,6 +1402,15 @@ const Contracts: React.FC = () => {
                                 Xem hồ sơ
                               </button>
                             </>
+                          ) : null}
+                          {activeTab !== 'waiting_enrollment' && activeTab !== 'waiting_approval' && row.canEnroll ? (
+                            <button
+                              onClick={(event) => { event.stopPropagation(); openEnroll(row); }}
+                              disabled={!canEnrollBySales}
+                              className="w-full rounded-lg bg-blue-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              Tạo ghi danh
+                            </button>
                           ) : null}
                           {activeTab === 'waiting_approval' ? (
                             <>

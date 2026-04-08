@@ -25,8 +25,8 @@ import {
   X
 } from 'lucide-react';
 import { DateRangeType, LocationType } from '../components/DashboardFilters';
-import { IClassStudent, IQuotation, ISalesTeam, IStudent, ITrainingClass } from '../types';
-import { getClassStudents, getQuotations, getSalesTeams, getStudents, getTrainingClasses } from '../utils/storage';
+import { IActualTransaction, IClassStudent, IQuotation, ISalesTeam, IStudent, ITrainingClass, ITransaction } from '../types';
+import { getActualTransactions, getClassStudents, getQuotations, getSalesTeams, getStudents, getTrainingClasses, getTransactions } from '../utils/storage';
 
 type SalesFilterType = 'all' | string;
 
@@ -43,12 +43,23 @@ type DebtTermRecord = {
   amount: number;
   dueDate: string;
   termNo: number;
-  termStatus: 'UNPAID' | 'OVERDUE';
+  termStatus: 'PAID' | 'UNPAID' | 'OVERDUE';
   recordDate: string;
+};
+
+type FinanceActualRecord = {
+  actual: IActualTransaction;
+  source?: ITransaction;
+  quotation?: IQuotation;
+  branch: string;
+  salesPersonId: string;
+  salesPersonName: string;
+  accountType: 'bank' | 'cash';
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const BRANCH_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899'];
+const CASH_ACCOUNT_COLORS = ['#2563eb', '#16a34a'];
 
 const money = (value: number) =>
   new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 }).format(value || 0);
@@ -164,6 +175,22 @@ const isOverdueTerm = (term: Pick<DebtTermRecord, 'dueDate' | 'termStatus'>) => 
   return diffDays !== null && diffDays < 0;
 };
 
+const hasAdminExecutedTransaction = (transaction?: ITransaction, quotation?: IQuotation) => {
+  if (!transaction) return true;
+  if (typeof transaction.adminApprovedAt === 'number') return true;
+  if (!quotation?.lockedAt || typeof transaction.approvedAt !== 'number') return false;
+
+  const lockedAt = new Date(quotation.lockedAt).getTime();
+  return Number.isFinite(lockedAt) && lockedAt >= transaction.approvedAt;
+};
+
+const getCashAccountType = (cashAccount?: string): 'bank' | 'cash' => {
+  const token = normalizeToken(cashAccount);
+  return token.includes('tien mat') ? 'cash' : 'bank';
+};
+
+const getCashAccountLabel = (accountType: 'bank' | 'cash') => (accountType === 'cash' ? 'Tiền mặt' : 'Ngân hàng');
+
 const buildForecastBuckets = (terms: DebtTermRecord[]) => {
   const buckets = Array.from({ length: 4 }, (_, index) => ({
     name: index === 3 ? 'Tuần 4 (Dự kiến)' : `Tuần ${index + 1}`,
@@ -200,6 +227,8 @@ const FinanceDashboard: React.FC = () => {
   const [classes, setClasses] = useState<ITrainingClass[]>([]);
   const [quotations, setQuotations] = useState<IQuotation[]>([]);
   const [salesTeams, setSalesTeams] = useState<ISalesTeam[]>([]);
+  const [actualTransactions, setActualTransactions] = useState<IActualTransaction[]>([]);
+  const [sourceTransactions, setSourceTransactions] = useState<ITransaction[]>([]);
 
   useEffect(() => {
     const loadData = () => {
@@ -208,6 +237,8 @@ const FinanceDashboard: React.FC = () => {
       setClasses(getTrainingClasses());
       setQuotations(getQuotations());
       setSalesTeams(getSalesTeams());
+      setActualTransactions(getActualTransactions());
+      setSourceTransactions(getTransactions());
     };
 
     loadData();
@@ -217,6 +248,8 @@ const FinanceDashboard: React.FC = () => {
     window.addEventListener('educrm:training-classes-changed', loadData as EventListener);
     window.addEventListener('educrm:quotations-changed', loadData as EventListener);
     window.addEventListener('educrm:sales-teams-changed', loadData as EventListener);
+    window.addEventListener('educrm:actual-transactions-changed', loadData as EventListener);
+    window.addEventListener('educrm:transactions-changed', loadData as EventListener);
 
     return () => {
       window.removeEventListener('educrm:class-students-changed', loadData as EventListener);
@@ -224,6 +257,8 @@ const FinanceDashboard: React.FC = () => {
       window.removeEventListener('educrm:training-classes-changed', loadData as EventListener);
       window.removeEventListener('educrm:quotations-changed', loadData as EventListener);
       window.removeEventListener('educrm:sales-teams-changed', loadData as EventListener);
+      window.removeEventListener('educrm:actual-transactions-changed', loadData as EventListener);
+      window.removeEventListener('educrm:transactions-changed', loadData as EventListener);
     };
   }, []);
 
@@ -257,6 +292,11 @@ const FinanceDashboard: React.FC = () => {
     });
     return map;
   }, [quotations, salesTeams]);
+
+  const sourceTransactionMap = useMemo(
+    () => new Map(sourceTransactions.map((transaction) => [transaction.id, transaction])),
+    [sourceTransactions]
+  );
 
   const debtTerms = useMemo<DebtTermRecord[]>(() => {
     return classStudents.flatMap((item) => {
@@ -324,6 +364,44 @@ const FinanceDashboard: React.FC = () => {
     });
   }, [dateAndSalesTerms, location]);
 
+  const filteredFinanceRows = useMemo<FinanceActualRecord[]>(() => {
+    return actualTransactions
+      .map((actual) => {
+        const source = actual.relatedId ? sourceTransactionMap.get(actual.relatedId) : undefined;
+        const quotation = source?.quotationId ? quotationMap.get(source.quotationId) : undefined;
+        const branch = quotation?.branchName || actual.department || 'Khác';
+        const salesPersonId = quotation?.createdBy || source?.createdBy || '';
+        const salesPersonName =
+          quotation?.salespersonName || salesDirectory.get(salesPersonId) || salesPersonId || 'Chưa gắn sales';
+
+        return {
+          actual,
+          source,
+          quotation,
+          branch,
+          salesPersonId,
+          salesPersonName,
+          accountType: getCashAccountType(actual.cashAccount)
+        };
+      })
+      .filter((record) => {
+        const recordDate = record.actual.date || record.actual.createdAt;
+        if (!matchesDateRange(recordDate, dateRange, customDate)) return false;
+        if (salesFilter !== 'all' && record.salesPersonId !== salesFilter) return false;
+        if (location !== 'all' && getLocationKey(record.branch) !== location) return false;
+        return hasAdminExecutedTransaction(record.source, record.quotation);
+      });
+  }, [
+    actualTransactions,
+    customDate,
+    dateRange,
+    location,
+    quotationMap,
+    salesDirectory,
+    salesFilter,
+    sourceTransactionMap
+  ]);
+
   const summary = useMemo(() => {
     const totalReceivables = filteredTerms.reduce((sum, term) => sum + term.amount, 0);
     const overdueTerms = filteredTerms.filter((term) => isOverdueTerm(term));
@@ -346,6 +424,49 @@ const FinanceDashboard: React.FC = () => {
       dueSoonCount: dueSoonStudents.size
     };
   }, [filteredTerms]);
+
+  const cashFlowSummary = useMemo(() => {
+    const totalIn = filteredFinanceRows
+      .filter((record) => record.actual.type === 'IN')
+      .reduce((sum, record) => sum + Number(record.actual.amount || 0), 0);
+    const totalOut = filteredFinanceRows
+      .filter((record) => record.actual.type === 'OUT')
+      .reduce((sum, record) => sum + Number(record.actual.amount || 0), 0);
+
+    return {
+      totalIn,
+      totalOut,
+      net: totalIn - totalOut,
+      transactionCount: filteredFinanceRows.length
+    };
+  }, [filteredFinanceRows]);
+
+  const cashAccountBreakdown = useMemo(() => {
+    const initial = new Map<'bank' | 'cash', { key: 'bank' | 'cash'; name: string; in: number; out: number; total: number; color: string }>([
+      ['bank', { key: 'bank', name: getCashAccountLabel('bank'), in: 0, out: 0, total: 0, color: CASH_ACCOUNT_COLORS[0] }],
+      ['cash', { key: 'cash', name: getCashAccountLabel('cash'), in: 0, out: 0, total: 0, color: CASH_ACCOUNT_COLORS[1] }]
+    ]);
+
+    filteredFinanceRows.forEach((record) => {
+      const target = initial.get(record.accountType);
+      if (!target) return;
+
+      const amount = Number(record.actual.amount || 0);
+      if (record.actual.type === 'IN') {
+        target.in += amount;
+      } else {
+        target.out += amount;
+      }
+      target.total += amount;
+    });
+
+    return Array.from(initial.values()).map((item) => ({
+      ...item,
+      net: item.in - item.out
+    }));
+  }, [filteredFinanceRows]);
+
+  const totalCashFlow = cashAccountBreakdown.reduce((sum, item) => sum + item.total, 0);
 
   const forecastData = useMemo(() => buildForecastBuckets(filteredTerms), [filteredTerms]);
 
@@ -491,6 +612,105 @@ const FinanceDashboard: React.FC = () => {
             </button>
           </div>
         )}
+
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.65fr_1fr]">
+          <section className="rounded-xl border border-[#E2E8F0] bg-white p-4 shadow-sm">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">Tổng quan Thu Chi</h3>
+                <p className="mt-1 text-xs text-slate-500">
+                  Tổng hợp phiếu thu chi đã đồng bộ từ giao dịch ở trạng thái Đã thực hiện theo bộ lọc hiện tại.
+                </p>
+              </div>
+              <div className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">
+                {cashFlowSummary.transactionCount} phiếu thu chi
+              </div>
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3">
+                <div className="text-xs font-bold uppercase tracking-[0.16em] text-emerald-700">Tổng thu</div>
+                <div className="mt-2 text-2xl font-black text-emerald-700">{moneyCompact(cashFlowSummary.totalIn)}</div>
+                <div className="mt-1 text-xs text-emerald-700/80">Phiếu thu đã đồng bộ</div>
+              </div>
+
+              <div className="rounded-xl border border-rose-100 bg-rose-50 px-4 py-3">
+                <div className="text-xs font-bold uppercase tracking-[0.16em] text-rose-700">Tổng chi</div>
+                <div className="mt-2 text-2xl font-black text-rose-700">{moneyCompact(cashFlowSummary.totalOut)}</div>
+                <div className="mt-1 text-xs text-rose-700/80">Phiếu chi đã đồng bộ</div>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                <div className="text-xs font-bold uppercase tracking-[0.16em] text-slate-600">Ròng thu chi</div>
+                <div className={`mt-2 text-2xl font-black ${cashFlowSummary.net >= 0 ? 'text-sky-700' : 'text-amber-700'}`}>
+                  {moneyCompact(Math.abs(cashFlowSummary.net))}
+                </div>
+                <div className="mt-1 text-xs text-slate-500">
+                  {cashFlowSummary.net >= 0 ? 'Dòng tiền dương' : 'Dòng tiền âm'}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3">
+                <div className="text-xs font-bold uppercase tracking-[0.16em] text-blue-700">Số lượng chứng từ</div>
+                <div className="mt-2 text-2xl font-black text-blue-700">{cashFlowSummary.transactionCount}</div>
+                <div className="mt-1 text-xs text-blue-700/80">Thu và chi đang hiển thị</div>
+              </div>
+            </div>
+          </section>
+
+          <section className="rounded-xl border border-[#E2E8F0] bg-white p-4 shadow-sm">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">Theo Tài Khoản Tiền</h3>
+                <p className="mt-1 text-xs text-slate-500">Tách riêng dòng tiền qua ngân hàng và tiền mặt.</p>
+              </div>
+              <div className="text-right">
+                <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Tổng luân chuyển</div>
+                <div className="mt-1 text-lg font-black text-slate-900">{moneyCompact(totalCashFlow)}</div>
+              </div>
+            </div>
+
+            <div className="mt-4 space-y-4">
+              {cashAccountBreakdown.map((item) => {
+                const share = totalCashFlow > 0 ? Math.round((item.total / totalCashFlow) * 100) : 0;
+
+                return (
+                  <div key={item.key} className="rounded-xl border border-slate-200 bg-slate-50/80 p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-bold text-slate-900">{item.name}</div>
+                        <div className="mt-0.5 text-xs text-slate-500">{share}% tổng luân chuyển thu chi</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Tổng</div>
+                        <div className="text-sm font-black text-slate-900">{moneyCompact(item.total)}</div>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200">
+                      <div className="h-full rounded-full" style={{ width: `${Math.max(share, item.total > 0 ? 8 : 0)}%`, backgroundColor: item.color }} />
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+                      <div className="rounded-lg bg-white px-3 py-2">
+                        <div className="font-semibold text-slate-500">Thu</div>
+                        <div className="mt-1 font-bold text-emerald-700">{moneyCompact(item.in)}</div>
+                      </div>
+                      <div className="rounded-lg bg-white px-3 py-2">
+                        <div className="font-semibold text-slate-500">Chi</div>
+                        <div className="mt-1 font-bold text-rose-700">{moneyCompact(item.out)}</div>
+                      </div>
+                      <div className="rounded-lg bg-white px-3 py-2">
+                        <div className="font-semibold text-slate-500">Ròng</div>
+                        <div className={`mt-1 font-bold ${item.net >= 0 ? 'text-sky-700' : 'text-amber-700'}`}>{moneyCompact(Math.abs(item.net))}</div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="bg-white p-4 rounded-xl border border-[#E2E8F0] shadow-sm relative overflow-hidden group">

@@ -25,6 +25,7 @@ import {
 } from '../utils/servicePaymentPlans';
 import {
     getLeadStatusLabel,
+    isLeadStatusOneOf,
     isClosedLeadStatusKey,
     LEAD_STATUS_KEYS,
     LEAD_STATUS_OPTIONS,
@@ -424,6 +425,7 @@ const validateCloseReason = (status: string, reason: string, customReason?: stri
 };
 
 const mapLeadToFormData = (lead: ILead): LeadCreateFormData => {
+    const rawTags = lead.marketingData?.tags as string[] | string | undefined;
     const studentInfo = lead.studentInfo || {};
 
     return {
@@ -442,10 +444,10 @@ const mapLeadToFormData = (lead: ILead): LeadCreateFormData => {
         street: (lead as any).street || lead.address || '',
         salesperson: lead.ownerId || '',
         campaign: lead.marketingData?.campaign || (lead as any).campaign || '',
-        tags: Array.isArray(lead.marketingData?.tags)
-            ? lead.marketingData.tags
-            : (typeof lead.marketingData?.tags === 'string'
-                ? lead.marketingData.tags.split(',').map((item: string) => item.trim()).filter(Boolean)
+        tags: Array.isArray(rawTags)
+            ? rawTags
+            : (typeof rawTags === 'string'
+                ? rawTags.split(',').map((item: string) => item.trim()).filter(Boolean)
                 : []),
         referredBy: (lead as any).referredBy || '',
         product: lead.product || lead.program || '',
@@ -759,7 +761,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
 
     // --- STAGE HELPERS ---
     const normalizedLeadStatus = normalizeLeadStatusKey(String(lead.status || ''));
-    const isLeadStage = [LEAD_STATUS_KEYS.NEW, LEAD_STATUS_KEYS.ASSIGNED, LEAD_STATUS_KEYS.PICKED, LEAD_STATUS_KEYS.CONTACTED, LEAD_STATUS_KEYS.NURTURING].includes(normalizedLeadStatus);
+    const isLeadStage = isLeadStatusOneOf(String(lead.status || ''), [LEAD_STATUS_KEYS.NEW, LEAD_STATUS_KEYS.ASSIGNED, LEAD_STATUS_KEYS.PICKED, LEAD_STATUS_KEYS.CONTACTED, LEAD_STATUS_KEYS.NURTURING]);
     const isQualified = normalizedLeadStatus === LEAD_STATUS_KEYS.CONVERTED || Object.values(DealStage).includes(lead.status as any);
     const isConverted = normalizedLeadStatus === LEAD_STATUS_KEYS.CONVERTED || lead.status === DealStage.CONTRACT || lead.status === DealStage.WON;
     const isPipeline = Object.values(DealStage).includes(lead.status as any);
@@ -979,7 +981,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
 
         // AUTO STATUS: NEW/ASSIGNED/PICKED -> CONTACTED
         let newStatus = lead.status;
-        if ([LEAD_STATUS_KEYS.NEW, LEAD_STATUS_KEYS.ASSIGNED, LEAD_STATUS_KEYS.PICKED].includes(normalizeLeadStatusKey(String(lead.status || ''))) || !lead.status) {
+        if (isLeadStatusOneOf(String(lead.status || ''), [LEAD_STATUS_KEYS.NEW, LEAD_STATUS_KEYS.ASSIGNED, LEAD_STATUS_KEYS.PICKED]) || !lead.status) {
             newStatus = LeadStatus.CONTACTED;
         }
 
@@ -1230,7 +1232,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                 expectedStart: leadFormData.expectedStart.trim() || undefined,
                 parentOpinion: leadFormData.parentOpinion.trim() || undefined,
                 financial: leadFormData.financial.trim() || undefined,
-                potential: leadFormData.potential.trim() || undefined,
+                potential: (leadFormData.potential.trim() || undefined) as any,
             },
             status: toLeadStatusValue(leadFormData.status as string) as any,
             marketingData: {
@@ -1598,7 +1600,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
             user: user?.name || 'Admin',
         });
 
-        if ([LEAD_STATUS_KEYS.NEW, LEAD_STATUS_KEYS.ASSIGNED, LEAD_STATUS_KEYS.PICKED].includes(normalizeLeadStatusKey(String(lead.status || '')))) {
+        if (isLeadStatusOneOf(String(lead.status || ''), [LEAD_STATUS_KEYS.NEW, LEAD_STATUS_KEYS.ASSIGNED, LEAD_STATUS_KEYS.PICKED])) {
             commitLeadLogUpdate({
                 ...lead,
                 status: LeadStatus.CONTACTED as any,
@@ -2215,7 +2217,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                     {/* Status Bar Indicator */}
                     <div className="h-10 px-6 flex items-center bg-slate-50 border-b border-slate-200 overflow-x-auto no-scrollbar">
                         {[LEAD_STATUS_KEYS.NEW, LEAD_STATUS_KEYS.ASSIGNED, LEAD_STATUS_KEYS.PICKED, LEAD_STATUS_KEYS.CONTACTED, LEAD_STATUS_KEYS.CONVERTED].map((st, idx, arr) => {
-                            const currentIndex = arr.indexOf(normalizedLeadStatus);
+                            const currentIndex = arr.findIndex((status) => status === normalizedLeadStatus);
                             const isCurrent = normalizedLeadStatus === st;
                             const isPast = currentIndex >= idx;
                             return (
@@ -2245,7 +2247,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
 
                         <div className="flex items-center gap-2">
                             {/* 1. PICK UP BUTTON - Prominent if not yet picked up */}
-                            {([LEAD_STATUS_KEYS.NEW, LEAD_STATUS_KEYS.ASSIGNED].includes(normalizedLeadStatus) && !lead.pickUpDate) && user?.role !== UserRole.MARKETING && (
+                            {(isLeadStatusOneOf(String(lead.status || ''), [LEAD_STATUS_KEYS.NEW, LEAD_STATUS_KEYS.ASSIGNED]) && !lead.pickUpDate) && user?.role !== UserRole.MARKETING && (
                                 <button
                                     onClick={handlePickUpAction}
                                     className="px-6 py-2 text-sm font-black text-white bg-blue-600 border border-blue-700 rounded-lg hover:bg-blue-700 flex items-center gap-2 shadow-lg shadow-blue-200 transition-all animate-pulse"
@@ -2255,7 +2257,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                             )}
 
                             {/* OTHER ACTIONS - ONLY IF PICKED UP OR ADVANCED STATUS */}
-                            {(lead.pickUpDate || (![LEAD_STATUS_KEYS.NEW, LEAD_STATUS_KEYS.ASSIGNED].includes(normalizedLeadStatus))) && (
+                            {(lead.pickUpDate || !isLeadStatusOneOf(String(lead.status || ''), [LEAD_STATUS_KEYS.NEW, LEAD_STATUS_KEYS.ASSIGNED])) && (
                                 <div className="flex items-center gap-2 bg-blue-50/50 p-1 rounded-lg border border-blue-100/50 mr-2">
                                     {/* 0. CALL BUTTON - Light Blue Theme */}
                                     <button
@@ -2292,7 +2294,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                             )}
 
                             {/* PRIMARY ACTIONS - ONLY IF PICKED UP */}
-                            {(lead.pickUpDate || (![LEAD_STATUS_KEYS.NEW, LEAD_STATUS_KEYS.ASSIGNED].includes(normalizedLeadStatus))) && (
+                            {(lead.pickUpDate || !isLeadStatusOneOf(String(lead.status || ''), [LEAD_STATUS_KEYS.NEW, LEAD_STATUS_KEYS.ASSIGNED])) && (
                                 <>
                                     {/* 3. CONVERT BUTTON */}
                                     {typeof onConvert === 'function' && !isWon && !isContract && !isLost && !isConverted && !isPipeline && user?.role !== UserRole.MARKETING && (

@@ -133,6 +133,9 @@ export const approveTransaction = (
 
   const transaction = getTransactions().find((t) => t.id === transactionId);
   if (!transaction) return { ok: false, error: 'Không tìm thấy giao dịch' };
+  if (transaction.status !== 'CHO_DUYET') {
+    return { ok: false, error: 'Phiếu chưa ở trạng thái chờ duyệt' };
+  }
 
   const updatedTransaction: ITransaction = {
     ...transaction,

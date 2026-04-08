@@ -8,28 +8,38 @@ import {
    FileStack,
    FileText,
    Landmark,
-   Mail,
    NotebookText,
    Paperclip,
    Plus,
    Printer,
-   Send,
    UserRound,
    Wallet,
    X
 } from 'lucide-react';
-import { IInvoice, IQuotation, InvoiceStatus, ReceiptDocumentType, UserRole } from '../types';
-import { addInvoice, getInvoices, getQuotations, saveInvoices, updateInvoice } from '../utils/storage';
-import { useAuth } from '../contexts/AuthContext';
-import PinnedSearchInput, { PinnedSearchChip } from '../components/PinnedSearchInput';
+ import { IActualTransaction, IAttachmentFile, IInvoice, IQuotation, ITransaction, InvoiceStatus, ReceiptDocumentType, UserRole } from '../types';
+ import { addInvoice, getActualTransactions, getInvoices, getQuotations, getTransactions, saveInvoices, updateInvoice } from '../utils/storage';
+ import { useAuth } from '../contexts/AuthContext';
+ import PinnedSearchInput, { PinnedSearchChip } from '../components/PinnedSearchInput';
+ import { DEFAULT_ATTACHMENT_ACCEPT, readFilesAsAttachmentRecords } from '../utils/fileAttachments';
 
 type InvoiceTab = 'ALL' | InvoiceStatus;
+ type InvoiceEditFormState = {
+    payerName: string;
+    displayAddress: string;
+    contactPerson: string;
+    description: string;
+    note: string;
+    attachments: IAttachmentFile[];
+ };
 
 const ALL_TAB: InvoiceTab = 'ALL';
 
 const EMPTY_FORM = (): Partial<IInvoice> => ({
    documentType: ReceiptDocumentType.PAYMENT_RECEIPT,
    customerName: '',
+   payerName: '',
+   displayAddress: '',
+   contactPerson: '',
    customerEmail: '',
    contractCode: '',
    ownerName: '',
@@ -67,11 +77,11 @@ const STATUS_META: Record<InvoiceStatus, { label: string; className: string }> =
       className: 'bg-slate-100 text-slate-600 border-slate-200'
    },
    [InvoiceStatus.ISSUED]: {
-      label: 'Đã phát hành',
+      label: 'Nháp',
       className: 'bg-emerald-50 text-emerald-700 border-emerald-200'
    },
    [InvoiceStatus.SENT_TO_CUSTOMER]: {
-      label: 'Đã gửi khách',
+      label: 'Nháp',
       className: 'bg-blue-50 text-blue-700 border-blue-200'
    },
    [InvoiceStatus.CANCELLED]: {
@@ -97,10 +107,45 @@ const formatDocumentCode = (documentType: ReceiptDocumentType, number: number) =
    return `${prefix}-${String(number).padStart(5, '0')}`;
 };
 
+const PAYMENT_METHOD_LABEL_MAP: Record<ITransaction['method'], string> = {
+   CHUYEN_KHOAN: 'Chuyển khoản',
+   TIEN_MAT: 'Tiền mặt',
+   THE: 'Thẻ',
+   OTHER: 'Khác'
+ };
+
+const hasLegacyAdminApproval = (transaction: ITransaction, quotation?: IQuotation) => {
+   if (!quotation?.lockedAt || typeof transaction.approvedAt !== 'number') return false;
+
+   const lockedAt = new Date(quotation.lockedAt).getTime();
+   return Number.isFinite(lockedAt) && lockedAt >= transaction.approvedAt;
+ };
+
+const isSourceTransactionExecuted = (transaction: ITransaction, quotation?: IQuotation) =>
+   typeof transaction.adminApprovedAt === 'number' || hasLegacyAdminApproval(transaction, quotation);
+
+const getDocumentTypeByTransactionType = (type: IActualTransaction['type']) =>
+   type === 'OUT' ? ReceiptDocumentType.PAYMENT_VOUCHER : ReceiptDocumentType.PAYMENT_RECEIPT;
+
+const buildAttachmentFromActualTransaction = (actual: IActualTransaction): IAttachmentFile[] => {
+   if (!actual.attachmentName && !actual.proof) return [];
+
+   return [
+      {
+         id: `ATT-AUTO-${actual.id}`,
+         name: actual.attachmentName || actual.proof || `chung-tu-${actual.transactionCode || actual.id}`,
+         url: actual.attachmentUrl
+      }
+   ];
+ };
+
+const getAutoInvoiceSequence = (actual: IActualTransaction, source?: ITransaction) =>
+   extractNumberFromCode(actual.transactionCode || source?.code || source?.id || actual.id) || Date.now() % 100000;
+
 const normalizeStatus = (status: unknown): InvoiceStatus => {
-   if (Object.values(InvoiceStatus).includes(status as InvoiceStatus)) {
-      return status as InvoiceStatus;
-   }
+  if (Object.values(InvoiceStatus).includes(status as InvoiceStatus)) {
+      return status === InvoiceStatus.CANCELLED ? InvoiceStatus.CANCELLED : InvoiceStatus.DRAFT;
+  }
 
    const token = normalizeToken(status);
 
@@ -109,24 +154,28 @@ const normalizeStatus = (status: unknown): InvoiceStatus => {
       token === 'issued' ||
       token === 'printed' ||
       token === 'da phat hanh' ||
-      token === 'da in'
-   ) {
-      return InvoiceStatus.ISSUED;
-   }
-   if (
+      token === 'da in' ||
       token === 'sent' ||
       token === 'sent_to_customer' ||
       token === 'da gui' ||
       token === 'da gui email' ||
       token === 'da gui khach'
    ) {
-      return InvoiceStatus.SENT_TO_CUSTOMER;
+      return InvoiceStatus.DRAFT;
    }
    if (token === 'cancelled' || token === 'da huy' || token === 'da huy bo') {
       return InvoiceStatus.CANCELLED;
    }
 
    return InvoiceStatus.DRAFT;
+};
+
+const getInvoiceWorkflowStatus = (invoice: IInvoice): InvoiceStatus =>
+   invoice.status === InvoiceStatus.CANCELLED ? InvoiceStatus.CANCELLED : InvoiceStatus.DRAFT;
+
+const getInvoiceAccountType = (invoice: Pick<IInvoice, 'accountName' | 'paymentMethod'>): 'bank' | 'cash' => {
+   const token = normalizeToken(`${invoice.accountName || ''} ${invoice.paymentMethod || ''}`);
+   return token.includes('tien mat') ? 'cash' : 'bank';
 };
 
 const normalizeDocumentType = (value: unknown, code?: string): ReceiptDocumentType => {
@@ -159,6 +208,76 @@ const formatDate = (value?: string) => {
    const date = new Date(value);
    if (Number.isNaN(date.getTime())) return value;
    return date.toLocaleDateString('vi-VN');
+};
+
+const DIGIT_WORDS = ['không', 'một', 'hai', 'ba', 'bốn', 'năm', 'sáu', 'bảy', 'tám', 'chín'];
+
+const readVietnameseUnitDigit = (digit: number, tensDigit: number) => {
+   if (digit === 0) return '';
+   if (digit === 1 && tensDigit > 1) return 'mốt';
+   if (digit === 4 && tensDigit > 1) return 'tư';
+   if (digit === 5 && tensDigit >= 1) return 'lăm';
+   return DIGIT_WORDS[digit];
+};
+
+const readVietnameseThreeDigits = (value: number, forceFull = false) => {
+   const hundred = Math.floor(value / 100);
+   const tens = Math.floor((value % 100) / 10);
+   const unit = value % 10;
+   const parts: string[] = [];
+
+   if (hundred > 0 || forceFull) {
+      parts.push(`${DIGIT_WORDS[hundred]} trăm`);
+   }
+
+   if (tens > 1) {
+      parts.push(`${DIGIT_WORDS[tens]} mươi`);
+      if (unit > 0) parts.push(readVietnameseUnitDigit(unit, tens));
+      return parts.join(' ').trim();
+   }
+
+   if (tens === 1) {
+      parts.push('mười');
+      if (unit > 0) parts.push(readVietnameseUnitDigit(unit, tens));
+      return parts.join(' ').trim();
+   }
+
+   if (unit > 0) {
+      if (hundred > 0 || forceFull) parts.push('lẻ');
+      parts.push(readVietnameseUnitDigit(unit, tens));
+   }
+
+   return parts.join(' ').trim();
+};
+
+const convertMoneyToVietnameseWords = (amount?: number) => {
+   const normalized = Math.max(0, Math.round(Number(amount || 0)));
+   if (!normalized) return 'Không đồng';
+
+   const units = ['', 'nghìn', 'triệu', 'tỷ', 'nghìn tỷ', 'triệu tỷ'];
+   const groups: number[] = [];
+   let remaining = normalized;
+
+   while (remaining > 0) {
+      groups.unshift(remaining % 1000);
+      remaining = Math.floor(remaining / 1000);
+   }
+
+   const words = groups
+      .map((groupValue, index) => {
+         if (!groupValue) return '';
+
+         const hasHigherGroup = groups.slice(0, index).some((value) => value > 0);
+         const chunk = readVietnameseThreeDigits(groupValue, hasHigherGroup && groupValue < 100);
+         const unitLabel = units[groups.length - index - 1];
+         return `${chunk} ${unitLabel}`.trim();
+      })
+      .filter(Boolean)
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+   return `${words.charAt(0).toUpperCase()}${words.slice(1)} đồng`;
 };
 
 const getDescription = (invoice: Partial<IInvoice>) => {
@@ -205,6 +324,9 @@ const normalizeInvoice = (
       id: invoice.id || `DOC-${Date.now()}-${index}`,
       code: formatDocumentCode(documentType, sequenceNo),
       documentType,
+      payerName: invoice.payerName || invoice.customerName || linkedQuotation?.customerName || invoice.companyName,
+      displayAddress: invoice.displayAddress || invoice.companyAddress || linkedQuotation?.studentAddress || linkedQuotation?.branchName,
+      contactPerson: invoice.contactPerson || invoice.ownerName || linkedQuotation?.salespersonName || invoice.createdBy,
       description,
       contractCode:
          invoice.contractCode ||
@@ -257,6 +379,130 @@ const normalizeInvoice = (
    };
 };
 
+const buildAutoInvoiceFromTransactions = ({
+   actual,
+   source,
+   quotation,
+   existing,
+   fallbackIndex
+ }: {
+   actual: IActualTransaction;
+   source: ITransaction;
+   quotation?: IQuotation;
+   existing?: IInvoice;
+   fallbackIndex: number;
+ }): Partial<IInvoice> => {
+   const documentType = getDocumentTypeByTransactionType(actual.type);
+   const issueDate = actual.date || new Date().toISOString().slice(0, 10);
+   const autoAttachments = buildAttachmentFromActualTransaction(actual);
+   const accountName = actual.cashAccount || (source.method === 'TIEN_MAT' ? 'Tiền mặt' : 'STK ngân hàng');
+   const sequenceNo = getAutoInvoiceSequence(actual, source);
+   const payerName = existing?.payerName || actual.recipientPayerName || source.recipientPayerName || source.relatedEntityLabel || actual.title || quotation?.customerName;
+   const displayAddress = existing?.displayAddress || quotation?.studentAddress || quotation?.branchName || actual.department || '';
+   const contactPerson = existing?.contactPerson || quotation?.salespersonName || existing?.ownerName || actual.createdBy || source.createdBy;
+
+   return {
+      id: existing?.id || `AUTO-DOC-${actual.id}`,
+      code: existing?.code || formatDocumentCode(documentType, sequenceNo || fallbackIndex + 1),
+      documentType,
+      payerName,
+      displayAddress,
+      contactPerson,
+      customerId: existing?.customerId || source.customerId,
+      customerName: existing?.customerName || quotation?.customerName || actual.recipientPayerName || source.relatedEntityLabel || 'Khách lẻ',
+      customerEmail: existing?.customerEmail || quotation?.studentEmail,
+      customerPhone: existing?.customerPhone || quotation?.studentPhone,
+      description: existing?.description || actual.title || source.note || actual.category,
+      contractCode: quotation?.contractId || existing?.contractCode || (source.soCode ? `HD-${source.soCode}` : undefined),
+      ownerName: existing?.ownerName || quotation?.salespersonName || actual.createdBy || source.createdBy,
+      branchName: existing?.branchName || quotation?.branchName || actual.department,
+      programName: existing?.programName || quotation?.product || quotation?.programType || actual.category,
+      currency: existing?.currency || 'VND',
+      paymentMethod: existing?.paymentMethod || PAYMENT_METHOD_LABEL_MAP[source.method] || actual.cashAccount || 'Chuyển khoản',
+      paymentDate: existing?.paymentDate || issueDate,
+      accountName: existing?.accountName || accountName,
+      approvedTransactionCode: existing?.approvedTransactionCode || source.code || source.id,
+      cashFlowCode: existing?.cashFlowCode || actual.transactionCode || actual.id,
+      bankReference: existing?.bankReference || source.bankRefCode || actual.voucherNumber,
+      attachments: existing?.attachments?.length ? existing.attachments : autoAttachments,
+      requiresTaxInvoice: Boolean(existing?.requiresTaxInvoice),
+      note: existing?.note || source.note || '',
+      companyAddress: existing?.companyAddress || displayAddress,
+      soId: existing?.soId || source.quotationId,
+      soCode: existing?.soCode || source.soCode,
+      items: existing?.items?.length
+         ? existing.items
+         : [
+              {
+                 name: actual.category || actual.title || `${DOCUMENT_TYPE_LABELS[documentType]} tự sinh`,
+                 quantity: 1,
+                 price: actual.amount,
+                 total: actual.amount
+              }
+           ],
+      subTotal: actual.amount,
+      taxAmount: existing?.taxAmount || 0,
+      totalAmount: actual.amount,
+      issueDate: existing?.issueDate || issueDate,
+      status: existing?.status || InvoiceStatus.DRAFT,
+      receiptPrintedAt: existing?.receiptPrintedAt,
+      receiptEmailedAt: existing?.receiptEmailedAt,
+      createdBy: existing?.createdBy || 'Hệ thống',
+      createdAt: existing?.createdAt || actual.createdAt || issueDate
+   };
+ };
+
+const syncInvoicesWithExecutedTransactions = (
+   invoices: IInvoice[],
+   actualTransactions: IActualTransaction[],
+   sourceTransactions: ITransaction[],
+   quotations: IQuotation[]
+) => {
+   const sourceMap = new Map(sourceTransactions.map((transaction) => [transaction.id, transaction]));
+   const quotationMap = new Map(quotations.map((quotation) => [quotation.id, quotation]));
+   const matchedInvoiceIds = new Set<string>();
+   let autoDraftsIndexSeed = 0;
+
+   const autoDrafts = actualTransactions
+      .filter((actual) => actual.relatedId)
+      .map((actual) => {
+         const source = sourceMap.get(actual.relatedId as string);
+         if (!source) return null;
+
+         const quotation = quotationMap.get(source.quotationId);
+         if (!isSourceTransactionExecuted(source, quotation)) return null;
+
+         const existing = invoices.find(
+            (invoice) =>
+               invoice.id === `AUTO-DOC-${actual.id}` ||
+               invoice.cashFlowCode === actual.transactionCode ||
+               (source.code && invoice.approvedTransactionCode === source.code)
+         );
+
+         if (existing) matchedInvoiceIds.add(existing.id);
+
+         return normalizeInvoice(
+            buildAutoInvoiceFromTransactions({
+               actual,
+               source,
+               quotation,
+               existing,
+               fallbackIndex: autoDraftsIndexSeed++
+            }),
+            0,
+            quotations
+         );
+      })
+      .filter(Boolean) as IInvoice[];
+
+   const manualInvoices = invoices.filter(
+      (invoice) => !matchedInvoiceIds.has(invoice.id) && !invoice.id.startsWith('AUTO-DOC-')
+   );
+   return [...autoDrafts, ...manualInvoices].sort(
+      (a, b) => new Date(b.issueDate || b.createdAt).getTime() - new Date(a.issueDate || a.createdAt).getTime()
+   );
+ };
+
 const DetailCard = ({
    label,
    value,
@@ -275,52 +521,6 @@ const DetailCard = ({
       </div>
    </div>
 );
-
-const STATUS_FLOW: Array<{ status: InvoiceStatus; label: string }> = [
-   { status: InvoiceStatus.DRAFT, label: 'Nháp' },
-   { status: InvoiceStatus.ISSUED, label: 'Phát hành' },
-   { status: InvoiceStatus.SENT_TO_CUSTOMER, label: 'Gửi khách' },
-   { status: InvoiceStatus.CANCELLED, label: 'Hủy' }
-];
-
-const getStatusClipPath = (index: number, total: number) => {
-   if (total === 1) return 'polygon(0 0, 100% 0, 100% 100%, 0 100%)';
-   if (index === 0) return 'polygon(0 0, calc(100% - 10px) 0, 100% 50%, calc(100% - 10px) 100%, 0 100%)';
-   if (index === total - 1) return 'polygon(0 0, 100% 0, 100% 100%, 0 100%, 10px 50%)';
-   return 'polygon(0 0, calc(100% - 10px) 0, 100% 50%, calc(100% - 10px) 100%, 0 100%, 10px 50%)';
-};
-
-const StatusArrowBar = ({ status }: { status: InvoiceStatus }) => {
-   const activeIndex = STATUS_FLOW.findIndex((step) => step.status === status);
-   const isCancelled = status === InvoiceStatus.CANCELLED;
-
-   return (
-      <div className="flex flex-wrap items-center justify-end text-[11px] font-semibold uppercase tracking-[0.04em] text-[#495057]">
-         {STATUS_FLOW.map((step, index) => {
-            const isCurrent = step.status === status;
-            const isComplete = !isCancelled && activeIndex > index;
-            const className = isCurrent
-               ? step.status === InvoiceStatus.CANCELLED
-                  ? 'border-[#f1aeb5] bg-[#f8d7da] text-[#b42318]'
-                  : 'border-[#9ec5fe] bg-[#e7f1ff] text-[#0d6efd]'
-               : isComplete
-                  ? 'border-[#badbcc] bg-[#d1e7dd] text-[#146c43]'
-                  : 'border-[#dee2e6] bg-white text-[#6c757d]';
-
-            return (
-               <div key={step.status} className={index === 0 ? '' : '-ml-2'}>
-                  <div
-                     className={`px-4 py-1.5 ${className}`}
-                     style={{ clipPath: getStatusClipPath(index, STATUS_FLOW.length) }}
-                  >
-                     {step.label}
-                  </div>
-               </div>
-            );
-         })}
-      </div>
-   );
-};
 
 const createAttachmentRecords = (files: FileList | null) =>
    Array.from(files || []).map((file, index) => ({
@@ -394,49 +594,209 @@ const buildReceiptPrintHtml = (invoice: IInvoice) => {
    `;
 };
 
-const buildReceiptEmailBody = (invoice: IInvoice) =>
-   [
-      `Kính gửi ${invoice.customerName || 'Quý khách'},`,
-      '',
-      `EduCRM gửi ${DOCUMENT_TYPE_LABELS[invoice.documentType || ReceiptDocumentType.PAYMENT_RECEIPT].toLowerCase()} ${invoice.code}.`,
-      `Số tiền: ${formatCurrency(invoice.totalAmount, invoice.currency)}`,
-      `Ngày thanh toán: ${formatDate(invoice.paymentDate)}`,
-      `Nội dung: ${invoice.description || '--'}`,
-      `Xuất hóa đơn: ${invoice.requiresTaxInvoice ? 'Có' : 'Không'}`,
+const escapePrintHtml = (value?: string | number | null) =>
+   String(value ?? '--')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+
+const formatPrintMultiline = (value?: string | null) =>
+   escapePrintHtml(value || '--').replace(/\n/g, '<br />');
+
+const buildInvoiceEditForm = (invoice?: IInvoice | null): InvoiceEditFormState => ({
+   payerName: invoice?.payerName || '',
+   displayAddress: invoice?.displayAddress || '',
+   contactPerson: invoice?.contactPerson || '',
+   description: invoice?.description || '',
+   note: invoice?.note || '',
+   attachments: invoice?.attachments || []
+});
+
+const buildDocumentPrintHtml = (invoice: IInvoice) => {
+   const documentType = invoice.documentType || ReceiptDocumentType.PAYMENT_RECEIPT;
+   const documentLabel = DOCUMENT_TYPE_LABELS[documentType];
+   const amount = formatCurrency(invoice.totalAmount, invoice.currency);
+   const amountInWords = convertMoneyToVietnameseWords(invoice.totalAmount);
+   const issueDate = formatDate(invoice.issueDate);
+   const paymentDate = formatDate(invoice.paymentDate);
+   const payerLabel = documentType === ReceiptDocumentType.PAYMENT_VOUCHER ? 'Người nhận tiền' : 'Người nộp tiền';
+   const accountLabel = documentType === ReceiptDocumentType.PAYMENT_VOUCHER ? 'Tài khoản chi' : 'Tài khoản nhận';
+   const attachmentText =
       invoice.attachments && invoice.attachments.length > 0
-         ? `Tệp đính kèm: ${invoice.attachments.map((attachment) => attachment.name).join(', ')}`
-         : 'Tệp đính kèm: Không',
-      '',
-      'Trân trọng.'
-   ].join('\n');
+         ? invoice.attachments.map((attachment) => attachment.name).join(', ')
+         : '--';
+
+   return `
+      <!doctype html>
+      <html lang="vi">
+      <head>
+         <meta charset="utf-8" />
+         <title>${escapePrintHtml(invoice.code)}</title>
+         <style>
+            body { font-family: Inter, Roboto, Arial, sans-serif; color: #222; padding: 32px; }
+            .sheet { max-width: 760px; margin: 0 auto; border: 1px solid #dee2e6; padding: 28px 32px; }
+            .top { display: flex; justify-content: space-between; gap: 24px; margin-bottom: 24px; }
+            .title { font-size: 28px; font-weight: 700; margin: 0 0 6px; }
+            .badge { display: inline-block; font-size: 12px; padding: 4px 10px; border: 1px solid #b7e4c7; background: #f1fff5; color: #1b7f45; }
+            .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 24px; margin-top: 12px; }
+            .field { border-bottom: 1px solid #dee2e6; padding-bottom: 8px; }
+            .label { font-size: 12px; color: #666; margin-bottom: 6px; }
+            .value { font-size: 14px; font-weight: 600; }
+            .section { margin-top: 22px; }
+            .section-title { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: #6c757d; margin-bottom: 10px; }
+            .block { border: 1px solid #dee2e6; background: #fafbfc; padding: 12px 14px; line-height: 1.6; }
+            .stack { display: grid; gap: 10px; }
+            .signatures { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-top: 28px; text-align: center; }
+            .signature-title { font-weight: 700; font-size: 13px; margin-bottom: 6px; }
+            .signature-note { font-size: 11px; color: #6c757d; }
+            .signature-space { height: 84px; }
+          </style>
+       </head>
+       <body>
+         <div class="sheet">
+            <div class="top">
+               <div>
+                  <div class="badge">${escapePrintHtml(documentLabel)}</div>
+                  <h1 class="title">${escapePrintHtml(invoice.code)}</h1>
+                  <div>${escapePrintHtml(invoice.description || documentLabel)}</div>
+               </div>
+               <div style="text-align:right">
+                  <div style="font-size:12px;color:#666;">Số tiền</div>
+                  <div style="font-size:24px;font-weight:700;">${escapePrintHtml(amount)}</div>
+               </div>
+            </div>
+            <div class="section">
+               <div class="section-title">Thông tin chung</div>
+               <div class="grid">
+                  <div class="field"><div class="label">Khách hàng / đối tượng</div><div class="value">${escapePrintHtml(invoice.customerName || '--')}</div></div>
+                  <div class="field"><div class="label">${escapePrintHtml(payerLabel)}</div><div class="value">${escapePrintHtml(invoice.payerName || invoice.customerName || '--')}</div></div>
+                  <div class="field"><div class="label">Ngày lập</div><div class="value">${escapePrintHtml(issueDate)}</div></div>
+                  <div class="field"><div class="label">Ngày thanh toán</div><div class="value">${escapePrintHtml(paymentDate)}</div></div>
+                  <div class="field"><div class="label">Hình thức thanh toán</div><div class="value">${escapePrintHtml(invoice.paymentMethod || '--')}</div></div>
+                  <div class="field"><div class="label">${escapePrintHtml(accountLabel)}</div><div class="value">${escapePrintHtml(invoice.accountName || '--')}</div></div>
+                  <div class="field"><div class="label">Người liên hệ</div><div class="value">${escapePrintHtml(invoice.contactPerson || '--')}</div></div>
+                  <div class="field"><div class="label">Địa chỉ / thông tin hiển thị</div><div class="value">${escapePrintHtml(invoice.displayAddress || '--')}</div></div>
+               </div>
+            </div>
+             <div class="section">
+                <div class="section-title">Diễn giải & liên kết gốc</div>
+                <div class="stack">
+                  <div class="block">
+                     <div class="label">Số tiền bằng chữ</div>
+                     <div class="value">${escapePrintHtml(amountInWords)}</div>
+                  </div>
+                  <div class="block">
+                     <div class="label">Nội dung diễn giải</div>
+                     <div class="value">${formatPrintMultiline(invoice.description)}</div>
+                  </div>
+                  <div class="grid">
+                     <div class="field"><div class="label">Mã giao dịch duyệt</div><div class="value">${escapePrintHtml(invoice.approvedTransactionCode || '--')}</div></div>
+                     <div class="field"><div class="label">Mã thu chi</div><div class="value">${escapePrintHtml(invoice.cashFlowCode || '--')}</div></div>
+                     <div class="field"><div class="label">Số chứng từ / UNC</div><div class="value">${escapePrintHtml(invoice.bankReference || '--')}</div></div>
+                     <div class="field"><div class="label">Tệp đính kèm</div><div class="value">${escapePrintHtml(attachmentText)}</div></div>
+                  </div>
+                  <div class="block">
+                     <div class="label">Ghi chú</div>
+                     <div class="value">${formatPrintMultiline(invoice.note)}</div>
+                  </div>
+                </div>
+             </div>
+             <div class="signatures">
+                <div>
+                   <div class="signature-title">Người lập phiếu</div>
+                   <div class="signature-note">(Ký, ghi rõ họ tên)</div>
+                   <div class="signature-space"></div>
+                </div>
+                <div>
+                   <div class="signature-title">${escapePrintHtml(payerLabel)}</div>
+                   <div class="signature-note">(Ký, ghi rõ họ tên)</div>
+                   <div class="signature-space"></div>
+                </div>
+                <div>
+                   <div class="signature-title">Kế toán</div>
+                   <div class="signature-note">(Ký, ghi rõ họ tên)</div>
+                   <div class="signature-space"></div>
+                </div>
+                <div>
+                   <div class="signature-title">Thủ quỹ</div>
+                   <div class="signature-note">(Ký, ghi rõ họ tên)</div>
+                   <div class="signature-space"></div>
+                </div>
+             </div>
+          </div>
+       </body>
+       </html>
+   `;
+};
 
 const FinanceInvoices: React.FC = () => {
    const { user } = useAuth();
+   const [quotations, setQuotations] = useState<IQuotation[]>([]);
    const [invoices, setInvoices] = useState<IInvoice[]>([]);
    const [activeTab, setActiveTab] = useState<InvoiceTab>(ALL_TAB);
    const [showCreateModal, setShowCreateModal] = useState(false);
+   const [showEditModal, setShowEditModal] = useState(false);
    const [searchTerm, setSearchTerm] = useState('');
    const [newInvoiceData, setNewInvoiceData] = useState<Partial<IInvoice>>(EMPTY_FORM);
+   const [editInvoiceData, setEditInvoiceData] = useState<InvoiceEditFormState>(buildInvoiceEditForm);
    const [selectedSO, setSelectedSO] = useState('');
    const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(null);
-
-   const quotations = useMemo(() => (getQuotations() || []) as IQuotation[], []);
+   const [editInvoiceId, setEditInvoiceId] = useState<string | null>(null);
 
    useEffect(() => {
-      const storedInvoices = (getInvoices() || []) as Partial<IInvoice>[];
-      const normalizedInvoices = storedInvoices.map((invoice, index) =>
-         normalizeInvoice(invoice, index, quotations)
-      );
-      setInvoices(normalizedInvoices);
+      const loadInvoices = () => {
+         const nextQuotations = (getQuotations() || []) as IQuotation[];
+         const storedInvoices = (getInvoices() || []) as Partial<IInvoice>[];
+         const normalizedInvoices = storedInvoices.map((invoice, index) =>
+            normalizeInvoice(invoice, index, nextQuotations)
+         );
+         const syncedInvoices = syncInvoicesWithExecutedTransactions(
+            normalizedInvoices,
+            getActualTransactions(),
+            getTransactions(),
+            nextQuotations
+         );
 
-      if (JSON.stringify(storedInvoices) !== JSON.stringify(normalizedInvoices)) {
-         saveInvoices(normalizedInvoices);
-      }
-   }, [quotations]);
+         setQuotations(nextQuotations);
+         setInvoices(syncedInvoices);
+
+         if (JSON.stringify(storedInvoices) !== JSON.stringify(syncedInvoices)) {
+            saveInvoices(syncedInvoices);
+         }
+      };
+
+      loadInvoices();
+
+      const refreshEvents = [
+         'educrm:invoices-changed',
+         'educrm:actual-transactions-changed',
+         'educrm:transactions-changed',
+         'educrm:quotations-changed'
+      ] as const;
+
+      refreshEvents.forEach((eventName) => window.addEventListener(eventName, loadInvoices as EventListener));
+
+      return () => {
+         refreshEvents.forEach((eventName) =>
+            window.removeEventListener(eventName, loadInvoices as EventListener)
+         );
+      };
+   }, []);
 
    const selectedInvoice = useMemo(
       () => invoices.find((invoice) => invoice.id === selectedInvoiceId) || null,
       [invoices, selectedInvoiceId]
+   );
+
+   const editInvoice = useMemo(
+      () => invoices.find((invoice) => invoice.id === editInvoiceId) || null,
+      [editInvoiceId, invoices]
+   );
+   const selectedInvoiceWorkflowStatus = useMemo(
+      () => (selectedInvoice ? getInvoiceWorkflowStatus(selectedInvoice) : InvoiceStatus.DRAFT),
+      [selectedInvoice]
    );
 
    const lockedSOs = useMemo(
@@ -445,28 +805,24 @@ const FinanceInvoices: React.FC = () => {
    );
 
 
-   const tabLabelMap: Record<InvoiceTab, string> = {
-      [ALL_TAB]: 'Tất cả',
-      [InvoiceStatus.DRAFT]: STATUS_META[InvoiceStatus.DRAFT].label,
-      [InvoiceStatus.ISSUED]: STATUS_META[InvoiceStatus.ISSUED].label,
-      [InvoiceStatus.SENT_TO_CUSTOMER]: STATUS_META[InvoiceStatus.SENT_TO_CUSTOMER].label,
-      [InvoiceStatus.CANCELLED]: STATUS_META[InvoiceStatus.CANCELLED].label
-   };
+   const getTabLabel = (tab: InvoiceTab) => (tab === ALL_TAB ? 'Tất cả' : STATUS_META[tab].label);
 
    const activeSearchChips = useMemo<PinnedSearchChip[]>(() => {
       if (activeTab === ALL_TAB) return [];
-      return [{ key: 'status', label: `Trạng thái: ${tabLabelMap[activeTab]}` }];
+      return [{ key: 'status', label: `Trạng thái: ${getTabLabel(activeTab)}` }];
    }, [activeTab]);
 
    const filteredData = useMemo(() => {
       const keyword = normalizeToken(searchTerm);
 
       return invoices.filter((invoice) => {
-         const matchesTab = activeTab === ALL_TAB || invoice.status === activeTab;
+         const workflowStatus = getInvoiceWorkflowStatus(invoice);
+         const matchesTab = activeTab === ALL_TAB || workflowStatus === activeTab;
          const matchesSearch =
             !keyword ||
             normalizeToken(invoice.code).includes(keyword) ||
             normalizeToken(invoice.customerName).includes(keyword) ||
+            normalizeToken(invoice.payerName).includes(keyword) ||
             normalizeToken(invoice.description).includes(keyword) ||
             normalizeToken(DOCUMENT_TYPE_LABELS[invoice.documentType || ReceiptDocumentType.PAYMENT_RECEIPT]).includes(keyword);
 
@@ -474,10 +830,55 @@ const FinanceInvoices: React.FC = () => {
       });
    }, [activeTab, invoices, searchTerm]);
 
+   const invoiceSummary = useMemo(() => {
+      const activeInvoices = filteredData.filter((invoice) => getInvoiceWorkflowStatus(invoice) !== InvoiceStatus.CANCELLED);
+      const totalIn = activeInvoices
+         .filter((invoice) => (invoice.documentType || ReceiptDocumentType.PAYMENT_RECEIPT) === ReceiptDocumentType.PAYMENT_RECEIPT)
+         .reduce((sum, invoice) => sum + Number(invoice.totalAmount || 0), 0);
+      const totalOut = activeInvoices
+         .filter((invoice) => (invoice.documentType || ReceiptDocumentType.PAYMENT_RECEIPT) === ReceiptDocumentType.PAYMENT_VOUCHER)
+         .reduce((sum, invoice) => sum + Number(invoice.totalAmount || 0), 0);
+      const accountBreakdown = {
+         bank: { key: 'bank' as const, label: 'Ngân hàng', totalIn: 0, totalOut: 0, count: 0 },
+         cash: { key: 'cash' as const, label: 'Tiền mặt', totalIn: 0, totalOut: 0, count: 0 }
+      };
+
+      activeInvoices.forEach((invoice) => {
+         const accountType = getInvoiceAccountType(invoice);
+         const documentType = invoice.documentType || ReceiptDocumentType.PAYMENT_RECEIPT;
+         const amount = Number(invoice.totalAmount || 0);
+         const bucket = accountBreakdown[accountType];
+         bucket.count += 1;
+         if (documentType === ReceiptDocumentType.PAYMENT_VOUCHER) {
+            bucket.totalOut += amount;
+         } else {
+            bucket.totalIn += amount;
+         }
+      });
+
+      return {
+         totalIn,
+         totalOut,
+         net: totalIn - totalOut,
+         count: activeInvoices.length,
+         printedCount: activeInvoices.filter((invoice) => Boolean(invoice.receiptPrintedAt)).length,
+         accountBreakdown: [accountBreakdown.bank, accountBreakdown.cash].map((item) => ({
+            ...item,
+            net: item.totalIn - item.totalOut
+         }))
+      };
+   }, [filteredData]);
+
    const resetCreateForm = () => {
       setNewInvoiceData(EMPTY_FORM());
       setSelectedSO('');
       setShowCreateModal(false);
+   };
+
+   const closeEditInvoiceModal = () => {
+      setShowEditModal(false);
+      setEditInvoiceId(null);
+      setEditInvoiceData(buildInvoiceEditForm());
    };
 
    const persistInvoiceUpdate = (updatedInvoice: IInvoice) => {
@@ -529,9 +930,8 @@ const FinanceInvoices: React.FC = () => {
       );
 
       addInvoice(newDocument);
-      setInvoices((prev) => [newDocument, ...prev]);
       setSelectedInvoiceId(newDocument.id);
-      if (options?.printAfterCreate && documentType === ReceiptDocumentType.PAYMENT_RECEIPT) {
+      if (options?.printAfterCreate) {
          setTimeout(() => handlePrintReceipt(newDocument), 100);
       }
       resetCreateForm();
@@ -549,6 +949,9 @@ const FinanceInvoices: React.FC = () => {
       setNewInvoiceData((prev) => ({
          ...prev,
          customerName: so.customerName,
+         payerName: so.customerName,
+         displayAddress: so.studentAddress || so.branchName || '',
+         contactPerson: so.salespersonName || '',
          customerEmail: so.studentEmail,
          description:
             prev.documentType === ReceiptDocumentType.PAYMENT_VOUCHER
@@ -572,20 +975,18 @@ const FinanceInvoices: React.FC = () => {
       }));
    };
 
-   const handleUpdateStatus = (status: InvoiceStatus) => {
-      if (!selectedInvoice) return;
-      const updatedInvoice = normalizeInvoice({ ...selectedInvoice, status }, 0, quotations);
-      persistInvoiceUpdate(updatedInvoice);
-   };
+   const handleAttachmentSelect = async (files: FileList | null) => {
+      try {
+         const nextAttachments = await readFilesAsAttachmentRecords(files);
+         if (!nextAttachments.length) return;
 
-   const handleAttachmentSelect = (files: FileList | null) => {
-      const nextAttachments = createAttachmentRecords(files);
-      if (!nextAttachments.length) return;
-
-      setNewInvoiceData((prev) => ({
-         ...prev,
-         attachments: [...(prev.attachments || []), ...nextAttachments]
-      }));
+         setNewInvoiceData((prev) => ({
+            ...prev,
+            attachments: [...(prev.attachments || []), ...nextAttachments]
+         }));
+      } catch (error) {
+         window.alert(error instanceof Error ? error.message : 'Không thể tải file đính kèm.');
+      }
    };
 
    const handleRemoveAttachment = (attachmentId: string) => {
@@ -595,11 +996,38 @@ const FinanceInvoices: React.FC = () => {
       }));
    };
 
+   const openEditInvoiceModal = (invoice: IInvoice) => {
+      setEditInvoiceId(invoice.id);
+      setEditInvoiceData(buildInvoiceEditForm(invoice));
+      setShowEditModal(true);
+   };
+
+   const handleEditAttachmentSelect = async (files: FileList | null) => {
+      try {
+         const nextAttachments = await readFilesAsAttachmentRecords(files);
+         if (!nextAttachments.length) return;
+
+         setEditInvoiceData((prev) => ({
+            ...prev,
+            attachments: [...prev.attachments, ...nextAttachments]
+         }));
+      } catch (error) {
+         window.alert(error instanceof Error ? error.message : 'Không thể tải file đính kèm.');
+      }
+   };
+
+   const handleRemoveEditAttachment = (attachmentId: string) => {
+      setEditInvoiceData((prev) => ({
+         ...prev,
+         attachments: prev.attachments.filter((attachment) => attachment.id !== attachmentId)
+      }));
+   };
+
    const handlePrintReceipt = (invoice: IInvoice) => {
       const printWindow = window.open('', '_blank', 'width=960,height=720');
       if (!printWindow) return;
 
-      printWindow.document.write(buildReceiptPrintHtml(invoice));
+      printWindow.document.write(buildDocumentPrintHtml(invoice));
       printWindow.document.close();
       printWindow.focus();
       setTimeout(() => printWindow.print(), 250);
@@ -616,27 +1044,26 @@ const FinanceInvoices: React.FC = () => {
       );
    };
 
-   const handleSendReceiptEmail = (invoice: IInvoice) => {
-      if (!invoice.customerEmail?.trim()) {
-         window.alert('Vui lòng cập nhật email khách hàng trước khi gửi phiếu thu.');
-         return;
-      }
+   const handleSaveInvoiceEdits = () => {
+      if (!editInvoice) return;
 
-      const subject = encodeURIComponent(`${DOCUMENT_TYPE_LABELS[invoice.documentType || ReceiptDocumentType.PAYMENT_RECEIPT]} ${invoice.code}`);
-      const body = encodeURIComponent(buildReceiptEmailBody(invoice));
-      window.location.href = `mailto:${invoice.customerEmail}?subject=${subject}&body=${body}`;
-
-      persistInvoiceUpdate(
-         normalizeInvoice(
-            {
-               ...invoice,
-               status: InvoiceStatus.SENT_TO_CUSTOMER,
-               receiptEmailedAt: new Date().toISOString()
-            },
-            0,
-            quotations
-         )
+      const updatedInvoice = normalizeInvoice(
+         {
+            ...editInvoice,
+            payerName: editInvoiceData.payerName,
+            displayAddress: editInvoiceData.displayAddress,
+            contactPerson: editInvoiceData.contactPerson,
+            description: editInvoiceData.description,
+            note: editInvoiceData.note,
+            attachments: editInvoiceData.attachments
+         },
+         0,
+         quotations
       );
+
+      persistInvoiceUpdate(updatedInvoice);
+      setSelectedInvoiceId(updatedInvoice.id);
+      closeEditInvoiceModal();
    };
 
    const removeSearchChip = (chipKey: string) => {
@@ -653,11 +1080,11 @@ const FinanceInvoices: React.FC = () => {
    return (
       <div className="flex h-full flex-col overflow-hidden bg-[#f8fafc] font-sans text-[#111418]">
          <div className="mx-auto flex w-full max-w-[1680px] flex-1 flex-col overflow-y-auto p-6">
-            <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-               <div>
+             <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+                <div>
                   <h1 className="text-2xl font-bold tracking-tight text-slate-900">Quản lý Phiếu thu / Phiếu chi</h1>
                         <p className="mt-0.5 text-[13px] leading-5 text-[#6c757d]">
-                     Nhấn vào từng chứng từ để xem đầy đủ thông tin nhận diện, đối tượng, tiền và liên kết gốc.
+                     Chứng từ được lưu ở trạng thái nháp. Mỗi phiếu chỉ thao tác sửa nội dung hiển thị và in chứng từ.
                   </p>
                </div>
 
@@ -669,8 +1096,70 @@ const FinanceInvoices: React.FC = () => {
                      <Plus size={18} />
                      Tạo phiếu
                   </button>
-               )}
-            </div>
+                )}
+             </div>
+
+            <section className="mb-4 rounded-xl border border-slate-200 bg-white p-2.5 shadow-sm">
+               <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="min-w-0">
+                     <h2 className="text-sm font-bold text-slate-900">Tổng quan Phiếu Thu / Phiếu Chi</h2>
+                  </div>
+                  <div className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600">
+                     {invoiceSummary.count} chứng từ
+                  </div>
+               </div>
+
+               <div className="mt-2 grid grid-cols-2 gap-2 xl:grid-cols-6">
+                  <div className="rounded-md border border-emerald-100 bg-emerald-50 px-2.5 py-2">
+                     <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-emerald-700">Tổng thu</div>
+                     <div className="mt-1 text-lg font-black leading-none text-emerald-700">{formatCurrency(invoiceSummary.totalIn)}</div>
+                  </div>
+
+                  <div className="rounded-md border border-rose-100 bg-rose-50 px-2.5 py-2">
+                     <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-rose-700">Tổng chi</div>
+                     <div className="mt-1 text-lg font-black leading-none text-rose-700">{formatCurrency(invoiceSummary.totalOut)}</div>
+                  </div>
+
+                  <div className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-2">
+                     <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-600">Ròng</div>
+                     <div className={`mt-1 text-lg font-black leading-none ${invoiceSummary.net >= 0 ? 'text-sky-700' : 'text-amber-700'}`}>
+                        {formatCurrency(invoiceSummary.net)}
+                     </div>
+                  </div>
+
+                  <div className="rounded-md border border-blue-100 bg-blue-50 px-2.5 py-2">
+                     <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-blue-700">Đã in</div>
+                     <div className="mt-1 text-lg font-black leading-none text-blue-700">{invoiceSummary.printedCount}</div>
+                  </div>
+
+                  {invoiceSummary.accountBreakdown.map((item) => (
+                     <div key={item.key} className="rounded-md border border-slate-200 bg-slate-50/80 px-2.5 py-2">
+                        <div className="flex items-center justify-between gap-2">
+                           <div className="text-[12px] font-bold text-slate-900">{item.label}</div>
+                           <div className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${item.key === 'cash' ? 'bg-amber-100 text-amber-700' : 'bg-sky-100 text-sky-700'}`}>
+                              {item.key === 'cash' ? 'Cash' : 'Bank'}
+                           </div>
+                        </div>
+                        <div className="mt-1.5 grid grid-cols-3 gap-1.5 text-[10px]">
+                           <div className="rounded bg-white px-2 py-1.5">
+                              <div className="font-semibold text-slate-500">Thu</div>
+                              <div className="mt-0.5 font-bold leading-none text-emerald-700">{formatCurrency(item.totalIn)}</div>
+                           </div>
+                           <div className="rounded bg-white px-2 py-1.5">
+                              <div className="font-semibold text-slate-500">Chi</div>
+                              <div className="mt-0.5 font-bold leading-none text-rose-700">{formatCurrency(item.totalOut)}</div>
+                           </div>
+                           <div className="rounded bg-white px-2 py-1.5">
+                              <div className="font-semibold text-slate-500">Ròng</div>
+                              <div className={`mt-0.5 font-bold leading-none ${item.net >= 0 ? 'text-sky-700' : 'text-amber-700'}`}>
+                                 {formatCurrency(item.net)}
+                              </div>
+                           </div>
+                        </div>
+                     </div>
+                  ))}
+               </div>
+            </section>
 
             <div className="mb-6 flex flex-wrap items-center gap-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
                <div className="min-w-[320px] flex-1">
@@ -686,7 +1175,7 @@ const FinanceInvoices: React.FC = () => {
                   />
                </div>
 
-               <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2">
                   <button
                      onClick={() => setActiveTab(ALL_TAB)}
                      className={`rounded-lg px-4 py-2 text-sm font-bold transition-colors ${
@@ -695,39 +1184,15 @@ const FinanceInvoices: React.FC = () => {
                   >
                      Tất cả
                   </button>
-                  <button
-                     onClick={() => setActiveTab(InvoiceStatus.DRAFT)}
-                     className={`rounded-lg px-4 py-2 text-sm font-bold transition-colors ${
-                        activeTab === InvoiceStatus.DRAFT ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
-                     }`}
-                  >
-                     {STATUS_META[InvoiceStatus.DRAFT].label}
-                  </button>
-                  <button
-                     onClick={() => setActiveTab(InvoiceStatus.ISSUED)}
-                     className={`rounded-lg px-4 py-2 text-sm font-bold transition-colors ${
-                        activeTab === InvoiceStatus.ISSUED ? 'bg-emerald-600 text-white' : 'text-slate-600 hover:bg-slate-100'
-                     }`}
-                  >
-                     {STATUS_META[InvoiceStatus.ISSUED].label}
-                  </button>
-                  <button
-                     onClick={() => setActiveTab(InvoiceStatus.SENT_TO_CUSTOMER)}
-                     className={`rounded-lg px-4 py-2 text-sm font-bold transition-colors ${
-                        activeTab === InvoiceStatus.SENT_TO_CUSTOMER ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-100'
-                     }`}
-                  >
-                     {STATUS_META[InvoiceStatus.SENT_TO_CUSTOMER].label}
-                  </button>
-                  <button
-                     onClick={() => setActiveTab(InvoiceStatus.CANCELLED)}
-                     className={`rounded-lg px-4 py-2 text-sm font-bold transition-colors ${
-                        activeTab === InvoiceStatus.CANCELLED ? 'bg-red-600 text-white' : 'text-slate-600 hover:bg-slate-100'
-                     }`}
-                  >
-                     {STATUS_META[InvoiceStatus.CANCELLED].label}
-                  </button>
-               </div>
+                   <button
+                      onClick={() => setActiveTab(InvoiceStatus.DRAFT)}
+                      className={`rounded-lg px-4 py-2 text-sm font-bold transition-colors ${
+                         activeTab === InvoiceStatus.DRAFT ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
+                      }`}
+                   >
+                      {STATUS_META[InvoiceStatus.DRAFT].label}
+                   </button>
+                </div>
             </div>
 
             <div className="flex-1 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -760,7 +1225,8 @@ const FinanceInvoices: React.FC = () => {
                            filteredData.map((invoice) => {
                               const documentType =
                                  invoice.documentType || ReceiptDocumentType.PAYMENT_RECEIPT;
-                              const statusMeta = STATUS_META[invoice.status];
+                              const workflowStatus = getInvoiceWorkflowStatus(invoice);
+                              const statusMeta = STATUS_META[workflowStatus];
 
                               return (
                                  <tr
@@ -791,16 +1257,19 @@ const FinanceInvoices: React.FC = () => {
                                        {formatCurrency(invoice.totalAmount, invoice.currency)}
                                     </td>
                                     <td className="px-4 py-4 text-sm text-slate-600">{formatDate(invoice.issueDate)}</td>
-                                    <td className="px-4 py-4 text-center">
-                                       <span
-                                          className={`inline-flex items-center gap-1 rounded border px-3 py-1 text-xs font-bold ${statusMeta.className}`}
-                                       >
-                                          {invoice.status === InvoiceStatus.ISSUED && <CheckCircle2 size={12} />}
-                                          {invoice.status === InvoiceStatus.SENT_TO_CUSTOMER && <Send size={12} />}
-                                          {invoice.status === InvoiceStatus.CANCELLED && <X size={12} />}
-                                          {statusMeta.label}
-                                       </span>
-                                    </td>
+                                     <td className="px-4 py-4 text-center">
+                                        <span
+                                           className={`inline-flex items-center gap-1 rounded border px-3 py-1 text-xs font-bold ${statusMeta.className}`}
+                                        >
+                                           {workflowStatus === InvoiceStatus.CANCELLED && <X size={12} />}
+                                           {statusMeta.label}
+                                        </span>
+                                        {invoice.receiptPrintedAt && workflowStatus !== InvoiceStatus.CANCELLED && (
+                                           <div className="mt-1 text-[11px] font-medium text-slate-400">
+                                              Đã in {formatDate(invoice.receiptPrintedAt)}
+                                           </div>
+                                        )}
+                                     </td>
                                     <td className="px-4 py-4 text-sm text-slate-600 break-words">{invoice.createdBy}</td>
                                     <td className="px-4 py-4 text-sm text-slate-600">
                                        <div className="whitespace-normal break-words leading-6">{invoice.description || '--'}</div>
@@ -821,61 +1290,38 @@ const FinanceInvoices: React.FC = () => {
             </div>
          </div>
 
-         {selectedInvoice && (
-            <>
+          {selectedInvoice && (
+             <>
                <div className="fixed inset-0 z-40 bg-slate-900/30" onClick={() => setSelectedInvoiceId(null)} />
                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 lg:translate-x-32">
                   <aside
                      className="flex max-h-[calc(100vh-32px)] w-full max-w-[980px] flex-col overflow-hidden rounded-sm border border-[#dee2e6] bg-white text-[13px] text-[#333333]"
                      style={{ fontFamily: 'Inter, Roboto, sans-serif' }}
                      onClick={(event) => event.stopPropagation()}
-                  >
-                  <div className="border-b border-[#dee2e6] bg-[#f8f9fa] px-4 py-2">
-                     <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div className="flex flex-wrap items-center gap-2">
-                           {selectedInvoice.documentType === ReceiptDocumentType.PAYMENT_RECEIPT && (
-                              <>
-                                 <button
-                                    onClick={() => handlePrintReceipt(selectedInvoice)}
-                                    className="inline-flex items-center gap-1 rounded-sm border border-[#dee2e6] bg-white px-3 py-1.5 text-[12px] font-medium text-[#495057] transition-colors hover:bg-[#f8f9fa]"
-                                 >
-                                    <Printer size={13} />
-                                    In phiếu thu
-                                 </button>
-                                 <button
-                                    onClick={() => handleSendReceiptEmail(selectedInvoice)}
-                                    className="inline-flex items-center gap-1 rounded-sm border border-[#dee2e6] bg-white px-3 py-1.5 text-[12px] font-medium text-[#0d6efd] transition-colors hover:bg-[#f7fbff]"
-                                 >
-                                    <Mail size={13} />
-                                    Gửi email
-                                 </button>
-                              </>
-                           )}
-                           <button
-                              onClick={() => handleUpdateStatus(InvoiceStatus.ISSUED)}
-                              disabled={selectedInvoice.status === InvoiceStatus.ISSUED || selectedInvoice.status === InvoiceStatus.SENT_TO_CUSTOMER || selectedInvoice.status === InvoiceStatus.CANCELLED}
-                              className="rounded-sm border border-[#dee2e6] bg-white px-3 py-1.5 text-[12px] font-medium text-[#146c43] transition-colors hover:bg-[#f8fff9] disabled:cursor-not-allowed disabled:text-[#adb5bd]"
-                           >
-                              Phát hành
+                   >
+                   <div className="border-b border-[#dee2e6] bg-[#f8f9fa] px-4 py-2">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                         <div className="ml-auto flex flex-wrap items-center gap-2">
+                            <button
+                               onClick={() => openEditInvoiceModal(selectedInvoice)}
+                               className="inline-flex items-center gap-1 rounded-sm border border-[#dee2e6] bg-white px-3 py-1.5 text-[12px] font-medium text-[#0d6efd] transition-colors hover:bg-[#f7fbff]"
+                            >
+                              <FileText size={13} />
+                              Sửa phiếu
                            </button>
                            <button
-                              onClick={() => handleUpdateStatus(InvoiceStatus.SENT_TO_CUSTOMER)}
-                              disabled={selectedInvoice.status === InvoiceStatus.SENT_TO_CUSTOMER || selectedInvoice.status === InvoiceStatus.CANCELLED}
-                              className="rounded-sm border border-[#dee2e6] bg-white px-3 py-1.5 text-[12px] font-medium text-[#0d6efd] transition-colors hover:bg-[#f7fbff] disabled:cursor-not-allowed disabled:text-[#adb5bd]"
+                              onClick={() => handlePrintReceipt(selectedInvoice)}
+                              className="inline-flex items-center gap-1 rounded-sm border border-[#dee2e6] bg-white px-3 py-1.5 text-[12px] font-medium text-[#495057] transition-colors hover:bg-[#f8f9fa]"
                            >
-                              Gửi khách
-                           </button>
-                           <button
-                              onClick={() => handleUpdateStatus(InvoiceStatus.CANCELLED)}
-                              disabled={selectedInvoice.status === InvoiceStatus.CANCELLED}
-                              className="rounded-sm border border-[#dee2e6] bg-white px-3 py-1.5 text-[12px] font-medium text-[#b42318] transition-colors hover:bg-[#fff6f5] disabled:cursor-not-allowed disabled:text-[#adb5bd]"
-                           >
-                              Hủy chứng từ
-                           </button>
-                        </div>
-                        <StatusArrowBar status={selectedInvoice.status} />
-                     </div>
-                  </div>
+                               <Printer size={13} />
+                               {selectedInvoice.documentType === ReceiptDocumentType.PAYMENT_VOUCHER ? 'In phiếu chi' : 'In phiếu thu'}
+                             </button>
+                            <span className={`inline-flex items-center rounded-sm border px-2.5 py-1 text-[11px] font-semibold ${STATUS_META[selectedInvoiceWorkflowStatus].className}`}>
+                               {STATUS_META[selectedInvoiceWorkflowStatus].label}
+                            </span>
+                         </div>
+                      </div>
+                   </div>
 
                   <div className="flex items-start justify-between gap-4 border-b border-[#dee2e6] bg-white px-4 py-3">
                      <div className="min-w-0 flex-1">
@@ -892,12 +1338,17 @@ const FinanceInvoices: React.FC = () => {
                               )}
                               {DOCUMENT_TYPE_LABELS[selectedInvoice.documentType || ReceiptDocumentType.PAYMENT_RECEIPT]}
                            </span>
-                           <span
-                              className={`hidden items-center rounded-sm border px-2 py-0.5 text-[11px] font-medium ${STATUS_META[selectedInvoice.status].className}`}
-                           >
-                              {STATUS_META[selectedInvoice.status].label}
-                           </span>
-                        </div>
+                            <span
+                               className={`inline-flex items-center rounded-sm border px-2 py-0.5 text-[11px] font-medium ${STATUS_META[selectedInvoiceWorkflowStatus].className}`}
+                            >
+                               {STATUS_META[selectedInvoiceWorkflowStatus].label}
+                            </span>
+                            {selectedInvoice.receiptPrintedAt && (
+                               <span className="text-[11px] font-medium text-slate-400">
+                                  In gần nhất: {formatDate(selectedInvoice.receiptPrintedAt)}
+                               </span>
+                            )}
+                         </div>
                         <h2 className="text-[24px] font-semibold leading-8 text-[#212529]">{selectedInvoice.code}</h2>
                         <p className="mt-1 text-sm text-slate-500">{selectedInvoice.description || 'Chi tiết chứng từ'}</p>
                      </div>
@@ -923,7 +1374,7 @@ const FinanceInvoices: React.FC = () => {
                                  value={DOCUMENT_TYPE_LABELS[selectedInvoice.documentType || ReceiptDocumentType.PAYMENT_RECEIPT]}
                               />
                               <DetailCard label="Ngày lập" value={formatDate(selectedInvoice.issueDate)} />
-                              <DetailCard label="Trạng thái" value={STATUS_META[selectedInvoice.status].label} />
+                              <DetailCard label="Trạng thái" value={STATUS_META[selectedInvoiceWorkflowStatus].label} />
                            </div>
                         </section>
 
@@ -1012,9 +1463,9 @@ const FinanceInvoices: React.FC = () => {
                            <DetailCard label="Ngày lập" value={formatDate(selectedInvoice.issueDate)} icon={CalendarDays} />
                            <DetailCard
                               label="Trạng thái"
-                              value={STATUS_META[selectedInvoice.status].label}
-                              icon={CheckCircle2}
-                           />
+                               value={STATUS_META[selectedInvoiceWorkflowStatus].label}
+                               icon={CheckCircle2}
+                            />
                         </div>
                      </section>
 
@@ -1107,7 +1558,7 @@ const FinanceInvoices: React.FC = () => {
 
                   <div className="flex items-center justify-between border-t border-[#dee2e6] bg-[#f8f9fa] px-4 py-2 text-[12px] text-[#6c757d]">
                      <div className="truncate">
-                        Người lập: {selectedInvoice.createdBy || '--'} | Thanh toán: {formatDate(selectedInvoice.paymentDate)} | In phiếu: {formatDate(selectedInvoice.receiptPrintedAt)} | Email: {formatDate(selectedInvoice.receiptEmailedAt)}
+                        Người lập: {selectedInvoice.createdBy || '--'} | Thanh toán: {formatDate(selectedInvoice.paymentDate)} | In phiếu: {formatDate(selectedInvoice.receiptPrintedAt)}
                      </div>
                      <button
                         onClick={() => setSelectedInvoiceId(null)}
@@ -1117,37 +1568,172 @@ const FinanceInvoices: React.FC = () => {
                      </button>
                   </div>
 
-                  <div className="hidden border-t border-slate-200 bg-white px-4 py-4 sm:px-6">
-                     <div className="flex flex-wrap justify-end gap-3">
-                        <button
-                           onClick={() => handleUpdateStatus(InvoiceStatus.ISSUED)}
-                           disabled={selectedInvoice.status === InvoiceStatus.ISSUED || selectedInvoice.status === InvoiceStatus.SENT_TO_CUSTOMER || selectedInvoice.status === InvoiceStatus.CANCELLED}
-                           className="rounded-xl border border-emerald-200 px-4 py-2 text-sm font-bold text-emerald-700 transition-colors hover:bg-emerald-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
-                        >
-                           Phát hành
-                        </button>
-                        <button
-                           onClick={() => handleUpdateStatus(InvoiceStatus.SENT_TO_CUSTOMER)}
-                           disabled={selectedInvoice.status === InvoiceStatus.SENT_TO_CUSTOMER || selectedInvoice.status === InvoiceStatus.CANCELLED}
-                           className="rounded-xl border border-blue-200 px-4 py-2 text-sm font-bold text-blue-700 transition-colors hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
-                        >
-                           Gửi khách
-                        </button>
-                        <button
-                           onClick={() => handleUpdateStatus(InvoiceStatus.CANCELLED)}
-                           disabled={selectedInvoice.status === InvoiceStatus.CANCELLED}
-                           className="rounded-xl border border-red-200 px-4 py-2 text-sm font-bold text-red-700 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
-                        >
-                           Hủy chứng từ
-                        </button>
-                     </div>
-                  </div>
                   </aside>
                </div>
-            </>
-         )}
+             </>
+          )}
 
-         {showCreateModal && (
+          {showEditModal && editInvoice && (
+             <div className="fixed inset-0 z-[60] overflow-y-auto bg-slate-900/40 backdrop-blur-sm">
+                <div className="flex min-h-full items-center justify-center p-4">
+                   <div
+                      className="w-full max-w-3xl overflow-hidden rounded-xl bg-white shadow-2xl"
+                      onClick={(event) => event.stopPropagation()}
+                   >
+                      <div className="border-b border-slate-200 px-6 py-4">
+                         <div className="flex items-start justify-between gap-4">
+                            <div>
+                               <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Chỉnh sửa phiếu</p>
+                               <h3 className="mt-1 text-xl font-bold text-slate-900">{editInvoice.code}</h3>
+                               <p className="mt-1 text-sm text-slate-500">
+                                  Chỉ cho phép cập nhật người nộp/nhận tiền, thông tin hiển thị, diễn giải, file đính kèm và ghi chú.
+                               </p>
+                            </div>
+                            <button
+                               type="button"
+                               onClick={closeEditInvoiceModal}
+                               className="rounded-lg border border-slate-200 p-2 text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700"
+                            >
+                               <X size={18} />
+                            </button>
+                         </div>
+                      </div>
+
+                      <div className="max-h-[calc(100vh-10rem)] space-y-5 overflow-y-auto px-6 py-5">
+                         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                            <div>
+                               <label className="mb-1 block text-xs font-bold uppercase tracking-[0.08em] text-slate-500">
+                                  Người nộp / nhận tiền
+                               </label>
+                               <input
+                                  className="w-full rounded border border-slate-300 px-3 py-2.5 text-sm text-slate-800"
+                                  value={editInvoiceData.payerName}
+                                  onChange={(event) =>
+                                     setEditInvoiceData((prev) => ({ ...prev, payerName: event.target.value }))
+                                  }
+                                  placeholder="Nhập người nộp hoặc người nhận tiền"
+                               />
+                            </div>
+                            <div>
+                               <label className="mb-1 block text-xs font-bold uppercase tracking-[0.08em] text-slate-500">
+                                  Người liên hệ
+                               </label>
+                               <input
+                                  className="w-full rounded border border-slate-300 px-3 py-2.5 text-sm text-slate-800"
+                                  value={editInvoiceData.contactPerson}
+                                  onChange={(event) =>
+                                     setEditInvoiceData((prev) => ({ ...prev, contactPerson: event.target.value }))
+                                  }
+                                  placeholder="Nhập người liên hệ"
+                               />
+                            </div>
+                         </div>
+
+                         <div>
+                            <label className="mb-1 block text-xs font-bold uppercase tracking-[0.08em] text-slate-500">
+                               Địa chỉ / thông tin hiển thị
+                            </label>
+                            <textarea
+                               rows={2}
+                               className="w-full rounded border border-slate-300 px-3 py-2.5 text-sm text-slate-800"
+                               value={editInvoiceData.displayAddress}
+                               onChange={(event) =>
+                                  setEditInvoiceData((prev) => ({ ...prev, displayAddress: event.target.value }))
+                               }
+                               placeholder="Nhập địa chỉ hoặc thông tin hiển thị trên phiếu"
+                            />
+                         </div>
+
+                         <div>
+                            <label className="mb-1 block text-xs font-bold uppercase tracking-[0.08em] text-slate-500">
+                               Nội dung diễn giải
+                            </label>
+                            <textarea
+                               rows={3}
+                               className="w-full rounded border border-slate-300 px-3 py-2.5 text-sm text-slate-800"
+                               value={editInvoiceData.description}
+                               onChange={(event) =>
+                                  setEditInvoiceData((prev) => ({ ...prev, description: event.target.value }))
+                               }
+                               placeholder="Nhập nội dung diễn giải trên phiếu"
+                            />
+                         </div>
+
+                         <div>
+                            <label className="mb-1 block text-xs font-bold uppercase tracking-[0.08em] text-slate-500">
+                               File đính kèm
+                            </label>
+                            <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-3">
+                               <input
+                                  type="file"
+                                  accept={DEFAULT_ATTACHMENT_ACCEPT}
+                                  multiple
+                                  onChange={(event) => {
+                                     handleEditAttachmentSelect(event.target.files);
+                                     event.currentTarget.value = '';
+                                  }}
+                                  className="block h-[32px] w-full text-sm text-slate-600 file:mr-3 file:h-[32px] file:rounded file:border-0 file:bg-indigo-600 file:px-3 file:py-0 file:font-semibold file:text-white hover:file:bg-indigo-700"
+                               />
+                               {editInvoiceData.attachments.length > 0 && (
+                                  <div className="mt-3 flex flex-wrap gap-2">
+                                     {editInvoiceData.attachments.map((attachment) => (
+                                        <span
+                                           key={attachment.id}
+                                           className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700"
+                                        >
+                                           {attachment.name}
+                                           <button
+                                              type="button"
+                                              onClick={() => handleRemoveEditAttachment(attachment.id)}
+                                              className="text-slate-400 hover:text-slate-600"
+                                           >
+                                              <X size={12} />
+                                           </button>
+                                        </span>
+                                     ))}
+                                  </div>
+                               )}
+                            </div>
+                         </div>
+
+                         <div>
+                            <label className="mb-1 block text-xs font-bold uppercase tracking-[0.08em] text-slate-500">
+                               Ghi chú
+                            </label>
+                            <textarea
+                               rows={3}
+                               className="w-full rounded border border-slate-300 px-3 py-2.5 text-sm text-slate-800"
+                               value={editInvoiceData.note}
+                               onChange={(event) =>
+                                  setEditInvoiceData((prev) => ({ ...prev, note: event.target.value }))
+                               }
+                               placeholder="Ghi chú nội bộ trên phiếu thu / phiếu chi"
+                            />
+                         </div>
+                      </div>
+
+                      <div className="flex items-center justify-end gap-3 border-t border-slate-200 px-6 py-4">
+                         <button
+                            type="button"
+                            onClick={closeEditInvoiceModal}
+                            className="rounded-lg border border-slate-200 px-4 py-2 font-semibold text-slate-600 transition-colors hover:bg-slate-50"
+                         >
+                            Hủy
+                         </button>
+                         <button
+                            type="button"
+                            onClick={handleSaveInvoiceEdits}
+                            className="rounded-lg bg-indigo-600 px-4 py-2 font-semibold text-white transition-colors hover:bg-indigo-700"
+                         >
+                            Lưu chỉnh sửa
+                         </button>
+                      </div>
+                   </div>
+                </div>
+             </div>
+          )}
+
+          {showCreateModal && (
             <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/40 backdrop-blur-sm">
                <div className="flex min-h-full items-start justify-center p-4 sm:p-6">
                   <div className="my-4 w-full max-w-4xl overflow-hidden rounded-xl bg-white shadow-2xl">
@@ -1430,10 +2016,11 @@ const FinanceInvoices: React.FC = () => {
                                     {newInvoiceData.requiresTaxInvoice ? 'File hóa đơn / hồ sơ đính kèm' : 'File đính kèm'}
                                  </label>
                                  <div className="rounded-lg border border-dashed border-slate-300 bg-white px-3 py-2">
-                                    <input
-                                       type="file"
-                                       multiple
-                                       onChange={(event) => {
+                                     <input
+                                        type="file"
+                                        accept={DEFAULT_ATTACHMENT_ACCEPT}
+                                        multiple
+                                        onChange={(event) => {
                                           handleAttachmentSelect(event.target.files);
                                           event.currentTarget.value = '';
                                        }}
@@ -1482,19 +2069,27 @@ const FinanceInvoices: React.FC = () => {
                               Hủy
                            </button>
                            {currentFormDocumentType === ReceiptDocumentType.PAYMENT_RECEIPT && (
-                              <button
-                                 onClick={() => handleCreateInvoice({ printAfterCreate: true })}
-                                 className="rounded border border-slate-300 bg-white px-4 py-2 font-bold text-slate-700 transition-colors hover:bg-slate-50"
-                              >
-                                 Lưu và in
-                              </button>
-                           )}
-                           <button
-                              onClick={() => handleCreateInvoice()}
-                              className="rounded bg-indigo-600 px-4 py-2 font-bold text-white shadow-md transition-colors hover:bg-indigo-700"
-                           >
-                              Lưu phiếu
-                           </button>
+                               <button
+                                  onClick={() => handleCreateInvoice({ printAfterCreate: true })}
+                                  className="rounded border border-slate-300 bg-white px-4 py-2 font-bold text-slate-700 transition-colors hover:bg-slate-50"
+                               >
+                                  Lưu nháp và in
+                               </button>
+                            )}
+                           {currentFormDocumentType === ReceiptDocumentType.PAYMENT_VOUCHER && (
+                               <button
+                                  onClick={() => handleCreateInvoice({ printAfterCreate: true })}
+                                  className="rounded border border-slate-300 bg-white px-4 py-2 font-bold text-slate-700 transition-colors hover:bg-slate-50"
+                               >
+                                  Lưu nháp và in
+                               </button>
+                            )}
+                            <button
+                               onClick={() => handleCreateInvoice()}
+                               className="rounded bg-indigo-600 px-4 py-2 font-bold text-white shadow-md transition-colors hover:bg-indigo-700"
+                            >
+                               Lưu nháp
+                            </button>
                         </div>
                      </div>
                   </div>

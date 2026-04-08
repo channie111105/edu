@@ -115,7 +115,6 @@ const TIME_SLOT_OPTIONS = ['08:00 - 10:00', '10:00 - 12:00', '13:30 - 15:30', '1
 type Row = { member: IClassStudent; student?: IStudent; score?: IStudentScore };
 type PrimaryTabKey = 'students' | 'level' | 'logs';
 type LevelTabKey = 'attendance' | 'grades';
-type AttendanceDraft = Record<string, AttendanceStatus | ''>;
 type NoteModalState = { studentId: string; studentName: string; sessionId: string; note: string };
 type ClassListColumnKey = 'code' | 'level' | 'timeSlot' | 'studyDays' | 'teacher' | 'size' | 'language' | 'classType' | 'startDate' | 'endDate' | 'campus' | 'status';
 type QuickActionKey = 'startDate' | 'endDate' | ITrainingClass['status'];
@@ -333,7 +332,6 @@ const TrainingClassList: React.FC = () => {
   const [sessions, setSessions] = useState<IClassSession[]>([]);
   const [attendanceRecords, setAttendanceRecords] = useState<IAttendanceRecord[]>([]);
   const [studyNotes, setStudyNotes] = useState<IStudyNote[]>([]);
-  const [attendanceDraft, setAttendanceDraft] = useState<AttendanceDraft>({});
   const [attendanceSaveMessage, setAttendanceSaveMessage] = useState('');
   const [logAudienceFilter, setLogAudienceFilter] = useState<LogAudienceFilter>('ALL');
   const [noteModal, setNoteModal] = useState<NoteModalState | null>(null);
@@ -597,13 +595,11 @@ const TrainingClassList: React.FC = () => {
       setSessions([]);
       setAttendanceRecords([]);
       setStudyNotes([]);
-      setAttendanceDraft({});
       setAttendanceSaveMessage('');
       return;
     }
 
     loadClassStudyData(selected.id);
-    setAttendanceDraft({});
     setAttendanceSaveMessage('');
   }, [selected?.id]);
 
@@ -726,7 +722,7 @@ const TrainingClassList: React.FC = () => {
 
   const getStudentRemark = (row: Row) => row.student?.note || '-';
 
-  const isSessionDateLocked = (session?: IClassSession) => !!session?.date && session.date < todayDateOnly;
+  const isSessionDateLocked = (session?: IClassSession) => !session?.date || session.date !== todayDateOnly;
 
   const resetFilters = () => {
     setStatusFilter('ALL');
@@ -1068,16 +1064,35 @@ const TrainingClassList: React.FC = () => {
 
   const getAttendanceCellValue = (studentId: string, sessionId: string): AttendanceStatus | '' => {
     const key = attendanceKey(studentId, sessionId);
-    return attendanceDraft[key] ?? attendanceMap.get(key)?.status ?? '';
+    return attendanceMap.get(key)?.status ?? '';
   };
 
   const setAttendanceCellValue = (studentId: string, sessionId: string, value: AttendanceStatus | '') => {
-    if (locked) return;
+    if (!selected || locked) return;
     const session = sessions.find((item) => item.id === sessionId);
     if (isSessionDateLocked(session)) return;
+    if (!value) return;
+
     const key = attendanceKey(studentId, sessionId);
-    setAttendanceDraft((prev) => ({ ...prev, [key]: value }));
-    setAttendanceSaveMessage('');
+    const current = attendanceMap.get(key)?.status ?? '';
+    if (current === value) return;
+
+    const nextRecord = upsertAttendance({
+      classId: selected.id,
+      studentId,
+      sessionId,
+      status: value,
+      updatedBy: 'training'
+    });
+    const nextRecords = [nextRecord, ...attendanceRecords.filter((item) => item.id !== nextRecord.id)];
+    const autoCompleted = autoCompleteSelectedClassIfNeeded(nextRecords);
+
+    setAttendanceRecords(nextRecords);
+    setAttendanceSaveMessage(
+      autoCompleted
+        ? `Đã tự lưu điểm danh. Lớp đã tự chuyển sang Đã kết thúc.`
+        : `Đã tự lưu điểm danh ${getSessionLabel(session)}.`
+    );
   };
 
   const togglePromotedStudent = (studentId: string) => {
@@ -1109,14 +1124,50 @@ const TrainingClassList: React.FC = () => {
     if (isSessionDateLocked(currentSession)) return;
     const nextSession = updateClassSession(sessionId, { isHeld });
     if (!nextSession || !selected) return;
+    const nextSessions = sessions.map((session) => (session.id === sessionId ? nextSession : session));
+    const autoCompleted = autoCompleteSelectedClassIfNeeded(attendanceRecords, nextSessions);
 
-    setSessions((prev) => prev.map((session) => (session.id === sessionId ? nextSession : session)));
+    setSessions(nextSessions);
     addClassLog(
       selected.id,
       'SESSION_HELD_UPDATED',
       `${getSessionLabel(nextSession)}: ${isHeld ? 'Có học' : 'Không học'}`,
       'training'
     );
+    if (autoCompleted) {
+      setAttendanceSaveMessage('Đã tự chuyển lớp sang Đã kết thúc vì đã đủ số buổi và đủ điểm danh.');
+    }
+  };
+
+  const autoCompleteSelectedClassIfNeeded = (
+    records: IAttendanceRecord[],
+    candidateSessions: IClassSession[] = sessions
+  ) => {
+    if (!selected || selected.status === 'DONE' || selected.status === 'CANCELED' || !rows.length || !candidateSessions.length) return false;
+    const heldSessions = candidateSessions.filter((session) => session.isHeld);
+    if (heldSessions.length < candidateSessions.length) return false;
+
+    const recordMap = new Map<string, IAttendanceRecord>();
+    records
+      .filter((record) => record.classId === selected.id)
+      .forEach((record) => recordMap.set(attendanceKey(record.studentId, record.sessionId), record));
+
+    const hasAttendanceForAllHeldSessions = rows.every((row) =>
+      heldSessions.every((session) => !!recordMap.get(attendanceKey(row.member.studentId, session.id))?.status)
+    );
+
+    if (!hasAttendanceForAllHeldSessions) return false;
+
+    const updatedClass = updateClassStatus(selected.id, 'DONE');
+    if (!updatedClass || updatedClass.status !== 'DONE') return false;
+
+    addClassLog(
+      selected.id,
+      'CLASS_AUTO_COMPLETED',
+      `Hệ thống tự chuyển lớp sang Đã kết thúc khi đã học đủ ${heldSessions.length}/${candidateSessions.length} buổi.`,
+      'training'
+    );
+    return true;
   };
 
   const getStudentAttendanceSummary = (studentId: string) => {
@@ -1153,49 +1204,6 @@ const TrainingClassList: React.FC = () => {
         note: studyNoteMap.get(key)?.note || ''
       };
     });
-  };
-
-  const saveAttendance = () => {
-    if (!selected || locked) return;
-
-    const changed = Object.entries(attendanceDraft)
-      .map(([key, status]) => {
-        if (!status) return null;
-        const [studentId, sessionId] = key.split('__');
-        if (!studentId || !sessionId) return null;
-        const session = sessions.find((item) => item.id === sessionId);
-        if (isSessionDateLocked(session)) return null;
-        const current = attendanceMap.get(key)?.status;
-        if (current === status) return null;
-        return { studentId, sessionId, status };
-      })
-      .filter((item): item is { studentId: string; sessionId: string; status: AttendanceStatus } => !!item);
-
-    if (!changed.length) {
-      setAttendanceSaveMessage('Không có thay đổi để lưu.');
-      return;
-    }
-
-    const changedSessionIds = new Set<string>();
-    changed.forEach((item) => {
-      upsertAttendance({
-        classId: selected.id,
-        studentId: item.studentId,
-        sessionId: item.sessionId,
-        status: item.status,
-        updatedBy: 'training'
-      });
-      changedSessionIds.add(item.sessionId);
-    });
-
-    changedSessionIds.forEach((sessionId) => {
-      const session = sessions.find((item) => item.id === sessionId);
-      addClassLog(selected.id, 'ATTENDANCE_UPDATED', `Cập nhật điểm danh buổi ${getSessionLabel(session)}`, 'training');
-    });
-
-    setAttendanceDraft({});
-    setAttendanceRecords(getAttendanceByClassId(selected.id));
-    setAttendanceSaveMessage(`Đã lưu ${changed.length} ô điểm danh.`);
   };
 
   const saveStudyNote = () => {
@@ -1301,17 +1309,10 @@ const TrainingClassList: React.FC = () => {
                   {ATTENDANCE_STATUS_TO_SHORT_CODE[status]} = {ATTENDANCE_LABEL[status]}
                 </span>
               ))}
-              <span className="text-[11px] font-medium text-slate-500">Chuột phải vào ô để mở Log Note</span>
+              <span className="text-[11px] font-medium text-slate-500">Chuột phải vào ô để mở Log Note. Chỉ cập nhật điểm danh đúng ngày diễn ra buổi học.</span>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {attendanceSaveMessage && <span className="text-xs text-slate-600">{attendanceSaveMessage}</span>}
-              <button
-                disabled={locked}
-                onClick={saveAttendance}
-                className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50"
-              >
-                <Save size={13} /> Lưu dữ liệu
-              </button>
               <button
                 type="button"
                 title="TODO: thay báº±ng API export Excel backend"
@@ -1341,7 +1342,7 @@ const TrainingClassList: React.FC = () => {
                               <div className="flex items-center justify-center gap-1">
                                 <label
                                   className="inline-flex h-3.5 w-3.5 cursor-pointer items-center justify-center"
-                                  title={sessionLocked ? 'Buổi đã qua ngày, dữ liệu đã khóa' : 'Đánh dấu buổi này lớp có học'}
+                                  title={sessionLocked ? 'Chỉ được cập nhật trong đúng ngày diễn ra buổi học' : 'Đánh dấu buổi này lớp có học'}
                                 >
                                   <input
                                     type="checkbox"
@@ -1390,7 +1391,7 @@ const TrainingClassList: React.FC = () => {
                                 className={`h-8 w-[52px] rounded-md border text-center text-xs font-bold uppercase outline-none transition-colors ${
                                   cellValue ? ATTENDANCE_CELL_CLASS[cellValue] : 'border-slate-200 bg-white text-slate-500'
                                 }`}
-                                title={`${getSessionLabel(session)}${sessionLocked ? ' - buổi đã khóa dữ liệu' : ' - nhập C/V/M, chuột phải để mở Log Note'}`}
+                                title={`${getSessionLabel(session)}${sessionLocked ? ' - chỉ được cập nhật trong ngày diễn ra buổi học' : ' - nhập C/V/M, chuột phải để mở Log Note'}`}
                                 placeholder="-"
                               />
                               {hasNote && <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-blue-500" />}

@@ -18,7 +18,7 @@ export type ResolvedServicePaymentPlanStep = ServicePaymentPlanStepConfig & {
   amount: number;
 };
 
-export type ResolvedServicePaymentPlan = ServicePaymentPlanConfig & {
+export type ResolvedServicePaymentPlan = Omit<ServicePaymentPlanConfig, 'steps'> & {
   totalAmount: number;
   steps: ResolvedServicePaymentPlanStep[];
 };

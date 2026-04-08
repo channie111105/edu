@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Calendar, Edit, Plus, Power, Trash2, User } from 'lucide-react';
+import { ArrowLeft, Edit, ExternalLink, FileText, Paperclip, Plus, Power, Trash2, X } from 'lucide-react';
 import LogAudienceFilterControl from '../components/LogAudienceFilter';
 import { ITeacher } from '../types';
 import {
@@ -8,13 +8,13 @@ import {
   assignTeacherToClass,
   getLogNotes,
   getTeacherById,
-  getTeachers,
   getTrainingClasses,
   unassignTeacherFromClass,
   updateTeacher
 } from '../utils/storage';
 import { useAuth } from '../contexts/AuthContext';
 import { filterByLogAudience, getILogNoteAudience, LogAudienceFilter } from '../utils/logAudience';
+import { DEFAULT_ATTACHMENT_ACCEPT, readFilesAsAttachmentRecords } from '../utils/fileAttachments';
 
 const TeacherDetails: React.FC = () => {
   const { id } = useParams();
@@ -31,6 +31,7 @@ const TeacherDetails: React.FC = () => {
   const [classSearch, setClassSearch] = useState('');
   const [selectedClassId, setSelectedClassId] = useState('');
   const [logAudienceFilter, setLogAudienceFilter] = useState<LogAudienceFilter>('ALL');
+  const [isProcessingAttachments, setIsProcessingAttachments] = useState(false);
 
   const loadData = () => {
     if (!id) return;
@@ -106,6 +107,51 @@ const TeacherDetails: React.FC = () => {
       createdBy: user?.id || 'system'
     });
     setNoteInput('');
+  };
+
+  const handleTeacherAttachmentSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    try {
+      setIsProcessingAttachments(true);
+      const nextAttachments = await readFilesAsAttachmentRecords(event.target.files);
+      if (nextAttachments.length === 0) return;
+      const currentTeacher = getTeacherById(teacher.id) || teacher;
+
+      updateTeacher(
+        {
+          ...currentTeacher,
+          attachments: [...(currentTeacher.attachments || []), ...nextAttachments]
+        },
+        user?.id || 'system',
+        'UPDATE_ATTACHMENTS',
+        nextAttachments.length === 1
+          ? `Đính kèm hồ sơ ${nextAttachments[0].name}`
+          : `Đính kèm ${nextAttachments.length} tệp hồ sơ giáo viên`
+      );
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Không thể tải hồ sơ lên. Vui lòng thử lại.');
+    } finally {
+      setIsProcessingAttachments(false);
+      event.target.value = '';
+    }
+  };
+
+  const handleRemoveTeacherAttachment = (attachmentId: string) => {
+    const currentTeacher = getTeacherById(teacher.id) || teacher;
+    const attachment = currentTeacher.attachments?.find((item) => item.id === attachmentId);
+    if (!attachment) return;
+
+    const confirmed = window.confirm(`Gỡ tệp ${attachment.name} khỏi hồ sơ giáo viên?`);
+    if (!confirmed) return;
+
+    updateTeacher(
+      {
+        ...currentTeacher,
+        attachments: (currentTeacher.attachments || []).filter((item) => item.id !== attachmentId)
+      },
+      user?.id || 'system',
+      'REMOVE_ATTACHMENT',
+      `Gỡ hồ sơ đính kèm ${attachment.name}`
+    );
   };
 
   return (
@@ -187,6 +233,68 @@ const TeacherDetails: React.FC = () => {
             <div className="flex flex-wrap gap-1">
               {teacher.certificates.map((item) => <span key={item} className="px-2 py-1 bg-amber-50 text-amber-700 rounded text-xs">{item}</span>)}
             </div>
+          </div>
+          <div className="bg-white border rounded-xl p-4 md:col-span-3">
+            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+              <div>
+                <h3 className="font-bold">Hồ sơ đính kèm</h3>
+                <p className="mt-1 text-sm text-slate-500">Quản lý CV, bằng cấp scan và các giấy tờ liên quan ngay trong hồ sơ giáo viên.</p>
+              </div>
+              <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 transition hover:border-blue-300 hover:bg-blue-100">
+                <Paperclip size={14} />
+                {isProcessingAttachments ? 'Đang tải...' : 'Thêm hồ sơ'}
+                <input
+                  type="file"
+                  multiple
+                  accept={DEFAULT_ATTACHMENT_ACCEPT}
+                  className="hidden"
+                  disabled={isProcessingAttachments}
+                  onChange={handleTeacherAttachmentSelect}
+                />
+              </label>
+            </div>
+
+            {teacher.attachments && teacher.attachments.length > 0 ? (
+              <div className="mt-4 grid gap-3">
+                {teacher.attachments.map((attachment) => (
+                  <div key={attachment.id} className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 md:flex-row md:items-center md:justify-between">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500">
+                        <FileText size={16} />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold text-slate-800">{attachment.name}</div>
+                        <div className="text-xs text-slate-400">Lưu cùng hồ sơ giáo viên</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {attachment.url ? (
+                        <a
+                          href={attachment.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-100"
+                        >
+                          <ExternalLink size={12} />
+                          Mở file
+                        </a>
+                      ) : null}
+                      <button
+                        onClick={() => handleRemoveTeacherAttachment(attachment.id)}
+                        className="inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-white px-3 py-2 text-xs font-semibold text-rose-600 transition hover:bg-rose-50"
+                      >
+                        <X size={12} />
+                        Xóa
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="mt-4 rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
+                Chưa có tệp hồ sơ nào được đính kèm.
+              </div>
+            )}
           </div>
         </div>
       )}

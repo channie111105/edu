@@ -217,7 +217,9 @@ export interface ILead {
   status: LeadStatus | DealStage | string;
   ownerId: string;
   createdAt: string;
+  updatedAt?: string;
   lastInteraction: string;
+  closedAt?: string;
   notes: string;
   company?: string;
   title?: string;
@@ -227,7 +229,7 @@ export interface ILead {
   lostReason?: string;
 
   studentInfo?: IStudentInfo;
-  marketingData?: IMarketingData; // Marketing-specific tracking data
+  marketingData?: (IMarketingData & { tags?: string[] | string }); // Marketing-specific tracking data
 
   // Additional fields for UI/Logic compatibility
   score?: number;
@@ -428,7 +430,6 @@ export interface IContract {
   identityDate?: string;
   identityPlace?: string;
   address?: string;
-  customerId?: string;
   leadId?: string;
   quotationLineItemId?: string;
   payerName?: string;
@@ -465,7 +466,7 @@ export interface ITransaction {
   proofType?: 'UNC' | 'PHIEU_THU' | 'NONE';
   proofFiles?: { id: string; name: string; url: string }[];
   bankRefCode?: string;
-  status: 'CHO_DUYET' | 'DA_DUYET' | 'TU_CHOI';
+  status: 'DRAFT' | 'CHO_DUYET' | 'DA_DUYET' | 'TU_CHOI';
   paidAt?: number;
   createdAt: number;
   approvedAt?: number;
@@ -756,8 +757,15 @@ export interface ITeacher {
   certificates: string[];
   status: 'ACTIVE' | 'INACTIVE';
   assignedClassIds: string[];
+  attachments?: IAttachmentFile[];
   createdAt: string;
   updatedAt?: string;
+}
+
+export interface IAttachmentFile {
+  id: string;
+  name: string;
+  url?: string;
 }
 
 export interface ILogNote {
@@ -789,6 +797,7 @@ export interface IQuotationLogNote {
   detail?: string;
   type?: 'note' | 'message' | 'system' | 'activity';
   attachments?: string[];
+  isPending?: boolean;
 }
 
 export type ContractFlowStatus = 'quotation' | 'sale_confirmed' | 'signed_contract' | 'enrolled' | 'active';
@@ -999,6 +1008,11 @@ export interface IActualTransactionLog {
 }
 
 export type RefundStatus =
+  | 'DRAFT'
+  | 'CHO_DUYET'
+  | 'KE_TOAN_XAC_NHAN'
+  | 'DA_DUYET'
+  | 'DA_THU_CHI'
   | 'NHAP'
   | 'SALE_XAC_NHAN'
   | 'KE_TOAN_KIEM_TRA'
@@ -1056,6 +1070,9 @@ export interface IInvoice {
   id: string;
   code: string; // PT-00001 / PC-00001
   documentType?: ReceiptDocumentType;
+  payerName?: string;
+  displayAddress?: string;
+  contactPerson?: string;
   description?: string;
   contractCode?: string;
   ownerName?: string;
@@ -1068,7 +1085,7 @@ export interface IInvoice {
   approvedTransactionCode?: string;
   cashFlowCode?: string;
   bankReference?: string;
-  attachments?: { id: string; name: string; url?: string }[];
+  attachments?: IAttachmentFile[];
   requiresTaxInvoice?: boolean;
   receiptPrintedAt?: string;
   receiptEmailedAt?: string;

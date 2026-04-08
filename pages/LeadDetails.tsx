@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getLeadById, saveLead, addDeal, addContact, addMeeting, convertLeadToContact, getLeadActivitiesForConversion } from '../utils/storage';
 import { useAuth } from '../contexts/AuthContext';
-import { getLeadStatusLabel, LEAD_STATUS_KEYS, LEAD_STATUS_OPTIONS, normalizeLeadStatusKey, toLeadStatusValue } from '../utils/leadStatus';
+import { getLeadStatusLabel, isLeadStatusOneOf, LEAD_STATUS_KEYS, LEAD_STATUS_OPTIONS, normalizeLeadStatusKey, toLeadStatusValue } from '../utils/leadStatus';
 import {
    ArrowLeft, Phone, Mail, MessageCircle, Clock,
    User, CheckCircle2,
@@ -110,7 +110,7 @@ const LeadDetails: React.FC = () => {
 
       // 1. Logic Create Meeting
       if (activityType === 'meeting' && lead) {
-         const shouldMarkCared = [LEAD_STATUS_KEYS.NEW, LEAD_STATUS_KEYS.ASSIGNED, LEAD_STATUS_KEYS.PICKED].includes(normalizeLeadStatusKey(String(lead.status || '')));
+         const shouldMarkCared = isLeadStatusOneOf(String(lead.status || ''), [LEAD_STATUS_KEYS.NEW, LEAD_STATUS_KEYS.ASSIGNED, LEAD_STATUS_KEYS.PICKED]);
          const updatedLead = shouldMarkCared ? { ...lead, status: LeadStatus.CONTACTED } : lead;
          if (shouldMarkCared) {
             saveLead(updatedLead);
@@ -149,7 +149,7 @@ const LeadDetails: React.FC = () => {
          alert('ÄÃ£ táº¡o lá»‹ch háº¹n thÃ nh cÃ´ng!');
       } else {
          if (lead) {
-            const shouldMarkCared = [LEAD_STATUS_KEYS.NEW, LEAD_STATUS_KEYS.ASSIGNED, LEAD_STATUS_KEYS.PICKED].includes(normalizeLeadStatusKey(String(lead.status || '')));
+            const shouldMarkCared = isLeadStatusOneOf(String(lead.status || ''), [LEAD_STATUS_KEYS.NEW, LEAD_STATUS_KEYS.ASSIGNED, LEAD_STATUS_KEYS.PICKED]);
             if (shouldMarkCared) {
                const updatedLead = { ...lead, status: LeadStatus.CONTACTED };
                saveLead(updatedLead);

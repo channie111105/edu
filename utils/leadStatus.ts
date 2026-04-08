@@ -110,6 +110,11 @@ export const normalizeLeadStatusKey = (status?: string): LeadStatusKey => {
 
 export const getLeadStatusLabel = (status?: string) => getLeadStatusDisplayLabel(normalizeLeadStatusKey(status));
 
+export const isLeadStatusOneOf = (status: string | undefined, accepted: readonly LeadStatusKey[]) => {
+  const normalized = normalizeLeadStatusKey(status);
+  return accepted.some((item) => item === normalized);
+};
+
 export const toLeadStatusValue = (status?: string): string => {
   const normalized = normalizeLeadStatusKey(status);
   return LEAD_STATUS_VALUE_BY_KEY[normalized];

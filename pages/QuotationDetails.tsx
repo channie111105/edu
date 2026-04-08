@@ -1853,7 +1853,8 @@ const QuotationDetails: React.FC = () => {
     if (!formData.id) return;
 
     updateQuotation({
-      ...formData,
+      ...(formData as IQuotation),
+      id: formData.id,
       lineItems: nextItems,
       updatedAt: new Date().toISOString()
     });
@@ -1870,7 +1871,12 @@ const QuotationDetails: React.FC = () => {
       return;
     }
 
-    const sourceQuotation = getQuotations().find((quotation) => quotation.id === formData.id) || formData;
+    const sourceQuotation =
+      getQuotations().find((quotation) => quotation.id === formData.id) ||
+      ({
+        ...(formData as IQuotation),
+        id: formData.id
+      } as IQuotation);
     const actor = user?.name || user?.id || 'system';
     const activatedAt = new Date().toISOString();
 

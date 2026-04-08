@@ -10,7 +10,7 @@ import LeadStudentInfoTab from '../components/LeadStudentInfoTab';
 import LeadTagManager from '../components/LeadTagManager';
 import SmartSearchBar, { SearchFilter } from '../components/SmartSearchBar';
 import { useAuth } from '../contexts/AuthContext';
-import { FIXED_LEAD_TAGS, KEYS, getLeads, saveLead, saveLeads, addDeal, addContact, deleteLead, convertLeadToContact, getTags, saveTags, getClosedLeadReasons, getLeadActivitiesForConversion } from '../utils/storage';
+import { FIXED_LEAD_TAGS, KEYS, getLeads, saveLead, saveLeads, addDeal, addContact, deleteLead, convertLeadToContact, getTags, saveTags, getClosedLeadReasons, getLeadActivitiesForConversion, getSalesTeams } from '../utils/storage';
 import { LEAD_CHANNEL_OPTIONS } from '../constants';
 import {
   buildLeadStudentInfo,
@@ -26,6 +26,7 @@ import {
 import {
   CLOSED_LEAD_STATUS_KEYS,
   getLeadStatusLabel,
+  isLeadStatusOneOf,
   isClosedLeadStatusKey,
   LEAD_STATUS_KEYS,
   LEAD_STATUS_OPTIONS,
@@ -33,7 +34,7 @@ import {
   toLeadStatusValue,
 } from '../utils/leadStatus';
 import { appendLeadLogs, buildLeadActivityLog, buildLeadAuditChange, buildLeadAuditLog } from '../utils/leadLogs';
-import { decodeMojibakeReactNode } from '../utils/mojibake';
+import { decodeMojibakeReactNode, decodeMojibakeText } from '../utils/mojibake';
 import { getLeadPhoneValidationMessage, isValidLeadPhone, normalizeLeadPhone } from '../utils/phone';
 import {
   Plus,
@@ -79,6 +80,13 @@ const SALES_REPS = [
   { id: 'u4', name: 'Alex Rivera', team: 'Team Du hÃ¡Â»Âc', avatar: 'AR', color: 'bg-green-100 text-green-700' },
 ];
 
+const normalizeAssignFilterToken = (value?: string) =>
+  decodeMojibakeText(String(value || ''))
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase();
+
 const buildEmptyAssignmentRatios = () =>
   SALES_REPS.reduce<Record<string, string>>((acc, rep) => {
     acc[rep.id] = '';
@@ -120,6 +128,8 @@ const Leads: React.FC = () => {
   const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [assignmentRatios, setAssignmentRatios] = useState<Record<string, string>>(() => buildEmptyAssignmentRatios());
+  const [assignRepSearch, setAssignRepSearch] = useState('');
+  const [assignCampusFilter, setAssignCampusFilter] = useState('all');
 
   // Tab state for Create Modal (Odoo Style)
   const [createModalActiveTab, setCreateModalActiveTab] = useState<LeadCreateModalTab>('notes');
@@ -179,13 +189,15 @@ const Leads: React.FC = () => {
     return { lossReason: '', lossReasonCustom: '' };
   };
 
-  const LEAD_LIST_TABS = ['all', 'new', 'closed'] as const;
+  const LEAD_LIST_TABS = ['all', 'new', 'sla_risk', 'closed'] as const;
   const CLOSED_STATUS_OPTIONS = STANDARD_LEAD_STATUS_OPTIONS.filter((option) => isClosedLeadStatus(option.value));
 
   const getLeadListTabLabel = (tab: typeof LEAD_LIST_TABS[number]) => {
     switch (tab) {
       case 'new':
         return 'Lead Má»›i';
+      case 'sla_risk':
+        return 'SLA rủi ro';
       case 'closed':
         return 'Lead Ä‘Ã£ Ä‘Ã³ng';
       default:
@@ -212,6 +224,59 @@ const Leads: React.FC = () => {
     [assignmentRatioValues, selectedLeadIds.length]
   );
 
+  const assignmentSalesReps = useMemo(() => {
+    const branchByUserId = new Map<string, string>();
+    const teamByUserId = new Map<string, string>();
+
+    getSalesTeams().forEach((team) => {
+      const teamName = decodeMojibakeText(team.name);
+      const teamBranch = decodeMojibakeText(team.branch);
+      team.members.forEach((member) => {
+        if (!member.userId) return;
+        if (!teamByUserId.has(member.userId)) {
+          teamByUserId.set(member.userId, teamName);
+        }
+        if (!branchByUserId.has(member.userId)) {
+          branchByUserId.set(member.userId, decodeMojibakeText(member.branch || teamBranch));
+        }
+      });
+    });
+
+    return SALES_REPS.map((rep) => ({
+      ...rep,
+      team: teamByUserId.get(rep.id) || decodeMojibakeText(rep.team),
+      branch: branchByUserId.get(rep.id) || ''
+    }));
+  }, [showAssignModal]);
+
+  const assignmentCampusOptions = useMemo(
+    () =>
+      Array.from(new Set(assignmentSalesReps.map((rep) => rep.branch).filter(Boolean))).sort((left, right) =>
+        left.localeCompare(right, 'vi')
+      ),
+    [assignmentSalesReps]
+  );
+
+  const filteredAssignmentSalesReps = useMemo(() => {
+    const normalizedSearch = normalizeAssignFilterToken(assignRepSearch);
+
+    return assignmentSalesReps.filter((rep) => {
+      const matchesSearch =
+        !normalizedSearch ||
+        normalizeAssignFilterToken(rep.name).includes(normalizedSearch) ||
+        normalizeAssignFilterToken(rep.team).includes(normalizedSearch);
+      const matchesCampus = assignCampusFilter === 'all' || rep.branch === assignCampusFilter;
+      return matchesSearch && matchesCampus;
+    });
+  }, [assignCampusFilter, assignRepSearch, assignmentSalesReps]);
+
+  const hasAssignmentRepFilters = assignRepSearch.trim().length > 0 || assignCampusFilter !== 'all';
+
+  const resetAssignFilters = () => {
+    setAssignRepSearch('');
+    setAssignCampusFilter('all');
+  };
+
   const resetAssignModal = () => {
     setAssignmentRatios(buildEmptyAssignmentRatios());
   };
@@ -219,6 +284,7 @@ const Leads: React.FC = () => {
   const closeAssignModal = () => {
     setShowAssignModal(false);
     resetAssignModal();
+    resetAssignFilters();
   };
 
   const updateAssignmentRatio = (repId: string, value: string) => {
@@ -232,15 +298,21 @@ const Leads: React.FC = () => {
   };
 
   const fillAssignmentRatiosEvenly = () => {
-    const activeRepIds = SALES_REPS
-      .filter((rep) => assignmentRatioValues[rep.id] > 0)
-      .map((rep) => rep.id);
-    const targetRepIds = activeRepIds.length > 0 ? activeRepIds : SALES_REPS.map((rep) => rep.id);
+    const visibleRepIds = filteredAssignmentSalesReps.map((rep) => rep.id);
+    const scopeRepIds = visibleRepIds.length > 0
+      ? visibleRepIds
+      : hasAssignmentRepFilters
+        ? []
+        : assignmentSalesReps.map((rep) => rep.id);
+    if (scopeRepIds.length === 0) return;
+    const activeRepIds = scopeRepIds
+      .filter((repId) => assignmentRatioValues[repId] > 0);
+    const targetRepIds = activeRepIds.length > 0 ? activeRepIds : scopeRepIds;
     const baseCount = Math.floor(selectedLeadIds.length / targetRepIds.length);
     let remaining = selectedLeadIds.length - (baseCount * targetRepIds.length);
 
     setAssignmentRatios(
-      SALES_REPS.reduce<Record<string, string>>((acc, rep) => {
+      assignmentSalesReps.reduce<Record<string, string>>((acc, rep) => {
         if (!targetRepIds.includes(rep.id)) {
           acc[rep.id] = '';
           return acc;
@@ -256,7 +328,7 @@ const Leads: React.FC = () => {
 
   const setSingleRepAssignment = (repId: string) => {
     setAssignmentRatios(
-      SALES_REPS.reduce<Record<string, string>>((acc, rep) => {
+      assignmentSalesReps.reduce<Record<string, string>>((acc, rep) => {
         acc[rep.id] = rep.id === repId ? String(selectedLeadIds.length) : '';
         return acc;
       }, {})
@@ -993,9 +1065,10 @@ const Leads: React.FC = () => {
       case 'source':
         return lead.source || '';
       case 'tags': {
-        const tags = Array.isArray(lead.marketingData?.tags)
-          ? lead.marketingData?.tags
-          : (typeof lead.marketingData?.tags === 'string' ? lead.marketingData.tags.split(',').map(tag => tag.trim()) : []);
+        const rawTags = lead.marketingData?.tags as string[] | string | undefined;
+        const tags = Array.isArray(rawTags)
+          ? rawTags
+          : (typeof rawTags === 'string' ? rawTags.split(',').map(tag => tag.trim()) : []);
         return tags.join(', ');
       }
       case 'referredBy':
@@ -1217,20 +1290,17 @@ const Leads: React.FC = () => {
     const slaRisk = leads.filter((lead) => lead.slaStatus === 'danger').length;
     const verified = leads.filter((lead) => {
       const normalizedStatus = normalizeLeadStatus(lead.status as string);
-      return [
-        STANDARD_LEAD_STATUS.CONVERTED,
-        STANDARD_LEAD_STATUS.NURTURING
-      ].includes(normalizedStatus as typeof STANDARD_LEAD_STATUS[keyof typeof STANDARD_LEAD_STATUS]);
+      return normalizedStatus === STANDARD_LEAD_STATUS.CONVERTED || normalizedStatus === STANDARD_LEAD_STATUS.NURTURING;
     }).length;
     const processing = leads.filter((lead) => {
       if (!lead.ownerId) return false;
       const normalizedStatus = normalizeLeadStatus(lead.status as string);
-      return ![
-        STANDARD_LEAD_STATUS.NEW,
-        STANDARD_LEAD_STATUS.ASSIGNED,
-        STANDARD_LEAD_STATUS.CONVERTED,
-        ...CLOSED_LEAD_STATUSES
-      ].includes(normalizedStatus as typeof STANDARD_LEAD_STATUS[keyof typeof STANDARD_LEAD_STATUS]);
+      return (
+        normalizedStatus !== STANDARD_LEAD_STATUS.NEW &&
+        normalizedStatus !== STANDARD_LEAD_STATUS.ASSIGNED &&
+        normalizedStatus !== STANDARD_LEAD_STATUS.CONVERTED &&
+        !isClosedLeadStatus(normalizedStatus)
+      );
     }).length;
     const newLeads = leads.filter((lead) => !lead.ownerId).length;
     const verificationRate = total > 0 ? (verified / total) * 100 : 0;
@@ -1593,11 +1663,7 @@ const Leads: React.FC = () => {
     if (saveLead(finalLead)) {
       setLeads([finalLead, ...leads]);
       setShowCreateModal(false);
-      setNewLeadData({
-        name: '', phone: '', email: '', source: 'hotline', program: 'TiÃ¡ÂºÂ¿ng Ã„ÂÃ¡Â»Â©c', notes: '',
-        title: '', company: '', province: '', city: '', ward: '', street: '', salesperson: '', campaign: '', tags: [], referredBy: '',
-        product: '', market: '', channel: '', status: STANDARD_LEAD_STATUS.NEW
-      });
+      setNewLeadData(createLeadInitialState());
       alert("TÃ¡ÂºÂ¡o Lead thÃƒÂ nh cÃƒÂ´ng!");
     } else {
       alert("CÃƒÂ³ lÃ¡Â»â€”i xÃ¡ÂºÂ£y ra khi lÃ†Â°u Lead");
@@ -1717,12 +1783,12 @@ const Leads: React.FC = () => {
     const repsWithLeads = SALES_REPS.filter((rep) => (assignmentLeadCounts[rep.id] || 0) > 0);
 
     if (repsWithLeads.length === 0) {
-      alert("Vui lòng nh?p s? lu?ng lead cho ít nh?t 1 nhân viên Sale");
+      alert("Vui lòng nhập số lượng lead cho ít nhất 1 nhân viên Sale");
       return;
     }
 
     if (assignmentRatioTotal !== selectedLeadIds.length) {
-      alert("T?ng s? lead phân b? ph?i b?ng s? lead dã ch?n");
+      alert("Tổng số lead phân bổ phải bằng số lead đã chọn");
       return;
     }
 
@@ -1895,11 +1961,12 @@ const Leads: React.FC = () => {
 
   const openQuickAssignModal = () => {
     if (selectedLeadIds.length === 0) {
-      alert('Vui lÃƒÂ²ng chÃ¡Â»Ân lead trÃ†Â°Ã¡Â»â€ºc khi phÃƒÂ¢n bÃ¡Â»â€¢ nhanh');
+      alert('Vui lòng chọn lead trước khi phân bổ nhanh');
       return;
     }
 
     resetAssignModal();
+    resetAssignFilters();
     setShowAssignModal(true);
   };
 
@@ -1927,7 +1994,7 @@ const Leads: React.FC = () => {
       };
     }
 
-    if ([STANDARD_LEAD_STATUS.NEW, STANDARD_LEAD_STATUS.ASSIGNED].includes(normalizedStatus)) {
+    if (isLeadStatusOneOf(normalizedStatus, [STANDARD_LEAD_STATUS.NEW, STANDARD_LEAD_STATUS.ASSIGNED])) {
       return {
         label: 'ÄÃ£ phÃ¢n bá»•',
         className: 'border-[#d7e3f4] bg-[#eef4fb] text-[#4f6b8a]'
@@ -2020,7 +2087,7 @@ const Leads: React.FC = () => {
         <div className="hidden mb-3 border-b border-[#f1f5f9] pb-2.5">
           <div className="flex flex-wrap items-center gap-2 xl:flex-nowrap">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-[15px] font-bold uppercase tracking-[0.12em] text-slate-900">PhÃƒÂ¢n bÃ¡Â»â€¢ Lead</h1>
+              <h1 className="text-[15px] font-bold uppercase tracking-[0.12em] text-slate-900">Phân bổ Lead</h1>
               <div className="flex flex-wrap items-center gap-0.5 rounded-sm border border-[#e4e7ec] bg-[#f5f6f8] px-1 py-1">
                 <button
                   onClick={openCreateLeadModal}
@@ -2032,7 +2099,7 @@ const Leads: React.FC = () => {
                   onClick={openQuickAssignModal}
                   className={flatRibbonButtonClass}
                 >
-                  <UserPlus size={13} /> PhÃƒÂ¢n bÃ¡Â»â€¢ nhanh
+                  <UserPlus size={13} /> Phân bổ nhanh
                 </button>
                 <button
                   onClick={() => setShowImportModal(true)}
@@ -3336,7 +3403,7 @@ const Leads: React.FC = () => {
           </div>
         )}
 
-        {showCreateModal && (
+        {false && showCreateModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowCreateModal(false)}></div>
             <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-4xl overflow-hidden animate-in zoom-in-95 flex flex-col max-h-[90vh]">
@@ -3391,7 +3458,7 @@ const Leads: React.FC = () => {
         )}
 
         {/* CREATE LIST MODAL - ODOO STYLE */}
-        {false && showCreateModal && (
+        {showCreateModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowCreateModal(false)}></div>
             <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-4xl overflow-hidden animate-in zoom-in-95 flex flex-col max-h-[90vh]">
@@ -3789,7 +3856,7 @@ const Leads: React.FC = () => {
               <div className="flex items-center justify-between border-b border-[#e8edf3] bg-[#f6f7f8] px-4 py-3">
                 <h3 className="flex items-center gap-2 text-[15px] font-bold text-slate-900">
                   <UserPlus size={18} className="text-blue-600" />
-                  PhÃƒÂ¢n bÃ¡Â»â€¢ Lead
+                  Phân bổ Lead
                 </h3>
                 <button onClick={closeAssignModal} className="rounded-sm p-1 text-slate-400 hover:bg-white hover:text-slate-600"><X size={18} /></button>
               </div>
@@ -3797,22 +3864,64 @@ const Leads: React.FC = () => {
               <div className="space-y-4 p-4">
                 <div className="flex items-start gap-2 rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-[12px] text-blue-800">
                   <Users size={16} className="mt-0.5 shrink-0" />
-                  <p>B?n dang phân b? <span className="font-bold">{selectedLeadIds.length}</span> lead cho nhân viên kinh doanh.</p>
+                  <p>Bạn đang phân bổ <span className="font-bold">{selectedLeadIds.length}</span> lead cho nhân viên kinh doanh.</p>
                 </div>
 
                 <div className="rounded-md border border-[#e8edf3] bg-[#fafbfc] p-3">
+                  <div className="mb-3 flex flex-col gap-3 border-b border-slate-200 pb-3 sm:flex-row sm:items-center">
+                    <label className="relative block flex-1">
+                      <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                      <input
+                        type="text"
+                        value={assignRepSearch}
+                        onChange={(e) => setAssignRepSearch(e.target.value)}
+                        placeholder="Tìm tên sale..."
+                        className="w-full rounded-sm border border-slate-300 bg-white py-2 pl-9 pr-3 text-[13px] text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                      />
+                    </label>
+                    <select
+                      value={assignCampusFilter}
+                      onChange={(e) => setAssignCampusFilter(e.target.value)}
+                      className="rounded-sm border border-slate-300 bg-white px-3 py-2 text-[13px] text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 sm:w-52"
+                    >
+                      <option value="all">Tất cả cơ sở</option>
+                      {assignmentCampusOptions.map((campus) => (
+                        <option key={campus} value={campus}>
+                          {campus}
+                        </option>
+                      ))}
+                    </select>
+                    {hasAssignmentRepFilters && (
+                      <button
+                        type="button"
+                        onClick={resetAssignFilters}
+                        className={compactToolbarButtonClass}
+                      >
+                        Xóa lọc
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="mb-3 flex items-center justify-between gap-2 text-[11px] text-slate-500">
+                    <span>
+                      Hiển thị <span className="font-semibold text-slate-700">{filteredAssignmentSalesReps.length}</span> / {assignmentSalesReps.length} sale
+                    </span>
+                    {assignCampusFilter !== 'all' && <span>Cơ sở: {assignCampusFilter}</span>}
+                  </div>
+
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <p className="text-[13px] font-bold text-slate-800">Phân b? theo s? lu?ng</p>
-                      <p className="mt-0.5 text-[11px] text-slate-500">Nh?p s? lead cho t?ng sale. T?ng ph?i b?ng s? lead dã ch?n.</p>
+                      <p className="text-[13px] font-bold text-slate-800">Phân bổ theo số lượng</p>
+                      <p className="mt-0.5 text-[11px] text-slate-500">Nhập số lead cho từng sale. Tổng phải bằng số lead đã chọn.</p>
                     </div>
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
                         onClick={fillAssignmentRatiosEvenly}
-                        className={compactToolbarButtonClass}
+                        className={`${compactToolbarButtonClass} ${filteredAssignmentSalesReps.length === 0 ? 'cursor-not-allowed opacity-50' : ''}`}
+                        disabled={filteredAssignmentSalesReps.length === 0}
                       >
-                        Chia d?u s? lu?ng
+                        Chia đều số lượng
                       </button>
                       <button
                         type="button"
@@ -3826,24 +3935,29 @@ const Leads: React.FC = () => {
 
                   <div className="mt-3 flex flex-wrap items-end gap-x-6 gap-y-2">
                     <div>
-                      <div className="text-[11px] text-slate-500">T?ng phân b?</div>
+                      <div className="text-[11px] text-slate-500">Tổng phân bổ</div>
                       <div className={`text-[15px] font-bold ${assignmentRatioTotal === selectedLeadIds.length ? 'text-emerald-600' : 'text-amber-600'}`}>{assignmentRatioTotal}</div>
                     </div>
                     <div>
-                      <div className="text-[11px] text-slate-500">T?ng lead</div>
+                      <div className="text-[11px] text-slate-500">Tổng lead</div>
                       <div className="text-[15px] font-bold text-slate-900">{selectedLeadIds.length}</div>
                     </div>
                     <div>
-                      <div className="text-[11px] text-slate-500">S? sale tham gia</div>
+                      <div className="text-[11px] text-slate-500">Số sale tham gia</div>
                       <div className="text-[15px] font-bold text-slate-900">{Object.values(assignmentRatioValues).filter((value) => value > 0).length}</div>
                     </div>
                   </div>
                 </div>
 
                 <div className="animate-in slide-in-from-top-2">
-                  <label className="mb-2 block text-[11px] font-bold uppercase tracking-[0.08em] text-[#7b8794]">S? lu?ng theo nhân viên</label>
+                  <label className="mb-2 block text-[11px] font-bold uppercase tracking-[0.08em] text-[#7b8794]">Số lượng theo nhân viên</label>
+                  {filteredAssignmentSalesReps.length === 0 ? (
+                    <div className="flex h-24 items-center justify-center rounded-md border border-dashed border-slate-200 bg-slate-50 text-[12px] text-slate-500">
+                      Không tìm thấy sale phù hợp với bộ lọc hiện tại.
+                    </div>
+                  ) : (
                   <div className="max-h-[340px] overflow-y-auto custom-scrollbar">
-                    {SALES_REPS.map((rep) => {
+                    {filteredAssignmentSalesReps.map((rep) => {
                       const ratioValue = assignmentRatios[rep.id] || '';
                       const ratio = assignmentRatioValues[rep.id] || 0;
                       const leadCount = assignmentLeadCounts[rep.id] || 0;
@@ -3860,7 +3974,7 @@ const Leads: React.FC = () => {
                             </div>
                             <div className="min-w-0 flex-1">
                               <p className="text-[13px] font-semibold text-slate-900">{rep.name}</p>
-                              <p className="text-[11px] text-slate-500">{rep.team}</p>
+                              <p className="text-[11px] text-slate-500">{rep.branch ? `${rep.team} • ${rep.branch}` : rep.team}</p>
                             </div>
                             <div className="flex items-center gap-2">
                               <input
@@ -3878,31 +3992,32 @@ const Leads: React.FC = () => {
 
                           <div className="mt-1 flex items-center justify-between gap-3 pl-10">
                             <p className="text-[11px] text-slate-600">
-                              {ratio > 0 ? `D? ki?n nh?n ${leadCount} lead` : 'Chua tham gia phân b?'}
+                              {ratio > 0 ? `Dự kiến nhận ${leadCount} lead` : 'Chưa tham gia phân bổ'}
                             </p>
                             <button
                               type="button"
                               onClick={() => setSingleRepAssignment(rep.id)}
                               className="rounded-sm border border-slate-200 bg-white px-2 py-1 text-[10px] font-bold text-slate-700 hover:bg-slate-100"
                             >
-                              Giao h?t cho sale này
+                              Giao hết cho sale này
                             </button>
                           </div>
                         </div>
                       );
                     })}
                   </div>
+                  )}
                 </div>
               </div>
 
               <div className="flex justify-end gap-2 border-t border-[#e8edf3] bg-[#f6f7f8] px-4 py-3">
-                <button onClick={closeAssignModal} className="rounded-sm px-3 py-1.5 text-[12px] font-bold text-slate-600 hover:bg-slate-200">HÃ¡Â»Â§y</button>
+                <button onClick={closeAssignModal} className="rounded-sm px-3 py-1.5 text-[12px] font-bold text-slate-600 hover:bg-slate-200">Hủy</button>
                 <button
                   onClick={handleAssignSubmit}
                   className={`rounded-sm px-4 py-1.5 text-[12px] font-bold text-white transition-colors ${assignmentRatioTotal === selectedLeadIds.length && selectedLeadIds.length > 0 ? 'bg-blue-600 hover:bg-blue-700' : 'cursor-not-allowed bg-slate-400'}`}
                   disabled={assignmentRatioTotal !== selectedLeadIds.length || selectedLeadIds.length === 0}
                 >
-                  XÃƒÂ¡c nhÃ¡ÂºÂ­n PhÃƒÂ¢n bÃ¡Â»â€¢
+                  Xác nhận Phân bổ
                 </button>
               </div>
             </div>
@@ -3933,7 +4048,7 @@ const Leads: React.FC = () => {
                   </div>
                   <div className={`flex flex-col items-center gap-2 z-10 ${importStep >= 2 ? 'text-blue-600' : 'text-slate-400'}`}>
                     <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold border-2 ${importStep >= 2 ? 'bg-blue-600 text-white border-blue-600' : 'bg-white border-slate-300'}`}>2</div>
-                    <span className="text-xs font-bold">GhÃƒÂ©p & PhÃƒÂ¢n bÃ¡Â»â€¢</span>
+                    <span className="text-xs font-bold">Ghép & Phân bổ</span>
                   </div>
                   <div className={`flex flex-col items-center gap-2 z-10 ${importStep >= 3 ? 'text-blue-600' : 'text-slate-400'}`}>
                     <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold border-2 ${importStep >= 3 ? 'bg-blue-600 text-white border-blue-600' : 'bg-white border-slate-300'}`}>3</div>
@@ -4040,24 +4155,24 @@ const Leads: React.FC = () => {
                     <div className="col-span-5 flex flex-col gap-6">
                       {/* Allocation Config */}
                       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 h-full">
-                        <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><Users size={18} className="text-blue-600" /> CÃ¡ÂºÂ¥u hÃƒÂ¬nh phÃƒÂ¢n bÃ¡Â»â€¢</h3>
+                        <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><Users size={18} className="text-blue-600" /> Cấu hình phân bổ</h3>
 
                         <div className="space-y-4">
                           <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-                            <p className="text-sm font-bold text-slate-800 mb-1">ChÃ¡ÂºÂ¿ Ã„â€˜Ã¡Â»â„¢ phÃƒÂ¢n bÃ¡Â»â€¢ tÃ¡Â»Â« Admin</p>
+                            <p className="text-sm font-bold text-slate-800 mb-1">Chế độ phân bổ từ Admin</p>
                             <div className="flex items-center gap-2">
                               <span className="inline-flex px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-widest border bg-slate-100 text-slate-600 border-slate-200">
-                                ThÃ¡Â»Â§ cÃƒÂ´ng
+                                Thủ công
                               </span>
                               <span className="text-xs text-slate-500">
-                                Admin &gt; Quy tÃ¡ÂºÂ¯c tÃ¡Â»Â± Ã„â€˜Ã¡Â»â„¢ng hÃƒÂ³a Ã„â€˜ÃƒÂ£ chÃ¡Â»â€° giÃ¡Â»Â¯ luÃ¡Â»â€œng phÃƒÂ¢n cÃƒÂ´ng thÃ¡Â»Â§ cÃƒÂ´ng.
+                                Admin &gt; Quy tắc tự động hóa đã chốt giữ luồng phân công thủ công.
                               </span>
                             </div>
                           </div>
 
                           <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-                            ChÃ¡ÂºÂ¿ Ã„â€˜Ã¡Â»â„¢ thÃ¡Â»Â§ cÃƒÂ´ng Ã„â€˜ang bÃ¡ÂºÂ­t: lead hÃ¡Â»Â£p lÃ¡Â»â€¡ sÃ¡ÂºÂ½ Ã„â€˜Ã†Â°Ã¡Â»Â£c nhÃ¡ÂºÂ­p vÃƒÂ o hÃ¡Â»â€¡ thÃ¡Â»â€˜ng nhÃ†Â°ng chÃ†Â°a phÃƒÂ¢n bÃ¡Â»â€¢.
-                            Admin/Leader sÃ¡ÂºÂ½ phÃƒÂ¢n cÃƒÂ´ng sau.
+                            Chế độ thủ công đang bật: lead hợp lệ sẽ được nhập vào hệ thống nhưng chưa phân bổ.
+                            Admin/Leader sẽ phân công sau.
                           </div>
                         </div>
                       </div>

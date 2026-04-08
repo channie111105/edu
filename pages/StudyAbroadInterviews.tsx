@@ -1,101 +1,33 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
+  Calendar,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
-  Plus,
-  CheckCircle2,
   Clock,
-  Calendar,
-  Search,
   Filter,
   MapPin,
   Pencil,
+  Plus,
+  Search,
   Trash2,
-  Bell
+  Bell,
+  X
 } from 'lucide-react';
 import PinnedSearchInput, { PinnedSearchChip } from '../components/PinnedSearchInput';
 import { decodeMojibakeReactNode } from '../utils/mojibake';
+import {
+  addStudyAbroadInterview,
+  deleteStudyAbroadInterview,
+  getStudyAbroadInterviews,
+  type StudyAbroadInterviewInput,
+  type StudyAbroadInterviewItem,
+  type StudyAbroadInterviewStatus,
+  type StudyAbroadInterviewType,
+  updateStudyAbroadInterview
+} from '../services/studyAbroadInterviews.local';
 
-type InterviewStatus = 'Scheduled' | 'Pending' | 'Completed' | 'Cancelled';
-type InterviewType = 'Visa' | 'Entrance Exam';
-
-interface InterviewItem {
-  id: number;
-  date: string;
-  time: string;
-  studentName: string;
-  type: InterviewType;
-  subType: string;
-  location: string;
-  status: InterviewStatus;
-  reminded: boolean;
-  channel: string;
-}
-
-const INTERVIEW_DATA: InterviewItem[] = [
-  {
-    id: 1,
-    date: '10/09/2026',
-    time: '09:00',
-    studentName: 'Nguyễn Thùy Linh',
-    type: 'Visa',
-    subType: 'Đức',
-    location: 'Đại sứ quán Đức (Hà Nội)',
-    status: 'Scheduled',
-    reminded: true,
-    channel: 'Zalo'
-  },
-  {
-    id: 2,
-    date: '07/09/2026',
-    time: '14:30',
-    studentName: 'Trần Văn Minh',
-    type: 'Entrance Exam',
-    subType: 'TestAS',
-    location: 'Online (Zoom Link)',
-    status: 'Scheduled',
-    reminded: false,
-    channel: 'Email'
-  },
-  {
-    id: 3,
-    date: '15/09/2026',
-    time: '10:00',
-    studentName: 'Lê Hoàng',
-    type: 'Visa',
-    subType: 'Đức',
-    location: 'Lãnh sự quán (HCM)',
-    status: 'Pending',
-    reminded: false,
-    channel: 'Zalo'
-  },
-  {
-    id: 4,
-    date: '01/09/2026',
-    time: '08:00',
-    studentName: 'Phạm Hương',
-    type: 'Visa',
-    subType: 'Đức',
-    location: 'Đại sứ quán Đức (Hà Nội)',
-    status: 'Completed',
-    reminded: true,
-    channel: 'Email'
-  },
-  {
-    id: 5,
-    date: '12/09/2026',
-    time: '13:00',
-    studentName: 'Đào Văn Hùng',
-    type: 'Entrance Exam',
-    subType: 'Tiếng Đức B1',
-    location: 'Trung tâm Goethe',
-    status: 'Cancelled',
-    reminded: true,
-    channel: 'SMS'
-  }
-];
-
-const STATUS_LABEL_MAP: Record<'ALL' | InterviewStatus, string> = {
+const STATUS_LABEL_MAP: Record<'ALL' | StudyAbroadInterviewStatus, string> = {
   ALL: 'Tất cả',
   Scheduled: 'Đã lên lịch',
   Pending: 'Chờ xác nhận',
@@ -103,24 +35,86 @@ const STATUS_LABEL_MAP: Record<'ALL' | InterviewStatus, string> = {
   Cancelled: 'Đã hủy'
 };
 
-const TYPE_LABEL_MAP: Record<'ALL' | InterviewType, string> = {
+const TYPE_LABEL_MAP: Record<'ALL' | StudyAbroadInterviewType, string> = {
   ALL: 'Tất cả',
   Visa: 'Phỏng vấn Visa',
   'Entrance Exam': 'Thi đầu vào'
 };
 
+const CHANNEL_OPTIONS = ['Zalo', 'Email', 'SMS', 'Call'] as const;
+
+const EMPTY_FORM: StudyAbroadInterviewInput = {
+  date: '',
+  time: '',
+  studentName: '',
+  type: 'Visa',
+  subType: '',
+  location: '',
+  status: 'Scheduled',
+  reminded: false,
+  channel: 'Zalo'
+};
+
+const formatDisplayDate = (value: string) => {
+  if (!value) return '--';
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString('vi-VN');
+};
+
+const toInterviewForm = (item: StudyAbroadInterviewItem): StudyAbroadInterviewInput => ({
+  date: item.date,
+  time: item.time,
+  studentName: item.studentName,
+  type: item.type,
+  subType: item.subType,
+  location: item.location,
+  status: item.status,
+  reminded: item.reminded,
+  channel: item.channel
+});
+
 const StudyAbroadInterviews: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'ALL' | InterviewStatus>('ALL');
-  const [typeFilter, setTypeFilter] = useState<'ALL' | InterviewType>('ALL');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | StudyAbroadInterviewStatus>('ALL');
+  const [typeFilter, setTypeFilter] = useState<'ALL' | StudyAbroadInterviewType>('ALL');
+  const [interviews, setInterviews] = useState<StudyAbroadInterviewItem[]>([]);
+  const [showFormModal, setShowFormModal] = useState(false);
+  const [editingInterview, setEditingInterview] = useState<StudyAbroadInterviewItem | null>(null);
+  const [formData, setFormData] = useState<StudyAbroadInterviewInput>(EMPTY_FORM);
+
+  const loadInterviews = () => {
+    setInterviews(getStudyAbroadInterviews());
+  };
+
+  useEffect(() => {
+    loadInterviews();
+
+    const handleStorageChange = () => loadInterviews();
+    window.addEventListener('educrm:study-abroad-interviews-changed', handleStorageChange as EventListener);
+
+    return () => {
+      window.removeEventListener('educrm:study-abroad-interviews-changed', handleStorageChange as EventListener);
+    };
+  }, []);
 
   const filteredInterviews = useMemo(() => {
     const keyword = searchTerm.trim().toLowerCase();
 
-    return INTERVIEW_DATA.filter((item) => {
+    return interviews.filter((item) => {
       const matchesSearch =
         !keyword ||
-        [item.studentName, item.location, item.subType, item.channel, item.date, item.time]
+        [
+          item.studentName,
+          item.location,
+          item.subType,
+          item.channel,
+          item.date,
+          item.time,
+          formatDisplayDate(item.date),
+          TYPE_LABEL_MAP[item.type],
+          STATUS_LABEL_MAP[item.status]
+        ]
           .join(' ')
           .toLowerCase()
           .includes(keyword);
@@ -130,7 +124,7 @@ const StudyAbroadInterviews: React.FC = () => {
 
       return matchesSearch && matchesStatus && matchesType;
     });
-  }, [searchTerm, statusFilter, typeFilter]);
+  }, [interviews, searchTerm, statusFilter, typeFilter]);
 
   const activeSearchChips = useMemo<PinnedSearchChip[]>(() => {
     const chips: PinnedSearchChip[] = [];
@@ -162,7 +156,76 @@ const StudyAbroadInterviews: React.FC = () => {
     setTypeFilter('ALL');
   };
 
-  const getStatusBadge = (status: InterviewStatus) => {
+  const openCreateModal = () => {
+    setEditingInterview(null);
+    setFormData(EMPTY_FORM);
+    setShowFormModal(true);
+  };
+
+  const openEditModal = (item: StudyAbroadInterviewItem) => {
+    setEditingInterview(item);
+    setFormData(toInterviewForm(item));
+    setShowFormModal(true);
+  };
+
+  const closeFormModal = () => {
+    setShowFormModal(false);
+    setEditingInterview(null);
+    setFormData(EMPTY_FORM);
+  };
+
+  const updateFormField = <K extends keyof StudyAbroadInterviewInput>(key: K, value: StudyAbroadInterviewInput[K]) => {
+    setFormData((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const handleSaveInterview = (event: React.FormEvent) => {
+    event.preventDefault();
+
+    if (
+      !formData.date.trim() ||
+      !formData.time.trim() ||
+      !formData.studentName.trim() ||
+      !formData.subType.trim() ||
+      !formData.location.trim()
+    ) {
+      window.alert('Vui lòng nhập đủ ngày, giờ, học viên, loại lịch chi tiết và địa điểm.');
+      return;
+    }
+
+    if (editingInterview) {
+      updateStudyAbroadInterview({
+        ...editingInterview,
+        ...formData
+      });
+    } else {
+      addStudyAbroadInterview(formData);
+    }
+
+    closeFormModal();
+  };
+
+  const handleDeleteInterview = (item: StudyAbroadInterviewItem) => {
+    const confirmed = window.confirm(
+      `Xóa lịch của ${item.studentName} lúc ${item.time} ngày ${formatDisplayDate(item.date)}?`
+    );
+    if (!confirmed) return;
+
+    deleteStudyAbroadInterview(item.id);
+    if (editingInterview?.id === item.id) {
+      closeFormModal();
+    }
+  };
+
+  const handleSendReminder = (item: StudyAbroadInterviewItem) => {
+    if (item.reminded) return;
+
+    updateStudyAbroadInterview({
+      ...item,
+      reminded: true
+    });
+  };
+
+  const getStatusBadge = (status: StudyAbroadInterviewStatus) => {
     switch (status) {
       case 'Scheduled':
         return <span className="px-2 py-1 rounded text-xs font-bold bg-blue-100 text-blue-700">Đã lên lịch</span>;
@@ -177,12 +240,12 @@ const StudyAbroadInterviews: React.FC = () => {
     }
   };
 
-  const getTypeBadge = (type: InterviewType, sub: string) => {
+  const getTypeBadge = (type: StudyAbroadInterviewType, subType: string) => {
     if (type === 'Visa') {
       return (
         <div className="flex flex-col">
           <span className="text-sm font-medium text-purple-700">Phỏng vấn Visa</span>
-          <span className="text-xs text-purple-500">{sub}</span>
+          <span className="text-xs text-purple-500">{subType}</span>
         </div>
       );
     }
@@ -190,10 +253,14 @@ const StudyAbroadInterviews: React.FC = () => {
     return (
       <div className="flex flex-col">
         <span className="text-sm font-medium text-orange-700">Thi đầu vào</span>
-        <span className="text-xs text-orange-500">{sub}</span>
+        <span className="text-xs text-orange-500">{subType}</span>
       </div>
     );
   };
+
+  const fieldClass =
+    'h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100';
+  const labelClass = 'mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500';
 
   return decodeMojibakeReactNode(
     <div className="flex flex-col h-full bg-[#f8fafc] text-[#0d141b] font-sans overflow-hidden">
@@ -205,7 +272,10 @@ const StudyAbroadInterviews: React.FC = () => {
           </h1>
           <p className="text-[#4c739a] text-sm mt-1">Quản lý lịch phỏng vấn Visa và lịch thi đầu vào của học viên.</p>
         </div>
-        <button className="flex items-center gap-2 rounded-lg bg-[#0d47a1] px-5 py-2.5 text-white font-bold text-sm hover:bg-[#0a3d8b] transition-all shadow-sm">
+        <button
+          onClick={openCreateModal}
+          className="flex items-center gap-2 rounded-lg bg-[#0d47a1] px-5 py-2.5 text-white font-bold text-sm hover:bg-[#0a3d8b] transition-all shadow-sm"
+        >
           <Plus size={20} />
           Lên lịch mới
         </button>
@@ -232,7 +302,7 @@ const StudyAbroadInterviews: React.FC = () => {
                 <Filter size={15} className="text-gray-400" />
                 <select
                   value={statusFilter}
-                  onChange={(event) => setStatusFilter(event.target.value as 'ALL' | InterviewStatus)}
+                  onChange={(event) => setStatusFilter(event.target.value as 'ALL' | StudyAbroadInterviewStatus)}
                   className="bg-transparent text-sm font-medium text-slate-700 outline-none"
                 >
                   <option value="ALL">Trạng thái: Tất cả</option>
@@ -247,7 +317,7 @@ const StudyAbroadInterviews: React.FC = () => {
                 <Search size={15} className="text-gray-400" />
                 <select
                   value={typeFilter}
-                  onChange={(event) => setTypeFilter(event.target.value as 'ALL' | InterviewType)}
+                  onChange={(event) => setTypeFilter(event.target.value as 'ALL' | StudyAbroadInterviewType)}
                   className="bg-transparent text-sm font-medium text-slate-700 outline-none"
                 >
                   <option value="ALL">Loại lịch: Tất cả</option>
@@ -288,7 +358,7 @@ const StudyAbroadInterviews: React.FC = () => {
                     <tr key={item.id} className="hover:bg-blue-50/30 transition-colors group">
                       <td className="px-6 py-4 text-center text-sm font-semibold text-slate-500">{index + 1}</td>
                       <td className="px-6 py-4">
-                        <div className="font-bold text-[#0d141b] text-sm">{item.date}</div>
+                        <div className="font-bold text-[#0d141b] text-sm">{formatDisplayDate(item.date)}</div>
                         <div className="text-[#4c739a] text-xs font-medium flex items-center gap-1 mt-0.5">
                           <Clock size={12} /> {item.time}
                         </div>
@@ -310,17 +380,28 @@ const StudyAbroadInterviews: React.FC = () => {
                             <CheckCircle2 size={10} /> Đã gửi ({item.channel})
                           </div>
                         ) : (
-                          <button className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-gray-100 text-gray-500 text-[10px] font-bold border border-gray-200 hover:bg-blue-100 hover:text-blue-700 hover:border-blue-200 transition-colors">
+                          <button
+                            onClick={() => handleSendReminder(item)}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-gray-100 text-gray-500 text-[10px] font-bold border border-gray-200 hover:bg-blue-100 hover:text-blue-700 hover:border-blue-200 transition-colors"
+                          >
                             <Bell size={10} /> Gửi ngay
                           </button>
                         )}
                       </td>
                       <td className="px-6 py-4 text-center">
                         <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button className="p-1.5 hover:bg-gray-100 rounded text-gray-500 hover:text-blue-600" title="Chỉnh sửa">
+                          <button
+                            onClick={() => openEditModal(item)}
+                            className="p-1.5 hover:bg-gray-100 rounded text-gray-500 hover:text-blue-600"
+                            title="Chỉnh sửa"
+                          >
                             <Pencil size={16} />
                           </button>
-                          <button className="p-1.5 hover:bg-gray-100 rounded text-gray-500 hover:text-red-600" title="Hủy lịch">
+                          <button
+                            onClick={() => handleDeleteInterview(item)}
+                            className="p-1.5 hover:bg-gray-100 rounded text-gray-500 hover:text-red-600"
+                            title="Hủy lịch"
+                          >
                             <Trash2 size={16} />
                           </button>
                         </div>
@@ -340,7 +421,7 @@ const StudyAbroadInterviews: React.FC = () => {
 
           <div className="p-4 border-t border-[#e7edf3] flex justify-between items-center bg-gray-50 text-xs text-gray-500">
             <span>
-              Hiển thị {filteredInterviews.length === 0 ? 0 : 1}-{filteredInterviews.length} trên tổng {INTERVIEW_DATA.length} lịch hẹn
+              Hiển thị {filteredInterviews.length === 0 ? 0 : 1}-{filteredInterviews.length} trên tổng {interviews.length} lịch hẹn
             </span>
             <div className="flex gap-1">
               <button className="px-2 py-1 border rounded hover:bg-white disabled:opacity-50">Trước</button>
@@ -352,6 +433,176 @@ const StudyAbroadInterviews: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {showFormModal && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/45 p-4 backdrop-blur-sm">
+          <div className="flex min-h-full items-start justify-center py-4">
+            <div className="flex max-h-[calc(100vh-2rem)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.22)]">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-5">
+              <div>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-blue-600">
+                  Interview Schedule
+                </div>
+                <h3 className="mt-2 text-2xl font-semibold text-slate-900">
+                  {editingInterview ? 'Chỉnh sửa lịch phỏng vấn' : 'Lên lịch phỏng vấn mới'}
+                </h3>
+                <p className="mt-1 text-sm text-slate-500">
+                  Cập nhật thông tin lịch hẹn, trạng thái và kênh nhắc để đội xử lý theo dõi đúng tiến độ.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeFormModal}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 text-slate-400 transition hover:border-slate-300 hover:text-slate-600"
+                aria-label="Đóng"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+              <form onSubmit={handleSaveInterview} className="overflow-y-auto px-6 py-6">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <label className={labelClass}>Ngày hẹn</label>
+                  <input
+                    type="date"
+                    className={fieldClass}
+                    value={formData.date}
+                    onChange={(event) => updateFormField('date', event.target.value)}
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className={labelClass}>Giờ hẹn</label>
+                  <input
+                    type="time"
+                    className={fieldClass}
+                    value={formData.time}
+                    onChange={(event) => updateFormField('time', event.target.value)}
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className={labelClass}>Học viên</label>
+                  <input
+                    className={fieldClass}
+                    value={formData.studentName}
+                    onChange={(event) => updateFormField('studentName', event.target.value)}
+                    placeholder="Nhập tên học viên"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className={labelClass}>Kênh nhắc</label>
+                  <select
+                    className={fieldClass}
+                    value={formData.channel}
+                    onChange={(event) => updateFormField('channel', event.target.value)}
+                  >
+                    {CHANNEL_OPTIONS.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className={labelClass}>Loại lịch</label>
+                  <select
+                    className={fieldClass}
+                    value={formData.type}
+                    onChange={(event) => updateFormField('type', event.target.value as StudyAbroadInterviewType)}
+                  >
+                    <option value="Visa">Phỏng vấn Visa</option>
+                    <option value="Entrance Exam">Thi đầu vào</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className={labelClass}>Trạng thái</label>
+                  <select
+                    className={fieldClass}
+                    value={formData.status}
+                    onChange={(event) => updateFormField('status', event.target.value as StudyAbroadInterviewStatus)}
+                  >
+                    <option value="Scheduled">Đã lên lịch</option>
+                    <option value="Pending">Chờ xác nhận</option>
+                    <option value="Completed">Hoàn thành</option>
+                    <option value="Cancelled">Đã hủy</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className={labelClass}>{formData.type === 'Visa' ? 'Quốc gia / diện visa' : 'Loại bài thi'}</label>
+                  <input
+                    className={fieldClass}
+                    value={formData.subType}
+                    onChange={(event) => updateFormField('subType', event.target.value)}
+                    placeholder={formData.type === 'Visa' ? 'Ví dụ: Đức, Úc...' : 'Ví dụ: TestAS, IELTS...'}
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className={labelClass}>Địa điểm</label>
+                  <input
+                    className={fieldClass}
+                    value={formData.location}
+                    onChange={(event) => updateFormField('location', event.target.value)}
+                    placeholder="Nhập địa điểm hoặc link online"
+                    required
+                  />
+                </div>
+              </div>
+
+              <label className="mt-4 inline-flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={formData.reminded}
+                  onChange={(event) => updateFormField('reminded', event.target.checked)}
+                  className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                />
+                Đánh dấu đã gửi nhắc hẹn qua kênh đã chọn
+              </label>
+
+              <div className="mt-6 flex flex-col gap-3 border-t border-slate-200 pt-4 md:flex-row md:items-center md:justify-between">
+                <div>
+                  {editingInterview ? (
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteInterview(editingInterview)}
+                      className="inline-flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 transition hover:bg-rose-100"
+                    >
+                      <Trash2 size={15} />
+                      Xóa lịch
+                    </button>
+                  ) : null}
+                </div>
+                <div className="flex justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={closeFormModal}
+                    className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="submit"
+                    className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700"
+                  >
+                    {editingInterview ? 'Lưu thay đổi' : 'Tạo lịch'}
+                  </button>
+                </div>
+              </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

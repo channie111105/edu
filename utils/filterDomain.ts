@@ -35,7 +35,7 @@ export function buildDomainFromFilters(filters: SearchFilter[]): FilterDomain[] 
     // Convert to domain format
     return Object.entries(grouped).map(([field, values]) => ({
         field,
-        operator: values.length > 1 ? 'in' : (field === 'search' ? 'contains' : 'equals'),
+        operator: values.length > 1 ? 'in' : 'contains',
         value: values.length > 1 ? values : values[0]
     }));
 }
@@ -49,7 +49,8 @@ export function buildDomainFromFilters(filters: SearchFilter[]): FilterDomain[] 
 export function applyDomainFilter<T extends Record<string, any>>(
     data: T[],
     domains: FilterDomain[],
-    getAllFieldsText: (item: T) => string
+    getAllFieldsText: (item: T) => string,
+    getFieldValue?: (item: T, field: string) => string
 ): T[] {
     if (domains.length === 0) return data;
 
@@ -70,7 +71,7 @@ export function applyDomainFilter<T extends Record<string, any>>(
             }
 
             // Normal field filtering
-            const itemValue = String(item[field] || '').toLowerCase();
+            const itemValue = String(getFieldValue ? getFieldValue(item, field) : (item[field] || '')).toLowerCase();
 
             if (operator === 'equals') {
                 return itemValue === String(value).toLowerCase();
@@ -82,7 +83,7 @@ export function applyDomainFilter<T extends Record<string, any>>(
 
             if (operator === 'in' && Array.isArray(value)) {
                 // OR logic within same field
-                return value.some(v => itemValue === v.toLowerCase());
+                return value.some(v => itemValue.includes(v.toLowerCase()));
             }
 
             return false;
