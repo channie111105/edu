@@ -1,8 +1,10 @@
 ﻿import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom'; // Add import
 import { useAuth } from '../contexts/AuthContext';
-import { getLeads, saveLead, saveLeads, addContact, addDeal, convertLeadToContact, getClosedLeadReasons, getTags, saveTags, getLeadActivitiesForConversion } from '../utils/storage';
-import { LeadStatus, ILead, IDeal, DealStage, UserRole } from '../types';
+import { getLeads, saveLead, saveLeads, getClosedLeadReasons, getTags, saveTags } from '../utils/storage';
+import { LeadStatus, ILead, DealStage, UserRole } from '../types';
+import ConvertLeadModal, { ConvertLeadModalSubmitData } from '../components/ConvertLeadModal';
+import LeadConvertConflictReviewModal from '../components/LeadConvertConflictReviewModal';
 import UnifiedLeadDrawer from '../components/UnifiedLeadDrawer';
 import LeadDrawerProfileForm from '../components/LeadDrawerProfileForm';
 import LeadPivotTable from '../components/LeadPivotTable';
@@ -41,6 +43,7 @@ import {
 import { decodeMojibakeReactNode, decodeMojibakeText } from '../utils/mojibake';
 import { getLeadPhoneValidationMessage, normalizeLeadPhone } from '../utils/phone';
 import { clearLeadReclaimTracking } from '../utils/leadSla';
+import { convertLeadToOpportunity, getLeadBatchConversionPreview } from '../utils/leadConversion';
 import {
    Inbox, Search, Phone, Filter, CheckCircle2, Clock,
    ListFilter, Star, Grid, List as ListIcon, ChevronLeft, ChevronRight,
@@ -359,6 +362,10 @@ const MyLeads: React.FC = () => {
 
    // Drawer State
    const [selectedLead, setSelectedLead] = useState<ILead | null>(null);
+   const [leadToConvert, setLeadToConvert] = useState<ILead | null>(null);
+   const [singleLeadReviewTarget, setSingleLeadReviewTarget] = useState<ILead | null>(null);
+   const [bulkLeadReviewTargets, setBulkLeadReviewTargets] = useState<ILead[]>([]);
+   const [bulkLeadsToConvert, setBulkLeadsToConvert] = useState<ILead[]>([]);
 
    // Column Management
    const ALL_COLUMNS = [
@@ -553,6 +560,23 @@ const MyLeads: React.FC = () => {
       applyLeadScope(allLeads);
    }, [applyLeadScope]);
 
+   const resolveCreatedLeadAssignment = (requestedStatus: ILead['status'], selectedOwnerId: string, nowIso: string) => {
+      const isSelfOwnedLead = selectedOwnerId === user?.id;
+
+      const effectiveStatus =
+         isSelfOwnedLead && isLeadStatusOneOf(String(requestedStatus || ''), [LEAD_STATUS_KEYS.NEW, LEAD_STATUS_KEYS.ASSIGNED])
+            ? LeadStatus.PICKED
+            : !isSelfOwnedLead && normalizeLeadStatusKey(String(requestedStatus || '')) === LEAD_STATUS_KEYS.PICKED
+               ? LeadStatus.ASSIGNED
+               : requestedStatus;
+
+      return {
+         isSelfOwnedLead,
+         effectiveStatus,
+         pickUpDate: isSelfOwnedLead ? nowIso : undefined
+      };
+   };
+
    const handleCreateMyLeadLegacy = () => {
       if (!user?.id) {
          alert('KhÃ´ng xÃ¡c Ä‘á»‹nh Ä‘Æ°á»£c tÃ i khoáº£n sale.');
@@ -584,26 +608,29 @@ const MyLeads: React.FC = () => {
       }
 
       const mappedStatus = toLeadStatusValue(newLeadData.status);
+      const selectedOwnerId = newLeadData.salesperson || user.id;
 
       const program = (newLeadData.product && ['Tiáº¿ng Äá»©c', 'Tiáº¿ng Trung', 'Du há»c Äá»©c', 'Du há»c Trung', 'Du há»c nghá» Ãšc'].includes(newLeadData.product))
          ? newLeadData.product as ILead['program']
          : newLeadData.program as ILead['program'];
 
       const nowIso = new Date().toISOString();
+      const { isSelfOwnedLead, effectiveStatus, pickUpDate } = resolveCreatedLeadAssignment(mappedStatus, selectedOwnerId, nowIso);
       const leadBase: ILead = {
          id: `l-${Date.now()}`,
          ...newLeadData,
          phone: normalizedPhone,
          program,
-         ownerId: newLeadData.salesperson || user.id,
+         ownerId: selectedOwnerId,
          marketingData: {
             tags: newLeadData.tags,
             campaign: newLeadData.campaign,
             channel: newLeadData.channel,
             market: newLeadData.market
          },
-         status: mappedStatus,
+         status: effectiveStatus,
          createdAt: nowIso,
+         pickUpDate,
          score: 10,
          lastActivityDate: nowIso,
          lastInteraction: nowIso,
@@ -617,7 +644,16 @@ const MyLeads: React.FC = () => {
                title: 'Táº¡o lead',
                description: `Lead Ä‘Æ°á»£c táº¡o bá»Ÿi ${user.name || 'TÃ´i'} tá»« My Leads.`,
                user: user.name || 'System'
-            })
+            }),
+            ...(isSelfOwnedLead ? [
+               buildLeadActivityLog({
+                  type: 'system',
+                  timestamp: nowIso,
+                  title: 'Tự nhận lead',
+                  description: `Lead do ${user.name || 'Tôi'} tự tạo nên được tự động nhận ngay khi tạo.`,
+                  user: user.name || 'System'
+               })
+            ] : [])
          ],
          audits: [
             buildLeadAuditLog({
@@ -628,8 +664,9 @@ const MyLeads: React.FC = () => {
                changes: [
                   buildLeadAuditChange('name', '', newLeadData.name.trim(), 'TÃªn lead'),
                   buildLeadAuditChange('phone', '', newLeadData.phone.trim(), 'Sá»‘ Ä‘iá»‡n thoáº¡i'),
-                  buildLeadAuditChange('ownerId', '', newLeadData.salesperson || user.id, 'Sale phá»¥ trÃ¡ch'),
-                  buildLeadAuditChange('status', '', mappedStatus, 'Tráº¡ng thÃ¡i')
+                  buildLeadAuditChange('ownerId', '', selectedOwnerId, 'Sale phá»¥ trÃ¡ch'),
+                  buildLeadAuditChange('status', '', effectiveStatus, 'Tráº¡ng thÃ¡i'),
+                  ...(pickUpDate ? [buildLeadAuditChange('pickUpDate', '', pickUpDate, 'Thá»i gian nháº­n lead')] : [])
                ]
             })
          ]
@@ -672,6 +709,7 @@ const MyLeads: React.FC = () => {
       }
 
       const mappedStatus = toLeadStatusValue(newLeadData.status);
+      const selectedOwnerId = newLeadData.salesperson || user.id;
       const program = (
          newLeadData.product &&
          ['Tiáº¿ng Äá»©c', 'Tiáº¿ng Trung', 'Du há»c Äá»©c', 'Du há»c Trung', 'Du há»c nghá» Ãšc'].includes(newLeadData.product)
@@ -680,6 +718,7 @@ const MyLeads: React.FC = () => {
          : newLeadData.program as ILead['program'];
 
       const nowIso = new Date().toISOString();
+      const { isSelfOwnedLead, effectiveStatus, pickUpDate } = resolveCreatedLeadAssignment(mappedStatus, selectedOwnerId, nowIso);
       const campus = resolveLeadCampus(newLeadData);
       const guardianRelation = getLeadGuardianRelation(newLeadData.title);
       const studentInfo = buildLeadStudentInfo(newLeadData);
@@ -689,7 +728,7 @@ const MyLeads: React.FC = () => {
          ...newLeadData,
          phone: normalizedPhone,
          program,
-         ownerId: newLeadData.salesperson || user.id,
+         ownerId: selectedOwnerId,
          company: campus || undefined,
          targetCountry: newLeadData.targetCountry,
          educationLevel: newLeadData.studentEducationLevel || undefined,
@@ -711,8 +750,9 @@ const MyLeads: React.FC = () => {
             market: campus || undefined,
             region: newLeadData.company.trim() || undefined
          },
-         status: mappedStatus,
+         status: effectiveStatus,
          createdAt: nowIso,
+         pickUpDate,
          score: 10,
          lastActivityDate: nowIso,
          lastInteraction: nowIso,
@@ -726,7 +766,16 @@ const MyLeads: React.FC = () => {
                title: 'Táº¡o lead',
                description: `Lead Ä‘Æ°á»£c táº¡o bá»Ÿi ${user.name || 'TÃ´i'} tá»« My Leads.`,
                user: user.name || 'System'
-            })
+            }),
+            ...(isSelfOwnedLead ? [
+               buildLeadActivityLog({
+                  type: 'system',
+                  timestamp: nowIso,
+                  title: 'Tự nhận lead',
+                  description: `Lead do ${user.name || 'Tôi'} tự tạo nên được tự động nhận ngay khi tạo.`,
+                  user: user.name || 'System'
+               })
+            ] : [])
          ],
          audits: [
             buildLeadAuditLog({
@@ -737,8 +786,9 @@ const MyLeads: React.FC = () => {
                changes: [
                   buildLeadAuditChange('name', '', newLeadData.name.trim(), 'TÃªn lead'),
                   buildLeadAuditChange('phone', '', newLeadData.phone.trim(), 'Sá»‘ Ä‘iá»‡n thoáº¡i'),
-                  buildLeadAuditChange('ownerId', '', newLeadData.salesperson || user.id, 'Sale phá»¥ trÃ¡ch'),
-                  buildLeadAuditChange('status', '', mappedStatus, 'Tráº¡ng thÃ¡i')
+                  buildLeadAuditChange('ownerId', '', selectedOwnerId, 'Sale phá»¥ trÃ¡ch'),
+                  buildLeadAuditChange('status', '', effectiveStatus, 'Tráº¡ng thÃ¡i'),
+                  ...(pickUpDate ? [buildLeadAuditChange('pickUpDate', '', pickUpDate, 'Thá»i gian nháº­n lead')] : [])
                ]
             })
          ]
@@ -1338,54 +1388,95 @@ const MyLeads: React.FC = () => {
 
    // Handle Convert
    const handleConvertLead = (lead: ILead) => {
+      const preview = getLeadBatchConversionPreview([lead]);
+      const hasPhoneConflicts = preview.duplicatePhoneGroupCount > 0 || preview.existingContactMatchCount > 0;
+
+      if (hasPhoneConflicts) {
+         setSingleLeadReviewTarget(lead);
+         return;
+      }
+
+      setLeadToConvert(lead);
+   };
+
+   const handleProceedSingleLeadReview = () => {
+      if (!singleLeadReviewTarget) return;
+      setLeadToConvert(singleLeadReviewTarget);
+      setSingleLeadReviewTarget(null);
+   };
+
+   const handleConfirmLeadConvert = ({ ownerId, salesChannel, conversionAction, customerAction, targetDealId }: ConvertLeadModalSubmitData) => {
+      if (!leadToConvert) return;
+
       try {
-         const contact = convertLeadToContact(lead);
-         const savedContact = addContact(contact); // Capture saved contact
+         const resolvedOwnerId = ownerId || leadToConvert.ownerId || user?.id || 'admin';
+         const { deal } = convertLeadToOpportunity(leadToConvert, {
+            ownerId: resolvedOwnerId,
+            salesChannel,
+            conversionAction,
+            customerAction,
+            targetDealId,
+         });
 
-         const dealStage = Object.values(DealStage).includes(lead.status as DealStage)
-            ? (lead.status as DealStage)
-            : DealStage.NEW_OPP;
-
-         const productItems = Array.isArray(lead.productItems) ? lead.productItems : [];
-         const computedValue = lead.value || productItems.reduce((sum, item) => {
-            return sum + (item.price * item.quantity);
-         }, 0);
-
-         const deal: IDeal = {
-            id: `D-${Date.now()}`,
-            leadId: savedContact.id, // Link to the ACTUAL Contact ID
-            title: lead.name + ' - ' + (lead.program || 'General'),
-            value: computedValue || 0,
-            stage: dealStage,
-            ownerId: lead.ownerId || user?.id || 'admin',
-            expectedCloseDate: lead.expectedClosingDate || '',
-            products: lead.productItems?.map(p => p.name) || [],
-            productItems: lead.productItems || [], // Persist full product details
-            discount: lead.discount || 0,
-            paymentRoadmap: lead.paymentRoadmap || '',
-            probability: lead.probability || 20,
-            createdAt: new Date().toISOString(),
-            leadCreatedAt: lead.createdAt,
-            assignedAt: lead.pickUpDate,
-            activities: getLeadActivitiesForConversion(lead).map(a => ({
-               ...a,
-               type: a.type === 'message' ? 'chat' : a.type === 'system' ? 'note' : a.type as any
-            })) as any
-         };
-         addDeal(deal);
          const convertedLead: ILead = {
-            ...lead,
+            ...leadToConvert,
+            ownerId: resolvedOwnerId,
             status: LeadStatus.CONVERTED,
             updatedAt: new Date().toISOString()
          };
+
          saveLead(convertedLead);
-         setLeads(prev => prev.map(item => item.id === lead.id ? convertedLead : item));
+         setLeads(prev => prev.map(item => item.id === leadToConvert.id ? convertedLead : item));
          setSelectedLead(null);
+         setLeadToConvert(null);
 
          navigate(`/pipeline?newDeal=${deal.id}`);
       } catch (error) {
-         console.error("Convert Error", error);
-         alert("CÃ³ lá»—i xáº£y ra khi chuyá»ƒn Ä‘á»•i Lead!");
+         console.error('Convert Error', error);
+         alert('Có lỗi xảy ra khi chuyển đổi Lead!');
+      }
+   };
+
+   const handleConfirmBulkConvert = ({ ownerId, salesChannel, conversionAction, customerAction, targetDealId }: ConvertLeadModalSubmitData) => {
+      if (bulkLeadsToConvert.length === 0) return;
+
+      try {
+         let lastDealId = '';
+
+         bulkLeadsToConvert.forEach((lead) => {
+            const resolvedOwnerId = ownerId || lead.ownerId || user?.id || 'admin';
+            const { deal } = convertLeadToOpportunity(lead, {
+               ownerId: resolvedOwnerId,
+               salesChannel,
+               conversionAction,
+               customerAction,
+               targetDealId,
+             });
+
+            saveLead({
+               ...lead,
+               ownerId: resolvedOwnerId,
+               status: LeadStatus.CONVERTED,
+               updatedAt: new Date().toISOString()
+            });
+            lastDealId = deal.id;
+         });
+
+         const convertedIdSet = new Set(bulkLeadsToConvert.map((lead) => lead.id));
+         const updatedAt = new Date().toISOString();
+         setLeads(prev => prev.map((lead) => (
+            convertedIdSet.has(lead.id)
+               ? { ...lead, ownerId: ownerId || lead.ownerId || user?.id || 'admin', status: LeadStatus.CONVERTED, updatedAt }
+               : lead
+         )));
+         setSelectedIds([]);
+         setBulkLeadsToConvert([]);
+
+         alert(`Chuyển đổi thành công ${convertedIdSet.size} lead!`);
+         if (lastDealId) navigate(`/pipeline?newDeal=${lastDealId}`);
+      } catch (error) {
+         console.error('Bulk Convert Error', error);
+         alert('Có lỗi xảy ra khi chuyển đổi hàng loạt!');
       }
    };
 
@@ -1396,61 +1487,33 @@ const MyLeads: React.FC = () => {
          return;
       }
 
-      if (confirm(`Chuyá»ƒn Ä‘á»•i ${selectedIds.length} lead thÃ nh Deal/Há»£p Ä‘á»“ng?`)) {
-         let lastDealId = '';
-         const selectedLeads = leads.filter(l => selectedIds.includes(l.id));
-
-         selectedLeads.forEach((lead, index) => {
-            try {
-               const contact = convertLeadToContact(lead);
-               const savedContact = addContact(contact);
-
-               const dealStage = Object.values(DealStage).includes(lead.status as DealStage)
-                  ? (lead.status as DealStage)
-                  : DealStage.NEW_OPP;
-
-               const productItems = Array.isArray(lead.productItems) ? lead.productItems : [];
-               const computedValue = lead.value || productItems.reduce((sum, item) => {
-                  return sum + (item.price * item.quantity);
-               }, 0);
-
-               const deal: IDeal = {
-                  id: `D-${Date.now()}-${index}`,
-                  leadId: savedContact.id,
-                  title: lead.name + ' - ' + (lead.program || 'General'),
-                  value: computedValue || 0,
-                  stage: dealStage,
-                  ownerId: lead.ownerId || user?.id || 'admin',
-                  expectedCloseDate: lead.expectedClosingDate || '',
-                  products: lead.productItems?.map(p => p.name) || [],
-                  productItems: lead.productItems || [],
-                  discount: lead.discount || 0,
-                  paymentRoadmap: lead.paymentRoadmap || '',
-                  probability: lead.probability || 20,
-                  createdAt: new Date().toISOString(),
-                  leadCreatedAt: lead.createdAt,
-                  assignedAt: lead.pickUpDate,
-                  activities: getLeadActivitiesForConversion(lead).map(a => ({
-                     ...a,
-                     type: a.type === 'message' ? 'chat' : a.type === 'system' ? 'note' : a.type as any
-                  })) as any
-               };
-               addDeal(deal);
-               saveLead({
-                  ...lead,
-                  status: LeadStatus.CONVERTED,
-                  updatedAt: new Date().toISOString()
-               });
-               lastDealId = deal.id;
-            } catch (error) {
-               console.error("Bulk Convert Individual Error", error);
-            }
-         });
-
-         setSelectedIds([]);
-         alert(`Chuyá»ƒn Ä‘á»•i thÃ nh cÃ´ng ${selectedIds.length} lead!`);
-         if (lastDealId) navigate(`/pipeline?newDeal=${lastDealId}`);
+      setShowActionDropdown(false);
+      const nextBulkLeads = filteredLeads.filter((lead) => selectedIds.includes(lead.id));
+      if (nextBulkLeads.length === 0) {
+         alert('KhÃ´ng cÃ³ lead há»£p lá»‡ trong danh sÃ¡ch hiá»‡n táº¡i Ä‘á»ƒ convert.');
+         return;
       }
+
+      const preview = getLeadBatchConversionPreview(nextBulkLeads);
+      const hasPhoneConflicts = preview.duplicatePhoneGroupCount > 0 || preview.existingContactMatchCount > 0;
+
+      if (hasPhoneConflicts) {
+         setBulkLeadReviewTargets(nextBulkLeads);
+         return;
+      }
+
+      setBulkLeadsToConvert(nextBulkLeads);
+   };
+
+   const handleProceedBulkLeadReview = () => {
+      if (bulkLeadReviewTargets.length === 0) return;
+      setBulkLeadsToConvert(bulkLeadReviewTargets);
+      setBulkLeadReviewTargets([]);
+   };
+
+   const handleOpenLeadFromReview = (lead: ILead) => {
+      setBulkLeadReviewTargets([]);
+      setSelectedLead(lead);
    };
 
    const handleBulkWon = () => {
@@ -3378,6 +3441,40 @@ const MyLeads: React.FC = () => {
                onConvert={handleConvertLead}
             />
          )}
+
+         <ConvertLeadModal
+             isOpen={!!leadToConvert}
+             lead={leadToConvert}
+             onClose={() => setLeadToConvert(null)}
+             onConfirm={handleConfirmLeadConvert}
+          />
+
+         <LeadConvertConflictReviewModal
+            isOpen={!!singleLeadReviewTarget}
+            leads={singleLeadReviewTarget ? [singleLeadReviewTarget] : []}
+            onClose={() => setSingleLeadReviewTarget(null)}
+            onProceed={handleProceedSingleLeadReview}
+            onOpenLead={(lead) => {
+               setSingleLeadReviewTarget(null);
+               setSelectedLead(lead);
+            }}
+         />
+
+         <LeadConvertConflictReviewModal
+            isOpen={bulkLeadReviewTargets.length > 0}
+            leads={bulkLeadReviewTargets}
+            onClose={() => setBulkLeadReviewTargets([])}
+            onProceed={handleProceedBulkLeadReview}
+            onOpenLead={handleOpenLeadFromReview}
+         />
+
+         <ConvertLeadModal
+            isOpen={bulkLeadsToConvert.length > 0}
+            lead={bulkLeadsToConvert[0] || null}
+            leads={bulkLeadsToConvert}
+            onClose={() => setBulkLeadsToConvert([])}
+            onConfirm={handleConfirmBulkConvert}
+         />
       </div>
    );
 };

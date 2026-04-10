@@ -1,8 +1,9 @@
 ﻿
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { ILead, LeadStatus, UserRole, IDeal, DealStage } from '../types';
+import { ILead, LeadStatus, UserRole } from '../types';
 import SLABadge from '../components/SLABadge';
+import ConvertLeadModal, { ConvertLeadModalSubmitData } from '../components/ConvertLeadModal';
 import UnifiedLeadDrawer from '../components/UnifiedLeadDrawer';
 import LeadDrawerProfileForm from '../components/LeadDrawerProfileForm';
 import LeadPivotTable from '../components/LeadPivotTable'; // Import Pivot Component
@@ -10,7 +11,7 @@ import LeadStudentInfoTab from '../components/LeadStudentInfoTab';
 import LeadTagManager from '../components/LeadTagManager';
 import SmartSearchBar, { SearchFilter } from '../components/SmartSearchBar';
 import { useAuth } from '../contexts/AuthContext';
-import { FIXED_LEAD_TAGS, KEYS, getLeads, saveLead, saveLeads, addDeal, addContact, deleteLead, convertLeadToContact, getTags, saveTags, getClosedLeadReasons, getLeadActivitiesForConversion, getSalesTeams } from '../utils/storage';
+import { FIXED_LEAD_TAGS, KEYS, getLeads, saveLead, saveLeads, deleteLead, getTags, saveTags, getClosedLeadReasons, getSalesTeams } from '../utils/storage';
 import { LEAD_CHANNEL_OPTIONS } from '../constants';
 import {
   buildLeadStudentInfo,
@@ -36,6 +37,7 @@ import {
 import { appendLeadLogs, buildLeadActivityLog, buildLeadAuditChange, buildLeadAuditLog } from '../utils/leadLogs';
 import { decodeMojibakeReactNode, decodeMojibakeText } from '../utils/mojibake';
 import { getLeadPhoneValidationMessage, isValidLeadPhone, normalizeLeadPhone } from '../utils/phone';
+import { convertLeadToOpportunity } from '../utils/leadConversion';
 import {
   Plus,
   Phone,
@@ -111,18 +113,14 @@ const Leads: React.FC = () => {
   const location = useLocation();
 
   // State: Load from LocalStorage
-  const [activeTab, setActiveTab] = useState<'all' | 'new' | 'closed' | 'sla_risk'>('all');
-  useEffect(() => {
-    if (activeTab === 'sla_risk') {
-      setActiveTab('all');
-    }
-  }, [activeTab]);
+  const [activeTab, setActiveTab] = useState<'all' | 'new' | 'closed'>('all');
   const [viewMode, setViewMode] = useState<'list' | 'pivot'>('list'); // View Mode State
   const [leads, setLeads] = useState<ILead[]>([]);
   const [searchFilters, setSearchFilters] = useState<SearchFilter[]>([]);
 
   // Drawer State
   const [selectedLead, setSelectedLead] = useState<ILead | null>(null);
+  const [leadToConvert, setLeadToConvert] = useState<ILead | null>(null);
 
   // Selection & Assignment State
   const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
@@ -171,6 +169,23 @@ const Leads: React.FC = () => {
     return { lossReason: CUSTOM_CLOSE_REASON, lossReasonCustom: normalizedReason };
   };
 
+  const toInputDate = (value?: string) => {
+    if (!value) return '';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    const year = date.getFullYear();
+    const month = `${date.getMonth() + 1}`.padStart(2, '0');
+    const day = `${date.getDate()}`.padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const formatDisplayDateTime = (value?: string) => {
+    if (!value) return '';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toLocaleString('vi-VN');
+  };
+
   const getCloseReasonStateForStatusChange = (status: string, reason: string, customReason?: string) => {
     if (!isClosedLeadStatus(status)) {
       return { lossReason: '', lossReasonCustom: '' };
@@ -189,15 +204,13 @@ const Leads: React.FC = () => {
     return { lossReason: '', lossReasonCustom: '' };
   };
 
-  const LEAD_LIST_TABS = ['all', 'new', 'sla_risk', 'closed'] as const;
+  const LEAD_LIST_TABS = ['all', 'new', 'closed'] as const;
   const CLOSED_STATUS_OPTIONS = STANDARD_LEAD_STATUS_OPTIONS.filter((option) => isClosedLeadStatus(option.value));
 
   const getLeadListTabLabel = (tab: typeof LEAD_LIST_TABS[number]) => {
     switch (tab) {
       case 'new':
         return 'Lead Má»›i';
-      case 'sla_risk':
-        return 'SLA rủi ro';
       case 'closed':
         return 'Lead Ä‘Ã£ Ä‘Ã³ng';
       default:
@@ -534,11 +547,20 @@ const Leads: React.FC = () => {
         ...getCloseReasonFormState(selectedLead.status as string, selectedLead.lostReason),
         targetCountry: selectedLead.targetCountry || studentInfo.targetCountry || '',
         studentName: studentInfo.studentName || '',
-        studentDob: studentInfo.dob || selectedLead.dob || '',
+        studentDob: toInputDate(studentInfo.dob || selectedLead.dob),
         studentIdentityCard: studentInfo.identityCard || (selectedLead as any).identityCard || '',
+        studentLanguageLevel: studentInfo.languageLevel || (selectedLead as any).languageLevel || '',
         studentPhone: studentInfo.studentPhone || '',
         studentSchool: studentInfo.school || '',
-        studentEducationLevel: studentInfo.educationLevel || selectedLead.educationLevel || ''
+        studentEducationLevel: studentInfo.educationLevel || selectedLead.educationLevel || '',
+        identityDate: toInputDate(selectedLead.identityDate),
+        identityPlace: selectedLead.identityPlace || '',
+        expectedStart: selectedLead.internalNotes?.expectedStart || '',
+        parentOpinion: selectedLead.internalNotes?.parentOpinion || '',
+        financial: selectedLead.internalNotes?.financial || studentInfo.financialStatus || '',
+        potential: selectedLead.internalNotes?.potential || '',
+        createdAtDisplay: formatDisplayDateTime(selectedLead.createdAt),
+        assignedAtDisplay: formatDisplayDateTime(selectedLead.pickUpDate),
       });
       setEditModalActiveTab('notes');
       setIsAddingEditTag(false);
@@ -546,7 +568,10 @@ const Leads: React.FC = () => {
   }, [selectedLead]);
   useEffect(() => {
     if (location.state && (location.state as any).activeTab) {
-      setActiveTab((location.state as any).activeTab);
+      const nextTab = (location.state as any).activeTab;
+      if (nextTab === 'all' || nextTab === 'new' || nextTab === 'closed') {
+        setActiveTab(nextTab);
+      }
     }
   }, [location]);
 
@@ -574,35 +599,34 @@ const Leads: React.FC = () => {
   ]);
 
   const ALL_COLUMNS = [
-    { id: 'opportunity', label: 'T\u00ean li\u00ean h\u1ec7' },
-    { id: 'company', label: 'CÃ†Â¡ sÃ¡Â»Å¸ / CÃƒÂ´ng ty' },
-    { id: 'contact', label: 'T\u00ean li\u00ean h\u1ec7 ph\u1ee5' },
-    { id: 'createdAt', label: 'NgÃƒÂ y Ã„â€˜Ã¡Â»â€¢ lead' },
-    { id: 'title', label: 'Danh xÃ†Â°ng' },
+    { id: 'opportunity', label: 'Tên liên hệ' },
+    { id: 'company', label: 'Cơ sở / Công ty' },
+    { id: 'contact', label: 'Tên liên hệ phụ' },
+    { id: 'createdAt', label: 'Ngày đổ lead' },
+    { id: 'title', label: 'Danh xưng' },
     { id: 'email', label: 'Email' },
-    { id: 'phone', label: 'SÃ„ÂT' },
-    { id: 'address', label: 'Ã„ÂÃ¡Â»â€¹a chÃ¡Â»â€°' },
-    { id: 'salesperson', label: 'NhÃƒÂ¢n viÃƒÂªn Sale' },
-    { id: 'campaign', label: 'ChiÃ¡ÂºÂ¿n dÃ¡Â»â€¹ch' },
-    { id: 'source', label: 'NguÃ¡Â»â€œn kÃƒÂªnh' },
+    { id: 'phone', label: 'SĐT' },
+    { id: 'address', label: 'Địa chỉ' },
+    { id: 'salesperson', label: 'Nhân viên Sale' },
+    { id: 'campaign', label: 'Chiến dịch' },
+    { id: 'source', label: 'Nguồn kênh' },
     { id: 'potential', label: 'Mức độ tiềm năng' },
     { id: 'tags', label: 'Tags' },
-    { id: 'referredBy', label: 'NgÃ†Â°Ã¡Â»Âi giÃ¡Â»â€ºi thiÃ¡Â»â€¡u' },
-    { id: 'market', label: 'THÃ¡Â»Å  TRÃ†Â¯Ã¡Â»Å“NG' },
-    { id: 'product', label: 'SÃ¡ÂºÂ¢N PHÃ¡ÂºÂ¨M QUAN TÃƒâ€šM' },
-    { id: 'notes', label: 'Ghi chÃƒÂº' },
-    { id: 'nextActivity', label: 'HoÃ¡ÂºÂ¡t Ã„â€˜Ã¡Â»â„¢ng tiÃ¡ÂºÂ¿p theo' },
-    { id: 'deadline', label: 'HÃ¡ÂºÂ¡n chÃƒÂ³t' },
+    { id: 'referredBy', label: 'Người giới thiệu' },
+    { id: 'market', label: 'THỊ TRƯỜNG' },
+    { id: 'product', label: 'SẢN PHẨM QUAN TÂM' },
+    { id: 'notes', label: 'Ghi chú' },
+    { id: 'nextActivity', label: 'Hoạt động tiếp theo' },
+    { id: 'deadline', label: 'Hạn chót' },
     { id: 'value', label: 'Doanh thu' },
-    { id: 'status', label: 'TrÃ¡ÂºÂ¡ng thÃƒÂ¡i' },
-    { id: 'sla', label: 'CÃ¡ÂºÂ£nh bÃƒÂ¡o SLA' },
+    { id: 'status', label: 'Trạng thái' },
+    { id: 'sla', label: 'Cảnh báo SLA' },
   ];
 
   const [selectedAdvancedFilterFields, setSelectedAdvancedFilterFields] = useState<string[]>([]);
   const [selectedAdvancedGroupFields, setSelectedAdvancedGroupFields] = useState<string[]>([]);
 
   const selectedAdvancedFilterOptions = ALL_COLUMNS.filter((col) => selectedAdvancedFilterFields.includes(col.id));
-  const selectedAdvancedGroupOptions = ALL_COLUMNS.filter((col) => selectedAdvancedGroupFields.includes(col.id));
   const ADVANCED_MULTI_FILTER_PREFIX = '__advanced_multi__:';
 
   const toggleAdvancedFieldSelection = (type: 'filter' | 'group', fieldId: string) => {
@@ -650,21 +674,21 @@ const Leads: React.FC = () => {
   const [customRange, setCustomRange] = useState<{ start: string; end: string } | null>(null);
 
   const timePresets = [
-    { id: 'all', label: 'TÃ¡ÂºÂ¥t cÃ¡ÂºÂ£ thÃ¡Â»Âi gian' },
-    { id: 'today', label: 'HÃƒÂ´m nay' },
-    { id: 'yesterday', label: 'HÃƒÂ´m qua' },
-    { id: 'thisWeek', label: 'TuÃ¡ÂºÂ§n nÃƒÂ y' },
-    { id: 'last7Days', label: '7 ngÃƒÂ y qua' },
-    { id: 'last30Days', label: '30 ngÃƒÂ y qua' },
-    { id: 'thisMonth', label: 'ThÃƒÂ¡ng nÃƒÂ y' },
-    { id: 'lastMonth', label: 'ThÃƒÂ¡ng trÃ†Â°Ã¡Â»â€ºc' },
-    { id: 'custom', label: 'TÃƒÂ¹y chÃ¡Â»â€°nh khoÃ¡ÂºÂ£ng...' },
+    { id: 'all', label: 'Tất cả thời gian' },
+    { id: 'today', label: 'Hôm nay' },
+    { id: 'yesterday', label: 'Hôm qua' },
+    { id: 'thisWeek', label: 'Tuần này' },
+    { id: 'last7Days', label: '7 ngày qua' },
+    { id: 'last30Days', label: '30 ngày qua' },
+    { id: 'thisMonth', label: 'Tháng này' },
+    { id: 'lastMonth', label: 'Tháng trước' },
+    { id: 'custom', label: 'Tùy chỉnh khoảng...' },
   ];
 
   const fieldLabels = {
-    createdAt: 'NgÃƒÂ y tÃ¡ÂºÂ¡o',
-    deadline: 'HÃ¡ÂºÂ¡n chÃƒÂ³t',
-    lastInteraction: 'TÃ†Â°Ã†Â¡ng tÃƒÂ¡c cuÃ¡Â»â€˜i'
+    createdAt: 'Ngày tạo',
+    deadline: 'Hạn chót',
+    lastInteraction: 'Tương tác cuối'
   };
 
   const handleUpdateSelectedLead = () => {
@@ -715,14 +739,24 @@ const Leads: React.FC = () => {
       educationLevel: editLeadData.studentEducationLevel || undefined,
       dob: editLeadData.studentDob || undefined,
       identityCard: editLeadData.studentIdentityCard || undefined,
+      identityDate: editLeadData.identityDate || undefined,
+      identityPlace: editLeadData.identityPlace || undefined,
       address: editLeadData.street.trim() || undefined,
       city: editLeadData.province.trim() || undefined,
       district: editLeadData.city.trim() || undefined,
       ward: editLeadData.ward.trim() || undefined,
       guardianName: guardianRelation ? editLeadData.name.trim() || undefined : undefined,
       guardianPhone: guardianRelation ? normalizedPhone || undefined : undefined,
+      guardianRelation,
       lostReason: isClosedLeadStatus(editLeadData.status) ? resolvedCloseReason : undefined,
       studentInfo,
+      internalNotes: {
+        ...(selectedLead.internalNotes || {}),
+        expectedStart: editLeadData.expectedStart.trim() || undefined,
+        parentOpinion: editLeadData.parentOpinion.trim() || undefined,
+        financial: editLeadData.financial.trim() || undefined,
+        potential: (editLeadData.potential.trim() || undefined) as any,
+      },
       status: toLeadStatusValue(editLeadData.status as string) as any,
       marketingData: {
         ...selectedLead.marketingData,
@@ -868,7 +902,7 @@ const Leads: React.FC = () => {
       setRawImportData(jsonData);
       validateData(jsonData);
 
-      setImportBatchName(`IMPORT_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}_BATCH_1`);
+      setImportBatchName(`KHO_LEAD_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}_BATCH_1`);
     };
     reader.readAsArrayBuffer(file);
   };
@@ -968,15 +1002,15 @@ const Leads: React.FC = () => {
   // Final Import
   const handleImportSubmit = () => {
     if (validImportRows.length === 0) {
-      alert("KhÃƒÂ´ng cÃƒÂ³ dÃƒÂ²ng dÃ¡Â»Â¯ liÃ¡Â»â€¡u nÃƒÂ o hÃ¡Â»Â£p lÃ¡Â»â€¡ Ã„â€˜Ã¡Â»Æ’ nhÃ¡ÂºÂ­p!");
+      alert("Không có dòng dữ liệu hợp lệ để ghép vào kho lead!");
       return;
     }
 
-    let assignedLeads: ILead[] = [];
+    let importedLeads: ILead[] = [];
     const now = new Date().toISOString();
 
-    // Normalize data structure first
-    assignedLeads = validImportRows.map((row, index) => {
+    // Imported rows stay in the shared lead pool until Admin/Leader assigns them manually.
+    importedLeads = validImportRows.map((row, index) => {
       return {
         id: `l-import-${Date.now()}-${index}-${Math.random().toString(36).substr(2, 9)}`,
         name: row.name,
@@ -987,7 +1021,7 @@ const Leads: React.FC = () => {
         source: row.source,
         program: row.program,
         status: STANDARD_LEAD_STATUS.NEW,
-        ownerId: '', // Set below
+        ownerId: '',
         studentInfo: {
           targetCountry: row.targetCountry
         },
@@ -1006,11 +1040,11 @@ const Leads: React.FC = () => {
       } as ILead;
     });
 
-    saveLeads([...leads, ...assignedLeads]);
-    setLeads([...leads, ...assignedLeads]); // Optimistic update
+    saveLeads([...leads, ...importedLeads]);
+    setLeads([...leads, ...importedLeads]); // Optimistic update
 
     setShowImportModal(false);
-    alert(`Ã„ÂÃƒÂ£ nhÃ¡ÂºÂ­p thÃƒÂ nh cÃƒÂ´ng ${assignedLeads.length} lead!`);
+    alert(`Đã ghép thành công ${importedLeads.length} lead vào kho lead chung. Các lead này hiện chưa phân bổ cho sale.`);
 
     // Reset
     setImportStep(1);
@@ -1019,6 +1053,7 @@ const Leads: React.FC = () => {
     setValidImportRows([]);
     setImportErrors([]);
     setImportTags([]);
+    setNewTagInput('');
   };
 
 
@@ -1043,57 +1078,95 @@ const Leads: React.FC = () => {
       ? field.slice(ADVANCED_MULTI_FILTER_PREFIX.length).split('|').filter(Boolean)
       : [];
 
-  const getLeadFilterableValue = (lead: ILead, field: string) => {
-    switch (field) {
-      case 'opportunity':
-      case 'contact':
-        return lead.name;
-      case 'company':
-        return lead.company || '';
-      case 'title':
-        return (lead as any).title || '';
-      case 'email':
-        return lead.email || '';
-      case 'phone':
-        return lead.phone || '';
-      case 'address':
-        return [(lead as any).street, (lead as any).ward, (lead as any).city].filter(Boolean).join(', ');
-      case 'salesperson':
-        return SALES_REPS.find((rep) => rep.id === lead.ownerId)?.name || '';
-      case 'campaign':
-        return (lead as any).campaign || lead.marketingData?.campaign || '';
-      case 'source':
-        return lead.source || '';
-      case 'tags': {
-        const rawTags = lead.marketingData?.tags as string[] | string | undefined;
-        const tags = Array.isArray(rawTags)
-          ? rawTags
-          : (typeof rawTags === 'string' ? rawTags.split(',').map(tag => tag.trim()) : []);
-        return tags.join(', ');
-      }
-      case 'referredBy':
-        return (lead as any).referredBy || '';
-      case 'market':
-        return lead.marketingData?.market || '';
-      case 'product':
-        return (lead as any).product || lead.program || '';
-      case 'notes':
-        return lead.notes || '';
-      case 'nextActivity': {
-        const nextActivity = ((lead as any).activities || []).find((activity: any) => activity.type === 'activity');
-        return nextActivity?.description || '';
-      }
-      case 'deadline':
-        return (lead as any).expectedClosingDate || '';
-      case 'value':
-        return lead.value != null ? String(lead.value) : '';
-      case 'status':
-        return normalizeLeadStatus(lead.status as string);
-      case 'sla':
-        return lead.slaReason || lead.slaStatus || '';
-      default:
-        return (lead as any)[field] ?? '';
+  const getLeadTagValues = (lead: ILead) => {
+    const rawTags = lead.marketingData?.tags as string[] | string | undefined;
+    const tags = Array.isArray(rawTags)
+      ? rawTags
+      : (typeof rawTags === 'string' ? rawTags.split(',') : []);
+
+    return Array.from(
+      new Set(
+        tags
+          .map((tag) => decodeMojibakeText(String(tag || '')).trim())
+          .filter(Boolean)
+      )
+    );
+  };
+
+  const formatLeadFilterDateValue = (value?: string) => {
+    if (!value) return '';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return decodeMojibakeText(value).trim();
     }
+    return date.toLocaleDateString('vi-VN');
+  };
+
+  const getLeadFilterMatchValues = (lead: ILead, field: string) => {
+    const salespersonLabel = SALES_REPS.find((rep) => rep.id === lead.ownerId)?.name || lead.ownerId || '';
+    const deadlineValue = (lead as any).expectedClosingDate || '';
+    const nextActivity = ((lead as any).activities || []).find((activity: any) => activity.type === 'activity');
+
+    const rawValues = (() => {
+      switch (field) {
+        case 'opportunity':
+          return [lead.name];
+        case 'contact':
+          return [(lead as any).contactPerson || (lead as any).contactName || lead.name];
+        case 'company':
+          return [lead.company || ''];
+        case 'createdAt':
+          return [lead.createdAt || '', formatLeadFilterDateValue(lead.createdAt)];
+        case 'title':
+          return [(lead as any).title || ''];
+        case 'email':
+          return [lead.email || ''];
+        case 'phone':
+          return [lead.phone || ''];
+        case 'address':
+          return [[(lead as any).street, (lead as any).ward, (lead as any).city].filter(Boolean).join(', ')];
+        case 'salesperson':
+          return [salespersonLabel];
+        case 'campaign':
+          return [(lead as any).campaign || lead.marketingData?.campaign || ''];
+        case 'source':
+          return [lead.source || ''];
+        case 'potential':
+          return [(lead as any).potential || lead.internalNotes?.potential || ''];
+        case 'tags': {
+          const tags = getLeadTagValues(lead);
+          return [...tags, tags.join(', ')];
+        }
+        case 'referredBy':
+          return [(lead as any).referredBy || ''];
+        case 'market':
+          return [lead.marketingData?.market || ''];
+        case 'product':
+          return [(lead as any).product || lead.program || ''];
+        case 'notes':
+          return [lead.notes || ''];
+        case 'nextActivity':
+          return [nextActivity?.description || ''];
+        case 'deadline':
+          return [deadlineValue, formatLeadFilterDateValue(deadlineValue)];
+        case 'value':
+          return lead.value != null ? [String(lead.value)] : [];
+        case 'status':
+          return [normalizeLeadStatus(lead.status as string), getLeadStatusLabel(lead.status as string)];
+        case 'sla':
+          return [lead.slaReason || '', lead.slaStatus || ''];
+        default:
+          return [(lead as any)[field] ?? ''];
+      }
+    })();
+
+    return Array.from(
+      new Set(
+        rawValues
+          .map((value) => decodeMojibakeText(String(value || '')).trim())
+          .filter(Boolean)
+      )
+    );
   };
 
   const getLeadSearchableText = (lead: ILead) => [
@@ -1107,34 +1180,141 @@ const Leads: React.FC = () => {
     lead.ownerId || '',
     (lead as any).city || '',
     (lead as any).company || ''
-  ].join(' ').toLowerCase();
+  ].map((value) => normalizeAssignFilterToken(String(value || ''))).join(' ');
 
-  const doesLeadMatchFilter = (lead: ILead, field: string, rawValue: string) => {
-    const value = rawValue.trim().toLowerCase();
+  const doesLeadMatchFilter = (
+    lead: ILead,
+    field: string,
+    rawValue: string,
+    matchMode: SearchFilter['matchMode'] = 'includes'
+  ) => {
+    const value = normalizeAssignFilterToken(rawValue);
     if (!value) return true;
 
     if (field === 'search') {
       return getLeadSearchableText(lead).includes(value);
     }
 
-    if (field === 'status') {
-      const normalizedStatus = normalizeLeadStatus(lead.status as string).toLowerCase();
-      const statusLabel = getLeadStatusLabel(lead.status as string).toLowerCase();
-      return normalizedStatus.includes(value) || statusLabel.includes(value);
+    const leadValues = getLeadFilterMatchValues(lead, field)
+      .map((item) => normalizeAssignFilterToken(item))
+      .filter(Boolean);
+
+    if (leadValues.length === 0) return false;
+
+    return leadValues.some((leadValue) =>
+      matchMode === 'equals'
+        ? leadValue === value
+        : leadValue.includes(value)
+    );
+  };
+
+  const doesLeadHaveFieldValue = (lead: ILead, field: string) => {
+    const hasText = (value: unknown) => decodeMojibakeText(String(value || '')).trim().length > 0;
+    const nextActivity = ((lead as any).activities || []).find((activity: any) => activity.type === 'activity');
+
+    switch (field) {
+      case 'opportunity':
+        return hasText(lead.name);
+      case 'contact':
+        return hasText((lead as any).contactPerson || (lead as any).contactName);
+      case 'company':
+        return hasText(lead.company || lead.marketingData?.region);
+      case 'createdAt':
+        return hasText(lead.createdAt);
+      case 'title':
+        return hasText((lead as any).title || lead.title);
+      case 'email':
+        return hasText(lead.email);
+      case 'phone':
+        return hasText(lead.phone);
+      case 'address':
+        return hasText(lead.address) || hasText([(lead as any).street, (lead as any).ward, (lead as any).city].filter(Boolean).join(', '));
+      case 'salesperson':
+        return hasText(lead.ownerId);
+      case 'campaign':
+        return hasText((lead as any).campaign || lead.marketingData?.campaign);
+      case 'source':
+        return hasText(lead.source);
+      case 'potential':
+        return hasText((lead as any).potential || lead.internalNotes?.potential);
+      case 'tags':
+        return getLeadTagValues(lead).length > 0;
+      case 'referredBy':
+        return hasText((lead as any).referredBy || lead.referredBy);
+      case 'market':
+        return hasText(lead.marketingData?.market);
+      case 'product':
+        return hasText((lead as any).product || lead.program);
+      case 'notes':
+        return hasText(lead.notes);
+      case 'nextActivity':
+        return hasText(nextActivity?.description);
+      case 'deadline':
+        return hasText((lead as any).expectedClosingDate || lead.expectedClosingDate);
+      case 'value':
+        return lead.value != null;
+      case 'status':
+        return hasText(lead.status);
+      case 'sla':
+        return hasText(lead.slaReason || lead.slaStatus);
+      default:
+        return hasText((lead as any)[field]);
     }
+  };
 
-    const leadValue = String(getLeadFilterableValue(lead, field) || '').toLowerCase();
-    if (!leadValue) return false;
+  const getLeadGroupFieldValue = (lead: ILead, field: string) => {
+    const nextActivity = ((lead as any).activities || []).find((activity: any) => activity.type === 'activity');
 
-    if (field === 'createdAt' || field === 'deadline') {
-      const formattedDate = (() => {
-        const date = new Date(leadValue);
-        return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString('vi-VN').toLowerCase();
-      })();
-      return leadValue.includes(value) || formattedDate.includes(value);
+    switch (field) {
+      case 'opportunity':
+        return decodeMojibakeText(String(lead.name || '')).trim() || 'Chưa có dữ liệu';
+      case 'contact':
+        return decodeMojibakeText(String((lead as any).contactPerson || (lead as any).contactName || '')).trim() || 'Chưa có dữ liệu';
+      case 'company':
+        return decodeMojibakeText(String(lead.company || lead.marketingData?.region || '')).trim() || 'Chưa có dữ liệu';
+      case 'createdAt':
+        return formatLeadFilterDateValue(lead.createdAt) || 'Chưa có dữ liệu';
+      case 'title':
+        return decodeMojibakeText(String((lead as any).title || lead.title || '')).trim() || 'Chưa có dữ liệu';
+      case 'email':
+        return decodeMojibakeText(String(lead.email || '')).trim() || 'Chưa có dữ liệu';
+      case 'phone':
+        return decodeMojibakeText(String(lead.phone || '')).trim() || 'Chưa có dữ liệu';
+      case 'address':
+        return decodeMojibakeText(String(lead.address || [(lead as any).street, (lead as any).ward, (lead as any).city].filter(Boolean).join(', ') || '')).trim() || 'Chưa có dữ liệu';
+      case 'salesperson':
+        return decodeMojibakeText(String(SALES_REPS.find((rep) => rep.id === lead.ownerId)?.name || lead.ownerId || '')).trim() || 'Chưa có dữ liệu';
+      case 'campaign':
+        return decodeMojibakeText(String((lead as any).campaign || lead.marketingData?.campaign || '')).trim() || 'Chưa có dữ liệu';
+      case 'source':
+        return decodeMojibakeText(String(lead.source || '')).trim() || 'Chưa có dữ liệu';
+      case 'potential':
+        return decodeMojibakeText(String((lead as any).potential || lead.internalNotes?.potential || '')).trim() || 'Chưa có dữ liệu';
+      case 'tags': {
+        const tags = getLeadTagValues(lead);
+        return tags.length > 0 ? tags.join(', ') : 'Chưa có dữ liệu';
+      }
+      case 'referredBy':
+        return decodeMojibakeText(String((lead as any).referredBy || lead.referredBy || '')).trim() || 'Chưa có dữ liệu';
+      case 'market':
+        return decodeMojibakeText(String(lead.marketingData?.market || '')).trim() || 'Chưa có dữ liệu';
+      case 'product':
+        return decodeMojibakeText(String((lead as any).product || lead.program || '')).trim() || 'Chưa có dữ liệu';
+      case 'notes':
+        return decodeMojibakeText(String(lead.notes || '')).trim() || 'Chưa có dữ liệu';
+      case 'nextActivity':
+        return decodeMojibakeText(String(nextActivity?.description || '')).trim() || 'Chưa có dữ liệu';
+      case 'deadline':
+        return formatLeadFilterDateValue((lead as any).expectedClosingDate || lead.expectedClosingDate) || 'Chưa có dữ liệu';
+      case 'value':
+        return lead.value != null ? lead.value.toLocaleString('vi-VN') : 'Chưa có dữ liệu';
+      case 'status':
+        return decodeMojibakeText(String(getLeadStatusLabel(lead.status as string) || lead.status || '')).trim() || 'Chưa có dữ liệu';
+      case 'sla':
+        return decodeMojibakeText(String(lead.slaReason || lead.slaStatus || '')).trim() || 'Chưa có dữ liệu';
+      default:
+        return decodeMojibakeText(String((lead as any)[field] || '')).trim() || 'Chưa có dữ liệu';
     }
-
-    return leadValue.includes(value);
   };
 
   // Helper to check date matches
@@ -1256,15 +1436,21 @@ const Leads: React.FC = () => {
       result = result.filter(l => isTimeRangeMatch((l as any)[timeFilterField], timeRangeType, customRange));
     }
 
+    if (selectedAdvancedFilterFields.length > 0) {
+      result = result.filter((lead) =>
+        selectedAdvancedFilterFields.every((field) => doesLeadHaveFieldValue(lead, field))
+      );
+    }
+
     // 3. Search Filters
     if (searchFilters.length > 0) {
       result = result.filter(lead => {
         return searchFilters.every(filter => {
           const groupedFields = parseAdvancedMultiFilterFields(filter.field);
           if (groupedFields.length > 0) {
-            return groupedFields.some((fieldId) => doesLeadMatchFilter(lead, fieldId, filter.value));
+            return groupedFields.some((fieldId) => doesLeadMatchFilter(lead, fieldId, filter.value, filter.matchMode));
           }
-          return doesLeadMatchFilter(lead, filter.field, filter.value);
+          return doesLeadMatchFilter(lead, filter.field, filter.value, filter.matchMode);
         });
       });
     }
@@ -1275,12 +1461,41 @@ const Leads: React.FC = () => {
         return result.filter(l => normalizeLeadStatus(l.status as string) === STANDARD_LEAD_STATUS.NEW || !l.status);
       case 'closed':
         return result.filter(l => isClosedLeadStatus(l.status as string));
-      case 'sla_risk':
-        return result.filter(l => l.slaStatus === 'danger');
       default:
         return result;
     }
-  }, [leads, activeTab, searchFilters, canViewAll, user, advancedFilters, timeRangeType, timeFilterField, customRange]);
+  }, [leads, activeTab, searchFilters, canViewAll, user, advancedFilters, timeRangeType, timeFilterField, customRange, selectedAdvancedFilterFields]);
+
+  const groupedLeads = useMemo(() => {
+    if (selectedAdvancedGroupFields.length === 0) return [];
+
+    const groups = new Map<string, { key: string; label: string; leads: ILead[] }>();
+
+    filteredLeads.forEach((lead) => {
+      const parts = selectedAdvancedGroupFields.map((fieldId) => {
+        const columnLabel = ALL_COLUMNS.find((column) => column.id === fieldId)?.label || fieldId;
+        const value = getLeadGroupFieldValue(lead, fieldId);
+        return { fieldId, columnLabel, value };
+      });
+
+      const key = parts.map((part) => `${part.fieldId}:${part.value}`).join('|');
+      const label = parts.map((part) => `${part.columnLabel}: ${part.value}`).join(' > ');
+      const existing = groups.get(key);
+
+      if (existing) {
+        existing.leads.push(lead);
+        return;
+      }
+
+      groups.set(key, {
+        key,
+        label,
+        leads: [lead]
+      });
+    });
+
+    return Array.from(groups.values());
+  }, [filteredLeads, selectedAdvancedGroupFields]);
 
   // --- STATS CALCULATION ---
   const stats = useMemo(() => {
@@ -1310,12 +1525,58 @@ const Leads: React.FC = () => {
 
   // --- FILTER HELPERS ---
 
-  const addFilter = (field: string, label: string, value: string, color?: string) => {
+  const addFilter = (
+    field: string,
+    label: string,
+    value: string,
+    color?: string,
+    matchMode: SearchFilter['matchMode'] = 'includes'
+  ) => {
     // Check if filter already exists
-    const exists = searchFilters.some(f => f.field === field && f.value.toLowerCase() === value.toLowerCase());
-    if (!exists && value) {
-      setSearchFilters((prev) => [...prev, { field, label, value, color }]);
+    const normalizedLabel = decodeMojibakeText(label);
+    const normalizedValue = decodeMojibakeText(value).trim();
+    const exists = searchFilters.some((f) =>
+      f.field === field &&
+      normalizeAssignFilterToken(f.value) === normalizeAssignFilterToken(normalizedValue) &&
+      (f.matchMode || 'includes') === matchMode
+    );
+    if (!exists && normalizedValue) {
+      setSearchFilters((prev) => [...prev, { field, label: normalizedLabel, value: normalizedValue, color, matchMode }]);
     }
+  };
+
+  const applySelectedAdvancedFilter = (
+    rawValue: string,
+    options?: { matchMode?: SearchFilter['matchMode']; closeDropdown?: boolean }
+  ) => {
+    const normalizedValue = decodeMojibakeText(rawValue).trim();
+    const matchMode = options?.matchMode || 'includes';
+    const closeDropdown = options?.closeDropdown ?? true;
+    if (!normalizedValue || selectedAdvancedFilterOptions.length === 0) return false;
+
+    if (selectedAdvancedFilterOptions.length > 1) {
+      addFilter(
+        buildAdvancedMultiFilterField(selectedAdvancedFilterOptions.map((option) => option.id)),
+        selectedAdvancedFilterOptions.map((option) => option.label).join(' OR '),
+        normalizedValue,
+        'bg-emerald-100 text-emerald-700',
+        matchMode
+      );
+    } else {
+      addFilter(
+        selectedAdvancedFilterOptions[0].id,
+        selectedAdvancedFilterOptions[0].label,
+        normalizedValue,
+        'bg-emerald-100 text-emerald-700',
+        matchMode
+      );
+    }
+
+    if (closeDropdown) {
+      setSelectedAdvancedFilterFields([]);
+      setShowFilterDropdown(false);
+    }
+    return true;
   };
 
   const handleClickableField = (e: React.MouseEvent, field: string, label: string, value: string, color?: string) => {
@@ -1415,30 +1676,8 @@ const Leads: React.FC = () => {
       });
     }
 
-    if (selectedAdvancedFilterOptions.length > 0) {
-      chips.push({
-        field: 'selected_filter',
-        label: '',
-        value: selectedAdvancedFilterOptions.map((option) => option.label).join(' OR '),
-        color: 'bg-emerald-50 text-emerald-700',
-        origin: 'synthetic',
-        syntheticKey: 'selectedFilter'
-      });
-    }
-
-    if (selectedAdvancedGroupOptions.length > 0) {
-      chips.push({
-        field: 'group_by',
-        label: '',
-        value: selectedAdvancedGroupOptions.map((option) => option.label).join(' > '),
-        color: 'bg-blue-50 text-blue-700',
-        origin: 'synthetic',
-        syntheticKey: 'groupBy'
-      });
-    }
-
     return chips;
-  }, [searchFilters, advancedFilters, timeFilterField, timeRangeType, customRange, timePresets, fieldLabels, selectedAdvancedFilterOptions, selectedAdvancedGroupOptions]);
+  }, [searchFilters, advancedFilters, timeFilterField, timeRangeType, customRange, timePresets, fieldLabels]);
 
   const handleToolbarFilterRemove = (index: number) => {
     const chip = toolbarFilterChips[index];
@@ -1482,16 +1721,6 @@ const Leads: React.FC = () => {
       return;
     }
 
-    if (chip.syntheticKey === 'selectedFilter') {
-      setSelectedAdvancedFilterFields([]);
-      return;
-    }
-
-    if (chip.syntheticKey === 'groupBy') {
-      setSelectedAdvancedGroupFields([]);
-      return;
-    }
-
     if (chip.syntheticKey?.startsWith('status:')) {
       const statusValue = chip.syntheticKey.slice('status:'.length);
       setAdvancedFilters(prev => ({ ...prev, status: prev.status.filter((item) => item !== statusValue) }));
@@ -1528,51 +1757,30 @@ const Leads: React.FC = () => {
   };
 
   const handleConvertLead = (lead: ILead) => {
+    setLeadToConvert(lead);
+  };
+
+  const handleConfirmLeadConvert = ({ ownerId, salesChannel, conversionAction, customerAction, targetDealId }: ConvertLeadModalSubmitData) => {
+    if (!leadToConvert) return;
+
     try {
-      const contact = convertLeadToContact(lead);
-      const savedContact = addContact(contact);
+      const { deal } = convertLeadToOpportunity(leadToConvert, {
+        ownerId: ownerId || leadToConvert.ownerId || user?.id || 'admin',
+        salesChannel,
+        conversionAction,
+        customerAction,
+        targetDealId,
+      });
 
-      const dealStage = Object.values(DealStage).includes(lead.status as DealStage)
-        ? (lead.status as DealStage)
-        : DealStage.NEW_OPP;
-
-      const productItems = Array.isArray(lead.productItems) ? lead.productItems : [];
-      const computedValue = lead.value || productItems.reduce((sum, item) => {
-        return sum + (item.price * item.quantity);
-      }, 0);
-
-      const deal: IDeal = {
-        id: `D-${Date.now()}`,
-        leadId: savedContact.id, // Link to the ACTUAL stored Contact ID
-        title: lead.name + ' - ' + (lead.program || 'General'),
-        value: computedValue || 0,
-        stage: dealStage,
-        ownerId: lead.ownerId || user?.id || 'admin',
-        expectedCloseDate: lead.expectedClosingDate || '',
-        products: lead.productItems?.map(p => p.name) || [],
-        productItems: lead.productItems || [], // Persist full product details
-        discount: lead.discount || 0,
-        paymentRoadmap: lead.paymentRoadmap || '',
-        probability: lead.probability || 20,
-        createdAt: new Date().toISOString(),
-        leadCreatedAt: lead.createdAt,
-        assignedAt: lead.pickUpDate,
-        activities: getLeadActivitiesForConversion(lead).map(a => ({
-          ...a,
-          type: a.type === 'message' ? 'chat' : a.type === 'system' ? 'note' : a.type as any
-        })) as any
-      };
-      addDeal(deal);
-      deleteLead(lead.id);
-
-      setLeads(prev => prev.filter(l => l.id !== lead.id));
+      deleteLead(leadToConvert.id);
+      setLeads(prev => prev.filter(l => l.id !== leadToConvert.id));
       setSelectedLead(null);
+      setLeadToConvert(null);
 
-      // Navigate to Pipeline with highlight
       navigate(`/pipeline?newDeal=${deal.id}`);
     } catch (error) {
-      console.error("Convert Error", error);
-      alert("CÃƒÂ³ lÃ¡Â»â€”i xÃ¡ÂºÂ£y ra khi chuyÃ¡Â»Æ’n Ã„â€˜Ã¡Â»â€¢i Lead!");
+      console.error('Convert Error', error);
+      alert('Có lỗi xảy ra khi chuyển đổi Lead!');
     }
   };
 
@@ -1728,12 +1936,21 @@ const Leads: React.FC = () => {
       guardianRelation,
       lostReason: isClosedLeadStatus(newLeadData.status) ? resolvedCloseReason : undefined,
       studentInfo,
+      identityDate: newLeadData.identityDate || undefined,
+      identityPlace: newLeadData.identityPlace || undefined,
+      internalNotes: {
+        expectedStart: newLeadData.expectedStart.trim() || undefined,
+        parentOpinion: newLeadData.parentOpinion.trim() || undefined,
+        financial: newLeadData.financial.trim() || undefined,
+        potential: (newLeadData.potential.trim() || undefined) as any,
+      },
       marketingData: {
         tags: newLeadData.tags,
         campaign: newLeadData.campaign,
         channel: newLeadData.channel,
         market: campus || undefined,
-        region: newLeadData.company.trim() || undefined,
+        medium: newLeadData.channel,
+        region: campus || undefined,
       },
       status: toLeadStatusValue(newLeadData.status as string) as any,
       createdAt: nowIso,
@@ -2007,6 +2224,199 @@ const Leads: React.FC = () => {
     };
   };
 
+  const renderLeadListRow = (lead: ILead, rowNumber: number) => {
+    const nextActivity = (lead.activities || []).find(a => a.type === 'activity');
+    const deadline = lead.expectedClosingDate ? new Date(lead.expectedClosingDate).toLocaleDateString('vi-VN') : '-';
+    const potentialValue = String((lead as any).potential || lead.internalNotes?.potential || '').trim();
+    const potentialToken = potentialValue.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '').toLowerCase();
+    const potentialClassName =
+      potentialToken === 'nong' ? 'bg-red-100 text-red-700 border-red-200' :
+        potentialToken === 'tiemnang' ? 'bg-amber-100 text-amber-700 border-amber-200' :
+          potentialToken === 'thamkhao' ? 'bg-slate-100 text-slate-700 border-slate-200' :
+            'bg-slate-50 text-slate-500 border-slate-200';
+    const tags = getLeadTagValues(lead);
+
+    return (
+      <tr
+        key={lead.id}
+        className={`group cursor-pointer transition-colors hover:bg-slate-50 ${selectedLeadIds.includes(lead.id) ? 'bg-slate-50' : ''}`}
+        onClick={() => setSelectedLead(lead)}
+      >
+        <td className="px-2 py-1 text-center align-middle" onClick={(e) => e.stopPropagation()}>
+          <input type="checkbox" className="rounded border-slate-300 w-3.5 h-3.5" checked={selectedLeadIds.includes(lead.id)} onClick={(e) => handleSelectLeadCheckbox(lead.id, e)} onChange={() => { }} />
+        </td>
+        <td className={`${compactBodyCellClass} text-center font-semibold text-slate-500`}>{rowNumber}</td>
+
+        {visibleColumns.includes('opportunity') && (
+          <td className={compactMetaCellClass}>
+            <div className="flex flex-col gap-0.5 overflow-hidden">
+              <span className="font-bold text-slate-900 text-[10px] truncate max-w-[120px]" title={lead.name}>{lead.name}</span>
+              {lead.program && (
+                <span
+                  className="text-[9px] text-blue-600 hover:text-blue-800 font-semibold cursor-pointer hover:underline w-fit truncate block max-w-[120px]"
+                  onClick={(e) => handleClickableField(e, 'program', 'ChÃ†Â°Ã†Â¡ng trÃƒÂ¬nh', lead.program, 'bg-blue-100 text-blue-700')}
+                  title={lead.program}
+                >
+                  {lead.program}
+                </span>
+              )}
+            </div>
+          </td>
+        )}
+
+        {visibleColumns.includes('contact') && (
+          <td className={`${compactBodyCellClass} max-w-[150px] overflow-hidden text-[13px] font-bold text-slate-900`} title={lead.name}>
+            <span className="block truncate">{lead.name}</span>
+          </td>
+        )}
+        {visibleColumns.includes('company') && <td className={`${compactMetaCellClass} max-w-[96px] truncate`} title={(lead as any).company}>{(lead as any).company || '-'}</td>}
+        {visibleColumns.includes('email') && <td className={`${compactMetaCellClass} max-w-[124px] truncate`} title={lead.email}>{lead.email || '-'}</td>}
+        {visibleColumns.includes('phone') && <td className={`${compactBodyCellClass} font-semibold text-slate-700`}>{lead.phone || '-'}</td>}
+        {visibleColumns.includes('salesperson') && (
+          <td className={compactBodyCellClass}>
+            {lead.ownerId ? (
+              <div className="flex items-center gap-2">
+                <span className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold ${SALES_REPS.find((rep) => rep.id === lead.ownerId)?.color || 'bg-slate-100 text-slate-600'}`}>
+                  {SALES_REPS.find((rep) => rep.id === lead.ownerId)?.avatar || 'NA'}
+                </span>
+                <span className="truncate text-[12px] font-medium text-slate-700">{SALES_REPS.find((rep) => rep.id === lead.ownerId)?.name || '-'}</span>
+              </div>
+            ) : (
+              <span className="text-[12px] text-slate-400">ChÃ†Â°a nhÃ¡ÂºÂ­n</span>
+            )}
+          </td>
+        )}
+
+        {visibleColumns.includes('campaign') && (
+          <td className={`${compactBodyCellClass} max-w-[120px] overflow-hidden`} title={lead.marketingData?.campaign || (lead as any).campaign || '-'}>
+            <span className="block truncate">{lead.marketingData?.campaign || (lead as any).campaign || '-'}</span>
+          </td>
+        )}
+        {visibleColumns.includes('source') && (
+          <td className={compactBodyCellClass}>
+            <span
+              className="inline-flex max-w-[96px] items-center rounded-sm border border-teal-100 bg-teal-50/70 px-1.5 py-0 text-[10px] font-semibold text-teal-700"
+              onClick={(e) => handleClickableField(e, 'source', 'NguÃ¡Â»â€œn', lead.source, 'bg-teal-100 text-teal-700')}
+              title={lead.source}
+            >
+              <span className="truncate">{lead.source || '-'}</span>
+            </span>
+          </td>
+        )}
+
+        {visibleColumns.includes('potential') && (
+          <td className={compactBodyCellClass}>
+            <span className={`inline-flex max-w-[110px] items-center justify-center rounded-sm border px-1.5 py-0 text-[10px] font-semibold ${potentialClassName}`}>
+              <span className="truncate">{potentialValue || '-'}</span>
+            </span>
+          </td>
+        )}
+
+        {visibleColumns.includes('tags') && <td className={`${compactMetaCellClass} overflow-hidden`}>
+          {tags.length === 0 ? '-' : (
+            <div className="flex flex-wrap gap-1">
+              {tags.map((tag, tagIndex) => {
+                const colors = [
+                  'bg-blue-100 text-blue-800 border-blue-200',
+                  'bg-green-100 text-green-800 border-green-200',
+                  'bg-purple-100 text-purple-800 border-purple-200',
+                  'bg-orange-100 text-orange-800 border-orange-200',
+                  'bg-pink-100 text-pink-800 border-pink-200',
+                  'bg-teal-100 text-teal-800 border-teal-200'
+                ];
+                const colorClass = colors[tag.charCodeAt(0) % colors.length] || colors[0];
+
+                return (
+                  <span
+                    key={`${tag}-${tagIndex}`}
+                    className={`rounded border px-1.5 py-0.5 text-[9px] font-bold whitespace-nowrap ${colorClass}`}
+                  >
+                    {tag}
+                  </span>
+                );
+              })}
+            </div>
+          )}
+        </td>}
+        {visibleColumns.includes('market') && <td className={`${compactMetaCellClass} max-w-[110px] truncate`}>{(lead as any).marketingData?.market || '-'}</td>}
+        {visibleColumns.includes('product') && <td className={`${compactMetaCellClass} max-w-[120px] truncate`} title={lead.program || (lead as any).product}>{(lead as any).product || lead.program || '-'}</td>}
+
+        {visibleColumns.includes('nextActivity') && (
+          <td className={compactMetaCellClass}>
+            {nextActivity ? (
+              <div className="flex max-w-[110px] items-center gap-1 overflow-hidden rounded-sm bg-purple-50 px-1 py-0 text-[9px] font-semibold text-purple-700" title={nextActivity.description}>
+                <Clock size={8} className="shrink-0" />
+                <span className="truncate">{nextActivity.description.split(':')[0] || 'LÃ¡Â»â€¹ch hÃ¡ÂºÂ¹n'}</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1 text-[9px] text-slate-400">
+                <Plus size={8} /> LÃƒÂªn lÃ¡Â»â€¹ch
+              </div>
+            )}
+          </td>
+        )}
+
+        {visibleColumns.includes('deadline') && (
+          <td className={`${compactMetaCellClass} text-right`}>
+            {deadline !== '-' ? <span className="text-red-600 font-bold">{deadline}</span> : '-'}
+          </td>
+        )}
+
+        {visibleColumns.includes('value') && (
+          <td className={`${compactMetaCellClass} text-right font-bold text-slate-800`}>
+            {lead.value ? lead.value.toLocaleString('vi-VN') : '-'}
+          </td>
+        )}
+
+        {visibleColumns.includes('createdAt') && (
+          <td className={`${compactBodyCellClass} text-right`}>
+            {lead.createdAt ? new Date(lead.createdAt).toLocaleDateString('vi-VN') : '-'}
+          </td>
+        )}
+
+        {visibleColumns.includes('title') && <td className={compactMetaCellClass}>{(lead as any).title || '-'}</td>}
+
+        {visibleColumns.includes('address') && (
+          <td className={`${compactMetaCellClass} max-w-[160px] truncate`} title={`${(lead as any).street || ''}, ${(lead as any).ward || ''}, ${(lead as any).city || ''}`}>
+            {[(lead as any).street, (lead as any).ward, (lead as any).city].filter(Boolean).join(', ') || '-'}
+          </td>
+        )}
+
+        {visibleColumns.includes('referredBy') && <td className={`${compactMetaCellClass} max-w-[90px] truncate`}>{(lead as any).referredBy || '-'}</td>}
+
+        {visibleColumns.includes('status') && (
+          <td className="px-2 py-1 text-center align-middle">
+            {(() => {
+              const allocationStatus = getAllocationStatusMeta(lead);
+              return (
+                <span className={`inline-flex max-w-[78px] justify-center rounded-sm border px-1.5 py-0 text-[10px] font-semibold ${allocationStatus.className}`}>
+                  {allocationStatus.label}
+                </span>
+              );
+            })()}
+          </td>
+        )}
+
+        {visibleColumns.includes('notes') && <td className={`${compactMetaCellClass} max-w-[140px] truncate text-slate-500`} title={(lead as any).notes || ''}>{(lead as any).notes || '-'}</td>}
+
+        {visibleColumns.includes('sla') && (
+          <td className={compactMetaCellClass}>
+            {lead.slaStatus === 'danger' || lead.slaStatus === 'warning' ? (
+              <span
+                className={`font-bold text-[9px] ${lead.slaStatus === 'danger' ? 'text-red-600' : 'text-amber-600'} truncate block max-w-[80px]`}
+                title={lead.slaReason || (lead.slaStatus === 'danger' ? 'QuÃƒÂ¡ hÃ¡ÂºÂ¡n' : 'ChÃƒÂº ÃƒÂ½')}
+              >
+                {lead.slaReason || (lead.slaStatus === 'danger' ? 'QuÃƒÂ¡ hÃ¡ÂºÂ¡n' : 'ChÃƒÂº ÃƒÂ½')}
+              </span>
+            ) : (
+              <span className="text-slate-400 text-[9px]">-</span>
+            )}
+          </td>
+        )}
+      </tr>
+    );
+  };
+
   const compactHeaderCellClass = 'border-b border-[#f1f5f9] px-2 py-1.5 text-left text-[10px] font-bold uppercase tracking-[0.06em] text-[#7b8794]';
   const compactBodyCellClass = 'whitespace-nowrap px-2 py-1 align-middle text-[12px] text-slate-700';
   const compactMetaCellClass = 'whitespace-nowrap px-2 py-1 align-middle text-[12px] text-slate-600';
@@ -2170,12 +2580,6 @@ const Leads: React.FC = () => {
               >
                 {tab === 'all' && 'TÃƒÂ¡Ã‚ÂºÃ‚Â¥t cÃƒÂ¡Ã‚ÂºÃ‚Â£'}
                 {tab === 'new' && 'Lead Má»›i'}
-                {tab === 'sla_risk' && (
-                  <span className="inline-flex items-center gap-1">
-                    SLA RÃƒÂ¡Ã‚Â»Ã‚Â§i ro
-                    <AlertTriangle size={14} className="text-rose-500" />
-                  </span>
-                )}
               </button>
             ))}
           </div>
@@ -2193,41 +2597,28 @@ const Leads: React.FC = () => {
             <SmartSearchBar
               filters={toolbarFilterChips}
               onAddFilter={(filter) => {
-                if (selectedAdvancedFilterOptions.length > 1) {
-                  addFilter(
-                    buildAdvancedMultiFilterField(selectedAdvancedFilterOptions.map((option) => option.id)),
-                    'Logic lÃ¡Â»Âc',
-                    filter.value,
-                    'bg-emerald-100 text-emerald-700'
-                  );
-                  return;
-                }
-                if (selectedAdvancedFilterOptions.length === 1) {
-                  addFilter(
-                    selectedAdvancedFilterOptions[0].id,
-                    selectedAdvancedFilterOptions[0].label,
-                    filter.value,
-                    'bg-emerald-100 text-emerald-700'
-                  );
+                if (applySelectedAdvancedFilter(filter.value)) {
                   return;
                 }
                 addFilter(filter.field, filter.label, filter.value, filter.color);
               }}
               onRemoveFilter={handleToolbarFilterRemove}
               onClearAll={handleClearToolbarFilters}
+              onFieldFilterConsumed={() => setSelectedAdvancedFilterFields([])}
               activeField={selectedAdvancedFilterOptions.length === 1 ? {
                 field: selectedAdvancedFilterOptions[0].id,
                 label: selectedAdvancedFilterOptions[0].label,
                 color: 'bg-emerald-100 text-emerald-700'
               } : null}
-              placeholder="TÃƒÂ¬m kiÃ¡ÂºÂ¿m lead..."
+              contextLabel={selectedAdvancedFilterOptions.length > 1 ? `Lọc ${selectedAdvancedFilterOptions.length} trường` : undefined}
+              placeholder="Tìm kiếm lead..."
               compact
               fullWidth
             />
 
             <div className="flex items-center rounded-sm border border-[#e4e7ec] bg-[#f8fafc] p-0.5">
-              <button onClick={() => setViewMode('list')} className={`rounded-sm p-1 ${viewMode === 'list' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`} title="DÃ¡ÂºÂ¡ng Danh sÃƒÂ¡ch"><ListIcon size={15} /></button>
-              <button onClick={() => setViewMode('pivot')} className={`rounded-sm p-1 ${viewMode === 'pivot' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`} title="BÃƒÂ¡o cÃƒÂ¡o Pivot"><LayoutGrid size={15} /></button>
+              <button onClick={() => setViewMode('list')} className={`rounded-sm p-1 ${viewMode === 'list' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`} title="Dạng danh sách"><ListIcon size={15} /></button>
+              <button onClick={() => setViewMode('pivot')} className={`rounded-sm p-1 ${viewMode === 'pivot' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`} title="Báo cáo Pivot"><LayoutGrid size={15} /></button>
             </div>
 
             <div className="relative hidden">
@@ -2235,13 +2626,13 @@ const Leads: React.FC = () => {
                 onClick={() => setShowColumnDropdown(!showColumnDropdown)}
                 className="flex items-center gap-2 px-3 py-2 border border-slate-200 rounded-lg text-sm font-semibold hover:bg-slate-50 text-slate-600 bg-white shadow-sm"
               >
-                <Settings size={16} /> CÃ¡Â»â„¢t
+                <Settings size={16} /> Cột
               </button>
               {showColumnDropdown && (
                 <>
                   <div className="fixed inset-0 z-30" onClick={() => setShowColumnDropdown(false)}></div>
                   <div className="absolute right-0 top-full mt-2 w-[500px] bg-white border border-slate-200 rounded-lg shadow-xl z-40 p-3 animate-in fade-in zoom-in-95">
-                    <div className="text-xs font-bold text-slate-500 uppercase px-2 py-1 mb-2 border-b border-slate-100 pb-2">HiÃ¡Â»Æ’n thÃ¡Â»â€¹ cÃ¡Â»â„¢t</div>
+                    <div className="text-xs font-bold text-slate-500 uppercase px-2 py-1 mb-2 border-b border-slate-100 pb-2">Hiển thị cột</div>
                     <div className="grid grid-cols-2 gap-x-2 gap-y-1">
                       {ALL_COLUMNS.map(col => (
                         <div key={col.id} onClick={() => toggleColumn(col.id)} className="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-50 rounded cursor-pointer text-sm">
@@ -2265,9 +2656,9 @@ const Leads: React.FC = () => {
                   onChange={(e) => setTimeFilterField(e.target.value as any)}
                   className="cursor-pointer border-r border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-600 outline-none hover:bg-slate-100"
                 >
-                  <option value="createdAt">NgÃƒÂ y tÃ¡ÂºÂ¡o</option>
-                  <option value="deadline">HÃ¡ÂºÂ¡n chÃƒÂ³t</option>
-                  <option value="lastInteraction">TÃ†Â°Ã†Â¡ng tÃƒÂ¡c cuÃ¡Â»â€˜i</option>
+                  <option value="createdAt">Ngày tạo</option>
+                  <option value="deadline">Hạn chót</option>
+                  <option value="lastInteraction">Tương tác cuối</option>
                 </select>
                 <button
                   onClick={() => setShowTimePicker(!showTimePicker)}
@@ -2306,10 +2697,10 @@ const Leads: React.FC = () => {
 
                     {/* Right Side: Custom Range Selection */}
                     <div className="flex-1 p-4 flex flex-col">
-                      <div className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">KhoÃ¡ÂºÂ£ng thÃ¡Â»Âi gian tÃƒÂ¹y chÃ¡Â»â€°nh</div>
+                      <div className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Khoảng thời gian tùy chỉnh</div>
                       <div className="grid grid-cols-2 gap-4">
                         <div>
-                          <label className="block text-[10px] font-bold text-slate-400 mb-1">TÃ¡Â»Â« ngÃƒÂ y</label>
+                          <label className="block text-[10px] font-bold text-slate-400 mb-1">Từ ngày</label>
                           <input
                             type="date"
                             className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-bold focus:border-blue-500 outline-none"
@@ -2318,7 +2709,7 @@ const Leads: React.FC = () => {
                           />
                         </div>
                         <div>
-                          <label className="block text-[10px] font-bold text-slate-400 mb-1">Ã„ÂÃ¡ÂºÂ¿n ngÃƒÂ y</label>
+                          <label className="block text-[10px] font-bold text-slate-400 mb-1">Đến ngày</label>
                           <input
                             type="date"
                             className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-bold focus:border-blue-500 outline-none"
@@ -2337,14 +2728,14 @@ const Leads: React.FC = () => {
                           }}
                           className="text-slate-400 hover:text-slate-600 text-xs font-bold"
                         >
-                          LÃƒÂ m lÃ¡ÂºÂ¡i
+                          Làm lại
                         </button>
                         <div className="flex gap-2">
                           <button
                             onClick={() => setShowTimePicker(false)}
                             className="px-4 py-1.5 text-slate-600 hover:bg-slate-100 rounded-lg text-xs font-bold"
                           >
-                            HÃ¡Â»Â§y
+                            Hủy
                           </button>
                           <button
                             onClick={() => {
@@ -2352,12 +2743,12 @@ const Leads: React.FC = () => {
                                 setTimeRangeType('custom');
                                 setShowTimePicker(false);
                               } else {
-                                alert("Vui lÃƒÂ²ng chÃ¡Â»Ân khoÃ¡ÂºÂ£ng ngÃƒÂ y");
+                                alert("Vui lòng chọn khoảng ngày");
                               }
                             }}
                             className="px-6 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-lg shadow-blue-100"
                           >
-                            ÃƒÂp dÃ¡Â»Â¥ng
+                            Áp dụng
                           </button>
                         </div>
                       </div>
@@ -2373,11 +2764,12 @@ const Leads: React.FC = () => {
                 onClick={() => setShowFilterDropdown(!showFilterDropdown)}
                 className={`inline-flex items-center gap-1 rounded-sm border px-2 py-1 text-[11px] font-semibold transition-colors ${showFilterDropdown ? 'border-slate-300 bg-slate-100 text-slate-900' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}
               >
-                <Filter size={13} /> LÃ¡Â»Âc nÃƒÂ¢ng cao
+                <Filter size={13} /> Lọc nâng cao
                 {(() => {
                   const activeCount = [
                     ...selectedAdvancedFilterFields,
                     ...selectedAdvancedGroupFields,
+                    ...searchFilters,
                     advancedFilters.myPipeline,
                     advancedFilters.unassigned,
                     advancedFilters.openOps,
@@ -2400,7 +2792,7 @@ const Leads: React.FC = () => {
                         <Filter size={14} /> Filter
                       </div>
                       <p className="text-xs text-slate-500 mb-3">
-                        Chon truong tu muc Cot. Sau do nhap gia tri vao o tim kiem de tao bo loc.
+                        Chọn trường là bảng sẽ lọc ngay các dòng đang có dữ liệu ở trường đó. Có thể gõ thêm ở ô tìm kiếm để thu hẹp tiếp.
                       </p>
                       <div className="max-h-[360px] overflow-y-auto custom-scrollbar space-y-1">
                           {ALL_COLUMNS.map((col) => (
@@ -2420,16 +2812,21 @@ const Leads: React.FC = () => {
                         <Users size={14} /> Group by
                       </div>
                       <p className="text-xs text-slate-500 mb-3">
-                        Danh sach truong lay toan bo tu muc Cot.
+                        Có thể chọn nhiều trường. Thứ tự bấm sẽ là thứ tự ghép nhóm hiển thị trong bảng.
                       </p>
                       <div className="max-h-[360px] overflow-y-auto custom-scrollbar space-y-1">
                           {ALL_COLUMNS.map((col) => (
                             <button
                               key={`group-${col.id}`}
                               onClick={() => toggleAdvancedFieldSelection('group', col.id)}
-                              className={`w-full text-left py-2 px-3 rounded-lg transition-colors ${selectedAdvancedGroupFields.includes(col.id) ? 'bg-blue-50 text-blue-700 font-semibold border border-blue-200' : 'text-slate-700 hover:bg-slate-50 border border-transparent'}`}
+                              className={`flex w-full items-center gap-2 text-left py-2 px-3 rounded-lg transition-colors ${selectedAdvancedGroupFields.includes(col.id) ? 'bg-blue-50 text-blue-700 font-semibold border border-blue-200' : 'text-slate-700 hover:bg-slate-50 border border-transparent'}`}
                             >
-                              {col.label}
+                              <span className="flex-1">{col.label}</span>
+                              {selectedAdvancedGroupFields.includes(col.id) ? (
+                                <span className="rounded-full border border-blue-100 bg-white px-2 py-0.5 text-[10px] font-bold text-blue-700">
+                                  {selectedAdvancedGroupFields.indexOf(col.id) + 1}
+                                </span>
+                              ) : null}
                             </button>
                         ))}
                       </div>
@@ -2438,24 +2835,15 @@ const Leads: React.FC = () => {
                   </div>
                 )}
               {(() => {
-                const hasActiveFilters = selectedAdvancedFilterFields.length > 0 || selectedAdvancedGroupFields.length > 0 || advancedFilters.myPipeline || advancedFilters.unassigned || advancedFilters.openOps || advancedFilters.createdDate || advancedFilters.closedDate || advancedFilters.status.length > 0;
+                const hasActiveFilters = selectedAdvancedFilterFields.length > 0 || selectedAdvancedGroupFields.length > 0 || searchFilters.length > 0 || advancedFilters.myPipeline || advancedFilters.unassigned || advancedFilters.openOps || advancedFilters.createdDate || advancedFilters.closedDate || advancedFilters.status.length > 0;
                 return hasActiveFilters ? (
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      setSelectedAdvancedFilterFields([]);
-                      setSelectedAdvancedGroupFields([]);
-                      setAdvancedFilters({
-                        myPipeline: false,
-                        unassigned: false,
-                        openOps: false,
-                        createdDate: null,
-                        closedDate: null,
-                        status: []
-                      });
+                      handleClearToolbarFilters();
                     }}
                     className="absolute -top-1 -right-1 bg-red-500 hover:bg-red-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs shadow-lg z-10"
-                    title="XÃƒÂ³a tÃ¡ÂºÂ¥t cÃ¡ÂºÂ£ bÃ¡Â»â„¢ lÃ¡Â»Âc"
+                    title="Xóa tất cả bộ lọc"
                   >
                     <X size={12} strokeWidth={3} />
                   </button>
@@ -2851,213 +3239,35 @@ const Leads: React.FC = () => {
                 <tbody className="divide-y divide-[#f1f5f9]">
                   {filteredLeads.length === 0 ? (
                     <tr><td colSpan={leadTableColSpan} className="px-3 py-4 text-center text-[12px] text-slate-400">No data available</td></tr>
+                  ) : selectedAdvancedGroupFields.length > 0 ? (
+                    (() => {
+                      let currentIndex = 0;
+
+                      return groupedLeads.map((group) => {
+                        const groupStartIndex = currentIndex;
+                        currentIndex += group.leads.length;
+
+                        return (
+                          <React.Fragment key={group.key}>
+                            <tr className="bg-slate-100 border-y border-slate-200">
+                              <td colSpan={leadTableColSpan} className="px-4 py-2">
+                                <div className="flex items-center justify-between gap-3">
+                                  <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">
+                                    {group.label}
+                                  </span>
+                                  <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-slate-500 border border-slate-200">
+                                    {group.leads.length} lead
+                                  </span>
+                                </div>
+                              </td>
+                            </tr>
+                            {group.leads.map((lead, index) => renderLeadListRow(lead, groupStartIndex + index + 1))}
+                          </React.Fragment>
+                        );
+                      });
+                    })()
                   ) : (
-                    filteredLeads.map((lead, index) => {
-                      // Helper: Find next activity
-                      // @ts-ignore
-                      const nextActivity = (lead.activities || []).find(a => a.type === 'activity');
-                      const deadline = lead.expectedClosingDate ? new Date(lead.expectedClosingDate).toLocaleDateString('vi-VN') : '-';
-                      const normalizedStatus = normalizeLeadStatus(lead.status as string);
-                      const potentialValue = String((lead as any).potential || lead.internalNotes?.potential || '').trim();
-                      const potentialToken = potentialValue.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '').toLowerCase();
-                      const potentialClassName =
-                        potentialToken === 'nong' ? 'bg-red-100 text-red-700 border-red-200' :
-                          potentialToken === 'tiemnang' ? 'bg-amber-100 text-amber-700 border-amber-200' :
-                            potentialToken === 'thamkhao' ? 'bg-slate-100 text-slate-700 border-slate-200' :
-                              'bg-slate-50 text-slate-500 border-slate-200';
-
-
-                      return (
-                        <tr
-                          key={lead.id}
-                          className={`group cursor-pointer transition-colors hover:bg-slate-50 ${selectedLeadIds.includes(lead.id) ? 'bg-slate-50' : ''}`}
-                          onClick={() => setSelectedLead(lead)}
-                        >
-                          <td className="px-2 py-1 text-center align-middle" onClick={(e) => e.stopPropagation()}>
-                            <input type="checkbox" className="rounded border-slate-300 w-3.5 h-3.5" checked={selectedLeadIds.includes(lead.id)} onClick={(e) => handleSelectLeadCheckbox(lead.id, e)} onChange={() => { }} />
-                          </td>
-                          <td className={`${compactBodyCellClass} text-center font-semibold text-slate-500`}>{index + 1}</td>
-
-                          {visibleColumns.includes('opportunity') && (
-                            <td className={compactMetaCellClass}>
-                              <div className="flex flex-col gap-0.5 overflow-hidden">
-                                <span className="font-bold text-slate-900 text-[10px] truncate max-w-[120px]" title={lead.name}>{lead.name}</span>
-                                {lead.program && (
-                                  <span
-                                    className="text-[9px] text-blue-600 hover:text-blue-800 font-semibold cursor-pointer hover:underline w-fit truncate block max-w-[120px]"
-                                    onClick={(e) => handleClickableField(e, 'program', 'ChÃ†Â°Ã†Â¡ng trÃƒÂ¬nh', lead.program, 'bg-blue-100 text-blue-700')}
-                                    title={lead.program}
-                                  >
-                                    {lead.program}
-                                  </span>
-                                )}
-                              </div>
-                            </td>
-                          )}
-
-                          {visibleColumns.includes('contact') && (
-                            <td className={`${compactBodyCellClass} max-w-[150px] overflow-hidden text-[13px] font-bold text-slate-900`} title={lead.name}>
-                              <span className="block truncate">{lead.name}</span>
-                            </td>
-                          )}
-                          {visibleColumns.includes('company') && <td className={`${compactMetaCellClass} max-w-[96px] truncate`} title={(lead as any).company}>{(lead as any).company || '-'}</td>}
-                          {visibleColumns.includes('email') && <td className={`${compactMetaCellClass} max-w-[124px] truncate`} title={lead.email}>{lead.email || '-'}</td>}
-                          {visibleColumns.includes('phone') && <td className={`${compactBodyCellClass} font-semibold text-slate-700`}>{lead.phone || '-'}</td>}
-                          {visibleColumns.includes('salesperson') && (
-                            <td className={compactBodyCellClass}>
-                              {lead.ownerId ? (
-                                <div className="flex items-center gap-2">
-                                  <span className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold ${SALES_REPS.find((rep) => rep.id === lead.ownerId)?.color || 'bg-slate-100 text-slate-600'}`}>
-                                    {SALES_REPS.find((rep) => rep.id === lead.ownerId)?.avatar || 'NA'}
-                                  </span>
-                                  <span className="truncate text-[12px] font-medium text-slate-700">{SALES_REPS.find((rep) => rep.id === lead.ownerId)?.name || '-'}</span>
-                                </div>
-                              ) : (
-                                <span className="text-[12px] text-slate-400">ChÃ†Â°a nhÃ¡ÂºÂ­n</span>
-                              )}
-                            </td>
-                          )}
-
-                          {visibleColumns.includes('campaign') && (
-                            <td className={`${compactBodyCellClass} max-w-[120px] overflow-hidden`} title={lead.marketingData?.campaign || (lead as any).campaign || '-'}>
-                              <span className="block truncate">{lead.marketingData?.campaign || (lead as any).campaign || '-'}</span>
-                            </td>
-                          )}
-                          {visibleColumns.includes('source') && (
-                            <td className={compactBodyCellClass}>
-                              <span
-                                className="inline-flex max-w-[96px] items-center rounded-sm border border-teal-100 bg-teal-50/70 px-1.5 py-0 text-[10px] font-semibold text-teal-700"
-                                onClick={(e) => handleClickableField(e, 'source', 'NguÃ¡Â»â€œn', lead.source, 'bg-teal-100 text-teal-700')}
-                                title={lead.source}
-                              >
-                                <span className="truncate">{lead.source || '-'}</span>
-                              </span>
-                            </td>
-                          )}
-
-                          {visibleColumns.includes('potential') && (
-                            <td className={compactBodyCellClass}>
-                              <span className={`inline-flex max-w-[110px] items-center justify-center rounded-sm border px-1.5 py-0 text-[10px] font-semibold ${potentialClassName}`}>
-                                <span className="truncate">{potentialValue || '-'}</span>
-                              </span>
-                            </td>
-                          )}
-
-                          {visibleColumns.includes('tags') && <td className={`${compactMetaCellClass} overflow-hidden`}>{(() => {
-                            const tags = Array.isArray((lead as any).marketingData?.tags)
-                              ? (lead as any).marketingData.tags
-                              : (typeof (lead as any).marketingData?.tags === 'string'
-                                ? (lead as any).marketingData.tags.split(',').map((t: string) => t.trim()).filter(Boolean)
-                                : []);
-
-                            if (tags.length === 0) return '-';
-
-                            return (
-                              <div className="flex flex-wrap gap-1">
-                                {tags.map((tag: string, index: number) => {
-                                  const colors = [
-                                    'bg-blue-100 text-blue-800 border-blue-200',
-                                    'bg-green-100 text-green-800 border-green-200',
-                                    'bg-purple-100 text-purple-800 border-purple-200',
-                                    'bg-orange-100 text-orange-800 border-orange-200',
-                                    'bg-pink-100 text-pink-800 border-pink-200',
-                                    'bg-teal-100 text-teal-800 border-teal-200'
-                                  ];
-                                  const colorClass = colors[tag.charCodeAt(0) % colors.length] || colors[0];
-
-                                  return (
-                                    <span
-                                      key={`${tag}-${index}`}
-                                      className={`rounded border px-1.5 py-0.5 text-[9px] font-bold whitespace-nowrap ${colorClass}`}
-                                    >
-                                      {tag}
-                                    </span>
-                                  );
-                                })}
-                              </div>
-                            );
-                          })()}</td>}
-                          {visibleColumns.includes('market') && <td className={`${compactMetaCellClass} max-w-[110px] truncate`}>{(lead as any).marketingData?.market || '-'}</td>}
-                          {visibleColumns.includes('product') && <td className={`${compactMetaCellClass} max-w-[120px] truncate`} title={lead.program || (lead as any).product}>{(lead as any).product || lead.program || '-'}</td>}
-
-                          {/* Next Activity */}
-                          {visibleColumns.includes('nextActivity') && (
-                            <td className={compactMetaCellClass}>
-                              {nextActivity ? (
-                                <div className="flex max-w-[110px] items-center gap-1 overflow-hidden rounded-sm bg-purple-50 px-1 py-0 text-[9px] font-semibold text-purple-700" title={nextActivity.description}>
-                                  <Clock size={8} className="shrink-0" />
-                                  <span className="truncate">{nextActivity.description.split(':')[0] || 'LÃ¡Â»â€¹ch hÃ¡ÂºÂ¹n'}</span>
-                                </div>
-                              ) : (
-                                <div className="flex items-center gap-1 text-[9px] text-slate-400">
-                                  <Plus size={8} /> LÃƒÂªn lÃ¡Â»â€¹ch
-                                </div>
-                              )}
-                            </td>
-                          )}
-
-                          {/* Deadline */}
-                          {visibleColumns.includes('deadline') && (
-                            <td className={`${compactMetaCellClass} text-right`}>
-                              {deadline !== '-' ? <span className="text-red-600 font-bold">{deadline}</span> : '-'}
-                            </td>
-                          )}
-
-                          {/* Revenue */}
-                          {visibleColumns.includes('value') && (
-                            <td className={`${compactMetaCellClass} text-right font-bold text-slate-800`}>
-                              {lead.value ? lead.value.toLocaleString('vi-VN') : '-'}
-                            </td>
-                          )}
-
-                          {visibleColumns.includes('createdAt') && (
-                            <td className={`${compactBodyCellClass} text-right`}>
-                              {lead.createdAt ? new Date(lead.createdAt).toLocaleDateString('vi-VN') : '-'}
-                            </td>
-                          )}
-
-                          {visibleColumns.includes('title') && <td className={compactMetaCellClass}>{(lead as any).title || '-'}</td>}
-
-                          {visibleColumns.includes('address') && (
-                            <td className={`${compactMetaCellClass} max-w-[160px] truncate`} title={`${(lead as any).street || ''}, ${(lead as any).ward || ''}, ${(lead as any).city || ''}`}>
-                              {[(lead as any).street, (lead as any).ward, (lead as any).city].filter(Boolean).join(', ') || '-'}
-                            </td>
-                          )}
-
-                          {visibleColumns.includes('referredBy') && <td className={`${compactMetaCellClass} max-w-[90px] truncate`}>{(lead as any).referredBy || '-'}</td>}
-
-                          {visibleColumns.includes('status') && (
-                            <td className="px-2 py-1 text-center align-middle">
-                              {(() => {
-                                const allocationStatus = getAllocationStatusMeta(lead);
-                                return (
-                                  <span className={`inline-flex max-w-[78px] justify-center rounded-sm border px-1.5 py-0 text-[10px] font-semibold ${allocationStatus.className}`}>
-                                    {allocationStatus.label}
-                                  </span>
-                                );
-                              })()}
-                            </td>
-                          )}
-
-                          {visibleColumns.includes('notes') && <td className={`${compactMetaCellClass} max-w-[140px] truncate text-slate-500`} title={(lead as any).notes || ''}>{(lead as any).notes || '-'}</td>}
-
-                          {visibleColumns.includes('sla') && (
-                            <td className={compactMetaCellClass}>
-                              {lead.slaStatus === 'danger' || lead.slaStatus === 'warning' ? (
-                                <span
-                                  className={`font-bold text-[9px] ${lead.slaStatus === 'danger' ? 'text-red-600' : 'text-amber-600'} truncate block max-w-[80px]`}
-                                  title={lead.slaReason || (lead.slaStatus === 'danger' ? 'QuÃƒÂ¡ hÃ¡ÂºÂ¡n' : 'ChÃƒÂº ÃƒÂ½')}
-                                >
-                                  {lead.slaReason || (lead.slaStatus === 'danger' ? 'QuÃƒÂ¡ hÃ¡ÂºÂ¡n' : 'ChÃƒÂº ÃƒÂ½')}
-                                </span>
-                              ) : (
-                                <span className="text-slate-400 text-[9px]">-</span>
-                              )}
-                            </td>
-                          )}
-                        </tr>
-                      );
-                    })
+                    filteredLeads.map((lead, index) => renderLeadListRow(lead, index + 1))
                   )}
                 </tbody>
               </table>
@@ -3066,7 +3276,7 @@ const Leads: React.FC = () => {
           )}
         </div>
 
-        {selectedLead && user?.role === UserRole.MARKETING && (
+        {false && selectedLead && user?.role === UserRole.MARKETING && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setSelectedLead(null)}></div>
             <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-4xl overflow-hidden animate-in zoom-in-95 flex flex-col max-h-[90vh]">
@@ -3121,7 +3331,7 @@ const Leads: React.FC = () => {
         )}
 
         {/* EDIT MODAL - MARKETING VIEW */}
-        {false && selectedLead && user?.role === UserRole.MARKETING && (
+        {selectedLead && user?.role === UserRole.MARKETING && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setSelectedLead(null)}></div>
             <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-4xl overflow-hidden animate-in zoom-in-95 flex flex-col max-h-[90vh]">
@@ -3148,11 +3358,12 @@ const Leads: React.FC = () => {
                       value={editLeadData.title}
                       onChange={e => setEditLeadData({ ...editLeadData, title: e.target.value })}
                     >
-                      <option value="">Danh xÃ†Â°ng</option>
-                      <option value="Mr.">Anh</option>
-                      <option value="Ms.">ChÃ¡Â»â€¹</option>
-                      <option value="PhÃ¡Â»Â¥ huynh">PhÃ¡Â»Â¥ huynh</option>
-                      <option value="HÃ¡Â»Âc sinh">HÃ¡Â»Âc sinh</option>
+                      <option value="">Danh xưng</option>
+                      {LEAD_RELATION_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
                     </select>
                     <input
                       className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm font-semibold focus:border-purple-500 outline-none text-slate-800"
@@ -3163,38 +3374,21 @@ const Leads: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="mb-6 grid grid-cols-1 lg:grid-cols-2 gap-x-12 gap-y-5">
-                  <div className="flex items-center gap-4">
-                    <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">QuÃ¡Â»â€˜c gia MT</label>
-                    <select
-                      className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
-                      value={editLeadData.targetCountry}
-                      onChange={e => setEditLeadData({ ...editLeadData, targetCountry: e.target.value })}
-                    >
-                      <option value="">-- ChÃ¡Â»Ân quÃ¡Â»â€˜c gia --</option>
-                      {LEAD_TARGET_COUNTRY_OPTIONS.map(option => (
-                        <option key={option} value={option}>{option}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
                 {/* MAIN FORM GRID */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-12 gap-y-5">
                   {/* LEFT COL */}
                   <div className="space-y-4">
                     <div className="flex items-center gap-4">
-                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">CÃ†Â¡ sÃ¡Â»Å¸</label>
+                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Quốc gia mục tiêu <span className="text-red-500">*</span></label>
                       <select
                         className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
-                        value={editLeadData.company}
-                        onChange={e => setEditLeadData({ ...editLeadData, company: e.target.value })}
+                        value={editLeadData.targetCountry}
+                        onChange={e => setEditLeadData({ ...editLeadData, targetCountry: e.target.value })}
                       >
-                        <option value="">-- ChÃ¡Â»Ân cÃ†Â¡ sÃ¡Â»Å¸ --</option>
-                        <option value="Hanoi">HÃƒÂ  NÃ¡Â»â„¢i</option>
-                        <option value="HCMC">TP. HCM</option>
-                        <option value="DaNang">Ã„ÂÃƒÂ  NÃ¡ÂºÂµng</option>
-                        <option value="HaiPhong">HÃ¡ÂºÂ£i PhÃƒÂ²ng</option>
+                        <option value="">-- Chọn quốc gia mục tiêu --</option>
+                        {LEAD_TARGET_COUNTRY_OPTIONS.map((option) => (
+                          <option key={option} value={option}>{option}</option>
+                        ))}
                       </select>
                     </div>
 
@@ -3259,13 +3453,16 @@ const Leads: React.FC = () => {
                     </div>
 
                     <div className="flex items-center gap-4">
-                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">ThÃ¡Â»â€¹ trÃ†Â°Ã¡Â»Âng</label>
-                      <select className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm outline-none bg-white" value={editLeadData.market} onChange={e => setEditLeadData({ ...editLeadData, market: e.target.value })}>
-                        <option value="">-- ChÃ¡Â»Ân --</option>
-                        <option value="Vinh">Vinh</option>
-                        <option value="HÃƒÂ  TÃ„Â©nh">HÃƒÂ  TÃ„Â©nh</option>
-                        <option value="HÃƒÂ  NÃ¡Â»â„¢i">HÃƒÂ  NÃ¡Â»â„¢i</option>
-                        <option value="Online">Online</option>
+                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Cơ sở</label>
+                      <select
+                        className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
+                        value={editLeadData.market}
+                        onChange={e => setEditLeadData({ ...editLeadData, market: e.target.value })}
+                      >
+                        <option value="">-- Chọn cơ sở --</option>
+                        {LEAD_CAMPUS_OPTIONS.map((option) => (
+                          <option key={option} value={option}>{option}</option>
+                        ))}
                       </select>
                     </div>
                   </div>
@@ -3330,7 +3527,7 @@ const Leads: React.FC = () => {
                         availableTags={availableTags}
                         fixedTags={FIXED_LEAD_TAGS}
                         isAdding={isAddingEditTag}
-                        accent="blue"
+                        accent="purple"
                         mode="dropdown"
                         onStartAdding={() => setIsAddingEditTag(true)}
                         onStopAdding={() => setIsAddingEditTag(false)}
@@ -3349,19 +3546,21 @@ const Leads: React.FC = () => {
                 {/* TABS SECTION */}
                 <div className="mt-8 border-t border-slate-200 pt-4">
                   <div className="flex border-b border-slate-200 mb-4">
-                    <button onClick={() => setEditModalActiveTab('notes')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-all ${editModalActiveTab === 'notes' ? 'border-purple-600 text-purple-700' : 'border-transparent text-slate-500'}`}>Ghi chÃƒÂº nÃ¡Â»â„¢i bÃ¡Â»â„¢</button>
-                    <button onClick={() => setEditModalActiveTab('student')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-all ${editModalActiveTab === 'student' ? 'border-purple-600 text-purple-700' : 'border-transparent text-slate-500'}`}>ThÃƒÂ´ng tin hÃ¡Â»Âc sinh</button>
-                    <button onClick={() => setEditModalActiveTab('extra')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-all ${editModalActiveTab === 'extra' ? 'border-purple-600 text-purple-700' : 'border-transparent text-slate-500'}`}>ThÃƒÂ´ng tin thÃƒÂªm (Marketing)</button>
+                    <button onClick={() => setEditModalActiveTab('notes')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-all ${editModalActiveTab === 'notes' ? 'border-purple-600 text-purple-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>Ghi chú nội bộ</button>
+                    <button onClick={() => setEditModalActiveTab('student')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-all ${editModalActiveTab === 'student' ? 'border-purple-600 text-purple-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>Thông tin học sinh</button>
+                    <button onClick={() => setEditModalActiveTab('extra')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-all ${editModalActiveTab === 'extra' ? 'border-purple-600 text-purple-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>Thông tin thêm (Marketing)</button>
                   </div>
-                  <div className="min-h-[150px]">
+                  <div className="min-h-[200px]">
                     {editModalActiveTab === 'notes' && (
-                      <textarea className="w-full p-3 border border-slate-200 rounded text-sm outline-none h-32" value={editLeadData.notes} onChange={e => setEditLeadData({ ...editLeadData, notes: e.target.value })} />
+                      <div className="animate-in fade-in duration-200">
+                        <textarea className="w-full p-3 border border-slate-200 rounded text-sm focus:border-purple-500 outline-none text-slate-700 h-40" placeholder="Viết ghi chú..." value={editLeadData.notes} onChange={e => setEditLeadData({ ...editLeadData, notes: e.target.value })} />
+                      </div>
                     )}
                     {editModalActiveTab === 'student' && (
                       <LeadStudentInfoTab data={editLeadData} onPatch={patchEditLeadData} />
                     )}
                     {editModalActiveTab === 'extra' && (
-                      <div className="grid grid-cols-2 gap-x-12 gap-y-4">
+                      <div className="grid grid-cols-2 gap-x-12 gap-y-4 animate-in fade-in duration-200">
                         <div className="flex items-center gap-4">
                           <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">ChiÃ¡ÂºÂ¿n dÃ¡Â»â€¹ch</label>
                           <input className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm outline-none" value={editLeadData.campaign} onChange={e => setEditLeadData({ ...editLeadData, campaign: e.target.value })} />
@@ -4044,15 +4243,15 @@ const Leads: React.FC = () => {
                   <div className="absolute left-0 top-1/2 -translate-y-1/2 w-full h-1 bg-slate-100 -z-10"></div>
                   <div className={`flex flex-col items-center gap-2 z-10 ${importStep >= 1 ? 'text-blue-600' : 'text-slate-400'}`}>
                     <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold border-2 ${importStep >= 1 ? 'bg-blue-600 text-white border-blue-600' : 'bg-white border-slate-300'}`}>1</div>
-                    <span className="text-xs font-bold">TÃ¡ÂºÂ£i lÃƒÂªn</span>
+                    <span className="text-xs font-bold">Tải lên</span>
                   </div>
                   <div className={`flex flex-col items-center gap-2 z-10 ${importStep >= 2 ? 'text-blue-600' : 'text-slate-400'}`}>
                     <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold border-2 ${importStep >= 2 ? 'bg-blue-600 text-white border-blue-600' : 'bg-white border-slate-300'}`}>2</div>
-                    <span className="text-xs font-bold">Ghép & Phân bổ</span>
+                    <span className="text-xs font-bold">Ghép vào kho lead</span>
                   </div>
                   <div className={`flex flex-col items-center gap-2 z-10 ${importStep >= 3 ? 'text-blue-600' : 'text-slate-400'}`}>
                     <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold border-2 ${importStep >= 3 ? 'bg-blue-600 text-white border-blue-600' : 'bg-white border-slate-300'}`}>3</div>
-                    <span className="text-xs font-bold">HoÃƒÂ n tÃ¡ÂºÂ¥t</span>
+                    <span className="text-xs font-bold">Hoàn tất</span>
                   </div>
                 </div>
               </div>
@@ -4075,17 +4274,17 @@ const Leads: React.FC = () => {
                       tabIndex={0}
                     >
                       <input id="lead-import-file-input" ref={importFileInputRef} type="file" accept=".csv, .xlsx, .xls" onChange={handleFileSelect} className="sr-only" />
-                      <label htmlFor="lead-import-file-input" className="absolute inset-0 z-10 cursor-pointer" aria-label="Chon tep import lead" />
+                      <label htmlFor="lead-import-file-input" className="absolute inset-0 z-10 cursor-pointer" aria-label="Chọn tệp import lead" />
                       <div className="pointer-events-none w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
                         <UploadCloud size={32} />
                       </div>
-                      <p className="text-lg font-bold text-slate-700">KÃƒÂ©o thÃ¡ÂºÂ£ hoÃ¡ÂºÂ·c chÃ¡Â»Ân tÃ¡Â»â€¡p tin</p>
-                      <p className="text-sm text-slate-500 mt-2">HÃ¡Â»â€” trÃ¡Â»Â£ .CSV, .XLSX (TÃ¡Â»â€˜i Ã„â€˜a 5MB)</p>
+                      <p className="text-lg font-bold text-slate-700">Kéo thả hoặc chọn tệp tin</p>
+                      <p className="text-sm text-slate-500 mt-2">Hỗ trợ .CSV, .XLSX (tối đa 5MB)</p>
                     </div>
 
                     <div className="flex gap-4">
                       <button onClick={handleDownloadTemplate} className="flex items-center gap-2 text-blue-600 hover:text-blue-700 font-medium text-sm hover:underline">
-                        <Download size={16} /> TÃ¡ÂºÂ£i tÃ¡Â»â€¡p mÃ¡ÂºÂ«u chuÃ¡ÂºÂ©n (Template_Leads.xlsx)
+                        <Download size={16} /> Tải tệp mẫu chuẩn (Template_Leads.xlsx)
                       </button>
                     </div>
                   </div>
@@ -4097,10 +4296,10 @@ const Leads: React.FC = () => {
                     {/* LEFT: VALIDATION REPORT */}
                     <div className="col-span-7 flex flex-col h-full bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                       <div className="p-4 border-b border-slate-100 bg-slate-50 font-bold text-slate-700 flex justify-between items-center">
-                        <span>KÃ¡ÂºÂ¿t quÃ¡ÂºÂ£ kiÃ¡Â»Æ’m tra dÃ¡Â»Â¯ liÃ¡Â»â€¡u</span>
+                        <span>Kết quả kiểm tra trước khi ghép</span>
                         <div className="flex gap-2">
-                          <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded font-bold">HÃ¡Â»Â£p lÃ¡Â»â€¡: {validImportRows.length}</span>
-                          <span className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded font-bold">LÃ¡Â»â€”i: {importErrors.length}</span>
+                          <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded font-bold">Hợp lệ: {validImportRows.length}</span>
+                          <span className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded font-bold">Lỗi: {importErrors.length}</span>
                         </div>
                       </div>
 
@@ -4108,8 +4307,8 @@ const Leads: React.FC = () => {
                         {importErrors.length === 0 && validImportRows.length > 0 && (
                           <div className="flex flex-col items-center justify-center h-full text-slate-500 p-8 text-center">
                             <CheckCircle size={48} className="text-green-500 mb-4" />
-                            <p className="font-bold text-lg text-slate-800">TÃ¡ÂºÂ¥t cÃ¡ÂºÂ£ dÃ¡Â»Â¯ liÃ¡Â»â€¡u hÃ¡Â»Â£p lÃ¡Â»â€¡!</p>
-                            <p className="text-sm">File cÃ¡Â»Â§a bÃ¡ÂºÂ¡n Ã„â€˜ÃƒÂ£ sÃ¡ÂºÂµn sÃƒÂ ng Ã„â€˜Ã¡Â»Æ’ nhÃ¡ÂºÂ­p vÃƒÂ o hÃ¡Â»â€¡ thÃ¡Â»â€˜ng.</p>
+                            <p className="font-bold text-lg text-slate-800">Tất cả dữ liệu hợp lệ</p>
+                            <p className="text-sm">File đã sẵn sàng để ghép vào kho lead chung.</p>
                           </div>
                         )}
 
@@ -4117,9 +4316,9 @@ const Leads: React.FC = () => {
                           <table className="w-full text-sm">
                             <thead className="bg-red-50 text-red-800 font-semibold border-b border-red-100 sticky top-0">
                               <tr>
-                                <th className="p-3 text-left w-20">DÃƒÂ²ng</th>
-                                <th className="p-3 text-left w-40">TÃƒÂªn Lead</th>
-                                <th className="p-3 text-left">Chi tiÃ¡ÂºÂ¿t lÃ¡Â»â€”i</th>
+                                 <th className="p-3 text-left w-20">Dòng</th>
+                                 <th className="p-3 text-left w-40">Tên Lead</th>
+                                 <th className="p-3 text-left">Chi tiết lỗi</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
@@ -4139,40 +4338,43 @@ const Leads: React.FC = () => {
                         )}
 
                         {rawImportData.length === 0 && (
-                          <div className="p-8 text-center text-slate-500 italic">KhÃƒÂ´ng tÃƒÂ¬m thÃ¡ÂºÂ¥y dÃ¡Â»Â¯ liÃ¡Â»â€¡u hoÃ¡ÂºÂ·c file rÃ¡Â»â€”ng.</div>
+                          <div className="p-8 text-center text-slate-500 italic">Không tìm thấy dữ liệu hoặc file rỗng.</div>
                         )}
                       </div>
 
                       {importErrors.length > 0 && (
                         <div className="p-3 bg-red-50 border-t border-red-100 text-xs text-red-700 flex items-center gap-2">
                           <AlertTriangle size={14} />
-                          <span>HÃ¡Â»â€¡ thÃ¡Â»â€˜ng sÃ¡ÂºÂ½ chÃ¡Â»â€° nhÃ¡ÂºÂ­p cÃƒÂ¡c dÃƒÂ²ng hÃ¡Â»Â£p lÃ¡Â»â€¡ ({validImportRows.length} dÃƒÂ²ng). CÃƒÂ¡c dÃƒÂ²ng lÃ¡Â»â€”i sÃ¡ÂºÂ½ bÃ¡Â»â€¹ bÃ¡Â»Â qua.</span>
+                          <span>Hệ thống sẽ chỉ ghép các dòng hợp lệ ({validImportRows.length} dòng) vào kho lead chung. Các dòng lỗi sẽ bị bỏ qua.</span>
                         </div>
                       )}
                     </div>
 
                     {/* RIGHT: CONFIG */}
                     <div className="col-span-5 flex flex-col gap-6">
-                      {/* Allocation Config */}
                       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 h-full">
-                        <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><Users size={18} className="text-blue-600" /> Cấu hình phân bổ</h3>
+                        <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><Users size={18} className="text-blue-600" /> Trạng thái sau ghép</h3>
 
                         <div className="space-y-4">
                           <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-                            <p className="text-sm font-bold text-slate-800 mb-1">Chế độ phân bổ từ Admin</p>
+                            <p className="text-sm font-bold text-slate-800 mb-1">Phân bổ sale</p>
                             <div className="flex items-center gap-2">
                               <span className="inline-flex px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-widest border bg-slate-100 text-slate-600 border-slate-200">
                                 Thủ công
                               </span>
                               <span className="text-xs text-slate-500">
-                                Admin &gt; Quy tắc tự động hóa đã chốt giữ luồng phân công thủ công.
+                                Bước import không gán sale tự động.
                               </span>
                             </div>
                           </div>
 
-                          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-                            Chế độ thủ công đang bật: lead hợp lệ sẽ được nhập vào hệ thống nhưng chưa phân bổ.
-                            Admin/Leader sẽ phân công sau.
+                          <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
+                            Lead hợp lệ sẽ được ghép vào kho lead chung và giữ trạng thái chưa phân bổ.
+                            Admin/Leader sẽ phân công sau ở màn hình phân bổ thủ công.
+                          </div>
+
+                          <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+                            Sau bước này, bạn có thể tiếp tục gắn tên đợt nhập và tag để dễ lọc lại danh sách vừa ghép.
                           </div>
                         </div>
                       </div>
@@ -4187,13 +4389,18 @@ const Leads: React.FC = () => {
                       <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-4 animate-bounce">
                         <CheckCircle size={32} />
                       </div>
-                      <h3 className="text-2xl font-bold text-slate-900">SÃ¡ÂºÂµn sÃƒÂ ng nhÃ¡ÂºÂ­p liÃ¡Â»â€¡u!</h3>
-                      <p className="text-slate-500 mt-2">Vui lÃƒÂ²ng kiÃ¡Â»Æ’m tra thÃƒÂ´ng tin lÃ¡ÂºÂ§n cuÃ¡Â»â€˜i trÃ†Â°Ã¡Â»â€ºc khi nhÃ¡ÂºÂ­p vÃƒÂ o hÃ¡Â»â€¡ thÃ¡Â»â€˜ng.</p>
+                      <h3 className="text-2xl font-bold text-slate-900">Sẵn sàng ghép vào kho lead chung</h3>
+                      <p className="text-slate-500 mt-2">Kiểm tra lần cuối tên đợt nhập và tag trước khi đưa dữ liệu hợp lệ vào kho lead.</p>
                     </div>
 
                     <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 space-y-6">
+                      <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+                        Sẽ ghép <span className="font-bold">{validImportRows.length}</span> lead hợp lệ vào kho lead chung.
+                        Tất cả lead sau import vẫn ở trạng thái <span className="font-bold">chưa phân bổ</span>.
+                      </div>
+
                       <div>
-                        <label className="block text-sm font-bold text-slate-700 mb-2">TÃƒÂªn Ã„â€˜Ã¡Â»Â£t nhÃ¡ÂºÂ­p liÃ¡Â»â€¡u (Import Batch Name)</label>
+                        <label className="block text-sm font-bold text-slate-700 mb-2">Tên đợt nhập kho</label>
                         <input
                           className="w-full px-4 py-3 border border-slate-300 rounded-lg text-slate-900 font-medium focus:border-blue-500 outline-none bg-slate-50"
                           value={importBatchName}
@@ -4202,18 +4409,18 @@ const Leads: React.FC = () => {
                       </div>
 
                       <div>
-                        <label className="block text-sm font-bold text-slate-700 mb-2">ThÃ¡ÂºÂ» phÃƒÂ¢n loÃ¡ÂºÂ¡i bÃ¡Â»â€¢ sung (Tags)</label>
+                        <label className="block text-sm font-bold text-slate-700 mb-2">Tag gắn cho đợt ghép</label>
                         <div className="p-3 border border-slate-300 rounded-lg bg-white flex flex-wrap gap-2 focus-within:border-blue-500 transition-colors">
                           {importTags.map(tag => (
                             <span key={tag} className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-sm font-bold flex items-center gap-1">
                               {tag} <button onClick={() => setImportTags(importTags.filter(t => t !== tag))}><X size={12} /></button>
                             </span>
                           ))}
-                          <input
-                            className="flex-1 min-w-[120px] outline-none text-sm p-1"
-                            placeholder="NhÃ¡ÂºÂ­p tag vÃƒÂ  Ã¡ÂºÂ¥n Enter..."
-                            value={newTagInput}
-                            onChange={(e) => setNewTagInput(e.target.value)}
+                            <input
+                              className="flex-1 min-w-[120px] outline-none text-sm p-1"
+                              placeholder="Nhập tag và ấn Enter..."
+                              value={newTagInput}
+                              onChange={(e) => setNewTagInput(e.target.value)}
                             onKeyDown={(e) => {
                               if (e.key === 'Enter' && newTagInput.trim()) {
                                 e.preventDefault();
@@ -4249,27 +4456,27 @@ const Leads: React.FC = () => {
                     onClick={() => setImportStep(prev => (prev - 1) as 1 | 2 | 3)}
                     className="px-6 py-2.5 border border-slate-300 rounded-lg text-slate-700 font-bold hover:bg-slate-50 transition-colors"
                   >
-                    Quay lÃ¡ÂºÂ¡i
+                    Quay lại
                   </button>
                 )}
 
                 {importStep < 3 ? (
                   <button
                     onClick={() => {
-                      if (importStep === 1 && !importFile) return alert("Vui lÃƒÂ²ng chÃ¡Â»Ân file!");
+                      if (importStep === 1 && !importFile) return alert("Vui lòng chọn file!");
                       setImportStep(prev => (prev + 1) as 1 | 2 | 3);
                     }}
                     className={`px-8 py-2.5 bg-blue-600 text-white rounded-lg font-bold shadow-lg shadow-blue-200 transition-all flex items-center gap-2 ${(!importFile && importStep === 1) ? 'opacity-50 cursor-not-allowed' : (validImportRows.length === 0 && importStep === 2) ? 'bg-slate-400 cursor-not-allowed text-slate-200 shadow-none' : 'hover:bg-blue-700 hover:scale-105'}`}
                     disabled={validImportRows.length === 0 && importStep === 2}
                   >
-                    TiÃ¡ÂºÂ¿p tÃ¡Â»Â¥c & Review <ArrowRight size={18} />
+                    {importStep === 1 ? 'Tiếp tục kiểm tra' : 'Tiếp tục gắn nhãn'} <ArrowRight size={18} />
                   </button>
                 ) : (
                   <button
                     onClick={handleImportSubmit}
                     className="px-8 py-2.5 bg-green-600 text-white rounded-lg font-bold shadow-lg shadow-green-200 transition-all flex items-center gap-2 hover:bg-green-700 hover:scale-105"
                   >
-                    <CheckCircle size={18} /> XÃƒÂ¡c nhÃ¡ÂºÂ­n NhÃ¡ÂºÂ­p (Import)
+                    <CheckCircle size={18} /> Ghép vào kho lead
                   </button>
                 )}
               </div>
@@ -4483,8 +4690,16 @@ const Leads: React.FC = () => {
           onClose={() => setSelectedLead(null)}
           lead={selectedLead}
           onUpdate={handleUpdateLead}
+          onConvert={handleConvertLead}
         />
       )}
+
+      <ConvertLeadModal
+        isOpen={!!leadToConvert}
+        lead={leadToConvert}
+        onClose={() => setLeadToConvert(null)}
+        onConfirm={handleConfirmLeadConvert}
+      />
     </>
   );
 };

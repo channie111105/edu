@@ -1,16 +1,18 @@
 ﻿
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { getLeadById, saveLead, addDeal, addContact, addMeeting, convertLeadToContact, getLeadActivitiesForConversion } from '../utils/storage';
+import { getLeadById, saveLead, addMeeting } from '../utils/storage';
 import { useAuth } from '../contexts/AuthContext';
 import { getLeadStatusLabel, isLeadStatusOneOf, LEAD_STATUS_KEYS, LEAD_STATUS_OPTIONS, normalizeLeadStatusKey, toLeadStatusValue } from '../utils/leadStatus';
+import ConvertLeadModal, { ConvertLeadModalSubmitData } from '../components/ConvertLeadModal';
+import { convertLeadToOpportunity } from '../utils/leadConversion';
 import {
    ArrowLeft, Phone, Mail, MessageCircle, Clock,
    User, CheckCircle2,
    ChevronDown, UserPlus, PhoneOutgoing,
    Send, FileText, Save, Layout, Calendar
 } from 'lucide-react';
-import { LeadStatus, DealStage, ILead, IDeal, IContact, UserRole, IMeeting, MeetingStatus, MeetingType } from '../types';
+import { LeadStatus, ILead, UserRole, IMeeting, MeetingStatus, MeetingType } from '../types';
 
 interface IActivity {
    id: string;
@@ -39,6 +41,7 @@ const LeadDetails: React.FC = () => {
 
    const [activeTab, setActiveTab] = useState<'timeline' | 'notes' | 'email'>('timeline');
    const [activities, setActivities] = useState<IActivity[]>([]);
+   const [showConvertModal, setShowConvertModal] = useState(false);
 
    // Check Permissions
    const isSalesRole = user && [UserRole.SALES_REP, UserRole.SALES_LEADER, UserRole.ADMIN].includes(user.role);
@@ -170,71 +173,57 @@ const LeadDetails: React.FC = () => {
       }
    };
 
-   // --- LOGIC CHUYá»‚N Äá»”I (CORE REQUIREMENT) ---
+   // --- LOGIC CHUYỂN ĐỔI ---
    const handleConvert = () => {
       if (!lead) return;
 
-      // 1. Validate Core Info
       if (!studentInfo.targetCountry) {
-         alert("Vui lÃ²ng chá»n Quá»‘c gia má»¥c tiÃªu trÆ°á»›c khi chuyá»ƒn Ä‘á»•i.");
+         alert('Vui lòng chọn Quốc gia mục tiêu trước khi chuyển đổi.');
          return;
       }
+
       if (!formData.name || !formData.phone) {
-         alert("Thiáº¿u thÃ´ng tin Há» tÃªn hoáº·c SÄT.");
+         alert('Thiếu thông tin Họ tên hoặc SĐT.');
          return;
       }
 
-      if (window.confirm(`XÃ¡c nháº­n chuyá»ƒn Ä‘á»•i "${lead.name}" thÃ nh Contact chÃ­nh thá»©c vÃ  táº¡o Deal má»›i?`)) {
+      setShowConvertModal(true);
+   };
 
-         // 2. Create/Update Contact (Unique by Phone)
-         const contactData = convertLeadToContact({
-            ...lead,
-            ...formData,
-            studentInfo: {
-               ...(lead.studentInfo || {}),
-               ...studentInfo
-            },
-            status: LeadStatus.CONVERTED,
-            targetCountry: studentInfo.targetCountry || lead.targetCountry || 'Đức',
-            // ID will be handled by addContact to ensure it matches existing if phone exists
-         } as ILead);
-         const savedContact = addContact(contactData); // Returns the updated contacts list, but we need the specific ID.
-         // Note: In a real app, addContact should return the saved contact. 
-         // For now, we assume the ID is consistent or handled by storage.
+   const handleConfirmConvert = ({ ownerId, salesChannel, conversionAction, customerAction, targetDealId }: ConvertLeadModalSubmitData) => {
+      if (!lead) return;
 
-         // 3. Create Deal
-         const dealId = `D-${Date.now()}`;
-         const productItems = Array.isArray(lead.productItems) ? lead.productItems : [];
-         const computedValue = lead.value || productItems.reduce((sum, item) => {
-            return sum + (item.price * item.quantity);
-         }, 0);
+      const resolvedOwnerId = ownerId || lead.ownerId || user?.id || 'admin';
 
-         const deal: IDeal = {
-            id: dealId,
-            leadId: contactData.id, // Link to contact
-            title: `${lead.name} - ${lead.program}`,
-            value: computedValue || 0,
-            stage: DealStage.NEW_OPP, // First column
-            ownerId: lead.ownerId,
-            expectedCloseDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-            products: [lead.program],
-            probability: 20,
-            createdAt: new Date().toISOString(),
-            leadCreatedAt: lead.createdAt,
-            assignedAt: lead.pickUpDate,
-            activities: getLeadActivitiesForConversion(lead).map(a => ({
-               ...a,
-               type: a.type === 'message' ? 'chat' : a.type === 'system' ? 'note' : a.type as any
-            })) as any
-         };
-         addDeal(deal);
+      const leadToConvert: ILead = {
+         ...lead,
+         ...formData,
+         ownerId: resolvedOwnerId,
+         studentInfo: {
+            ...(lead.studentInfo || {}),
+            ...studentInfo
+         },
+         status: LeadStatus.CONVERTED,
+         targetCountry: studentInfo.targetCountry || lead.targetCountry || 'Đức',
+      } as ILead;
 
-         // 4. Update Lead Status (if it's not deleted)
-         saveLead({ ...lead, status: LeadStatus.CONVERTED });
+      const { deal } = convertLeadToOpportunity(leadToConvert, {
+         ownerId: resolvedOwnerId,
+         salesChannel,
+         conversionAction,
+         customerAction,
+         targetDealId,
+      });
+      const updatedLead: ILead = {
+         ...leadToConvert,
+         status: LeadStatus.CONVERTED,
+         updatedAt: new Date().toISOString()
+      };
 
-         // 5. NAVIGATE TO PIPELINE (HIGHLIGHT NEW DEAL)
-         navigate('/pipeline', { state: { highlightLeadId: dealId } });
-      }
+      saveLead(updatedLead);
+      setLead(updatedLead);
+      setShowConvertModal(false);
+      navigate('/pipeline', { state: { highlightLeadId: deal.id } });
    };
 
    if (!lead) return <div className="p-10 text-center">Loading Lead...</div>;
@@ -263,12 +252,12 @@ const LeadDetails: React.FC = () => {
                <button className="flex items-center gap-2 px-4 py-2 rounded-lg border border-green-200 text-green-700 bg-green-50 text-sm font-bold hover:bg-green-100 transition-colors">
                   <PhoneOutgoing size={16} /> Gá»i Ä‘iá»‡n
                </button>
-               <button
-                  onClick={handleConvert}
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#1380ec] text-white text-sm font-bold hover:bg-blue-700 transition-colors shadow-sm"
-               >
-                  <UserPlus size={16} /> Chuyá»ƒn Ä‘á»•i (Convert)
-               </button>
+                <button
+                   onClick={handleConvert}
+                   className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#1380ec] text-white text-sm font-bold hover:bg-blue-700 transition-colors shadow-sm"
+                >
+                   <UserPlus size={16} /> Chuyển đổi
+                </button>
                <button
                   onClick={() => navigate(`/leads/${id}/sla`)}
                   className="flex items-center gap-2 px-4 py-2 rounded-lg border border-amber-200 text-amber-700 bg-amber-50 text-sm font-bold hover:bg-amber-100 transition-colors"
@@ -603,8 +592,8 @@ const LeadDetails: React.FC = () => {
                               onChange={(e) => setMeetingType(e.target.value as MeetingType)}
                            >
                               <option value="">-- Chá»n hÃ¬nh thá»©c --</option>
-                              <option value={MeetingType.OFFLINE}>Offline (Táº¡i trung tÃ¢m)</option>
-                              <option value={MeetingType.ONLINE}>Online (PhÃ³ng váº¥n)</option>
+                              <option value={MeetingType.OFFLINE}>Offline</option>
+                              <option value={MeetingType.ONLINE}>Online</option>
                            </select>
                         </div>
                      </div>
@@ -682,6 +671,21 @@ const LeadDetails: React.FC = () => {
             </aside>
 
          </div>
+
+         <ConvertLeadModal
+            isOpen={showConvertModal}
+            lead={lead ? ({
+               ...lead,
+               ...formData,
+               ownerId: String(formData.ownerId || lead.ownerId || ''),
+               studentInfo: {
+                  ...(lead.studentInfo || {}),
+                  ...studentInfo
+               }
+            } as ILead) : null}
+            onClose={() => setShowConvertModal(false)}
+            onConfirm={handleConfirmConvert}
+         />
       </div>
    );
 };

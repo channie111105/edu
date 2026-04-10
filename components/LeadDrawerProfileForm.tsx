@@ -1,11 +1,15 @@
 import React from 'react';
 import { ShieldCheck } from 'lucide-react';
 import {
+  LEAD_CAMPUS_OPTIONS,
+  LEAD_RELATION_OPTIONS,
   LEAD_TARGET_COUNTRY_OPTIONS,
   LeadCreateFormData,
   LeadCreateModalTab,
   STUDENT_EDUCATION_LEVEL_OPTIONS,
 } from '../utils/leadCreateForm';
+import { LEAD_CHANNEL_OPTIONS } from '../constants';
+import { LEAD_STATUS_OPTIONS } from '../utils/leadStatus';
 import LeadTagManager from './LeadTagManager';
 
 interface LeadDrawerProfileFormProps {
@@ -41,6 +45,15 @@ const POTENTIAL_OPTIONS = [
   { value: 'Nóng', label: 'Nóng' },
   { value: 'Tiềm năng', label: 'Tiềm năng' },
   { value: 'Tham khảo', label: 'Tham khảo' },
+];
+
+const PRODUCT_OPTIONS = [
+  { value: 'Tiếng Đức', label: 'Tiếng Đức' },
+  { value: 'Tiếng Trung', label: 'Tiếng Trung' },
+  { value: 'Du học Đức', label: 'Du học Đức' },
+  { value: 'Du học Trung', label: 'Du học Trung' },
+  { value: 'Du học Nghề', label: 'Du học Nghề' },
+  { value: 'XKLĐ', label: 'XKLĐ' },
 ];
 
 const getFieldInputClassName = (extraClassName = '') =>
@@ -114,15 +127,15 @@ const FieldBlock: React.FC<{
   title,
   children,
 }) => (
-    <div className={className} title={title}>
-      <label className={['field-label', labelClassName].filter(Boolean).join(' ')}>
-        {label}
-        {required && <span className="text-red-500"> *</span>}
-        {requiredHint && <span className="text-red-500"> {requiredHint}</span>}
-      </label>
-      {children}
-    </div>
-  );
+  <div className={className} title={title}>
+    <label className={['field-label', labelClassName].filter(Boolean).join(' ')}>
+      {label}
+      {required && <span className="text-red-500"> *</span>}
+      {requiredHint && <span className="text-red-500"> {requiredHint}</span>}
+    </label>
+    {children}
+  </div>
+);
 
 const SectionShell: React.FC<{
   title: React.ReactNode;
@@ -157,11 +170,8 @@ const LeadDrawerProfileForm: React.FC<LeadDrawerProfileFormProps> = ({
   onDeleteTag,
 }) => {
   void leadFormActiveTab;
-  void salesOptions;
-  void customCloseReason;
   void viewMode;
   void onTabChange;
-  void onStatusChange;
 
   return (
     <>
@@ -182,6 +192,15 @@ const LeadDrawerProfileForm: React.FC<LeadDrawerProfileFormProps> = ({
 
       <SectionShell title="Thông tin lead" className="mb-10">
         <div className="grid grid-cols-1 gap-x-6 gap-y-4 md:grid-cols-2">
+          <FieldBlock label="Danh xưng / quan hệ">
+            {renderSelectField(
+              leadFormData.title,
+              LEAD_RELATION_OPTIONS.map((option) => ({ value: option.value, label: option.label })),
+              '-- Chọn --',
+              (value) => onPatch({ title: value }),
+            )}
+          </FieldBlock>
+
           <FieldBlock label="Họ và tên" required>
             {renderTextField(
               leadFormData.name,
@@ -216,6 +235,71 @@ const LeadDrawerProfileForm: React.FC<LeadDrawerProfileFormProps> = ({
               leadFormData.email,
               'name@example.com',
               (value) => onPatch({ email: value }),
+            )}
+          </FieldBlock>
+        </div>
+      </SectionShell>
+
+      <SectionShell title="Thông tin kinh doanh" className="mb-10 rounded-lg border border-slate-200 bg-slate-50 p-4">
+        <div className="grid grid-cols-1 gap-x-6 gap-y-4 md:grid-cols-2">
+          <FieldBlock label="Sản phẩm">
+            {renderSelectField(
+              leadFormData.product,
+              PRODUCT_OPTIONS,
+              '-- Chọn --',
+              (value) => onPatch({ product: value }),
+            )}
+          </FieldBlock>
+
+          <FieldBlock label="Cơ sở">
+            {renderSelectField(
+              leadFormData.market,
+              LEAD_CAMPUS_OPTIONS.map((option) => ({ value: option, label: option })),
+              '-- Chọn --',
+              (value) => onPatch({ market: value }),
+            )}
+          </FieldBlock>
+
+          <FieldBlock label="Sale phụ trách">
+            {renderSelectField(
+              leadFormData.salesperson,
+              salesOptions,
+              '-- Chọn sale --',
+              (value) => onPatch({ salesperson: value }),
+            )}
+          </FieldBlock>
+
+          <FieldBlock label="Trạng thái">
+            {renderSelectField(
+              leadFormData.status,
+              LEAD_STATUS_OPTIONS,
+              '-- Chọn trạng thái --',
+              (value) => onStatusChange(value),
+            )}
+          </FieldBlock>
+
+          <FieldBlock label="Chiến dịch">
+            {renderTextField(
+              leadFormData.campaign,
+              'VD: Summer 2026',
+              (value) => onPatch({ campaign: value }),
+            )}
+          </FieldBlock>
+
+          <FieldBlock label="Kênh">
+            {renderSelectField(
+              leadFormData.channel,
+              LEAD_CHANNEL_OPTIONS.map((option) => ({ value: option.value, label: option.label })),
+              '-- Chọn kênh --',
+              (value) => onPatch({ channel: value }),
+            )}
+          </FieldBlock>
+
+          <FieldBlock label="Người giới thiệu" className="md:col-span-2">
+            {renderTextField(
+              leadFormData.referredBy,
+              'VD: CTV A',
+              (value) => onPatch({ referredBy: value }),
             )}
           </FieldBlock>
         </div>

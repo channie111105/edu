@@ -1,8 +1,10 @@
 ﻿
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { getLeadById, saveLead, convertLeadToContact, addContact, addDeal, deleteLead, getLeadActivitiesForConversion } from '../utils/storage';
+import { getLeadById, saveLead, deleteLead } from '../utils/storage';
 import { useAuth } from '../contexts/AuthContext';
+import ConvertLeadModal, { ConvertLeadModalSubmitData } from '../components/ConvertLeadModal';
+import { convertLeadToOpportunity } from '../utils/leadConversion';
 import {
     ArrowLeft, Phone, Mail, MessageCircle, Clock, AlertCircle,
     CheckCircle2, XCircle, Calendar, Send, Edit, User,
@@ -70,6 +72,39 @@ const SalesLeadQuickProcess: React.FC = () => {
 
     const showToast = (message: string, type: 'success' | 'error' | 'warning' | 'info') => {
         setToast({ message, type });
+    };
+
+    const handleConfirmConvert = ({ ownerId, salesChannel, conversionAction, customerAction, targetDealId }: ConvertLeadModalSubmitData) => {
+        if (!lead) return;
+
+        try {
+            const { deal, mode, action } = convertLeadToOpportunity(lead, {
+                ownerId: ownerId || lead.ownerId || user?.id || 'admin',
+                salesChannel,
+                conversionAction,
+                customerAction,
+                targetDealId,
+            });
+
+            deleteLead(lead.id);
+            setShowConvertConfirm(false);
+            showToast(
+                action === 'merge_existing_opportunity'
+                    ? 'Đã gộp lead vào cơ hội hiện có. Đang chuyển sang Pipeline...'
+                    : mode === 'merge_contact'
+                        ? 'Đã gộp vào Contact cũ và tạo cơ hội mới. Đang chuyển sang Pipeline...'
+                        : 'Đã tạo Contact mới và cơ hội mới. Đang chuyển sang Pipeline...',
+                'success'
+            );
+
+            setTimeout(() => {
+                navigate(`/pipeline?newDeal=${deal.id}`);
+            }, 800);
+        } catch (error) {
+            console.error('[Convert] Error:', error);
+            setShowConvertConfirm(false);
+            showToast('Có lỗi xảy ra khi chuyển đổi lead.', 'error');
+        }
     };
 
     const handleStatusChange = (newStatus: LeadStatus) => {
@@ -217,7 +252,7 @@ const SalesLeadQuickProcess: React.FC = () => {
                             onClick={() => setShowConvertConfirm(true)}
                             className="flex items-center gap-2 px-4 py-2 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg"
                         >
-                            <Send size={16} /> Chuyển đổi (Convert)
+                            <Send size={16} /> Chuyển đổi
                         </button>
                     )}
 
@@ -614,7 +649,7 @@ const SalesLeadQuickProcess: React.FC = () => {
                             <p className="text-xs text-slate-500 mt-2 italic">
                                 {lead.status === LeadStatus.QUALIFIED
                                     ? 'Khách đạt chuẩn! Hãy nhấn "Chuyển đổi" để tạo Deal.'
-                                    : 'Điền đầy đủ thông tin và chuyển sang "Đạt chuẩn" để Convert.'}
+                                    : 'Điền đầy đủ thông tin và chuyển sang "Đạt chuẩn" để chuyển đổi.'}
                             </p>
                         </div>
 
@@ -696,90 +731,12 @@ const SalesLeadQuickProcess: React.FC = () => {
                 </div>
             )}
 
-            {/* Convert Confirmation Modal */}
-            {showConvertConfirm && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-                    <div className="bg-white rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl">
-                        <h3 className="text-lg font-bold text-slate-900 mb-2">Chuyển đổi Lead thành Deal</h3>
-                        <p className="text-sm text-slate-600 mb-4">
-                            Bạn có chắc chắn muốn chuyển đổi Lead này thành Deal?
-                            Hệ thống sẽ:
-                        </p>
-                        <ul className="text-sm text-slate-700 mb-4 space-y-1 list-disc list-inside">
-                            <li>Tạo Contact trong My Contact</li>
-                            <li>Tạo Deal mới trong Pipeline</li>
-                            <li>Chuyển bạn sang trang Pipeline</li>
-                        </ul>
-
-                        <div className="flex gap-3">
-                            <button
-                                onClick={() => setShowConvertConfirm(false)}
-                                className="flex-1 px-4 py-2 bg-slate-200 text-slate-700 rounded-lg font-medium hover:bg-slate-300"
-                            >
-                                Hủy
-                            </button>
-                            <button
-                                onClick={() => {
-                                    if (!lead) return;
-
-                                    try {
-                                        // 1. Convert Lead to Contact
-                                        const contact = convertLeadToContact(lead);
-                                        const savedContact = addContact(contact);
-                                        console.log('[Convert] Contact created:', savedContact.id);
-
-                                        // 2. Create Deal
-                                        const productItems = Array.isArray(lead.productItems) ? lead.productItems : [];
-                                        const computedValue = productItems.reduce((sum, item) => {
-                                            return sum + (item.price * item.quantity);
-                                        }, 0);
-
-                                        const newDeal = {
-                                            id: `D-${Date.now()}`,
-                                            leadId: savedContact.id,
-                                            title: `${lead.name} - ${lead.program || 'Chương trình'}`,
-                                            value: lead.value || computedValue || 0, // Sẽ cập nhật sau khi chọn sản phẩm
-                                            stage: DealStage.NEW_OPP, // Giai đoạn đầu tiên
-                                            ownerId: lead.ownerId,
-                                            expectedCloseDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // +30 days
-                                            products: lead.program ? [lead.program] : [],
-                                            probability: 20,
-                                            createdAt: new Date().toISOString(),
-                                            leadCreatedAt: lead.createdAt,
-                                            assignedAt: lead.pickUpDate,
-                                            activities: getLeadActivitiesForConversion(lead).map(a => ({ ...a, type: a.type === 'message' ? 'chat' : a.type === 'system' ? 'note' : a.type as any })) as any
-                                        };
-
-                                        addDeal(newDeal);
-                                        console.log('[Convert] Deal created:', newDeal.id);
-
-                                        // 3. Delete Lead from My Leads (IMPORTANT!)
-                                        deleteLead(lead.id);
-                                        console.log('[Convert] Lead deleted from My Leads:', lead.id);
-
-                                        // 4. Show success toast
-                                        setShowConvertConfirm(false);
-                                        showToast('✅ Đã chuyển đổi thành công! Đang chuyển sang Pipeline...', 'success');
-
-                                        // 5. Navigate to Pipeline with new deal highlighted
-                                        setTimeout(() => {
-                                            navigate(`/pipeline?newDeal=${newDeal.id}`);
-                                        }, 800);
-
-                                    } catch (error) {
-                                        console.error('[Convert] Error:', error);
-                                        showToast('❌ Có lỗi xảy ra khi chuyển đổi!', 'error');
-                                        setShowConvertConfirm(false);
-                                    }
-                                }}
-                                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700"
-                            >
-                                Xác nhận
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
+            <ConvertLeadModal
+                isOpen={showConvertConfirm}
+                lead={lead}
+                onClose={() => setShowConvertConfirm(false)}
+                onConfirm={handleConfirmConvert}
+            />
         </div>
     );
 };

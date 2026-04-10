@@ -25,14 +25,17 @@ import {
     Pencil,
     AlertTriangle
 } from 'lucide-react';
-import { getLeads, getCollaborators, saveCollaborators } from '../utils/storage';
+import { getLeads, getCollaborators, saveCollaborators, getSalesTeams } from '../utils/storage';
 import { LeadStatus, IActivityLog, UserRole } from '../types';
 import { useAuth } from '../contexts/AuthContext';
+import LogAudienceFilterControl from '../components/LogAudienceFilter';
 import PinnedSearchInput, { PinnedSearchChip } from '../components/PinnedSearchInput';
+import { LogAudienceFilter } from '../utils/logAudience';
 
 // Mock Data for Collaborators
 interface ICollaborator {
     id: string;
+    code?: string;
     name: string;
     phone: string;
     email?: string;
@@ -44,7 +47,7 @@ interface ICollaborator {
     segment: string;  // Mảng hợp tác
     notes: string;
     nextAppointment?: string; // Lịch hẹn
-    status?: 'Active' | 'Need Support' | 'Stopped' | 'New';
+    status?: 'Hoạt động' | 'Tạm ngưng' | 'Dừng hợp tác' | 'Active' | 'Need Support' | 'Stopped' | 'New';
     activities?: IActivityLog[];
     followers?: ICollaboratorFollower[];
 }
@@ -54,12 +57,14 @@ interface ICollaboratorFollower {
     name: string;
     avatar?: string;
     role?: string;
+    branch?: string;
     addedAt?: string;
 }
 
 const MOCK_COLLABORATORS: ICollaborator[] = [
     {
         id: 'ctv_1',
+        code: 'CTV0001',
         name: 'Nguyễn Văn A',
         phone: '0912345678',
         ownerId: 'u1',
@@ -69,10 +74,11 @@ const MOCK_COLLABORATORS: ICollaborator[] = [
         segment: 'IELTS',
         notes: 'Cần gửi chính sách thưởng mới',
         nextAppointment: '2026-05-20',
-        status: 'Active'
+        status: 'Hoạt động'
     },
     {
         id: 'ctv_2',
+        code: 'CTV0002',
         name: 'Trần Thị B',
         phone: '0988777666',
         ownerId: 'u2',
@@ -82,10 +88,11 @@ const MOCK_COLLABORATORS: ICollaborator[] = [
         segment: 'Du học',
         notes: 'Đã gửi quà tết. Follow up tháng sau.',
         nextAppointment: '2026-06-10',
-        status: 'Need Support'
+        status: 'Tạm ngưng'
     },
     {
         id: 'ctv_3',
+        code: 'CTV0003',
         name: 'Lê Văn C',
         phone: '0901112233',
         ownerId: 'u3',
@@ -94,7 +101,7 @@ const MOCK_COLLABORATORS: ICollaborator[] = [
         industry: 'Trung tâm tiếng Anh',
         segment: 'Xuất khẩu lao động',
         notes: 'Tiềm năng lớn, cần chăm sóc kỹ.',
-        status: 'Active'
+        status: 'Hoạt động'
     }
 ];
 
@@ -113,7 +120,177 @@ const COLLABORATOR_ACTIVITY_TYPES = [
     { id: 'Zalo', label: 'Zalo', icon: MessageSquare }
 ] as const;
 
+const COLLABORATOR_SCHEDULE_TYPES = [
+    { id: 'call', label: 'Gọi điện', defaultDelayHours: 2 },
+    { id: 'message', label: 'Nhắn tin', defaultDelayHours: 1 },
+    { id: 'email', label: 'Gửi email', defaultDelayHours: 2 },
+    { id: 'meeting', label: 'Meeting', defaultDelayHours: 24 },
+    { id: 'other', label: 'Khác', defaultDelayHours: 4 }
+] as const;
+
+const COLLABORATOR_REGION_OPTIONS = ['Miền Bắc', 'Miền Trung', 'Miền Nam'] as const;
+
 const COLLABORATOR_FOCUS_KEY = 'educrm_collaborator_focus_id';
+
+type CollaboratorStatusValue = 'Hoạt động' | 'Tạm ngưng' | 'Dừng hợp tác';
+
+const COLLABORATOR_STATUS_OPTIONS: Array<{
+    id: CollaboratorStatusValue;
+    label: CollaboratorStatusValue;
+    badgeClass: string;
+    buttonActiveClass: string;
+}> = [
+    {
+        id: 'Hoạt động',
+        label: 'Hoạt động',
+        badgeClass: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+        buttonActiveClass: 'border-emerald-600 bg-emerald-600 text-white shadow-md'
+    },
+    {
+        id: 'Tạm ngưng',
+        label: 'Tạm ngưng',
+        badgeClass: 'border-amber-200 bg-amber-50 text-amber-700',
+        buttonActiveClass: 'border-amber-600 bg-amber-600 text-white shadow-md'
+    },
+    {
+        id: 'Dừng hợp tác',
+        label: 'Dừng hợp tác',
+        badgeClass: 'border-rose-200 bg-rose-50 text-rose-700',
+        buttonActiveClass: 'border-rose-600 bg-rose-600 text-white shadow-md'
+    }
+];
+
+const normalizeCollaboratorStatus = (status?: ICollaborator['status']): CollaboratorStatusValue => {
+    switch (status) {
+        case 'Hoạt động':
+        case 'Active':
+            return 'Hoạt động';
+        case 'Dừng hợp tác':
+        case 'Stopped':
+            return 'Dừng hợp tác';
+        case 'Tạm ngưng':
+        case 'Need Support':
+        case 'New':
+            return 'Tạm ngưng';
+        default:
+            return 'Tạm ngưng';
+    }
+};
+
+const getCollaboratorStatusMeta = (status?: ICollaborator['status']) =>
+    COLLABORATOR_STATUS_OPTIONS.find((item) => item.id === normalizeCollaboratorStatus(status)) || COLLABORATOR_STATUS_OPTIONS[1];
+
+const getCollaboratorStatusLabel = (status?: ICollaborator['status']) =>
+    getCollaboratorStatusMeta(status).label;
+
+const normalizeTextToken = (value?: string) =>
+    String(value || '')
+        .trim()
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '');
+
+const normalizeCollaboratorRegion = (value?: string): (typeof COLLABORATOR_REGION_OPTIONS)[number] => {
+    const token = normalizeTextToken(value);
+
+    if (
+        token.includes('mien trung') ||
+        token.includes('da nang') ||
+        token.includes('central') ||
+        token === 'trung'
+    ) {
+        return 'Miền Trung';
+    }
+
+    if (
+        token.includes('mien nam') ||
+        token.includes('ho chi minh') ||
+        token.includes('sai gon') ||
+        token === 'hcm' ||
+        token.includes('south') ||
+        token === 'nam'
+    ) {
+        return 'Miền Nam';
+    }
+
+    return 'Miền Bắc';
+};
+
+const normalizeCollaboratorLogDescription = (description?: string) => {
+    const value = String(description || '');
+    if (!value.includes('Trạng thái CTV:')) return value;
+
+    return value
+        .replaceAll('Need Support', 'Tạm ngưng')
+        .replaceAll('Stopped', 'Dừng hợp tác')
+        .replaceAll('Paused', 'Tạm ngưng')
+        .replaceAll('Active', 'Hoạt động')
+        .replaceAll('New', 'Tạm ngưng');
+};
+
+const COLLABORATOR_LOG_TYPE_META: Record<IActivityLog['type'], { label: string; badgeClass: string; bodyClass: string }> = {
+    system: {
+        label: 'Hệ thống',
+        badgeClass: 'bg-slate-100 text-slate-600',
+        bodyClass: 'bg-slate-50 border-transparent text-slate-500 italic p-2 shadow-none'
+    },
+    note: {
+        label: 'Log Note',
+        badgeClass: 'bg-amber-100 text-amber-800',
+        bodyClass: 'bg-amber-50 border-amber-100 text-slate-800'
+    },
+    activity: {
+        label: 'Lịch hẹn',
+        badgeClass: 'bg-violet-100 text-violet-700',
+        bodyClass: 'bg-violet-50 border-violet-100 text-violet-900'
+    },
+    message: {
+        label: 'Tin nhắn',
+        badgeClass: 'bg-blue-100 text-blue-700',
+        bodyClass: 'bg-blue-50 border-blue-100 text-slate-800'
+    }
+};
+
+const getCollaboratorLogMeta = (type?: IActivityLog['type']) => COLLABORATOR_LOG_TYPE_META[type || 'note'] || COLLABORATOR_LOG_TYPE_META.note;
+
+const normalizeCollaboratorCode = (value?: string) => String(value || '').trim().toUpperCase();
+
+const parseCollaboratorCodeNumber = (value?: string) => {
+    const matched = normalizeCollaboratorCode(value).match(/(\d+)$/);
+    return matched ? Number.parseInt(matched[1], 10) : null;
+};
+
+const formatCollaboratorCode = (value: number) => `CTV${String(value).padStart(4, '0')}`;
+
+const getNextCollaboratorCode = (items: Array<Pick<ICollaborator, 'code'>>) => {
+    const maxCode = items.reduce((maxValue, item) => {
+        const parsedValue = parseCollaboratorCodeNumber(item.code);
+        return parsedValue && parsedValue > maxValue ? parsedValue : maxValue;
+    }, 0);
+
+    return formatCollaboratorCode(maxCode + 1);
+};
+
+const ensureCollaboratorCodes = (items: ICollaborator[]) => {
+    const normalized = items.map((item) => ({
+        ...item,
+        code: normalizeCollaboratorCode(item.code)
+    }));
+
+    let nextCodeNumber = normalized.reduce((maxValue, item) => {
+        const parsedValue = parseCollaboratorCodeNumber(item.code);
+        return parsedValue && parsedValue > maxValue ? parsedValue : maxValue;
+    }, 0);
+
+    return normalized.map((item) => {
+        if (item.code) return item;
+        nextCodeNumber += 1;
+        return {
+            ...item,
+            code: formatCollaboratorCode(nextCodeNumber)
+        };
+    });
+};
 
 const getInitials = (name?: string) =>
     (name || '')
@@ -126,11 +303,13 @@ const getInitials = (name?: string) =>
 const buildCollaboratorFollower = (
     id: string,
     name: string,
-    role = 'Nhân viên kinh doanh'
+    role = 'Nhân viên kinh doanh',
+    branch?: string
 ): ICollaboratorFollower => ({
     id,
     name,
     role,
+    branch,
     avatar: getInitials(name),
     addedAt: new Date().toISOString()
 });
@@ -168,6 +347,7 @@ const formatDelayMinutes = (minutes: number): string => {
 // Column Defs
 const ALL_COLUMNS = [
     { id: 'index', label: '#', visible: true },
+    { id: 'status', label: 'Trạng thái', visible: true },
     { id: 'name', label: 'Họ tên & SĐT', visible: true },
     { id: 'city', label: 'Khu vực', visible: true },
     { id: 'industry', label: 'Ngành nghề', visible: true },
@@ -187,56 +367,97 @@ interface CollaboratorCareDrawerProps {
 
 const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, isOpen, onClose, onUpdate, onEdit }) => {
     const { user } = useAuth();
+    const [overviewNote, setOverviewNote] = useState('');
     const [noteContent, setNoteContent] = useState('');
     const [interactionType, setInteractionType] = useState('Call');
-    const [scheduleNext, setScheduleNext] = useState(true);
+    const [scheduleNext, setScheduleNext] = useState(false);
     const [showNextActivityModal, setShowNextActivityModal] = useState(false);
-    const [nextActivityType, setNextActivityType] = useState<(typeof COLLABORATOR_ACTIVITY_TYPES)[number]['id']>('Call');
+    const [nextActivityType, setNextActivityType] = useState<(typeof COLLABORATOR_SCHEDULE_TYPES)[number]['id']>('call');
     const [nextActivityDate, setNextActivityDate] = useState('');
     const [nextActivitySummary, setNextActivitySummary] = useState('');
     const [showFollowersModal, setShowFollowersModal] = useState(false);
+    const [followerBranchFilter, setFollowerBranchFilter] = useState('all');
+    const [logAudienceFilter, setLogAudienceFilter] = useState<LogAudienceFilter>('ALL');
     const [toast, setToast] = useState<{ message: string; type: 'success' | 'error'; visible: boolean } | null>(null);
     const [activeTab, setActiveTab] = useState<'info' | 'care'>('care');
 
     const salesFollowerOptions = useMemo(() => {
         const options = new Map<string, ICollaboratorFollower>();
+        const teams = getSalesTeams();
+
+        teams.forEach((team) => {
+            team.members.forEach((member) => {
+                options.set(
+                    member.userId,
+                    buildCollaboratorFollower(
+                        member.userId,
+                        member.name,
+                        member.role || 'Nhân viên kinh doanh',
+                        member.branch || team.branch
+                    )
+                );
+            });
+        });
 
         SALE_OWNER_OPTIONS.forEach((item) => {
-            options.set(item.id, buildCollaboratorFollower(item.id, item.name));
+            const existing = options.get(item.id);
+            options.set(
+                item.id,
+                existing
+                    ? { ...existing, name: item.name, avatar: existing.avatar || getInitials(item.name) }
+                    : buildCollaboratorFollower(item.id, item.name)
+            );
         });
 
         if (user?.id && user?.name) {
+            const existing = options.get(user.id);
             options.set(
                 user.id,
-                buildCollaboratorFollower(
-                    user.id,
-                    user.name,
-                    user.role || 'Nhân viên kinh doanh'
-                )
+                existing
+                    ? { ...existing, name: user.name, role: existing.role || user.role || 'Nhân viên kinh doanh' }
+                    : buildCollaboratorFollower(
+                        user.id,
+                        user.name,
+                        user.role || 'Nhân viên kinh doanh'
+                    )
             );
         }
 
-        return Array.from(options.values());
+        return Array.from(options.values()).sort((a, b) => a.name.localeCompare(b.name, 'vi'));
     }, [user?.id, user?.name, user?.role]);
+
+    const followerBranchOptions = useMemo(
+        () => Array.from(new Set(salesFollowerOptions.map((item) => item.branch).filter(Boolean))).sort((a, b) => String(a).localeCompare(String(b), 'vi')),
+        [salesFollowerOptions]
+    );
+
+    const filteredSalesFollowerOptions = useMemo(
+        () => salesFollowerOptions.filter((item) => followerBranchFilter === 'all' || item.branch === followerBranchFilter),
+        [salesFollowerOptions, followerBranchFilter]
+    );
 
     const currentFollowers = useMemo(() => {
         const merged = new Map<string, ICollaboratorFollower>();
 
         if (ctv.ownerId) {
+            const ownerOption = salesFollowerOptions.find((item) => item.id === ctv.ownerId);
             const ownerLabel =
                 ctv.ownerName ||
-                salesFollowerOptions.find((item) => item.id === ctv.ownerId)?.name ||
+                ownerOption?.name ||
                 ctv.ownerId;
             merged.set(
                 ctv.ownerId,
-                buildCollaboratorFollower(ctv.ownerId, ownerLabel, 'Sale phụ trách')
+                buildCollaboratorFollower(ctv.ownerId, ownerLabel, ownerOption?.role || 'Sale phụ trách', ownerOption?.branch)
             );
         }
 
         (ctv.followers || []).forEach((item) => {
+            const matchedOption = salesFollowerOptions.find((option) => option.id === item.id);
             merged.set(item.id, {
                 ...item,
-                avatar: item.avatar || getInitials(item.name)
+                avatar: item.avatar || getInitials(item.name),
+                role: item.role || matchedOption?.role,
+                branch: item.branch || matchedOption?.branch
             });
         });
 
@@ -250,45 +471,76 @@ const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, is
         }, 2400);
     };
 
-    const getDefaultNextActivityDate = () => {
+    const getDefaultNextActivityDate = (typeId: (typeof COLLABORATOR_SCHEDULE_TYPES)[number]['id'] = 'call') => {
+        const matchedType = COLLABORATOR_SCHEDULE_TYPES.find((item) => item.id === typeId);
+        const delayHours = matchedType?.defaultDelayHours || 0;
         const now = new Date();
+        now.setHours(now.getHours() + delayHours);
         const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
         return local.toISOString().slice(0, 16);
     };
 
-    const openNextActivityModal = (summary?: string) => {
-        setNextActivityType(interactionType as (typeof COLLABORATOR_ACTIVITY_TYPES)[number]['id']);
-        setNextActivityDate(getDefaultNextActivityDate());
-        setNextActivitySummary(summary || '');
-        setShowNextActivityModal(true);
+    const resetNextActivityForm = () => {
+        setNextActivityType('call');
+        setNextActivityDate(getDefaultNextActivityDate('call'));
+        setNextActivitySummary('');
     };
 
     const closeNextActivityModal = () => {
         setShowNextActivityModal(false);
-        setNextActivityType('Call');
-        setNextActivityDate('');
-        setNextActivitySummary('');
+        resetNextActivityForm();
     };
 
     useEffect(() => {
         if (!isOpen) return;
+        setOverviewNote(ctv.notes || '');
         setNoteContent('');
         setInteractionType('Call');
-        setScheduleNext(true);
+        setScheduleNext(false);
         setShowNextActivityModal(false);
         setShowFollowersModal(false);
-        setNextActivityType('Call');
-        setNextActivityDate('');
-        setNextActivitySummary('');
+        setFollowerBranchFilter('all');
+        setLogAudienceFilter('ALL');
+        resetNextActivityForm();
         setToast(null);
-    }, [ctv.id, isOpen]);
+    }, [ctv.id, ctv.notes, isOpen]);
+
+    useEffect(() => {
+        if (!scheduleNext) return;
+        setNextActivityDate(getDefaultNextActivityDate(nextActivityType));
+    }, [nextActivityType, scheduleNext]);
 
     if (!isOpen) return null;
 
     const handleAddNote = () => {
-        if (!noteContent.trim()) {
+        const trimmedNote = noteContent.trim();
+        const trimmedScheduleSummary = nextActivitySummary.trim();
+
+        if (!trimmedNote && !scheduleNext) {
             showToast('Vui lòng nhập nội dung chăm sóc CTV.', 'error');
             return;
+        }
+
+        if (scheduleNext && !trimmedScheduleSummary) {
+            showToast('\u0056ui l\u00f2ng nh\u1eadp n\u1ed9i dung l\u1ecbch ch\u0103m s\u00f3c.', 'error');
+            return;
+        }
+
+        if (scheduleNext && !nextActivityDate) {
+            showToast('\u0056ui l\u00f2ng ch\u1ecdn ng\u00e0y gi\u1edd cho l\u1ecbch ch\u0103m s\u00f3c.', 'error');
+            return;
+        }
+
+        if (scheduleNext) {
+            if (!trimmedScheduleSummary) {
+                showToast('Vui lÃ²ng nháº­p ná»™i dung lá»‹ch chÄƒm sÃ³c.', 'error');
+                return;
+            }
+
+            if (!nextActivityDate) {
+                showToast('Vui lÃ²ng chá»n ngÃ y giá» cho lá»‹ch chÄƒm sÃ³c.', 'error');
+                return;
+            }
         }
 
         const typeLabels: Record<string, string> = {
@@ -308,17 +560,74 @@ const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, is
             user: user?.name || 'Admin'
         };
 
+        const createdActivities: IActivityLog[] = [];
+        let nextAppointment = ctv.nextAppointment;
+
+        if (scheduleNext) {
+            const activityLabel =
+                COLLABORATOR_SCHEDULE_TYPES.find((item) => item.id === nextActivityType)?.label || nextActivityType;
+
+            const scheduledDate = new Date(nextActivityDate);
+            const scheduledAt = Number.isNaN(scheduledDate.getTime())
+                ? nextActivityDate
+                : scheduledDate.toISOString();
+
+            createdActivities.push({
+                id: `next-act-${Date.now()}`,
+                type: 'activity',
+                status: 'scheduled',
+                timestamp: new Date().toISOString(),
+                title: `[${activityLabel}] L\u1ecbch ch\u0103m s\u00f3c ti\u1ebfp theo`,
+                description: trimmedScheduleSummary,
+                user: user?.name || 'Admin',
+                datetime: scheduledAt
+            });
+
+            nextAppointment = scheduledAt;
+        }
+
+        if (trimmedNote) {
+            createdActivities.push({
+                id: `act-${Date.now() + 1}`,
+                type: 'note',
+                timestamp: new Date().toISOString(),
+                title: `[${typeLabels[interactionType] || interactionType}] Ch\u0103m s\u00f3c CTV`,
+                description: trimmedNote,
+                user: user?.name || 'Admin'
+            });
+        }
+
         const updatedCtv: ICollaborator = {
             ...ctv,
-            activities: [newActivity, ...(ctv.activities || [])]
+            nextAppointment,
+            activities: [...createdActivities, ...(ctv.activities || [])]
         };
 
         onUpdate(updatedCtv);
         setNoteContent('');
         showToast('Đã lưu nhật ký chăm sóc CTV.');
         if (scheduleNext) {
-            openNextActivityModal('Tạo lịch tiếp theo sau khi lưu chăm sóc CTV');
+            resetNextActivityForm();
         }
+        showToast(
+            scheduleNext
+                ? trimmedNote
+                    ? '\u0110\u00e3 l\u01b0u ch\u0103m s\u00f3c v\u00e0 t\u1ea1o l\u1ecbch ti\u1ebfp theo cho CTV.'
+                    : '\u0110\u00e3 t\u1ea1o l\u1ecbch ch\u0103m s\u00f3c ti\u1ebfp theo cho CTV.'
+                : '\u0110\u00e3 l\u01b0u nh\u1eadt k\u00fd ch\u0103m s\u00f3c CTV.'
+        );
+    };
+
+    const handleSaveOverviewNote = () => {
+        const nextOverviewNote = overviewNote.trim();
+        const currentOverviewNote = String(ctv.notes || '').trim();
+        if (nextOverviewNote === currentOverviewNote) return;
+
+        onUpdate({
+            ...ctv,
+            notes: nextOverviewNote
+        });
+        showToast('Đã lưu ghi chú tổng quan CTV.');
     };
 
     const handleAddFollower = (follower: ICollaboratorFollower) => {
@@ -365,7 +674,7 @@ const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, is
         }
 
         const activityLabel =
-            COLLABORATOR_ACTIVITY_TYPES.find((item) => item.id === nextActivityType)?.label || nextActivityType;
+            COLLABORATOR_SCHEDULE_TYPES.find((item) => item.id === nextActivityType)?.label || nextActivityType;
 
         const scheduledDate = new Date(nextActivityDate);
         const scheduledAt = Number.isNaN(scheduledDate.getTime())
@@ -393,37 +702,46 @@ const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, is
         showToast('Đã tạo lịch tiếp theo cho CTV.');
     };
 
-    const handleStatusUpdate = (newStatus: any) => {
+    const handleStatusUpdate = (newStatus: CollaboratorStatusValue) => {
+        const previousStatus = getCollaboratorStatusMeta(ctv.status);
+        const nextStatus = getCollaboratorStatusMeta(newStatus);
         const systemLog: IActivityLog = {
             id: `sys-${Date.now()}`,
             type: 'system',
             timestamp: new Date().toISOString(),
             title: 'Hệ thống',
-            description: `Trạng thái CTV: ${ctv.status || 'New'} -> ${newStatus}`,
+            description: `Trạng thái CTV: ${previousStatus.label} -> ${nextStatus.label}`,
             user: user?.name || 'Admin'
         };
 
         onUpdate({
             ...ctv,
-            status: newStatus,
+            status: nextStatus.id,
             activities: [systemLog, ...(ctv.activities || [])]
         });
         showToast('Đã cập nhật trạng thái CTV.');
     };
 
-    const groupedLogs = (ctv.activities || []).sort((a, b) =>
-        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-    ).reduce((groups: any, log) => {
-        const date = new Date(log.timestamp).toLocaleDateString('vi-VN');
-        if (!groups[date]) groups[date] = [];
-        groups[date].push(log);
-        return groups;
-    }, {});
+    const groupedLogs = useMemo(() => {
+        const filteredLogs = (ctv.activities || []).filter((log) =>
+            logAudienceFilter === 'ALL' ? true : logAudienceFilter === 'SYSTEM' ? log.type === 'system' : log.type !== 'system'
+        );
+
+        return [...filteredLogs]
+            .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+            .reduce((groups: Record<string, IActivityLog[]>, log) => {
+                const date = new Date(log.timestamp).toLocaleDateString('vi-VN');
+                if (!groups[date]) groups[date] = [];
+                groups[date].push(log);
+                return groups;
+            }, {});
+    }, [ctv.activities, logAudienceFilter]);
+    const currentStatus = normalizeCollaboratorStatus(ctv.status);
 
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={onClose} />
-            <div className="relative w-full max-w-6xl bg-white h-[90vh] rounded shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200 border border-slate-300">
+            <div className="relative flex h-[88vh] w-full max-w-6xl flex-col overflow-hidden rounded border border-slate-300 bg-white shadow-2xl animate-in fade-in zoom-in-95 duration-200">
                 {toast?.visible && (
                     <div className={`absolute top-5 left-1/2 z-[120] -translate-x-1/2 flex items-center gap-2 rounded-lg border px-4 py-2.5 shadow-xl ${toast.type === 'error' ? 'border-red-200 bg-red-50 text-red-700' : 'border-green-200 bg-green-50 text-green-700'}`}>
                         {toast.type === 'error' ? <AlertTriangle size={16} /> : <CheckCircle2 size={16} />}
@@ -431,20 +749,27 @@ const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, is
                     </div>
                 )}
                 {/* Header */}
-                <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+                <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-4 py-3">
                     <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded bg-indigo-600 flex items-center justify-center text-white font-bold text-lg">
+                        <div className="flex h-9 w-9 items-center justify-center rounded bg-indigo-600 text-base font-bold text-white">
                             {ctv.name.charAt(0)}
                         </div>
                         <div>
-                            <h2 className="font-bold text-slate-800 text-lg uppercase tracking-tight">{ctv.name}</h2>
-                            <p className="text-xs text-slate-500 font-medium">{ctv.phone} • {ctv.city}</p>
+                            <h2 className="text-base font-bold uppercase tracking-tight text-slate-800">{ctv.name}</h2>
+                            <div className="mt-0.5 flex flex-wrap items-center gap-2">
+                                {ctv.code && (
+                                    <span className="inline-flex items-center rounded-full border border-indigo-100 bg-indigo-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-indigo-700">
+                                        {ctv.code}
+                                    </span>
+                                )}
+                                <p className="text-xs text-slate-500 font-medium">{ctv.phone} • {normalizeCollaboratorRegion(ctv.city)}</p>
+                            </div>
                         </div>
                     </div>
                     <div className="flex items-center gap-2">
                         <button
                             onClick={() => onEdit(ctv)}
-                            className="px-3 py-1.5 rounded border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 transition-colors text-xs font-bold flex items-center gap-1.5"
+                            className="flex items-center gap-1.5 rounded border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-bold text-slate-600 transition-colors hover:bg-slate-100"
                         >
                             <Pencil size={14} /> Sửa thông tin
                         </button>
@@ -458,13 +783,13 @@ const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, is
                 <div className="flex border-b border-slate-200 bg-white">
                     <button
                         onClick={() => setActiveTab('care')}
-                        className={`px-6 py-3 text-xs font-bold uppercase tracking-wider transition-colors flex items-center gap-2 ${activeTab === 'care' ? 'border-b-2 border-indigo-600 text-indigo-700 bg-indigo-50/30' : 'text-slate-500 hover:bg-slate-50'}`}
+                        className={`flex items-center gap-2 px-5 py-2.5 text-xs font-bold uppercase tracking-wider transition-colors ${activeTab === 'care' ? 'border-b-2 border-indigo-600 bg-indigo-50/30 text-indigo-700' : 'text-slate-500 hover:bg-slate-50'}`}
                     >
                         <History size={14} /> Nhật ký chăm sóc
                     </button>
                     <button
                         onClick={() => setActiveTab('info')}
-                        className={`px-6 py-3 text-xs font-bold uppercase tracking-wider transition-colors flex items-center gap-2 ${activeTab === 'info' ? 'border-b-2 border-indigo-600 text-indigo-700 bg-indigo-50/30' : 'text-slate-500 hover:bg-slate-50'}`}
+                        className={`flex items-center gap-2 px-5 py-2.5 text-xs font-bold uppercase tracking-wider transition-colors ${activeTab === 'info' ? 'border-b-2 border-indigo-600 bg-indigo-50/30 text-indigo-700' : 'text-slate-500 hover:bg-slate-50'}`}
                     >
                         <User size={14} /> Thông tin chi tiết
                     </button>
@@ -476,7 +801,7 @@ const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, is
                             {/* LEFT SIDE: 2/3 - Activity Form */}
                             <div className="flex-[2] flex flex-col border-r border-slate-200 overflow-y-auto">
                                 {/* Odoo Chatter Header - Activity Buttons (Categories) */}
-                                <div className="border-b border-slate-200 p-2 bg-slate-50/50 sticky top-0 z-10 backdrop-blur-md">
+                                <div className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/50 px-3 py-2 backdrop-blur-md">
                                     <div className="max-w-4xl mx-auto flex flex-wrap gap-2">
                                         {COLLABORATOR_ACTIVITY_TYPES.map(btn => {
                                             const Icon = btn.icon;
@@ -494,10 +819,10 @@ const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, is
                                     </div>
                                 </div>
 
-                                <div className="max-w-4xl mx-auto w-full py-4 px-6 space-y-4">
+                                <div className="mx-auto flex w-full max-w-4xl flex-col gap-3 px-5 py-3">
                                     {/* Followers Row */}
-                                    <div className="flex items-center justify-between text-slate-500 border-b border-slate-100 pb-2">
-                                        <div className="flex items-center gap-3 text-sm">
+                                    <div className="flex items-center justify-between border-b border-slate-100 pb-1.5 text-slate-500">
+                                        <div className="flex items-center gap-3 text-xs">
                                             <div className="flex items-center gap-2">
                                                 <User size={16} />
                                                 <span className="font-medium">{currentFollowers.length} Followers</span>
@@ -508,7 +833,7 @@ const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, is
                                                         <div
                                                             key={follower.id}
                                                             title={follower.name}
-                                                            className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-white bg-blue-100 text-[10px] font-bold text-blue-700 shadow-sm"
+                                                            className="flex h-6 w-6 items-center justify-center rounded-full border-2 border-white bg-blue-100 text-[9px] font-bold text-blue-700 shadow-sm"
                                                         >
                                                             {follower.avatar || getInitials(follower.name)}
                                                         </div>
@@ -524,19 +849,41 @@ const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, is
                                         </button>
                                     </div>
 
+                                    <div className="rounded-xl border border-blue-200 bg-blue-50/40 p-3">
+                                        <div className="flex flex-wrap items-start justify-between gap-3">
+                                            <div>
+                                                <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Ghi chú tổng quan</div>
+                                                <p className="mt-1 text-xs text-slate-500">Ghim trên hồ sơ CTV, khác với log note và không đẩy vào lịch sử chatter.</p>
+                                            </div>
+                                            <button
+                                                onClick={handleSaveOverviewNote}
+                                                disabled={overviewNote.trim() === String(ctv.notes || '').trim()}
+                                                className="rounded-lg border border-blue-200 bg-white px-3 py-1.5 text-xs font-bold text-blue-700 transition-colors hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
+                                            >
+                                                Lưu ghi chú tổng quan
+                                            </button>
+                                        </div>
+                                        <textarea
+                                            value={overviewNote}
+                                            onChange={(e) => setOverviewNote(e.target.value)}
+                                            placeholder="Ghi chú cố định về hồ sơ CTV, định hướng chăm sóc, lưu ý quan trọng..."
+                                            className="mt-2 h-[88px] w-full resize-none rounded-xl border border-blue-200 bg-white px-3 py-2 text-sm leading-relaxed text-slate-700 outline-none transition-colors focus:border-blue-400"
+                                        />
+                                    </div>
+
                                     {/* Input Area */}
-                                    <div className="space-y-4">
+                                    <div className="space-y-3">
                                         <div className={`border-2 rounded transition-all ${noteContent.trim() ? 'border-amber-400 bg-amber-50/20' : 'border-amber-200 bg-white'}`}>
                                             <textarea
                                                 value={noteContent}
                                                 onChange={(e) => setNoteContent(e.target.value)}
                                                 placeholder={`Ghi chú nhanh cho team về việc ${interactionType === 'Call' ? 'gọi điện' : interactionType === 'Document' ? 'gửi tài liệu' : interactionType === 'Complaint' ? 'xử lý khiếu nại' : 'chăm sóc'}...`}
-                                                className="w-full p-4 text-sm focus:outline-none min-h-[120px] resize-none leading-relaxed bg-transparent"
+                                                className="h-[96px] w-full resize-none bg-transparent p-3 text-sm leading-relaxed focus:outline-none"
                                             />
                                         </div>
 
-                                        <div className="flex flex-wrap items-center justify-between gap-4">
-                                            <div className="flex items-center gap-4">
+                                        <div className="flex flex-wrap items-center justify-between gap-3">
+                                            <div className="flex items-center gap-3">
                                                 <label className="flex items-center gap-2 cursor-pointer group">
                                                     <input
                                                         type="checkbox"
@@ -544,7 +891,7 @@ const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, is
                                                         onChange={(e) => setScheduleNext(e.target.checked)}
                                                         className="w-4 h-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500"
                                                     />
-                                                    <span className="text-sm font-bold text-slate-600 group-hover:text-slate-900 transition-colors uppercase tracking-tight">Lên lịch tiếp theo?</span>
+                                                    <span className="text-[13px] font-bold uppercase tracking-tight text-slate-600 transition-colors group-hover:text-slate-900">Lên lịch tiếp theo?</span>
                                                 </label>
                                                 {ctv.nextAppointment && (
                                                     <span className="text-xs font-semibold text-slate-500">
@@ -555,42 +902,99 @@ const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, is
 
                                             <div className="flex items-center gap-2">
                                                 <span className="text-[10px] font-bold text-slate-400 uppercase mr-2 tracking-widest">Trạng thái CTV:</span>
-                                                {[
-                                                    { id: 'Active', label: 'Hoạt động', color: 'emerald' },
-                                                    { id: 'Need Support', label: 'Cần hỗ trợ', color: 'amber' },
-                                                    { id: 'Stopped', label: 'Ngừng', color: 'rose' }
-                                                ].map(s => (
+                                                {COLLABORATOR_STATUS_OPTIONS.map((statusOption) => (
                                                     <button
-                                                        key={s.id}
-                                                        onClick={() => handleStatusUpdate(s.id)}
-                                                        className={`px-3 py-1.5 rounded text-[10px] font-black uppercase tracking-tight border transition-all ${ctv.status === s.id ? `bg-${s.color}-600 text-white border-transparent shadow-md` : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'}`}
+                                                        key={statusOption.id}
+                                                        onClick={() => handleStatusUpdate(statusOption.id)}
+                                                        className={`rounded border px-2.5 py-1.5 text-[10px] font-black uppercase tracking-tight transition-all ${currentStatus === statusOption.id ? statusOption.buttonActiveClass : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'}`}
                                                     >
-                                                        {s.label}
+                                                        {statusOption.label}
                                                     </button>
                                                 ))}
                                                 <button
                                                     onClick={handleAddNote}
-                                                    disabled={!noteContent.trim()}
-                                                    className="bg-[#e67e22] hover:bg-[#d35400] disabled:opacity-50 text-white px-8 py-2 rounded font-bold transition-all shadow-md active:scale-95 text-sm ml-4 uppercase tracking-widest"
+                                                    disabled={!noteContent.trim() && (!scheduleNext || !nextActivitySummary.trim())}
+                                                    className="ml-2 rounded bg-[#e67e22] px-5 py-2 text-xs font-bold uppercase tracking-widest text-white shadow-md transition-all hover:bg-[#d35400] active:scale-95 disabled:opacity-50"
                                                 >
                                                     Gửi / Lưu
                                                 </button>
                                             </div>
                                         </div>
+
+                                        {scheduleNext && (
+                                            <div className="rounded-xl border border-violet-200 bg-violet-50/60 p-4">
+                                                <div className="flex flex-wrap items-start justify-between gap-3">
+                                                    <div>
+                                                        <div className="text-[10px] font-bold uppercase tracking-widest text-violet-700">{'L\u1ecbch ch\u0103m s\u00f3c ti\u1ebfp theo'}</div>
+                                                        <p className="mt-1 text-xs text-slate-500">{'Form CTV d\u00f9ng c\u00f9ng 3 tr\u01b0\u1eddng nh\u01b0 pipeline: h\u00e0nh \u0111\u1ed9ng, n\u1ed9i dung, ng\u00e0y gi\u1edd.'}</p>
+                                                    </div>
+                                                    {ctv.nextAppointment && (
+                                                        <span className="inline-flex items-center gap-1 rounded-full border border-violet-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-violet-700">
+                                                            <Clock size={12} />
+                                                            {formatCollaboratorDateTime(ctv.nextAppointment)}
+                                                        </span>
+                                                    )}
+                                                </div>
+
+                                                <div className="mt-4 space-y-3">
+                                                    <div>
+                                                        <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                                                            {'H\u00e0nh \u0111\u1ed9ng'}
+                                                        </label>
+                                                        <select
+                                                            value={nextActivityType}
+                                                            onChange={(e) => setNextActivityType(e.target.value as (typeof COLLABORATOR_SCHEDULE_TYPES)[number]['id'])}
+                                                            className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition-colors focus:border-violet-400"
+                                                        >
+                                                            {COLLABORATOR_SCHEDULE_TYPES.map((item) => (
+                                                                <option key={item.id} value={item.id}>{item.label}</option>
+                                                            ))}
+                                                        </select>
+                                                    </div>
+
+                                                    <div>
+                                                        <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                                                            {'N\u1ed9i dung'}
+                                                        </label>
+                                                        <textarea
+                                                            value={nextActivitySummary}
+                                                            onChange={(e) => setNextActivitySummary(e.target.value)}
+                                                            placeholder="Nh\u1eadp n\u1ed9i dung l\u1ecbch ch\u0103m s\u00f3c..."
+                                                            className="h-24 w-full resize-none rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition-colors focus:border-violet-400"
+                                                        />
+                                                    </div>
+
+                                                    <div>
+                                                        <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                                                            {'Ng\u00e0y gi\u1edd'}
+                                                        </label>
+                                                        <input
+                                                            type="datetime-local"
+                                                            value={nextActivityDate}
+                                                            onChange={(e) => setNextActivityDate(e.target.value)}
+                                                            className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 outline-none transition-colors focus:border-violet-400"
+                                                        />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                             </div>
 
                             {/* RIGHT SIDE: 1/3 - Activity Log (History) */}
                             <div className="flex-[1] flex flex-col bg-slate-50/50 overflow-hidden">
-                                <div className="p-3 border-b border-slate-200 bg-white sticky top-0 z-10">
+                                <div className="sticky top-0 z-10 border-b border-slate-200 bg-white p-3">
                                     <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
                                         <History size={14} /> Lịch sử Chatter
                                     </h3>
+                                    <div className="mt-3 flex justify-end">
+                                        <LogAudienceFilterControl value={logAudienceFilter} onChange={setLogAudienceFilter} />
+                                    </div>
                                 </div>
-                                <div className="flex-1 overflow-y-auto p-4 space-y-6">
+                                <div className="flex-1 space-y-4 overflow-y-auto p-3">
                                     {Object.keys(groupedLogs).length > 0 ? Object.keys(groupedLogs).map(date => (
-                                        <div key={date} className="space-y-4">
+                                        <div key={date} className="space-y-3">
                                             {/* Date Divider */}
                                             <div className="flex items-center gap-4 text-slate-300">
                                                 <div className="flex-1 h-px bg-slate-200"></div>
@@ -598,35 +1002,39 @@ const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, is
                                                 <div className="flex-1 h-px bg-slate-200"></div>
                                             </div>
 
-                                            {groupedLogs[date].map((log: any) => (
+                                            {groupedLogs[date].map((log: IActivityLog) => {
+                                                const logMeta = getCollaboratorLogMeta(log.type);
+                                                return (
                                                 <div key={log.id} className="space-y-1.5">
                                                     <div className="flex items-center justify-between px-1">
-                                                        <span className="font-bold text-slate-800 text-[10px]">{log.user.toLowerCase()}</span>
+                                                        <span className="font-bold text-slate-800 text-[10px]">{log.user || 'Hệ thống'}</span>
                                                         <span className="text-[9px] text-slate-400 font-medium">
                                                             {new Date(log.timestamp).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
                                                         </span>
                                                     </div>
 
-                                                    <div className="bg-white border border-slate-200 rounded-lg p-3 shadow-sm hover:shadow-md transition-all">
-                                                        <div className="flex flex-col gap-1.5">
-                                                            <span className={`w-fit ${log.title === 'Hệ thống' ? 'bg-slate-100 text-slate-600' : 'bg-amber-100 text-amber-800'} text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter`}>
-                                                                {log.title === 'Hệ thống' ? 'SYSTEM' : 'LOG NOTE'}
+                                                    <div className={`rounded-lg border p-2.5 shadow-sm transition-all hover:shadow-md ${logMeta.bodyClass}`}>
+                                                        <div className="flex flex-col gap-1">
+                                                            <span className={`w-fit text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter ${logMeta.badgeClass}`}>
+                                                                {logMeta.label}
                                                             </span>
-                                                            <p className="text-slate-600 text-[11px] leading-relaxed">{log.description}</p>
+                                                            {log.type !== 'system' && log.title ? (
+                                                                <p className="text-[11px] font-bold text-slate-700">{log.title}</p>
+                                                            ) : null}
+                                                            <p className="whitespace-pre-wrap text-[11px] leading-snug">{log.description}</p>
                                                         </div>
                                                         {log.datetime && (
-                                                            <div className="mt-2 pt-2 border-t border-slate-50 flex items-center gap-1.5 text-[8px] font-black text-amber-600">
+                                                            <div className="mt-1.5 flex items-center gap-1.5 border-t border-slate-200/70 pt-1.5 text-[8px] font-black text-amber-600">
                                                                 <Calendar size={10} /> HẸN: {formatCollaboratorDateTime(log.datetime)}
                                                             </div>
                                                         )}
                                                     </div>
                                                 </div>
-                                            ))}
+                                            )})}
                                         </div>
                                     )) : (
-                                        <div className="flex flex-col items-center justify-center py-20 text-slate-300 opacity-20">
-                                            <History size={48} />
-                                            <p className="text-[10px] font-black uppercase tracking-widest mt-2">Trống</p>
+                                        <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
+                                            Chưa có lịch sử phù hợp bộ lọc.
                                         </div>
                                     )}
                                 </div>
@@ -635,6 +1043,10 @@ const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, is
                     ) : (
                         <div className="p-8 space-y-6 overflow-y-auto chatter-scroll flex-1">
                             <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm grid grid-cols-2 gap-6 relative overflow-hidden">
+                                <div>
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Mã CTV</label>
+                                    <p className="text-sm font-bold text-slate-900 mt-0.5">{ctv.code || '--'}</p>
+                                </div>
                                 <div>
                                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Họ tên</label>
                                     <p className="text-sm font-bold text-slate-900 mt-0.5">{ctv.name}</p>
@@ -653,11 +1065,17 @@ const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, is
                                 </div>
                                 <div>
                                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Khu vực</label>
-                                    <p className="text-sm font-bold text-slate-900 mt-0.5">{ctv.city}</p>
+                                    <p className="text-sm font-bold text-slate-900 mt-0.5">{normalizeCollaboratorRegion(ctv.city)}</p>
                                 </div>
                                 <div>
                                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Sale phụ trách</label>
                                     <p className="text-sm font-bold text-indigo-600 mt-0.5">{ctv.ownerName || ctv.ownerId || 'Chưa gắn sale'}</p>
+                                </div>
+                                <div className="col-span-2">
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Ghi chú tổng quan</label>
+                                    <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-relaxed text-slate-700 whitespace-pre-wrap">
+                                        {ctv.notes || 'Chưa có ghi chú tổng quan.'}
+                                    </div>
                                 </div>
                             </div>
 
@@ -699,42 +1117,41 @@ const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, is
 
                                 <div className="space-y-4">
                                     <div>
-                                        <label className="mb-2 block text-xs font-bold uppercase tracking-widest text-slate-500">
-                                            Loại hoạt động
+                                        <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                                            Hành động
                                         </label>
-                                        <div className="grid w-full grid-cols-6 gap-1.5">
-                                            {COLLABORATOR_ACTIVITY_TYPES.map((item, index) => {
-                                                const Icon = item.icon;
-                                                const isActive = nextActivityType === item.id;
-                                                const spanClass = index < 3 ? 'col-span-2' : 'col-span-3';
-                                                return (
-                                                    <button
-                                                        key={item.id}
-                                                        onClick={() => setNextActivityType(item.id)}
-                                                        className={`${spanClass} rounded-md border px-1.5 py-1 text-[8px] font-bold uppercase transition-all ${isActive ? 'border-violet-400 bg-violet-50 text-violet-700' : 'border-slate-200 text-slate-500 hover:border-slate-300 hover:bg-slate-50'}`}
-                                                    >
-                                                        <div className={`mx-auto mb-0.5 flex h-5 w-5 items-center justify-center rounded-full ${isActive ? 'bg-violet-100' : 'bg-slate-100'}`}>
-                                                            <Icon size={10} />
-                                                        </div>
-                                                        <span className="leading-tight">{item.label}</span>
-                                                    </button>
-                                                );
-                                            })}
-                                        </div>
+                                        <select
+                                            value={nextActivityType}
+                                            onChange={(e) => setNextActivityType(e.target.value as (typeof COLLABORATOR_SCHEDULE_TYPES)[number]['id'])}
+                                            className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm text-slate-700 outline-none transition-colors focus:border-violet-400"
+                                        >
+                                            {COLLABORATOR_SCHEDULE_TYPES.map((item) => (
+                                                <option key={item.id} value={item.id}>{item.label}</option>
+                                            ))}
+                                        </select>
                                     </div>
 
-                                    <div className="space-y-3">
+                                    <div>
+                                        <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                                            Nội dung
+                                        </label>
+                                        <textarea
+                                            value={nextActivitySummary}
+                                            onChange={(e) => setNextActivitySummary(e.target.value)}
+                                            placeholder="Nhập nội dung lịch chăm sóc..."
+                                            className="h-24 w-full resize-none rounded-xl border border-slate-200 px-4 py-3 text-sm text-slate-700 outline-none transition-colors focus:border-violet-400"
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                                            Ngày giờ
+                                        </label>
                                         <input
                                             type="datetime-local"
                                             value={nextActivityDate}
                                             onChange={(e) => setNextActivityDate(e.target.value)}
                                             className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 outline-none transition-colors focus:border-violet-400"
-                                        />
-                                        <input
-                                            value={nextActivitySummary}
-                                            onChange={(e) => setNextActivitySummary(e.target.value)}
-                                            placeholder="Ví dụ: Gọi lại để chốt lịch gặp, gửi thêm tài liệu, hỏi tình hình cộng tác..."
-                                            className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm text-slate-700 outline-none transition-colors focus:border-violet-400"
                                         />
                                     </div>
                                 </div>
@@ -773,8 +1190,31 @@ const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, is
                                     </button>
                                 </div>
 
+                                <div className="border-b border-slate-200 px-4 py-3">
+                                    <div className="relative">
+                                        <select
+                                            value={followerBranchFilter}
+                                            onChange={(e) => setFollowerBranchFilter(e.target.value)}
+                                            className="w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 py-2 pl-10 pr-9 text-sm font-medium text-slate-700 outline-none transition-all hover:border-slate-300 focus:border-blue-400 focus:bg-white"
+                                        >
+                                            <option value="all">Cơ sở sale: Tất cả</option>
+                                            {followerBranchOptions.map((branch) => (
+                                                <option key={branch} value={branch}>
+                                                    {branch}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        <MapPin className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                                    </div>
+                                </div>
+
                                 <div className="max-h-[380px] space-y-2 overflow-y-auto px-4 py-4">
-                                    {salesFollowerOptions.map((item) => {
+                                    {filteredSalesFollowerOptions.length === 0 && (
+                                        <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+                                            Không có sale thuộc cơ sở này.
+                                        </div>
+                                    )}
+                                    {filteredSalesFollowerOptions.map((item) => {
                                         const isFollowing = currentFollowers.some((follower) => follower.id === item.id);
 
                                         return (
@@ -788,7 +1228,15 @@ const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, is
                                                     </div>
                                                     <div>
                                                         <div className="text-sm font-bold text-slate-800">{item.name}</div>
-                                                        <div className="text-xs text-slate-500">{item.role || 'Nhân viên kinh doanh'}</div>
+                                                        <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                                                            <span>{item.role || 'Nhân viên kinh doanh'}</span>
+                                                            {item.branch && (
+                                                                <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
+                                                                    <MapPin size={11} />
+                                                                    {item.branch}
+                                                                </span>
+                                                            )}
+                                                        </div>
                                                     </div>
                                                 </div>
 
@@ -830,7 +1278,6 @@ const Collaborators: React.FC = () => {
     const { user } = useAuth();
     const [searchTerm, setSearchTerm] = useState('');
     const [filterCity, setFilterCity] = useState('All');
-    const [filterIndustry, setFilterIndustry] = useState('All');
     const [activeTab, setActiveTab] = useState<'all' | 'slow_ctv'>('all');
     const [collaborators, setCollaborators] = useState<ICollaborator[]>([]);
     const [selectedCtv, setSelectedCtv] = useState<ICollaborator | null>(null);
@@ -860,24 +1307,32 @@ const Collaborators: React.FC = () => {
         const defaultOwnerId = user?.id || 'u1';
         const stored = getCollaborators();
         if (stored && stored.length > 0) {
-            const normalized = stored.map((item: ICollaborator) => {
+            const normalized = ensureCollaboratorCodes(stored.map((item: ICollaborator) => {
                 const ownerId = item.ownerId || defaultOwnerId;
                 return {
                     ...item,
+                    code: normalizeCollaboratorCode(item.code),
                     ownerId,
-                    ownerName: item.ownerName || getOwnerName(ownerId)
+                    ownerName: item.ownerName || getOwnerName(ownerId),
+                    status: normalizeCollaboratorStatus(item.status),
+                    activities: (item.activities || []).map((activity) => ({
+                        ...activity,
+                        description: normalizeCollaboratorLogDescription(activity.description)
+                    }))
                 };
-            });
+            }));
             setCollaborators(normalized);
             if (JSON.stringify(stored) !== JSON.stringify(normalized)) {
                 saveCollaborators(normalized);
             }
         } else {
-            const seeded = MOCK_COLLABORATORS.map(item => ({
+            const seeded = ensureCollaboratorCodes(MOCK_COLLABORATORS.map(item => ({
                 ...item,
+                code: normalizeCollaboratorCode(item.code),
                 ownerId: item.ownerId || defaultOwnerId,
-                ownerName: item.ownerName || getOwnerName(item.ownerId || defaultOwnerId)
-            }));
+                ownerName: item.ownerName || getOwnerName(item.ownerId || defaultOwnerId),
+                status: normalizeCollaboratorStatus(item.status)
+            })));
             setCollaborators(seeded);
             saveCollaborators(seeded);
         }
@@ -912,18 +1367,19 @@ const Collaborators: React.FC = () => {
     const scopedCollaborators = visibleCollaborators;
 
     // Derived Options for Filters
-    const cityOptions = useMemo(() => ['All', ...Array.from(new Set(visibleCollaborators.map(c => c.city)))], [visibleCollaborators]);
-    const industryOptions = useMemo(() => ['All', ...Array.from(new Set(visibleCollaborators.map(c => c.industry)))], [visibleCollaborators]);
-
+    const cityOptions = useMemo(() => ['All', ...COLLABORATOR_REGION_OPTIONS], []);
     // Filter Logic
     const filteredList = useMemo(() => {
         return visibleCollaborators.filter(c => {
-            const matchesSearch = c.name.toLowerCase().includes(searchTerm.toLowerCase()) || c.phone.includes(searchTerm);
-            const matchesCity = filterCity === 'All' || c.city === filterCity;
-            const matchesIndustry = filterIndustry === 'All' || c.industry === filterIndustry;
-            return matchesSearch && matchesCity && matchesIndustry;
+            const normalizedSearch = searchTerm.toLowerCase();
+            const matchesSearch =
+                normalizeCollaboratorCode(c.code).toLowerCase().includes(normalizedSearch) ||
+                c.name.toLowerCase().includes(normalizedSearch) ||
+                c.phone.includes(searchTerm);
+            const matchesCity = filterCity === 'All' || normalizeCollaboratorRegion(c.city) === filterCity;
+            return matchesSearch && matchesCity;
         });
-    }, [visibleCollaborators, searchTerm, filterCity, filterIndustry]);
+    }, [visibleCollaborators, searchTerm, filterCity]);
 
     const activeSearchChips = useMemo<PinnedSearchChip[]>(() => {
         const chips: PinnedSearchChip[] = [];
@@ -933,20 +1389,15 @@ const Collaborators: React.FC = () => {
         }
 
         if (filterCity !== 'All') {
-            chips.push({ key: 'city', label: `Khu vuc: ${filterCity}` });
-        }
-
-        if (filterIndustry !== 'All') {
-            chips.push({ key: 'industry', label: `Nganh nghe: ${filterIndustry}` });
+            chips.push({ key: 'city', label: `Khu vực: ${filterCity}` });
         }
 
         return chips;
-    }, [activeTab, filterCity, filterIndustry]);
+    }, [activeTab, filterCity]);
 
     const removeSearchChip = (chipKey: string) => {
         if (chipKey === 'sla') setActiveTab('all');
         if (chipKey === 'city') setFilterCity('All');
-        if (chipKey === 'industry') setFilterIndustry('All');
     };
 
     // Stats Calculation
@@ -969,6 +1420,7 @@ const Collaborators: React.FC = () => {
             : (user?.id || 'u1');
         const newItem: ICollaborator = {
             id: newId,
+            code: normalizeCollaboratorCode(newCtv.code) || getNextCollaboratorCode(collaborators),
             name: newCtv.name.trim(),
             phone: newCtv.phone.trim(),
             ownerId,
@@ -978,7 +1430,7 @@ const Collaborators: React.FC = () => {
             industry: newCtv.industry || '',
             segment: newCtv.segment || '',
             notes: newCtv.notes || '',
-            status: newCtv.status || 'New',
+            status: normalizeCollaboratorStatus(newCtv.status || 'Hoạt động'),
             activities: [{
                 id: `act-${Date.now()}`,
                 type: 'system',
@@ -996,8 +1448,10 @@ const Collaborators: React.FC = () => {
     const openEditModal = (ctv: ICollaborator) => {
         setEditingCtv({
             ...ctv,
+            code: normalizeCollaboratorCode(ctv.code),
             ownerId: ctv.ownerId || user?.id || 'u1',
-            ownerName: ctv.ownerName || getOwnerName(ctv.ownerId || user?.id || 'u1')
+            ownerName: ctv.ownerName || getOwnerName(ctv.ownerId || user?.id || 'u1'),
+            status: normalizeCollaboratorStatus(ctv.status)
         });
         setIsEditModalOpen(true);
     };
@@ -1014,6 +1468,7 @@ const Collaborators: React.FC = () => {
         const updated: ICollaborator = {
             ...current,
             ...editingCtv,
+            code: normalizeCollaboratorCode(editingCtv.code) || current.code || getNextCollaboratorCode(collaborators.filter(c => c.id !== editingCtv.id)),
             name: editingCtv.name.trim(),
             phone: editingCtv.phone.trim(),
             ownerId,
@@ -1022,6 +1477,7 @@ const Collaborators: React.FC = () => {
             industry: editingCtv.industry || '',
             segment: editingCtv.segment || '',
             notes: editingCtv.notes || '',
+            status: normalizeCollaboratorStatus(editingCtv.status),
             activities: [{
                 id: `act-${Date.now()}`,
                 type: 'system',
@@ -1079,8 +1535,10 @@ const Collaborators: React.FC = () => {
                     <button
                         onClick={() => {
                             setNewCtv({
+                                code: getNextCollaboratorCode(collaborators),
                                 ownerId: user?.id || 'u1',
-                                ownerName: user?.name || getOwnerName(user?.id || 'u1')
+                                ownerName: user?.name || getOwnerName(user?.id || 'u1'),
+                                status: 'Hoạt động'
                             });
                             setIsAddModalOpen(true);
                         }}
@@ -1119,7 +1577,7 @@ const Collaborators: React.FC = () => {
                         <PinnedSearchInput
                             value={searchTerm}
                             onChange={setSearchTerm}
-                            placeholder="Tim kiem theo ten, SDT, thanh pho..."
+                            placeholder="Tim kiem theo ma CTV, ten, SDT, thanh pho..."
                             chips={activeSearchChips}
                             onRemoveChip={removeSearchChip}
                             inputClassName="text-sm"
@@ -1144,18 +1602,20 @@ const Collaborators: React.FC = () => {
                             <MapPin className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={16} />
                         </div>
 
-                        <div className="relative min-w-[140px]">
+                        <div className="relative hidden min-w-[140px]">
                             <select
-                                value={filterIndustry}
-                                onChange={(e) => setFilterIndustry(e.target.value)}
+                                value="All"
+                                onChange={() => { }}
                                 className="w-full pl-8 pr-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 focus:bg-white outline-none appearance-none cursor-pointer font-medium text-slate-700 hover:border-slate-300"
                             >
-                                <option value="All">Ngành nghề: Tất cả</option>
-                                {industryOptions.filter(o => o !== 'All').map(i => (
-                                    <option key={i} value={i}>{i}</option>
+                                <option value="All">Trạng thái: Tất cả</option>
+                                {COLLABORATOR_STATUS_OPTIONS.map((statusOption) => (
+                                    <option key={statusOption.id} value={statusOption.id}>
+                                        {statusOption.label}
+                                    </option>
                                 ))}
                             </select>
-                            <Briefcase className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={16} />
+                            <CheckCircle2 className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={16} />
                         </div>
                     </div>
 
@@ -1207,6 +1667,7 @@ const Collaborators: React.FC = () => {
                                     {isColVisible('city') && <th className="p-3 border-r border-slate-200">Khu vực</th>}
                                     {isColVisible('industry') && <th className="p-3 border-r border-slate-200">Ngành nghề</th>}
                                     {isColVisible('segment') && <th className="p-3 border-r border-slate-200">Mảng hợp tác</th>}
+                                    {isColVisible('status') && <th className="p-3 border-r border-slate-200">Trạng thái</th>}
                                     {isColVisible('stats') && <th className="p-3 border-r border-slate-200 text-center bg-blue-50/50">HVGT / HĐ</th>}
                                     {isColVisible('notes') && <th className="p-3 border-r border-slate-200 min-w-[200px]">Ghi chú & Note</th>}
                                     {activeTab === 'slow_ctv' && <th className="p-3 border-r border-slate-200 min-w-[180px] text-rose-700">SLA chậm lịch hẹn</th>}
@@ -1236,6 +1697,11 @@ const Collaborators: React.FC = () => {
                                                         <div>
                                                             <div className="font-bold text-[#1e293b]">{ctv.name}</div>
                                                             <div className="flex items-center gap-2 mt-1 flex-wrap">
+                                                                {ctv.code ? (
+                                                                    <span className="inline-flex items-center gap-1 rounded border border-slate-200 bg-slate-100 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-slate-700">
+                                                                        {ctv.code}
+                                                                    </span>
+                                                                ) : null}
                                                                 <a
                                                                     href={`tel:${ctv.phone}`}
                                                                     className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 transition-colors text-xs font-bold"
@@ -1255,7 +1721,7 @@ const Collaborators: React.FC = () => {
                                             {isColVisible('city') && (
                                                 <td className="p-3 border-r border-slate-200">
                                                     <span className="flex items-center gap-1.5">
-                                                        <MapPin size={14} className="text-slate-400" /> {ctv.city}
+                                                        <MapPin size={14} className="text-slate-400" /> {normalizeCollaboratorRegion(ctv.city)}
                                                     </span>
                                                 </td>
                                             )}
@@ -1268,6 +1734,17 @@ const Collaborators: React.FC = () => {
                                                 <td className="p-3 border-r border-slate-200">
                                                     <span className="inline-block px-2 py-0.5 bg-slate-100 text-slate-600 text-xs rounded border border-slate-200 font-medium">
                                                         {ctv.segment}
+                                                    </span>
+                                                </td>
+                                            )}
+
+                                            {isColVisible('status') && (
+                                                <td className="p-3 border-r border-slate-200">
+                                                    <span
+                                                        className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-bold ${getCollaboratorStatusMeta(ctv.status).badgeClass}`}
+                                                        title={getCollaboratorStatusLabel(ctv.status)}
+                                                    >
+                                                        {getCollaboratorStatusLabel(ctv.status)}
                                                     </span>
                                                 </td>
                                             )}
@@ -1371,6 +1848,17 @@ const Collaborators: React.FC = () => {
                             </button>
                         </div>
                         <div className="p-6 space-y-4">
+                            <div>
+                                <label className="block text-sm font-bold text-slate-700 mb-1">Mã CTV</label>
+                                <input
+                                    type="text"
+                                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition-all uppercase"
+                                    value={newCtv.code || ''}
+                                    onChange={e => setNewCtv({ ...newCtv, code: e.target.value.toUpperCase() })}
+                                    placeholder="VD: CTV0004"
+                                />
+                            </div>
+
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="col-span-1">
                                     <label className="block text-sm font-bold text-slate-700 mb-1">Họ tên <span className="text-red-500">*</span></label>
@@ -1437,13 +1925,14 @@ const Collaborators: React.FC = () => {
                                     <label className="block text-sm font-bold text-slate-700 mb-1">Trạng thái</label>
                                     <select
                                         className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none bg-white focus:border-blue-500 transition-all"
-                                        value={newCtv.status || 'New'}
+                                        value={newCtv.status || 'Hoạt động'}
                                         onChange={e => setNewCtv({ ...newCtv, status: e.target.value as ICollaborator['status'] })}
                                     >
-                                        <option value="New">New</option>
-                                        <option value="Active">Active</option>
-                                        <option value="Need Support">Need Support</option>
-                                        <option value="Stopped">Stopped</option>
+                                        {COLLABORATOR_STATUS_OPTIONS.map((statusOption) => (
+                                            <option key={statusOption.id} value={statusOption.id}>
+                                                {statusOption.label}
+                                            </option>
+                                        ))}
                                     </select>
                                 </div>
                             </div>
@@ -1472,12 +1961,12 @@ const Collaborators: React.FC = () => {
                             </div>
 
                             <div>
-                                <label className="block text-sm font-bold text-slate-700 mb-1">Ghi chú & Lịch hẹn</label>
+                                <label className="block text-sm font-bold text-slate-700 mb-1">Ghi chú tổng quan</label>
                                 <textarea
                                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none min-h-[80px] focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all"
                                     value={newCtv.notes || ''}
                                     onChange={e => setNewCtv({ ...newCtv, notes: e.target.value })}
-                                    placeholder="Ghi chú về tiềm năng, lịch hẹn tiếp theo..."
+                                    placeholder="Ghi chú cố định về hồ sơ CTV, lưu ý quan trọng..."
                                 />
                             </div>
                         </div>
@@ -1518,6 +2007,17 @@ const Collaborators: React.FC = () => {
                         </div>
 
                         <div className="p-6 space-y-4">
+                            <div>
+                                <label className="block text-sm font-bold text-slate-700 mb-1">Mã CTV</label>
+                                <input
+                                    type="text"
+                                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition-all uppercase"
+                                    value={editingCtv.code || ''}
+                                    onChange={e => setEditingCtv({ ...editingCtv, code: e.target.value.toUpperCase() })}
+                                    placeholder="VD: CTV0004"
+                                />
+                            </div>
+
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="col-span-1">
                                     <label className="block text-sm font-bold text-slate-700 mb-1">Họ tên <span className="text-red-500">*</span></label>
@@ -1603,13 +2103,14 @@ const Collaborators: React.FC = () => {
                                     <label className="block text-sm font-bold text-slate-700 mb-1">Trạng thái</label>
                                     <select
                                         className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none bg-white focus:border-blue-500 transition-all"
-                                        value={editingCtv.status || 'New'}
+                                        value={editingCtv.status || 'Hoạt động'}
                                         onChange={e => setEditingCtv({ ...editingCtv, status: e.target.value as ICollaborator['status'] })}
                                     >
-                                        <option value="New">New</option>
-                                        <option value="Active">Active</option>
-                                        <option value="Need Support">Need Support</option>
-                                        <option value="Stopped">Stopped</option>
+                                        {COLLABORATOR_STATUS_OPTIONS.map((statusOption) => (
+                                            <option key={statusOption.id} value={statusOption.id}>
+                                                {statusOption.label}
+                                            </option>
+                                        ))}
                                     </select>
                                 </div>
                             </div>
@@ -1638,12 +2139,12 @@ const Collaborators: React.FC = () => {
                             </div>
 
                             <div>
-                                <label className="block text-sm font-bold text-slate-700 mb-1">Ghi chú</label>
+                                <label className="block text-sm font-bold text-slate-700 mb-1">Ghi chú tổng quan</label>
                                 <textarea
                                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none min-h-[80px] focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all"
                                     value={editingCtv.notes || ''}
                                     onChange={e => setEditingCtv({ ...editingCtv, notes: e.target.value })}
-                                    placeholder="Nhập ghi chú chăm sóc CTV..."
+                                    placeholder="Nhập ghi chú cố định về hồ sơ CTV..."
                                 />
                             </div>
                         </div>

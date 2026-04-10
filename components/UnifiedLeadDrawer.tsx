@@ -1,17 +1,17 @@
 ﻿import React, { useState, useEffect, useMemo } from 'react';
 import { useRef } from 'react';
-import { ILead, LeadStatus, UserRole, Activity, DealStage, IContract, ContractStatus, IMeeting, MeetingStatus, MeetingType, IQuotation, IQuotationLineItem, IQuotationLogNote, ITeacher, ITrainingClass, QuotationStatus } from '../types';
+import { ILead, LeadStatus, UserRole, Activity, DealStage, IContract, ContractStatus, IQuotation, IQuotationLineItem, IQuotationLogNote, ITeacher, ITrainingClass, QuotationStatus } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import {
     X, User, Phone, Mail, MapPin, Globe, Calendar,
     Clock, CheckCircle2, AlertTriangle, Send, Paperclip,
     History, ArrowRight, ChevronDown, Building, FileText,
     DollarSign, CreditCard, MessageSquare, Bell, Star,
-    MoreHorizontal, CalendarDays, Flag, CheckSquare, Plus, Trash2, Trophy,
+    MoreHorizontal, CalendarDays, Flag, Plus, Trash2, Trophy,
     ShieldCheck, FileSignature, Wallet, Lock, Activity as ActivityIcon, Ban, ArrowUpRight, Users, XOctagon, Tag, Handshake, ChevronRight,
     Printer, RotateCcw, Monitor
 } from 'lucide-react';
-import { FIXED_LEAD_TAGS, addContract, addMeeting, addQuotation, getClosedLeadReasons, getLeadById, getLostReasons, getQuotations, getTags, getTeachers, getTrainingClasses, saveTags, updateQuotation } from '../utils/storage';
+import { FIXED_LEAD_TAGS, addContract, addQuotation, getClosedLeadReasons, getLeadById, getLostReasons, getQuotations, getTags, getTeachers, getTrainingClasses, saveTags, updateQuotation } from '../utils/storage';
 import CreateMeetingModal from './CreateMeetingModal';
 import { MeetingCustomerOption } from '../utils/meetingHelpers';
 import { LEAD_CHANNEL_OPTIONS } from '../constants';
@@ -338,10 +338,11 @@ const createOrderDraft = (
 
 const ACTIVITY_TYPES = [
     { id: 'call', label: 'Gọi điện', icon: Phone, defaultDelayHours: 2 },
-    { id: 'meeting', label: 'Họp trực tiếp', icon: User, defaultDelayHours: 24 },
-    { id: 'email', label: 'Gửi Email', icon: Mail, defaultDelayHours: 0 },
-    { id: 'todo', label: 'Việc cần làm', icon: CheckSquare, defaultDelayHours: 0 },
-];
+    { id: 'message', label: 'Nhắn tin', icon: MessageSquare, defaultDelayHours: 1 },
+    { id: 'email', label: 'Gửi email', icon: Mail, defaultDelayHours: 2 },
+    { id: 'meeting', label: 'Meeting', icon: CalendarDays, defaultDelayHours: 24 },
+    { id: 'other', label: 'Khác', icon: MoreHorizontal, defaultDelayHours: 4 },
+] as const;
 
 const MOCK_USERS = [
     { id: 'u1', name: 'Sarah Miller', avatar: 'SM', role: 'Sales Rep' },
@@ -530,9 +531,6 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
     const [showStatusDropdown, setShowStatusDropdown] = useState(false);
     const [showConfetti, setShowConfetti] = useState(false);
 
-    // Meeting State
-    const [meetingDate, setMeetingDate] = useState('');
-    const [meetingType, setMeetingType] = useState<MeetingType | ''>('');
     const [isCreateMeetingModalOpen, setIsCreateMeetingModalOpen] = useState(false);
 
     // Followers State
@@ -830,7 +828,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
         if (typeConfig) {
             const localIsoString = getDefaultActivityDate(activityType);
             setActivityDate(localIsoString);
-            setActivitySummary(typeConfig.id === 'call' ? 'Gọi lại tư vấn' : '');
+            setActivitySummary('');
         }
     }, [activityType]);
 
@@ -891,51 +889,11 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
     // --- ACTIONS ---
 
     const handleSendLog = () => {
-        if (!noteContent.trim() && chatterTab === 'note') return;
+        const trimmedContent = noteContent.trim();
+        if (!trimmedContent) return;
 
-        if (chatterTab === 'meeting') {
-            if (!meetingType) {
-                showToast('Vui lòng chọn hình thức hẹn (Online/Offline)', 'error');
-                return;
-            }
-            if (!meetingDate) {
-                showToast('Vui lòng chọn thời gian lịch hẹn', 'error');
-                return;
-            }
-
-            // 1. Logic Create Meeting
-            const newMeeting: IMeeting = {
-                id: `M-${Date.now()}`,
-                title: `Lịch hẹn: ${lead.name}`,
-                leadId: lead.id,
-                leadName: lead.name,
-                leadPhone: lead.phone,
-                salesPersonId: lead.ownerId,
-                salesPersonName: user?.name || 'Sales Rep',
-                campus: (lead as any).company || 'Hanoi',
-                address: (lead as any).address || 'N/A',
-                datetime: meetingDate,
-                type: meetingType as MeetingType,
-                status: MeetingStatus.DRAFT,
-                notes: noteContent,
-                createdAt: new Date().toISOString()
-            };
-            addMeeting(newMeeting);
-
-            addLog('system', `Đã tạo lịch hẹn: ${meetingType} vào lúc ${new Date(meetingDate).toLocaleString('vi-VN')}. Note: ${noteContent}`, {
-                title: 'Đặt lịch hẹn',
-                activityType: 'meeting'
-            });
-
-            showToast('Đã tạo lịch hẹn thành công!', 'success');
-            setMeetingDate('');
-            setNoteContent('');
-            setChatterTab('note'); // Reset
-        } else {
-            // Normal Note
-            addLog('note', noteContent);
-            setNoteContent('');
-        }
+        addLog(chatterTab === 'message' ? 'message' : 'note', trimmedContent);
+        setNoteContent('');
     };
 
     const commitLeadLogUpdate = (
@@ -1036,12 +994,17 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
         });
     };
 
-    const openNextActivityModal = (presetSummary?: string) => {
+    const openNextActivityModal = () => {
         const defaultType = 'call';
         setNextActivityType(defaultType);
         setNextActivityDate(getDefaultActivityDate(defaultType));
-        setNextActivitySummary(presetSummary || '');
+        setNextActivitySummary('');
         setShowNextActivityModal(true);
+    };
+
+    const handleOpenMeetingScheduler = () => {
+        setChatterTab('meeting');
+        setIsCreateMeetingModalOpen(true);
     };
 
     const completeActivity = () => {
@@ -1067,7 +1030,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
         setCompletingActivityId(null);
 
         // Auto-prompt for Next Activity
-        openNextActivityModal('Tạo lịch tiếp theo sau khi hoàn thành công việc');
+        openNextActivityModal();
     };
 
     const handleFieldBlur = (field: keyof ILead, currentValue: any) => {
@@ -1763,8 +1726,15 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
     };
 
     const handleScheduleActivity = () => {
-        if (!activitySummary) return;
-        addScheduledActivity(activityType, activitySummary, activityDate);
+        if (!activitySummary.trim()) {
+            showToast('Vui lòng nhập nội dung lịch chăm sóc.', 'error');
+            return;
+        }
+        if (!activityDate) {
+            showToast('Vui lòng chọn ngày giờ lịch chăm sóc.', 'error');
+            return;
+        }
+        addScheduledActivity(activityType, activitySummary.trim(), activityDate);
         setActivitySummary('');
         showToast("Đã lên lịch thành công!", 'success');
         setChatterTab('note');
@@ -2299,7 +2269,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                                     {/* 3. CONVERT BUTTON */}
                                     {typeof onConvert === 'function' && !isWon && !isContract && !isLost && !isConverted && !isPipeline && user?.role !== UserRole.MARKETING && (
                                         <button onClick={handleConvertAction} className="px-3 py-1.5 text-xs font-bold text-blue-600 border border-blue-600 rounded hover:bg-blue-50 flex items-center gap-1 transition-all">
-                                            <ArrowUpRight size={14} /> CONVERT
+                                            <ArrowUpRight size={14} /> CHUYỂN ĐỔI
                                         </button>
                                     )}
 
@@ -2398,7 +2368,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                         {/* TABS */}
                         <div className="px-4 py-3 border-b border-slate-200 bg-white flex sticky top-0 z-10 gap-2">
                             <button onClick={() => setChatterTab('note')} className={`flex-1 py-1.5 text-xs font-bold rounded border ${chatterTab === 'note' ? 'bg-amber-100 text-amber-900 border-amber-300' : 'bg-white border-slate-300 text-slate-600'}`}>Log Note</button>
-                            <button onClick={() => setChatterTab('meeting')} className={`flex-1 py-1.5 text-xs font-bold rounded border ${chatterTab === 'meeting' ? 'bg-blue-600 text-white border-blue-700' : 'bg-white border-slate-300 text-slate-600'}`}>Lịch hẹn / Test</button>
+                            <button onClick={handleOpenMeetingScheduler} className={`flex-1 py-1.5 text-xs font-bold rounded border ${chatterTab === 'meeting' ? 'bg-blue-600 text-white border-blue-700' : 'bg-white border-slate-300 text-slate-600'}`}>Lịch hẹn / Test</button>
                             <button onClick={() => setChatterTab('message')} className={`flex-1 py-1.5 text-xs font-bold rounded border ${chatterTab === 'message' ? 'bg-blue-100 text-blue-900 border-blue-300' : 'bg-white border-slate-300 text-slate-600'}`}>Gửi Tin</button>
                             <button onClick={() => setChatterTab('activity')} className={`flex-1 py-1.5 text-xs font-bold rounded border ${chatterTab === 'activity' ? 'bg-purple-100 text-purple-900 border-purple-300' : 'bg-white border-slate-300 text-slate-600'}`}>Lên Lịch</button>
                         </div>
@@ -2417,9 +2387,11 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                                         </div>
                                     ))}
                                 </div>
-                                <button onClick={() => setShowFollowersModal(true)} className="text-xs text-blue-600 font-bold hover:bg-blue-50 px-2 py-1 rounded flex items-center gap-1">
-                                    <Plus size={12} /> Add
-                                </button>
+                                {chatterTab === 'meeting' && (
+                                    <button onClick={() => setShowFollowersModal(true)} className="text-xs text-blue-600 font-bold hover:bg-blue-50 px-2 py-1 rounded flex items-center gap-1">
+                                        <Plus size={12} /> Add
+                                    </button>
+                                )}
                             </div>
                         </div>
 
@@ -2427,60 +2399,53 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                         <div className="p-4 border-b border-slate-200 bg-white">
                             {chatterTab === 'activity' ? (
                                 <div className="space-y-3">
-                                    <button
-                                        onClick={() => setIsCreateMeetingModalOpen(true)}
-                                        className="w-full bg-emerald-600 text-white py-2 rounded text-xs font-bold hover:bg-emerald-700 flex items-center justify-center gap-2"
-                                    >
-                                        <Plus size={14} /> Tạo lịch hẹn
-                                    </button>
-                                    <div className="flex gap-2 mb-2">
-                                        {ACTIVITY_TYPES.map(t => (
-                                            <button key={t.id} onClick={() => setActivityType(t.id)} className={`p-2 rounded border text-[10px] font-bold uppercase flex flex-col items-center gap-1 w-1/4 ${activityType === t.id ? 'bg-purple-50 border-purple-400 text-purple-700' : 'border-slate-200 text-slate-500'}`}>
-                                                <t.icon size={14} /> {t.label}
-                                            </button>
-                                        ))}
+                                    <div>
+                                        <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-slate-500">Hành động</label>
+                                        <select
+                                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-purple-500"
+                                            value={activityType}
+                                            onChange={(e) => setActivityType(e.target.value)}
+                                        >
+                                            {ACTIVITY_TYPES.map((typeOption) => (
+                                                <option key={typeOption.id} value={typeOption.id}>{typeOption.label}</option>
+                                            ))}
+                                        </select>
                                     </div>
-                                    <input type="datetime-local" className="w-full text-xs p-2 border rounded font-bold" value={activityDate} onChange={e => setActivityDate(e.target.value)} />
-                                    <input className="w-full text-xs p-2 border rounded" placeholder="Tiêu đề công việc..." value={activitySummary} onChange={e => setActivitySummary(e.target.value)} />
-                                    <button onClick={handleScheduleActivity} className="w-full bg-purple-600 text-white py-1.5 rounded text-xs font-bold">Lưu Công Việc</button>
+                                    <div>
+                                        <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-slate-500">Nội dung</label>
+                                        <textarea
+                                            className="h-20 w-full resize-none rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-purple-500"
+                                            placeholder="Nhập nội dung lịch chăm sóc..."
+                                            value={activitySummary}
+                                            onChange={e => setActivitySummary(e.target.value)}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-slate-500">Ngày giờ</label>
+                                        <input
+                                            type="datetime-local"
+                                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-bold outline-none focus:border-purple-500"
+                                            value={activityDate}
+                                            onChange={e => setActivityDate(e.target.value)}
+                                        />
+                                    </div>
+                                    <button
+                                        onClick={handleScheduleActivity}
+                                        className="w-full rounded bg-purple-600 py-2 text-xs font-bold text-white shadow-md transition-colors hover:bg-purple-700"
+                                    >
+                                        Lưu lịch chăm sóc
+                                    </button>
                                 </div>
                             ) : chatterTab === 'meeting' ? (
                                 <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2">
-                                    <div className="flex gap-2">
-                                        <div className="flex-1">
-                                            <label className="text-[10px] font-bold text-slate-500 mb-1 block">Thời gian</label>
-                                            <input
-                                                type="datetime-local"
-                                                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:border-blue-500 outline-none font-bold"
-                                                value={meetingDate}
-                                                onChange={(e) => setMeetingDate(e.target.value)}
-                                            />
-                                        </div>
-                                        <div className="flex-1">
-                                            <label className="text-[10px] font-bold text-slate-500 mb-1 block">Loại hình</label>
-                                            <select
-                                                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:border-blue-500 outline-none"
-                                                value={meetingType}
-                                                onChange={(e) => setMeetingType(e.target.value as MeetingType)}
-                                            >
-                                                <option value="">-- Chọn hình thức --</option>
-                                                <option value={MeetingType.OFFLINE}>Offline (Tại trung tâm)</option>
-                                                <option value={MeetingType.ONLINE}>Online (Phóng vấn)</option>
-                                            </select>
-                                        </div>
+                                    <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-3 text-xs leading-5 text-slate-600">
+                                        Lịch hẹn / test dùng form riêng để chọn hình thức hẹn, cơ sở và giáo viên test.
                                     </div>
-                                    <textarea
-                                        className="w-full h-20 p-2 text-xs border border-blue-300 bg-blue-50 rounded resize-none focus:ring-2 focus:ring-blue-500 outline-none"
-                                        placeholder="Ghi chú cho lịch hẹn (VD: Học sinh cần test kỹ ngữ pháp...)"
-                                        value={noteContent}
-                                        onChange={e => setNoteContent(e.target.value)}
-                                        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendLog(); } }}
-                                    ></textarea>
                                     <button
-                                        onClick={handleSendLog}
-                                        className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded text-xs font-bold shadow-md transition-colors flex items-center justify-center gap-2"
+                                        onClick={() => setIsCreateMeetingModalOpen(true)}
+                                        className="flex w-full items-center justify-center gap-2 rounded bg-blue-600 py-2 text-xs font-bold text-white shadow-md transition-colors hover:bg-blue-700"
                                     >
-                                        <Calendar size={14} /> ĐẶT LỊCH HẸN
+                                        <Calendar size={14} /> Mở form lịch hẹn / test
                                     </button>
                                 </div>
                             ) : (
@@ -2580,20 +2545,38 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                                 <h3 className="text-lg font-bold text-slate-900 mb-2">Tạo hoạt động tiếp theo</h3>
                                 <p className="text-sm text-slate-600 mb-4">Hãy tạo hoạt động tiếp theo để tiếp tục chăm sóc.</p>
 
-                                <div className="flex gap-2 mb-3">
-                                    {ACTIVITY_TYPES.map(t => (
-                                        <button
-                                            key={t.id}
-                                            onClick={() => setNextActivityType(t.id)}
-                                            className={`flex-1 p-2 rounded border text-[10px] font-bold uppercase ${nextActivityType === t.id ? 'bg-purple-50 border-purple-400 text-purple-700' : 'border-slate-200 text-slate-500'}`}
-                                        >
-                                            <t.icon size={12} /> {t.label}
-                                        </button>
-                                    ))}
+                                <div className="mb-3">
+                                    <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-slate-500">Hành động</label>
+                                    <select
+                                        className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none focus:border-purple-500"
+                                        value={nextActivityType}
+                                        onChange={e => setNextActivityType(e.target.value)}
+                                    >
+                                        {ACTIVITY_TYPES.map((typeOption) => (
+                                            <option key={typeOption.id} value={typeOption.id}>{typeOption.label}</option>
+                                        ))}
+                                    </select>
                                 </div>
 
-                                <input type="datetime-local" className="w-full text-xs p-2 border rounded font-bold mb-2" value={nextActivityDate} onChange={e => setNextActivityDate(e.target.value)} />
-                                <input className="w-full text-xs p-2 border rounded mb-4" placeholder="Tiêu đề công việc..." value={nextActivitySummary} onChange={e => setNextActivitySummary(e.target.value)} />
+                                <div className="mb-3">
+                                    <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-slate-500">Nội dung</label>
+                                    <textarea
+                                        className="h-20 w-full resize-none rounded border border-slate-300 px-3 py-2 text-sm outline-none focus:border-purple-500"
+                                        placeholder="Nhập nội dung lịch chăm sóc..."
+                                        value={nextActivitySummary}
+                                        onChange={e => setNextActivitySummary(e.target.value)}
+                                    />
+                                </div>
+
+                                <div className="mb-4">
+                                    <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-slate-500">Ngày giờ</label>
+                                    <input
+                                        type="datetime-local"
+                                        className="w-full rounded border border-slate-300 px-3 py-2 text-sm font-bold outline-none focus:border-purple-500"
+                                        value={nextActivityDate}
+                                        onChange={e => setNextActivityDate(e.target.value)}
+                                    />
+                                </div>
 
                                 <div className="flex justify-end gap-2">
                                     <button
@@ -2604,8 +2587,15 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                                     </button>
                                     <button
                                         onClick={() => {
-                                            if (!nextActivitySummary) return;
-                                            addScheduledActivity(nextActivityType, nextActivitySummary, nextActivityDate);
+                                            if (!nextActivitySummary.trim()) {
+                                                showToast('Vui lòng nhập nội dung lịch chăm sóc.', 'error');
+                                                return;
+                                            }
+                                            if (!nextActivityDate) {
+                                                showToast('Vui lòng chọn ngày giờ lịch chăm sóc.', 'error');
+                                                return;
+                                            }
+                                            addScheduledActivity(nextActivityType, nextActivitySummary.trim(), nextActivityDate);
                                             setNextActivitySummary('');
                                             setShowNextActivityModal(false);
                                         }}
@@ -3257,6 +3247,8 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                             setLead(refreshedLead);
                             onUpdate(refreshedLead);
                         }
+                        setChatterTab('note');
+                        showToast('Đã tạo lịch hẹn / test thành công.', 'success');
                     }}
                 />
 
