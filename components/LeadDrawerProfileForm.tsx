@@ -82,7 +82,7 @@ const renderTextAreaField = (
   extraClassName = '',
 ) => (
   <textarea
-    className={getFieldInputClassName(`h-20 resize-none ${extraClassName}`)}
+    className={getFieldInputClassName(`field-input-textarea ${extraClassName}`)}
     placeholder={placeholder}
     value={value}
     onChange={(event) => onChange(event.target.value)}
@@ -117,6 +117,7 @@ const FieldBlock: React.FC<{
   className?: string;
   labelClassName?: string;
   title?: string;
+  multiline?: boolean;
   children: React.ReactNode;
 }> = ({
   label,
@@ -125,15 +126,21 @@ const FieldBlock: React.FC<{
   className = '',
   labelClassName = '',
   title,
+  multiline = false,
   children,
 }) => (
-  <div className={className} title={title}>
+  <div
+    className={['field-row', multiline ? 'field-row-multiline' : '', className].filter(Boolean).join(' ')}
+    title={title}
+  >
     <label className={['field-label', labelClassName].filter(Boolean).join(' ')}>
-      {label}
-      {required && <span className="text-red-500"> *</span>}
-      {requiredHint && <span className="text-red-500"> {requiredHint}</span>}
+      <span>
+        {label}
+        {required && <span className="text-red-500"> *</span>}
+      </span>
+      {requiredHint && <span className="field-required-hint">{requiredHint}</span>}
     </label>
-    {children}
+    <div className="field-control">{children}</div>
   </div>
 );
 
@@ -143,11 +150,14 @@ const SectionShell: React.FC<{
   titleClassName?: string;
   children: React.ReactNode;
 }> = ({ title, className = '', titleClassName = '', children }) => (
-  <div className={className}>
-    <h3 className={['section-title', titleClassName].filter(Boolean).join(' ')}>{title}</h3>
+  <section className={className}>
+    <div className={['section-title', titleClassName].filter(Boolean).join(' ')}>{title}</div>
     {children}
-  </div>
+  </section>
 );
+
+const getOptionLabel = (options: Array<{ value: string; label: string }>, value: string) =>
+  options.find((option) => option.value === value)?.label || value;
 
 const LeadDrawerProfileForm: React.FC<LeadDrawerProfileFormProps> = ({
   leadFormData,
@@ -170,30 +180,209 @@ const LeadDrawerProfileForm: React.FC<LeadDrawerProfileFormProps> = ({
   onDeleteTag,
 }) => {
   void leadFormActiveTab;
-  void viewMode;
   void onTabChange;
+
+  const renderViewValue = (
+    value: string | undefined,
+    placeholder = 'Chưa cập nhật',
+    extraClassName = '',
+    multiline = false,
+  ) => {
+    const normalized = String(value || '').trim();
+    const hasValue = normalized.length > 0;
+
+    return (
+      <div
+        className={[
+          'field-view',
+          hasValue ? '' : 'field-view-empty',
+          multiline ? 'field-view-multiline' : '',
+          extraClassName,
+        ].filter(Boolean).join(' ')}
+      >
+        {hasValue ? normalized : placeholder}
+      </div>
+    );
+  };
+
+  const textField = (
+    value: string,
+    placeholder: string,
+    onChange: (value: string) => void,
+    type: 'text' | 'date' = 'text',
+    inputClassName = '',
+    viewClassName = '',
+  ) => (viewMode
+    ? renderViewValue(value, 'Chưa cập nhật', viewClassName)
+    : renderTextField(value, placeholder, onChange, type, inputClassName));
+
+  const textAreaField = (
+    value: string,
+    placeholder: string,
+    onChange: (value: string) => void,
+    inputClassName = '',
+    viewClassName = '',
+  ) => (viewMode
+    ? renderViewValue(value, 'Chưa cập nhật', viewClassName, true)
+    : renderTextAreaField(value, placeholder, onChange, inputClassName));
+
+  const selectField = (
+    value: string,
+    options: Array<{ value: string; label: string }>,
+    placeholder: string,
+    onChange: (value: string) => void,
+    inputClassName = '',
+    viewClassName = '',
+  ) => (viewMode
+    ? renderViewValue(value ? getOptionLabel(options, value) : '', 'Chưa chọn', viewClassName)
+    : renderSelectField(value, options, placeholder, onChange, inputClassName));
+
+  const tagsField = viewMode ? (
+    leadFormData.tags.length ? (
+      <div className="flex min-h-[36px] flex-wrap items-center gap-2 py-1">
+        {leadFormData.tags.map((tag) => (
+          <span
+            key={tag}
+            className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700"
+          >
+            {tag}
+          </span>
+        ))}
+      </div>
+    ) : (
+      renderViewValue('', 'Chưa có tag')
+    )
+  ) : (
+    <div className="py-1">
+      <LeadTagManager
+        selectedTags={leadFormData.tags}
+        availableTags={availableTags}
+        fixedTags={fixedTags}
+        isAdding={isAddingTag}
+        accent="blue"
+        mode="dropdown"
+        onStartAdding={onStartAddingTag}
+        onStopAdding={onStopAddingTag}
+        onAddTag={onAddTag}
+        onCreateTag={onCreateTag}
+        onRemoveSelectedTag={onRemoveSelectedTag}
+        onDeleteTag={onDeleteTag}
+      />
+    </div>
+  );
 
   return (
     <>
       <style>
         {`
-          .field-label { font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase; margin-bottom: 4px; display: block; letter-spacing: 0.02em; }
-          .field-input { width: 100%; padding: 8px 10px; font-size: 13px; color: #1e293b; background-color: #ffffff; border: 1px solid #cbd5e1; border-radius: 10px; outline: none; transition: all 0.2s; }
-          .field-input::placeholder { color: #94a3b8; }
-          .field-input:focus { background-color: #fff; border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1); }
-          .field-input:disabled { background-color: #f8fafc; color: #64748b; cursor: not-allowed; }
-          .section-title { display: none; }
+          .section-title {
+            margin-bottom: 14px;
+            font-size: 12px;
+            font-weight: 800;
+            color: #0f172a;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+          }
+          .field-row {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+          }
+          .field-row-multiline {
+            align-items: stretch;
+          }
+          .field-label {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            font-size: 11px;
+            font-weight: 700;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            line-height: 1.4;
+          }
+          .field-required-hint {
+            font-size: 10px;
+            font-weight: 600;
+            color: #ef4444;
+            text-transform: none;
+            letter-spacing: 0;
+          }
+          .field-control {
+            min-width: 0;
+          }
+          .field-input {
+            width: 100%;
+            min-height: 36px;
+            border: 1px solid #cbd5e1;
+            border-radius: 10px;
+            background: #ffffff;
+            padding: 8px 12px;
+            font-size: 13px;
+            color: #0f172a;
+            outline: none;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+          }
+          .field-input::placeholder {
+            color: #94a3b8;
+          }
+          .field-input:focus {
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+          }
+          .field-input:disabled {
+            background: #f8fafc;
+            color: #64748b;
+            cursor: not-allowed;
+          }
+          .field-input-textarea {
+            min-height: 84px;
+            resize: vertical;
+          }
+          .field-view {
+            min-height: 36px;
+            display: flex;
+            align-items: center;
+            padding: 6px 0;
+            font-size: 13px;
+            font-weight: 600;
+            color: #0f172a;
+            line-height: 1.6;
+            word-break: break-word;
+          }
+          .field-view-empty {
+            color: #94a3b8;
+            font-style: italic;
+            font-weight: 500;
+          }
+          .field-view-multiline {
+            min-height: 64px;
+            align-items: flex-start;
+            white-space: pre-wrap;
+          }
+          @media (min-width: 768px) {
+            .field-row {
+              display: grid;
+              grid-template-columns: minmax(136px, 160px) minmax(0, 1fr);
+              gap: 14px;
+              align-items: center;
+            }
+            .field-row-multiline {
+              align-items: start;
+            }
+          }
         `}
       </style>
 
-      <div className="mb-4 flex items-center gap-2 border-b border-blue-100 pb-2">
-        <h3 className="text-[14px] font-extrabold uppercase tracking-wide text-blue-800">THÔNG TIN LEAD</h3>
+      <div className="mb-5 flex items-center gap-2 border-b border-slate-200 pb-3">
+        <h3 className="text-[14px] font-extrabold uppercase tracking-[0.14em] text-slate-800">Thông tin lead</h3>
       </div>
 
-      <SectionShell title="Thông tin lead" className="mb-10">
-        <div className="grid grid-cols-1 gap-x-6 gap-y-4 md:grid-cols-2">
+      <SectionShell title="Thông tin liên hệ" className="mb-6 border-b border-slate-100 pb-6">
+        <div className="grid grid-cols-1 gap-x-8 gap-y-4 xl:grid-cols-2">
           <FieldBlock label="Danh xưng / quan hệ">
-            {renderSelectField(
+            {selectField(
               leadFormData.title,
               LEAD_RELATION_OPTIONS.map((option) => ({ value: option.value, label: option.label })),
               '-- Chọn --',
@@ -202,27 +391,29 @@ const LeadDrawerProfileForm: React.FC<LeadDrawerProfileFormProps> = ({
           </FieldBlock>
 
           <FieldBlock label="Họ và tên" required>
-            {renderTextField(
+            {textField(
               leadFormData.name,
               'Nhập họ và tên',
               (value) => onPatch({ name: value }),
               'text',
-              'font-bold',
+              'font-semibold',
+              'font-semibold',
             )}
           </FieldBlock>
 
           <FieldBlock label="Số điện thoại" required>
-            {renderTextField(
+            {textField(
               leadFormData.phone,
               'Nhập số điện thoại',
               (value) => onPatch({ phone: value }),
               'text',
-              'font-bold',
+              'font-semibold',
+              'font-semibold',
             )}
           </FieldBlock>
 
           <FieldBlock label="Nguồn data">
-            {renderSelectField(
+            {selectField(
               leadFormData.source,
               SOURCE_OPTIONS.map((option) => ({ value: option.value, label: option.label })),
               '-- Chọn nguồn --',
@@ -231,7 +422,7 @@ const LeadDrawerProfileForm: React.FC<LeadDrawerProfileFormProps> = ({
           </FieldBlock>
 
           <FieldBlock label="Email">
-            {renderTextField(
+            {textField(
               leadFormData.email,
               'name@example.com',
               (value) => onPatch({ email: value }),
@@ -240,10 +431,10 @@ const LeadDrawerProfileForm: React.FC<LeadDrawerProfileFormProps> = ({
         </div>
       </SectionShell>
 
-      <SectionShell title="Thông tin kinh doanh" className="mb-10 rounded-lg border border-slate-200 bg-slate-50 p-4">
-        <div className="grid grid-cols-1 gap-x-6 gap-y-4 md:grid-cols-2">
+      <SectionShell title="Thông tin kinh doanh" className="mb-6 border-b border-slate-100 pb-6">
+        <div className="grid grid-cols-1 gap-x-8 gap-y-4 xl:grid-cols-2">
           <FieldBlock label="Sản phẩm">
-            {renderSelectField(
+            {selectField(
               leadFormData.product,
               PRODUCT_OPTIONS,
               '-- Chọn --',
@@ -252,7 +443,7 @@ const LeadDrawerProfileForm: React.FC<LeadDrawerProfileFormProps> = ({
           </FieldBlock>
 
           <FieldBlock label="Cơ sở">
-            {renderSelectField(
+            {selectField(
               leadFormData.market,
               LEAD_CAMPUS_OPTIONS.map((option) => ({ value: option, label: option })),
               '-- Chọn --',
@@ -261,7 +452,7 @@ const LeadDrawerProfileForm: React.FC<LeadDrawerProfileFormProps> = ({
           </FieldBlock>
 
           <FieldBlock label="Sale phụ trách">
-            {renderSelectField(
+            {selectField(
               leadFormData.salesperson,
               salesOptions,
               '-- Chọn sale --',
@@ -270,7 +461,7 @@ const LeadDrawerProfileForm: React.FC<LeadDrawerProfileFormProps> = ({
           </FieldBlock>
 
           <FieldBlock label="Trạng thái">
-            {renderSelectField(
+            {selectField(
               leadFormData.status,
               LEAD_STATUS_OPTIONS,
               '-- Chọn trạng thái --',
@@ -279,7 +470,7 @@ const LeadDrawerProfileForm: React.FC<LeadDrawerProfileFormProps> = ({
           </FieldBlock>
 
           <FieldBlock label="Chiến dịch">
-            {renderTextField(
+            {textField(
               leadFormData.campaign,
               'VD: Summer 2026',
               (value) => onPatch({ campaign: value }),
@@ -287,7 +478,7 @@ const LeadDrawerProfileForm: React.FC<LeadDrawerProfileFormProps> = ({
           </FieldBlock>
 
           <FieldBlock label="Kênh">
-            {renderSelectField(
+            {selectField(
               leadFormData.channel,
               LEAD_CHANNEL_OPTIONS.map((option) => ({ value: option.value, label: option.label })),
               '-- Chọn kênh --',
@@ -295,8 +486,8 @@ const LeadDrawerProfileForm: React.FC<LeadDrawerProfileFormProps> = ({
             )}
           </FieldBlock>
 
-          <FieldBlock label="Người giới thiệu" className="md:col-span-2">
-            {renderTextField(
+          <FieldBlock label="Người giới thiệu" className="xl:col-span-2">
+            {textField(
               leadFormData.referredBy,
               'VD: CTV A',
               (value) => onPatch({ referredBy: value }),
@@ -305,10 +496,10 @@ const LeadDrawerProfileForm: React.FC<LeadDrawerProfileFormProps> = ({
         </div>
       </SectionShell>
 
-      <SectionShell title="Hồ sơ năng lực" className="mb-10 rounded-lg border border-slate-200 bg-slate-50 p-4">
-        <div className="grid grid-cols-1 gap-x-6 gap-y-4 md:grid-cols-2">
+      <SectionShell title="Hồ sơ năng lực" className="mb-6 border-b border-slate-100 pb-6">
+        <div className="grid grid-cols-1 gap-x-8 gap-y-4 xl:grid-cols-2">
           <FieldBlock label="Thị trường mục tiêu">
-            {renderSelectField(
+            {selectField(
               leadFormData.targetCountry,
               LEAD_TARGET_COUNTRY_OPTIONS.map((option) => ({ value: option, label: option })),
               '-- Chọn --',
@@ -317,7 +508,7 @@ const LeadDrawerProfileForm: React.FC<LeadDrawerProfileFormProps> = ({
           </FieldBlock>
 
           <FieldBlock label="Trình độ học vấn" required>
-            {renderSelectField(
+            {selectField(
               leadFormData.studentEducationLevel,
               STUDENT_EDUCATION_LEVEL_OPTIONS.map((option) => ({ value: option, label: option })),
               '-- Chọn --',
@@ -325,8 +516,8 @@ const LeadDrawerProfileForm: React.FC<LeadDrawerProfileFormProps> = ({
             )}
           </FieldBlock>
 
-          <FieldBlock label="Ngày sinh" requiredHint="(Bắt buộc Qualified)">
-            {renderTextField(
+          <FieldBlock label="Ngày sinh" requiredHint="Bắt buộc khi Qualified">
+            {textField(
               leadFormData.studentDob,
               'dd/mm/yyyy',
               (value) => onPatch({ studentDob: value }),
@@ -335,7 +526,7 @@ const LeadDrawerProfileForm: React.FC<LeadDrawerProfileFormProps> = ({
           </FieldBlock>
 
           <FieldBlock label="GPA / Điểm ngoại ngữ">
-            {renderTextField(
+            {textField(
               leadFormData.studentLanguageLevel,
               'VD: GPA 7.5 - IELTS 6.0',
               (value) => onPatch({ studentLanguageLevel: value }),
@@ -344,10 +535,10 @@ const LeadDrawerProfileForm: React.FC<LeadDrawerProfileFormProps> = ({
         </div>
       </SectionShell>
 
-      <SectionShell title="Ghi chú nội bộ" className="mb-10 rounded-lg border border-slate-200 bg-slate-50 p-4">
-        <div className="grid grid-cols-1 gap-x-6 gap-y-4 md:grid-cols-2">
+      <SectionShell title="Ghi chú nội bộ" className="mb-6 border-b border-slate-100 pb-6">
+        <div className="grid grid-cols-1 gap-x-8 gap-y-4 xl:grid-cols-2">
           <FieldBlock label="Mức độ tiềm năng">
-            {renderSelectField(
+            {selectField(
               leadFormData.potential,
               POTENTIAL_OPTIONS,
               '-- Chọn --',
@@ -356,7 +547,7 @@ const LeadDrawerProfileForm: React.FC<LeadDrawerProfileFormProps> = ({
           </FieldBlock>
 
           <FieldBlock label="Thời gian dự kiến tham gia">
-            {renderTextField(
+            {textField(
               leadFormData.expectedStart,
               'VD: 06/2026',
               (value) => onPatch({ expectedStart: value }),
@@ -364,7 +555,7 @@ const LeadDrawerProfileForm: React.FC<LeadDrawerProfileFormProps> = ({
           </FieldBlock>
 
           <FieldBlock label="Tài chính">
-            {renderTextField(
+            {textField(
               leadFormData.financial,
               'Đủ / Thiếu / Cần hỗ trợ',
               (value) => onPatch({ financial: value }),
@@ -372,15 +563,15 @@ const LeadDrawerProfileForm: React.FC<LeadDrawerProfileFormProps> = ({
           </FieldBlock>
 
           <FieldBlock label="Ý kiến bố mẹ">
-            {renderTextField(
+            {textField(
               leadFormData.parentOpinion,
               'Đồng ý / Cần cân nhắc...',
               (value) => onPatch({ parentOpinion: value }),
             )}
           </FieldBlock>
 
-          <FieldBlock label="Ghi chú khác" className="md:col-span-2">
-            {renderTextAreaField(
+          <FieldBlock label="Ghi chú khác" className="xl:col-span-2" multiline>
+            {textAreaField(
               leadFormData.notes,
               'Nhập ghi chú thêm...',
               (value) => onPatch({ notes: value }),
@@ -391,27 +582,27 @@ const LeadDrawerProfileForm: React.FC<LeadDrawerProfileFormProps> = ({
 
       <SectionShell
         title={
-          <span className="flex items-center gap-2 rounded-sm bg-red-50 py-1 pl-2 text-red-700">
-            <ShieldCheck size={16} />
+          <span className="inline-flex items-center gap-2 text-red-700">
+            <ShieldCheck size={15} />
             Thông tin pháp lý
           </span>
         }
-        className="mb-20"
-        titleClassName="rounded-sm border-red-100 bg-red-50 py-1 pl-2 text-red-700"
+        className="mb-6 border-b border-red-100 pb-6"
+        titleClassName="text-red-700"
       >
-        <div className="relative grid grid-cols-1 gap-x-4 gap-y-4 rounded border border-red-100 bg-white p-4 md:grid-cols-3">
-          <FieldBlock label="Số CCCD / Hộ chiếu" required className="md:col-span-1" labelClassName="text-red-800">
-            {renderTextField(
+        <div className="grid grid-cols-1 gap-x-8 gap-y-4 xl:grid-cols-2">
+          <FieldBlock label="Số CCCD / Hộ chiếu" required labelClassName="text-red-800">
+            {textField(
               leadFormData.studentIdentityCard,
               'Số giấy tờ',
               (value) => onPatch({ studentIdentityCard: value }),
               'text',
-              'font-bold border-red-200',
+              'border-red-200',
             )}
           </FieldBlock>
 
-          <FieldBlock label="Ngày cấp" required className="md:col-span-1" labelClassName="text-red-800">
-            {renderTextField(
+          <FieldBlock label="Ngày cấp" required labelClassName="text-red-800">
+            {textField(
               leadFormData.identityDate,
               'dd/mm/yyyy',
               (value) => onPatch({ identityDate: value }),
@@ -420,8 +611,8 @@ const LeadDrawerProfileForm: React.FC<LeadDrawerProfileFormProps> = ({
             )}
           </FieldBlock>
 
-          <FieldBlock label="Nơi cấp" required className="md:col-span-1" labelClassName="text-red-800">
-            {renderTextField(
+          <FieldBlock label="Nơi cấp" required labelClassName="text-red-800">
+            {textField(
               leadFormData.identityPlace,
               'Cục CS QLHC...',
               (value) => onPatch({ identityPlace: value }),
@@ -430,8 +621,13 @@ const LeadDrawerProfileForm: React.FC<LeadDrawerProfileFormProps> = ({
             )}
           </FieldBlock>
 
-          <FieldBlock label="Địa chỉ thường trú (Full)" required className="md:col-span-3" labelClassName="text-red-800">
-            {renderTextField(
+          <FieldBlock
+            label="Địa chỉ thường trú (Full)"
+            required
+            className="xl:col-span-2"
+            labelClassName="text-red-800"
+          >
+            {textField(
               leadFormData.street,
               'Số nhà, Đường, Phường/Xã, Quận/Huyện, Tỉnh/TP',
               (value) => onPatch({ street: value }),
@@ -442,42 +638,31 @@ const LeadDrawerProfileForm: React.FC<LeadDrawerProfileFormProps> = ({
         </div>
       </SectionShell>
 
-      <SectionShell title="Thông tin hệ thống" className="mb-10 rounded-lg border border-slate-200 bg-slate-50 p-4">
-        <div className="grid grid-cols-1 gap-x-6 gap-y-4 md:grid-cols-2">
+      <SectionShell title="Thông tin hệ thống" className="mb-6 border-b border-slate-100 pb-6">
+        <div className="grid grid-cols-1 gap-x-8 gap-y-4 xl:grid-cols-2">
           <FieldBlock label="Ngày tạo lead">
-            <input className="field-input" readOnly disabled value={leadFormData.createdAtDisplay || '-'} />
+            {viewMode
+              ? renderViewValue(leadFormData.createdAtDisplay, '-')
+              : <input className="field-input bg-slate-50" readOnly disabled value={leadFormData.createdAtDisplay || '-'} />}
           </FieldBlock>
 
           <FieldBlock label="Ngày assign">
-            <input className="field-input" readOnly disabled value={leadFormData.assignedAtDisplay || '-'} />
+            {viewMode
+              ? renderViewValue(leadFormData.assignedAtDisplay, '-')
+              : <input className="field-input bg-slate-50" readOnly disabled value={leadFormData.assignedAtDisplay || '-'} />}
           </FieldBlock>
 
-          <FieldBlock label="Tags (Phân loại)" className="md:col-span-2">
-            <div className="rounded-lg border border-dashed border-slate-300 bg-white p-3">
-              <LeadTagManager
-                selectedTags={leadFormData.tags}
-                availableTags={availableTags}
-                fixedTags={fixedTags}
-                isAdding={isAddingTag}
-                accent="blue"
-                mode="dropdown"
-                onStartAdding={onStartAddingTag}
-                onStopAdding={onStopAddingTag}
-                onAddTag={onAddTag}
-                onCreateTag={onCreateTag}
-                onRemoveSelectedTag={onRemoveSelectedTag}
-                onDeleteTag={onDeleteTag}
-              />
-            </div>
+          <FieldBlock label="Tags (phân loại)" className="xl:col-span-2">
+            {tagsField}
           </FieldBlock>
         </div>
       </SectionShell>
 
       {closeReasonOptions.length > 0 && (
-        <SectionShell title="Lý do đóng lead" className="mb-10 rounded-lg border border-rose-200 bg-rose-50 p-4">
+        <SectionShell title="Lý do đóng lead" className="mb-6 border-b border-rose-100 pb-6" titleClassName="text-rose-700">
           <div className="grid grid-cols-1 gap-4">
             <FieldBlock label="Lý do đóng lead">
-              {renderSelectField(
+              {selectField(
                 leadFormData.lossReason,
                 closeReasonOptions.map((reason) => ({ value: reason, label: reason })),
                 '-- Chọn lý do --',
@@ -486,8 +671,8 @@ const LeadDrawerProfileForm: React.FC<LeadDrawerProfileFormProps> = ({
             </FieldBlock>
 
             {leadFormData.lossReason === customCloseReason && (
-              <FieldBlock label="Chi tiết">
-                {renderTextAreaField(
+              <FieldBlock label="Chi tiết" multiline>
+                {textAreaField(
                   leadFormData.lossReasonCustom,
                   'Nhập lý do cụ thể...',
                   (value) => onPatch({ lossReasonCustom: value }),

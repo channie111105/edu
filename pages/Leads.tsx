@@ -1764,16 +1764,28 @@ const Leads: React.FC = () => {
     if (!leadToConvert) return;
 
     try {
+      const resolvedOwnerId = ownerId || leadToConvert.ownerId || user?.id || 'admin';
       const { deal } = convertLeadToOpportunity(leadToConvert, {
-        ownerId: ownerId || leadToConvert.ownerId || user?.id || 'admin',
+        ownerId: resolvedOwnerId,
         salesChannel,
         conversionAction,
         customerAction,
         targetDealId,
       });
 
-      deleteLead(leadToConvert.id);
-      setLeads(prev => prev.filter(l => l.id !== leadToConvert.id));
+      if (customerAction === 'no_customer_link') {
+        const convertedLead: ILead = {
+          ...leadToConvert,
+          ownerId: resolvedOwnerId,
+          status: LeadStatus.CONVERTED,
+          updatedAt: new Date().toISOString()
+        };
+        saveLead(convertedLead);
+        setLeads(prev => prev.map(l => l.id === leadToConvert.id ? convertedLead : l));
+      } else {
+        deleteLead(leadToConvert.id);
+        setLeads(prev => prev.filter(l => l.id !== leadToConvert.id));
+      }
       setSelectedLead(null);
       setLeadToConvert(null);
 

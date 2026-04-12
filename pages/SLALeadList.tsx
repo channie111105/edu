@@ -1710,19 +1710,6 @@ const SLALeadList: React.FC = () => {
                      </span>
                   </button>
                   <button
-                     onClick={() => setActiveTab('slow_collaborator')}
-                     className={`pb-3 text-sm font-bold flex items-center gap-2 border-b-2 transition-all whitespace-nowrap ${activeTab === 'slow_collaborator'
-                        ? 'border-rose-600 text-rose-600'
-                        : 'border-transparent text-slate-500 hover:text-slate-700'
-                        }`}
-                  >
-                     <Users size={18} />
-                     Chậm CTV
-                     <span className={`text-xs px-2 py-0.5 rounded-full ${activeTab === 'slow_collaborator' ? 'bg-rose-100 text-rose-700' : 'bg-slate-100'}`}>
-                        {slowCollaboratorList.length}
-                     </span>
-                  </button>
-                  <button
                      onClick={() => setActiveTab('slow_first_call')}
                      className={`pb-3 text-sm font-bold flex items-center gap-2 border-b-2 transition-all whitespace-nowrap ${activeTab === 'slow_first_call'
                         ? 'border-amber-600 text-amber-600'
@@ -1772,6 +1759,19 @@ const SLALeadList: React.FC = () => {
                      Báo cáo
                      <span className={`text-xs px-2 py-0.5 rounded-full ${activeTab === 'report' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100'}`}>
                         {slowEvents.length}
+                     </span>
+                  </button>
+                  <button
+                     onClick={() => setActiveTab('slow_collaborator')}
+                     className={`pb-3 text-sm font-bold flex items-center gap-2 border-b-2 transition-all whitespace-nowrap ${activeTab === 'slow_collaborator'
+                        ? 'border-rose-600 text-rose-600'
+                        : 'border-transparent text-slate-500 hover:text-slate-700'
+                        }`}
+                  >
+                     <Users size={18} />
+                     Chậm CTV
+                     <span className={`text-xs px-2 py-0.5 rounded-full ${activeTab === 'slow_collaborator' ? 'bg-rose-100 text-rose-700' : 'bg-slate-100'}`}>
+                        {slowCollaboratorList.length}
                      </span>
                   </button>
                </div>

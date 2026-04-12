@@ -5,30 +5,36 @@ import {
   ChevronDown,
   CheckCircle2,
   Copy,
+  Sparkles,
   Download,
   Filter,
   Layers3,
   Pencil,
   Plus,
   Save,
+  Trophy,
   TrendingUp,
   X,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import {
   DealStage,
+  IActualTransaction,
   IDeal,
   IQuotation,
   ISalesKpiTarget,
   ISalesTeam,
+  ITransaction,
   QuotationStatus,
   UserRole,
 } from '../types';
 import {
+  getActualTransactions,
   getDeals,
   getQuotations,
   getSalesKpis,
   getSalesTeams,
+  getTransactions,
   upsertSalesKpis,
 } from '../utils/storage';
 import { decodeMojibakeReactNode } from '../utils/mojibake';
@@ -44,6 +50,7 @@ type MemberProfile = {
   teamName: string;
   productFocus: string;
   assignKeywords: string[];
+  avatarUrl?: string;
 };
 
 type DraftTargetMap = Record<
@@ -274,6 +281,57 @@ const getStatusMeta = (progress: number) => {
   };
 };
 
+const TOP_SALE_FIREWORK_RAYS = Array.from({ length: 10 }, (_, index) => index * 36);
+
+const TOP_SALE_FIREWORKS = [
+  {
+    key: 'gold',
+    className: '-top-5 right-6',
+    size: 96,
+    color: 'rgba(251, 191, 36, 0.95)',
+    delay: '0s',
+    duration: '3.4s',
+  },
+  {
+    key: 'sky',
+    className: 'top-10 right-0',
+    size: 72,
+    color: 'rgba(125, 211, 252, 0.85)',
+    delay: '0.8s',
+    duration: '3.8s',
+  },
+  {
+    key: 'amber',
+    className: 'bottom-3 left-4',
+    size: 64,
+    color: 'rgba(253, 186, 116, 0.78)',
+    delay: '1.5s',
+    duration: '3.1s',
+  },
+];
+
+const DEMO_SALES_AVATAR_BY_ID: Record<string, string> = {
+  u1: 'https://picsum.photos/seed/educrm-sales-leader/160',
+  u2: 'https://i.pravatar.cc/160?u=educrm-sarah-miller',
+  u3: 'https://i.pravatar.cc/160?u=educrm-david-clark',
+  u4: 'https://i.pravatar.cc/160?u=educrm-alex-rivera',
+};
+
+const DEMO_SALES_AVATAR_BY_NAME: Record<string, string> = {
+  'trần văn quản trị': DEMO_SALES_AVATAR_BY_ID.u1,
+  'tran van quan tri': DEMO_SALES_AVATAR_BY_ID.u1,
+  'sarah miller': DEMO_SALES_AVATAR_BY_ID.u2,
+  'david clark': DEMO_SALES_AVATAR_BY_ID.u3,
+  'alex rivera': DEMO_SALES_AVATAR_BY_ID.u4,
+};
+
+const normalizeLookupKey = (value?: string) =>
+  String(value || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+
 const sanitizeNumericInput = (value: string) => value.replace(/[^\d]/g, '');
 
 const SalesKPIs: React.FC = () => {
@@ -296,6 +354,8 @@ const SalesKPIs: React.FC = () => {
   const [kpiTargets, setKpiTargets] = useState<ISalesKpiTarget[]>([]);
   const [quotations, setQuotations] = useState<IQuotation[]>([]);
   const [deals, setDeals] = useState<IDeal[]>([]);
+  const [sourceTransactions, setSourceTransactions] = useState<ITransaction[]>([]);
+  const [actualTransactions, setActualTransactions] = useState<IActualTransaction[]>([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [modalMode, setModalMode] = useState<KpiModalMode>('create');
   const [editingMemberId, setEditingMemberId] = useState<string | null>(null);
@@ -316,6 +376,8 @@ const SalesKPIs: React.FC = () => {
       setKpiTargets(getSalesKpis());
       setQuotations(getQuotations());
       setDeals(getDeals());
+      setSourceTransactions(getTransactions());
+      setActualTransactions(getActualTransactions());
     };
 
     loadData();
@@ -323,12 +385,16 @@ const SalesKPIs: React.FC = () => {
     window.addEventListener('educrm:sales-kpis-changed', loadData);
     window.addEventListener('educrm:sales-teams-changed', loadData);
     window.addEventListener('educrm:quotations-changed', loadData);
+    window.addEventListener('educrm:transactions-changed', loadData);
+    window.addEventListener('educrm:actual-transactions-changed', loadData);
     window.addEventListener('storage', loadData);
 
     return () => {
       window.removeEventListener('educrm:sales-kpis-changed', loadData);
       window.removeEventListener('educrm:sales-teams-changed', loadData);
       window.removeEventListener('educrm:quotations-changed', loadData);
+      window.removeEventListener('educrm:transactions-changed', loadData);
+      window.removeEventListener('educrm:actual-transactions-changed', loadData);
       window.removeEventListener('storage', loadData);
     };
   }, []);
@@ -362,6 +428,13 @@ const SalesKPIs: React.FC = () => {
 
   const closeTimeFilter = () => setIsTimeFilterOpen(false);
 
+  const resolveSalesAvatarUrl = (memberId?: string, memberName?: string) => {
+    if (memberId && user?.id === memberId && user.avatar) return user.avatar;
+    if (memberId && DEMO_SALES_AVATAR_BY_ID[memberId]) return DEMO_SALES_AVATAR_BY_ID[memberId];
+    const normalizedName = normalizeLookupKey(memberName);
+    return normalizedName ? DEMO_SALES_AVATAR_BY_NAME[normalizedName] : undefined;
+  };
+
   const rosterMap = new Map<string, MemberProfile>();
 
   teams.forEach((team) => {
@@ -376,6 +449,7 @@ const SalesKPIs: React.FC = () => {
         teamName: team.name,
         productFocus: team.productFocus,
         assignKeywords: team.assignKeywords || [],
+        avatarUrl: resolveSalesAvatarUrl(member.userId, member.name),
       });
     });
   });
@@ -391,6 +465,7 @@ const SalesKPIs: React.FC = () => {
       teamName: target.teamName || 'Chưa gán team',
       productFocus: 'Khác',
       assignKeywords: [],
+      avatarUrl: resolveSalesAvatarUrl(target.ownerId, target.ownerName),
     });
   });
 
@@ -406,6 +481,7 @@ const SalesKPIs: React.FC = () => {
       teamName: 'Chưa gán team',
       productFocus: quotation.product || 'Khác',
       assignKeywords: [],
+      avatarUrl: resolveSalesAvatarUrl(ownerId, quotation.salespersonName || ownerId),
     });
   });
 
@@ -421,6 +497,7 @@ const SalesKPIs: React.FC = () => {
       teamName: 'Chưa gán team',
       productFocus: 'Khác',
       assignKeywords: [],
+      avatarUrl: resolveSalesAvatarUrl(ownerId, ownerId),
     });
   });
 
@@ -571,6 +648,13 @@ const SalesKPIs: React.FC = () => {
     activeDateRange.months.length > 0
       ? activeDateRange.months[activeDateRange.months.length - 1]
       : currentMonth;
+  const quotationMap = new Map(quotations.map((quotation) => [quotation.id, quotation]));
+  const actualTransactionsByRelatedId = new Map(
+    actualTransactions
+      .filter((transaction) => transaction.relatedId)
+      .map((transaction) => [transaction.relatedId as string, transaction] as const)
+  );
+  const approvedRevenueQuotationIds = new Set<string>();
 
   const statsByOwner = new Map<
     string,
@@ -588,13 +672,41 @@ const SalesKPIs: React.FC = () => {
     return statsByOwner.get(ownerId)!;
   };
 
+  sourceTransactions.forEach((transaction) => {
+    if (transaction.status !== 'DA_DUYET' || !transaction.quotationId) return;
+
+    const quotation = quotationMap.get(transaction.quotationId);
+    const ownerId = quotation?.createdBy || transaction.createdBy;
+    if (!quotation || !ownerId) return;
+
+    const actualTransaction = actualTransactionsByRelatedId.get(transaction.id);
+    if (actualTransaction && actualTransaction.type !== 'IN') return;
+
+    const revenueDate =
+      actualTransaction?.date ||
+      (transaction.paidAt ? new Date(transaction.paidAt).toISOString() : new Date(transaction.createdAt).toISOString());
+
+    if (!isDateIncluded(revenueDate)) return;
+
+    approvedRevenueQuotationIds.add(quotation.id);
+    const stats = getOwnerStats(ownerId);
+    stats.actualRevenue += Number(actualTransaction?.amount ?? transaction.amount ?? 0);
+  });
+
   quotations.forEach((quotation) => {
     if (!quotation.createdBy) return;
     const stats = getOwnerStats(quotation.createdBy);
     const wonDate = quotation.lockedAt || quotation.updatedAt || quotation.createdAt;
 
-    if (isWonQuotation(quotation) && isDateIncluded(wonDate)) {
+    if (
+      quotation.transactionStatus === 'DA_DUYET' &&
+      !approvedRevenueQuotationIds.has(quotation.id) &&
+      isDateIncluded(wonDate)
+    ) {
       stats.actualRevenue += Number(quotation.finalAmount || quotation.amount || 0);
+    }
+
+    if (isWonQuotation(quotation) && isDateIncluded(wonDate)) {
       stats.actualContracts += 1;
     }
 
@@ -720,6 +832,13 @@ const SalesKPIs: React.FC = () => {
   const topMember = [...memberRows].sort(
     (left, right) => right.actualRevenue - left.actualRevenue || right.progress - left.progress
   )[0];
+  const topMemberInitials = topMember ? getInitials(topMember.name) : 'TS';
+  const topMemberAvatarUrl = topMember?.avatarUrl;
+  const topMemberHighlight = topMember
+    ? topMember.actualContracts > 0
+      ? `${topMember.actualContracts} HĐ chốt • ${topMember.progress}% tiến độ`
+      : `Dẫn đầu doanh thu • ${topMember.progress}% tiến độ`
+    : 'Chờ doanh số đầu tiên';
 
   const buildDraftTargets = (
     period: string,
@@ -1176,7 +1295,7 @@ const SalesKPIs: React.FC = () => {
         </div>
 
         <div className="rounded-lg border border-dashed border-blue-200 bg-blue-50/70 px-3 py-2.5 text-[13px] text-slate-700 shadow-sm">
-          Dữ liệu thực tế lấy từ báo giá/đơn chốt và pipeline hiện có trong khoảng {activePeriodLabel}.
+          Dữ liệu thực tế lấy từ tiền về đã duyệt, HĐ chốt và pipeline hiện có trong khoảng {activePeriodLabel}.
         </div>
 
         {notice ? (
@@ -1186,67 +1305,153 @@ const SalesKPIs: React.FC = () => {
           </div>
         ) : null}
 
-        <div className="grid gap-2.5 lg:grid-cols-4">
-          <div className="rounded-lg border border-slate-200 bg-white p-3.5 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-[12px] font-medium text-slate-500">Doanh thu / mục tiêu</p>
-                <h3 className="mt-1 text-[26px] font-bold leading-none text-slate-900">
-                  {formatCompactCurrency(totalActualRevenue)} / {formatCompactCurrency(totalTargetRevenue)}
-                </h3>
+        <div className="grid gap-2.5 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start">
+          <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[12px] font-medium text-slate-500">Doanh thu / mục tiêu</p>
+                  <h3 className="mt-1 text-[24px] font-bold leading-none text-slate-900">
+                    {formatCompactCurrency(totalActualRevenue)} / {formatCompactCurrency(totalTargetRevenue)}
+                  </h3>
+                </div>
+                <div className="rounded-md bg-blue-50 p-2 text-blue-600">
+                  <TrendingUp size={16} />
+                </div>
               </div>
-              <div className="rounded-md bg-blue-50 p-2 text-blue-600">
-                <TrendingUp size={16} />
+              <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-slate-100">
+                <div
+                  className="h-full rounded-full bg-blue-500"
+                  style={{ width: `${Math.min(revenueProgress, 100)}%` }}
+                />
+              </div>
+              <div className="mt-1.5 flex items-center justify-between text-[10px] font-semibold">
+                <span className="text-blue-700">{revenueProgress}% hoàn thành</span>
+                <span className="text-slate-500">
+                  Còn {formatCompactCurrency(Math.max(totalTargetRevenue - totalActualRevenue, 0))}
+                </span>
               </div>
             </div>
-            <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-slate-100">
+
+            <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[12px] font-medium text-slate-500">HĐ chốt</p>
+                  <h3 className="mt-1 text-[24px] font-bold leading-none text-slate-900">
+                    {totalActualContracts} / {totalTargetContracts}
+                  </h3>
+                </div>
+                <div className="rounded-md bg-emerald-50 p-2 text-emerald-600">
+                  <CheckCircle2 size={16} />
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm sm:col-span-2 xl:col-span-1">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[12px] font-medium text-slate-500">Pipeline</p>
+                  <h3 className="mt-1 text-[24px] font-bold leading-none text-slate-900">{formatCompactCurrency(totalPipeline)}</h3>
+                </div>
+                <div className="rounded-md bg-amber-50 p-2 text-amber-600">
+                  <Layers3 size={16} />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="relative overflow-hidden rounded-lg border border-blue-400/40 bg-gradient-to-br from-blue-700 via-blue-600 to-indigo-700 p-3.5 text-white shadow-xl shadow-blue-700/30">
+            <div className="pointer-events-none absolute inset-0">
+              <div className="absolute -left-8 top-0 h-24 w-24 rounded-full bg-white/12 blur-3xl" />
+              <div className="absolute right-3 top-2 h-20 w-20 rounded-full bg-amber-300/20 blur-2xl" />
+              <div className="absolute bottom-[-18px] right-10 h-24 w-24 rounded-full bg-sky-200/15 blur-2xl" />
               <div
-                className="h-full rounded-full bg-blue-500"
-                style={{ width: `${Math.min(revenueProgress, 100)}%` }}
+                className="absolute inset-y-0 left-[-18%] w-[42%] skew-x-[-24deg] bg-gradient-to-r from-transparent via-white/20 to-transparent"
+                style={{ animation: 'topSaleShimmer 6.2s linear infinite' }}
               />
+              {TOP_SALE_FIREWORKS.map((firework) => (
+                <div
+                  key={firework.key}
+                  className={`absolute ${firework.className}`}
+                  style={{
+                    width: firework.size,
+                    height: firework.size,
+                    animation: `topSaleFloat ${firework.duration} ease-in-out infinite`,
+                    animationDelay: firework.delay,
+                  }}
+                >
+                  <div
+                    className="absolute inset-[28%] rounded-full blur-md"
+                    style={{ backgroundColor: firework.color, opacity: 0.24 }}
+                  />
+                  {TOP_SALE_FIREWORK_RAYS.map((rotation) => (
+                    <span
+                      key={`${firework.key}-${rotation}`}
+                      className="absolute left-1/2 top-1/2 h-[2px] origin-left rounded-full"
+                      style={{
+                        width: firework.size * 0.28,
+                        background: `linear-gradient(90deg, ${firework.color}, rgba(255,255,255,0))`,
+                        transform: `translateY(-50%) rotate(${rotation}deg)`,
+                        animation: `topSaleBurst ${firework.duration} ease-out infinite`,
+                        animationDelay: firework.delay,
+                      }}
+                    />
+                  ))}
+                  <span
+                    className="absolute left-1/2 top-1/2 h-2.5 w-2.5 rounded-full"
+                    style={{
+                      backgroundColor: firework.color,
+                      boxShadow: `0 0 16px ${firework.color}`,
+                      transform: 'translate(-50%, -50%)',
+                      animation: `topSaleGlow ${firework.duration} ease-in-out infinite`,
+                      animationDelay: firework.delay,
+                    }}
+                  />
+                </div>
+              ))}
             </div>
-            <div className="mt-1.5 flex items-center justify-between text-[10px] font-semibold">
-              <span className="text-blue-700">{revenueProgress}% hoàn thành</span>
-              <span className="text-slate-500">
-                Còn {formatCompactCurrency(Math.max(totalTargetRevenue - totalActualRevenue, 0))}
-              </span>
-            </div>
-          </div>
 
-          <div className="rounded-lg border border-slate-200 bg-white p-3.5 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-[12px] font-medium text-slate-500">HĐ chốt</p>
-                <h3 className="mt-1 text-[26px] font-bold leading-none text-slate-900">
-                  {totalActualContracts} / {totalTargetContracts}
-                </h3>
-              </div>
-              <div className="rounded-md bg-emerald-50 p-2 text-emerald-600">
-                <CheckCircle2 size={16} />
-              </div>
-            </div>
-          </div>
+            <div className="relative flex h-full flex-col justify-between gap-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-blue-50 backdrop-blur-sm">
+                    <Sparkles size={12} className="text-amber-200" />
+                    Top sale
+                  </div>
+                  <h3 className="mt-2 text-[28px] font-black leading-none tracking-tight">
+                    {topMember?.name || 'Chưa có dữ liệu'}
+                  </h3>
+                  <p className="mt-1 text-[12px] font-medium text-blue-100/90">
+                    {topMember ? `${topMember.teamName} • ${topMember.branch}` : 'Chưa phát sinh doanh số'}
+                  </p>
+                </div>
 
-          <div className="rounded-lg border border-slate-200 bg-white p-3.5 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-[12px] font-medium text-slate-500">Pipeline</p>
-                <h3 className="mt-1 text-[26px] font-bold leading-none text-slate-900">{formatCompactCurrency(totalPipeline)}</h3>
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/20 bg-white/10 text-amber-200 shadow-lg shadow-amber-300/20 backdrop-blur-sm">
+                  <Trophy size={24} />
+                </div>
               </div>
-              <div className="rounded-md bg-amber-50 p-2 text-amber-600">
-                <Layers3 size={16} />
-              </div>
-            </div>
-          </div>
 
-          <div className="rounded-lg bg-gradient-to-br from-blue-600 to-blue-700 p-3.5 text-white shadow-sm">
-            <p className="text-[12px] font-medium text-blue-100">Top sale</p>
-            <h3 className="mt-1 text-[26px] font-bold leading-none">{topMember?.name || 'Chưa có dữ liệu'}</h3>
-            <p className="mt-1 text-[12px] text-blue-100">
-              {topMember ? `${topMember.teamName} • ${topMember.branch}` : 'Chưa phát sinh doanh số'}
-            </p>
-            <div className="mt-2.5 inline-flex rounded-md bg-white/15 px-2 py-1 text-[10px] font-semibold">
-              {topMember ? `Doanh thu ${formatCompactCurrency(topMember.actualRevenue)}` : 'Chưa có dữ liệu'}
+              <div className="relative flex items-end justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl border border-white/15 bg-white/14 text-[15px] font-black tracking-[0.16em] text-white backdrop-blur-sm">
+                    {topMemberAvatarUrl ? (
+                      <img src={topMemberAvatarUrl} alt={topMember?.name || 'Top sale'} className="h-full w-full object-cover" />
+                    ) : (
+                      topMemberInitials
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-amber-100/90">
+                      Champion tháng này
+                    </p>
+                    <p className="mt-0.5 text-[12px] text-blue-100">{topMemberHighlight}</p>
+                  </div>
+                </div>
+
+                <div className="inline-flex rounded-full border border-white/15 bg-white/12 px-3 py-1.5 text-[11px] font-bold text-white backdrop-blur-sm">
+                  {topMember ? `Tiền về ${formatCompactCurrency(topMember.actualRevenue)}` : 'Chưa có dữ liệu'}
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -1374,8 +1579,12 @@ const SalesKPIs: React.FC = () => {
                         <td className="px-4 py-3 text-center font-semibold text-slate-500">{index + 1}</td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2.5">
-                            <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-blue-100 bg-blue-50 text-[13px] font-bold text-blue-700">
-                              {getInitials(row.name)}
+                            <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-lg border border-blue-100 bg-blue-50 text-[13px] font-bold text-blue-700">
+                              {row.avatarUrl ? (
+                                <img src={row.avatarUrl} alt={row.name} className="h-full w-full object-cover" />
+                              ) : (
+                                getInitials(row.name)
+                              )}
                             </div>
                             <div>
                               <div className="font-semibold text-slate-900">{row.name}</div>
@@ -1431,6 +1640,62 @@ const SalesKPIs: React.FC = () => {
           </div>
         </section>
 
+        <style>{`
+          @keyframes topSaleBurst {
+            0%,
+            100% {
+              opacity: 0.18;
+              transform: translateY(-50%) scaleX(0.65);
+            }
+            18% {
+              opacity: 1;
+              transform: translateY(-50%) scaleX(1);
+            }
+            55% {
+              opacity: 0.32;
+              transform: translateY(-50%) scaleX(0.82);
+            }
+          }
+
+          @keyframes topSaleGlow {
+            0%,
+            100% {
+              opacity: 0.45;
+              transform: translate(-50%, -50%) scale(0.75);
+            }
+            32% {
+              opacity: 1;
+              transform: translate(-50%, -50%) scale(1.18);
+            }
+          }
+
+          @keyframes topSaleFloat {
+            0%,
+            100% {
+              transform: translate3d(0, 0, 0) scale(1);
+            }
+            50% {
+              transform: translate3d(0, -6px, 0) scale(1.03);
+            }
+          }
+
+          @keyframes topSaleShimmer {
+            0% {
+              transform: translateX(-120%) skewX(-24deg);
+              opacity: 0;
+            }
+            18% {
+              opacity: 0.35;
+            }
+            54% {
+              opacity: 0;
+            }
+            100% {
+              transform: translateX(220%) skewX(-24deg);
+              opacity: 0;
+            }
+          }
+        `}</style>
       </div>
 
       {canManageKpis && showCreateModal ? (

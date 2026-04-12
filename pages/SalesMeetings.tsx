@@ -10,6 +10,7 @@ import { useAuth } from '../contexts/AuthContext';
 import CreateMeetingModal from '../components/CreateMeetingModal';
 import { MEETING_TEACHERS, hasTeacherConflict } from '../utils/meetingHelpers';
 import PinnedSearchInput, { PinnedSearchChip } from '../components/PinnedSearchInput';
+import { useSalesTestRole } from '../utils/salesTestRole';
 
 const normalizeCampus = (value?: string) => {
     const normalized = value?.trim().toLowerCase();
@@ -22,8 +23,11 @@ const normalizeCampus = (value?: string) => {
     return value || '';
 };
 
+const normalizeIdentityToken = (value?: string) => String(value || '').trim().toLowerCase();
+
 const SalesMeetings: React.FC = () => {
     const { user } = useAuth();
+    const { salesTestRole } = useSalesTestRole(user?.role);
     const [meetings, setMeetings] = useState<IMeeting[]>([]);
 
     const [filterStatus, setFilterStatus] = useState<string>('all');
@@ -32,6 +36,7 @@ const SalesMeetings: React.FC = () => {
     const [customEndDate, setCustomEndDate] = useState('');
     const [filterBranch, setFilterBranch] = useState<string>('all');
     const [filterType, setFilterType] = useState<string>('all');
+    const [filterSalesperson, setFilterSalesperson] = useState<string>('all');
     const [searchTerm, setSearchTerm] = useState('');
 
     const [selectedMeeting, setSelectedMeeting] = useState<IMeeting | null>(null);
@@ -75,7 +80,7 @@ const SalesMeetings: React.FC = () => {
     const handleConfirm = (id: string) => {
         const meeting = meetings.find(m => m.id === id);
         if (!meeting || meeting.status !== MeetingStatus.DRAFT) return;
-        const canConfirmMeeting = isAdmin || user?.role === UserRole.SALES_LEADER || meeting.salesPersonId === user?.id;
+        const canConfirmMeeting = isAdmin || isSalesLeader || meeting.salesPersonId === user?.id;
         if (!canConfirmMeeting) return;
 
         updateMeeting({ ...meeting, status: MeetingStatus.CONFIRMED });
@@ -132,16 +137,59 @@ const SalesMeetings: React.FC = () => {
         loadData();
     };
 
-    const isSales = user?.role === UserRole.SALES_REP || user?.role === UserRole.SALES_LEADER;
+    const effectiveSalesRole =
+        user?.role === UserRole.SALES_REP || user?.role === UserRole.SALES_LEADER
+            ? salesTestRole
+            : user?.role;
+    const isSales = effectiveSalesRole === UserRole.SALES_REP || effectiveSalesRole === UserRole.SALES_LEADER;
     const isTeacher = user?.role === UserRole.TEACHER || user?.role === UserRole.TRAINING;
     const isAdmin = user?.role === UserRole.ADMIN || user?.role === UserRole.FOUNDER;
+    const isSalesLeader = effectiveSalesRole === UserRole.SALES_LEADER;
+    const canViewAllMeetings = isAdmin || isSalesLeader;
 
     const canConfirm = isSales || isAdmin;
     const canResult = isTeacher || isAdmin || isSales;
 
+    useEffect(() => {
+        if (!canViewAllMeetings && filterSalesperson !== 'all') {
+            setFilterSalesperson('all');
+        }
+    }, [canViewAllMeetings, filterSalesperson]);
+
+    const scopedMeetings = useMemo(() => {
+        if (canViewAllMeetings) return meetings;
+
+        const userTokens = new Set([
+            normalizeIdentityToken(user?.id),
+            normalizeIdentityToken(user?.name)
+        ].filter(Boolean));
+
+        return meetings.filter((meeting) => {
+            const salespersonTokens = [
+                normalizeIdentityToken(meeting.salesPersonId),
+                normalizeIdentityToken(meeting.salesPersonName)
+            ].filter(Boolean);
+
+            return salespersonTokens.some((token) => userTokens.has(token));
+        });
+    }, [canViewAllMeetings, meetings, user?.id, user?.name]);
+
+    const salespersonOptions = useMemo(() => {
+        const options = new Map<string, { value: string; label: string }>();
+
+        meetings.forEach((meeting) => {
+            const value = String(meeting.salesPersonId || '').trim();
+            const label = String(meeting.salesPersonName || meeting.salesPersonId || '').trim();
+            if (!value || !label || options.has(value)) return;
+            options.set(value, { value, label });
+        });
+
+        return Array.from(options.values()).sort((a, b) => a.label.localeCompare(b.label, 'vi'));
+    }, [meetings]);
+
     const assignTeacher = (meetingId: string, teacherId: string) => {
         const teacher = MEETING_TEACHERS.find(t => t.id === teacherId);
-        const meeting = meetings.find(m => m.id === meetingId);
+        const meeting = scopedMeetings.find(m => m.id === meetingId);
         if (meeting && teacher) {
             if (hasTeacherConflict(teacher.id, meeting.datetime, meeting.id)) {
                 window.alert('Giáo viên đã có lịch trùng giờ. Vui lòng cân nhắc đổi giờ hoặc đổi giáo viên.');
@@ -151,11 +199,17 @@ const SalesMeetings: React.FC = () => {
         }
     };
 
-    const filteredMeetings = useMemo(() => meetings.filter(m => {
-        const matchesSearch = m.leadName.toLowerCase().includes(searchTerm.toLowerCase()) || m.leadPhone.includes(searchTerm);
+    const filteredMeetings = useMemo(() => scopedMeetings.filter(m => {
+        const searchToken = searchTerm.toLowerCase();
+        const matchesSearch =
+            String(m.leadName || '').toLowerCase().includes(searchToken) ||
+            String(m.leadPhone || '').includes(searchTerm);
         const matchesStatus = filterStatus === 'all' || m.status === filterStatus;
         const matchesBranch = filterBranch === 'all' || normalizeCampus(m.campus) === filterBranch;
         const matchesType = filterType === 'all' || normalizeMeetingType(m.type) === filterType;
+        const matchesSalesperson =
+            filterSalesperson === 'all' ||
+            normalizeIdentityToken(m.salesPersonId) === normalizeIdentityToken(filterSalesperson);
 
         let matchesDate = true;
         const mDate = new Date(m.datetime);
@@ -188,8 +242,8 @@ const SalesMeetings: React.FC = () => {
             }
         }
 
-        return matchesSearch && matchesStatus && matchesBranch && matchesType && matchesDate;
-    }), [meetings, searchTerm, filterStatus, filterBranch, filterType, filterDate, customStartDate, customEndDate]);
+        return matchesSearch && matchesStatus && matchesBranch && matchesType && matchesSalesperson && matchesDate;
+    }), [scopedMeetings, searchTerm, filterStatus, filterBranch, filterType, filterSalesperson, filterDate, customStartDate, customEndDate]);
 
     const statusLabelMap: Record<string, string> = {
         all: 'Tat ca trang thai',
@@ -235,8 +289,13 @@ const SalesMeetings: React.FC = () => {
             chips.push({ key: 'type', label: `Hinh thuc: ${typeLabelMap[filterType] || filterType}` });
         }
 
+        if (filterSalesperson !== 'all') {
+            const salespersonLabel = salespersonOptions.find((option) => option.value === filterSalesperson)?.label || filterSalesperson;
+            chips.push({ key: 'salesperson', label: `Sale: ${salespersonLabel}` });
+        }
+
         return chips;
-    }, [filterDate, customStartDate, customEndDate, filterBranch, filterStatus, filterType, dateLabelMap, statusLabelMap, typeLabelMap]);
+    }, [filterDate, customStartDate, customEndDate, filterBranch, filterStatus, filterType, filterSalesperson, salespersonOptions, dateLabelMap, statusLabelMap, typeLabelMap]);
 
     const removeSearchChip = (chipKey: string) => {
         if (chipKey === 'date') {
@@ -255,6 +314,10 @@ const SalesMeetings: React.FC = () => {
         }
         if (chipKey === 'type') {
             setFilterType('all');
+            return;
+        }
+        if (chipKey === 'salesperson') {
+            setFilterSalesperson('all');
         }
     };
 
@@ -266,6 +329,7 @@ const SalesMeetings: React.FC = () => {
         setFilterBranch('all');
         setFilterStatus('all');
         setFilterType('all');
+        setFilterSalesperson('all');
     };
 
     const getStatusBadge = (status: MeetingStatus) => {
@@ -355,6 +419,18 @@ const SalesMeetings: React.FC = () => {
                     </select>
                 </div>
 
+                {canViewAllMeetings && (
+                    <div className="flex items-center gap-2 border-l border-slate-200 pl-4 h-full">
+                        <User size={16} className="text-slate-400" />
+                        <select className="text-sm outline-none text-slate-700 font-medium bg-transparent cursor-pointer hover:text-blue-600" value={filterSalesperson} onChange={e => setFilterSalesperson(e.target.value)}>
+                            <option value="all">Tất cả sale</option>
+                            {salespersonOptions.map((option) => (
+                                <option key={option.value} value={option.value}>{option.label}</option>
+                            ))}
+                        </select>
+                    </div>
+                )}
+
                 <div className="flex items-center gap-2 border-l border-slate-200 pl-4 h-full">
                     <Filter size={16} className="text-slate-400" />
                     <select className="text-sm outline-none text-slate-700 font-medium bg-transparent cursor-pointer hover:text-blue-600" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
@@ -399,7 +475,7 @@ const SalesMeetings: React.FC = () => {
                                 const mDate = new Date(m.datetime);
                                 const canConfirmMeeting =
                                     canConfirm &&
-                                    (isAdmin || user?.role === UserRole.SALES_LEADER || m.salesPersonId === user?.id);
+                                    (isAdmin || isSalesLeader || m.salesPersonId === user?.id);
                                 const isOverdue = m.status !== MeetingStatus.SUBMITTED && m.status !== MeetingStatus.CANCELLED && mDate < new Date();
                                 const isToday = mDate.toDateString() === new Date().toDateString();
                                 const isUpcoming = !isOverdue && isToday;

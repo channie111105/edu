@@ -9,7 +9,7 @@ import {
     DollarSign, CreditCard, MessageSquare, Bell, Star,
     MoreHorizontal, CalendarDays, Flag, Plus, Trash2, Trophy,
     ShieldCheck, FileSignature, Wallet, Lock, Activity as ActivityIcon, Ban, ArrowUpRight, Users, XOctagon, Tag, Handshake, ChevronRight,
-    Printer, RotateCcw, Monitor
+    Printer, RotateCcw, Monitor, Pencil, Save
 } from 'lucide-react';
 import { FIXED_LEAD_TAGS, addContract, addQuotation, getClosedLeadReasons, getLeadById, getLostReasons, getQuotations, getTags, getTeachers, getTrainingClasses, saveTags, updateQuotation } from '../utils/storage';
 import CreateMeetingModal from './CreateMeetingModal';
@@ -55,6 +55,8 @@ interface UnifiedLeadDrawerProps {
     onClose: () => void;
     onUpdate: (updatedLead: ILead) => void;
     onConvert?: (lead: ILead) => void;
+    statusBarMode?: 'lead' | 'pipeline';
+    statusBarStage?: DealStage;
 }
 
 type CreatorMarket = 'Đức' | 'Trung Quốc';
@@ -357,7 +359,6 @@ const PIPELINE_STAGE_OPTIONS: DealStage[] = [
     DealStage.PROPOSAL,
     DealStage.NEGOTIATION,
     DealStage.WON,
-    DealStage.LOST,
     DealStage.AFTER_SALE
 ];
 
@@ -368,7 +369,9 @@ const STAGE_LABELS: Record<string, string> = {
     [DealStage.NEGOTIATION]: 'Đàm phán (Theo dõi chốt)',
     [DealStage.WON]: 'Won',
     [DealStage.LOST]: 'Lost',
-    [DealStage.AFTER_SALE]: 'After sale'
+    [DealStage.AFTER_SALE]: 'After sale',
+    [DealStage.CONTRACT]: 'After sale',
+    [DealStage.DOCUMENT_COLLECTION]: 'After sale'
 };
 
 const STANDARD_LEAD_STATUS_OPTIONS = LEAD_STATUS_OPTIONS;
@@ -475,12 +478,13 @@ const mapLeadToFormData = (lead: ILead): LeadCreateFormData => {
     };
 };
 
-const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead, isOpen, onClose, onUpdate, onConvert }) => {
+const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead, isOpen, onClose, onUpdate, onConvert, statusBarMode = 'lead', statusBarStage }) => {
     if (!isOpen) return null;
 
     const { user } = useAuth();
     const [lead, setLead] = useState<ILead>(initialLead || {} as ILead);
     const [leadFormData, setLeadFormData] = useState<LeadCreateFormData>(() => mapLeadToFormData(initialLead || {} as ILead));
+    const [isLeadProfileEditing, setIsLeadProfileEditing] = useState(false);
     const [leadFormActiveTab, setLeadFormActiveTab] = useState<LeadCreateModalTab>('notes');
     const quotationSalesOptions = useMemo(() => {
         const options = new Map<string, { id: string; name: string; avatar: string; role: string }>();
@@ -512,6 +516,10 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
     );
     const patchLeadFormData = (patch: Partial<LeadCreateFormData>) => {
         setLeadFormData((prev) => ({ ...prev, ...patch }));
+    };
+    const cancelLeadProfileEditing = () => {
+        setLeadFormData(mapLeadToFormData(lead));
+        setIsLeadProfileEditing(false);
     };
     const callCount = useMemo(() => {
         const auditCount = (lead.auditLogs || []).filter((log) => log.action === 'lead_called').length;
@@ -759,6 +767,24 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
 
     // --- STAGE HELPERS ---
     const normalizedLeadStatus = normalizeLeadStatusKey(String(lead.status || ''));
+    const rawStatusBarStage = String(statusBarStage || lead.status || '') as DealStage | '';
+    const normalizedPipelineStatusBarStage = rawStatusBarStage === DealStage.CONTRACT || rawStatusBarStage === DealStage.DOCUMENT_COLLECTION
+        ? DealStage.AFTER_SALE
+        : rawStatusBarStage;
+    const pipelineStatusBarSteps = normalizedPipelineStatusBarStage === DealStage.LOST
+        ? [...PIPELINE_STAGE_OPTIONS, DealStage.LOST]
+        : PIPELINE_STAGE_OPTIONS;
+    const statusBarSteps = statusBarMode === 'pipeline'
+        ? pipelineStatusBarSteps
+        : [LEAD_STATUS_KEYS.NEW, LEAD_STATUS_KEYS.ASSIGNED, LEAD_STATUS_KEYS.PICKED, LEAD_STATUS_KEYS.CONTACTED, LEAD_STATUS_KEYS.CONVERTED];
+    const currentStatusBarValue = statusBarMode === 'pipeline'
+        ? normalizedPipelineStatusBarStage
+        : normalizedLeadStatus;
+    const getStatusBarLabel = (status: string) => (
+        statusBarMode === 'pipeline'
+            ? (STAGE_LABELS[status] || status)
+            : getLeadStatusLabel(status)
+    );
     const isLeadStage = isLeadStatusOneOf(String(lead.status || ''), [LEAD_STATUS_KEYS.NEW, LEAD_STATUS_KEYS.ASSIGNED, LEAD_STATUS_KEYS.PICKED, LEAD_STATUS_KEYS.CONTACTED, LEAD_STATUS_KEYS.NURTURING]);
     const isQualified = normalizedLeadStatus === LEAD_STATUS_KEYS.CONVERTED || Object.values(DealStage).includes(lead.status as any);
     const isConverted = normalizedLeadStatus === LEAD_STATUS_KEYS.CONVERTED || lead.status === DealStage.CONTRACT || lead.status === DealStage.WON;
@@ -782,6 +808,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
         if (isDifferentLead) {
             setLeadFormActiveTab('notes');
         }
+        setIsLeadProfileEditing(false);
 
         previousInitialLeadIdRef.current = initialLead.id;
     }, [initialLead]);
@@ -1298,6 +1325,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
 
         setLead(finalLead);
         onUpdate(finalLead);
+        setIsLeadProfileEditing(false);
         setIsSaving(true);
         setTimeout(() => setIsSaving(false), 1500);
         showToast('Đã cập nhật thông tin lead.', 'success');
@@ -2186,9 +2214,9 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
 
                     {/* Status Bar Indicator */}
                     <div className="h-10 px-6 flex items-center bg-slate-50 border-b border-slate-200 overflow-x-auto no-scrollbar">
-                        {[LEAD_STATUS_KEYS.NEW, LEAD_STATUS_KEYS.ASSIGNED, LEAD_STATUS_KEYS.PICKED, LEAD_STATUS_KEYS.CONTACTED, LEAD_STATUS_KEYS.CONVERTED].map((st, idx, arr) => {
-                            const currentIndex = arr.findIndex((status) => status === normalizedLeadStatus);
-                            const isCurrent = normalizedLeadStatus === st;
+                        {statusBarSteps.map((st, idx, arr) => {
+                            const currentIndex = arr.findIndex((status) => status === currentStatusBarValue);
+                            const isCurrent = currentStatusBarValue === st;
                             const isPast = currentIndex >= idx;
                             return (
                                 <React.Fragment key={st}>
@@ -2197,7 +2225,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                                             {isPast ? <CheckCircle2 size={12} /> : idx + 1}
                                         </div>
                                         <span className={`text-[11px] font-bold uppercase tracking-tight ${isCurrent ? 'text-blue-700' : isPast ? 'text-slate-700' : 'text-slate-400'}`}>
-                                            {getLeadStatusLabel(st)}
+                                            {getStatusBarLabel(st)}
                                         </span>
                                     </div>
                                     {idx < arr.length - 1 && <ChevronRight size={14} className="mx-2 text-slate-300 flex-shrink-0" />}
@@ -2232,13 +2260,13 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                                     {/* 0. CALL BUTTON - Light Blue Theme */}
                                     <button
                                         onClick={handleCallAction}
-                                        className="px-3 py-1.5 text-blue-700 bg-white border border-blue-200 rounded hover:bg-blue-50 flex flex-col items-start shadow-sm transition-all active:scale-95"
+                                        className="relative px-4 py-2 text-blue-700 bg-white border border-blue-200 rounded hover:bg-blue-50 flex items-center gap-2 shadow-sm transition-all active:scale-95"
                                     >
-                                        <span className="text-[9px] font-bold uppercase tracking-wide text-blue-400 leading-none">
-                                            {callCount} call
+                                        <span className="absolute -top-2 -right-2 flex min-w-[20px] items-center justify-center rounded-full bg-blue-600 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white shadow-sm">
+                                            {callCount}
                                         </span>
-                                        <span className="mt-1 flex items-center gap-2 text-[11px] font-black leading-none">
-                                            <Phone size={13} className="fill-blue-100" /> GỌI ĐIỆN
+                                        <span className="flex items-center gap-2 text-[11px] font-black leading-none">
+                                            <Phone size={13} className="fill-blue-100" /> CALL
                                         </span>
                                     </button>
 
@@ -2317,6 +2345,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                             fixedTags={FIXED_LEAD_TAGS}
                             isAddingTag={isAddingTag}
                             customCloseReason={CUSTOM_CLOSE_REASON}
+                            viewMode={!isLeadProfileEditing}
                             onPatch={patchLeadFormData}
                             onTabChange={setLeadFormActiveTab}
                             onStatusChange={(status) => patchLeadFormData({
@@ -2349,14 +2378,33 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                             ) : (
                                 <div className="w-full flex items-center justify-between gap-3">
                                     <span className="flex items-center text-xs italic text-slate-400">
-                                        Cập nhật đầy đủ thông tin lead.
+                                        {isLeadProfileEditing ? 'Cập nhật đầy đủ thông tin lead.' : 'Bấm chỉnh sửa để cập nhật hồ sơ lead.'}
                                     </span>
-                                    <button
-                                        onClick={handleLeadFormSubmit}
-                                        className="flex items-center gap-2 rounded-lg bg-slate-800 px-6 py-2 text-sm font-bold text-white shadow-md transition-all hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
-                                    >
-                                        <CheckCircle2 size={18} /> LƯU THÔNG TIN
-                                    </button>
+                                    <div className="flex items-center gap-2">
+                                        {isLeadProfileEditing && (
+                                            <button
+                                                onClick={cancelLeadProfileEditing}
+                                                className="flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-all hover:bg-slate-50"
+                                            >
+                                                HỦY
+                                            </button>
+                                        )}
+                                        {isLeadProfileEditing ? (
+                                            <button
+                                                onClick={handleLeadFormSubmit}
+                                                className="flex items-center gap-2 rounded-lg bg-slate-800 px-6 py-2 text-sm font-bold text-white shadow-md transition-all hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+                                            >
+                                                <Save size={16} /> LƯU THÔNG TIN
+                                            </button>
+                                        ) : (
+                                            <button
+                                                onClick={() => setIsLeadProfileEditing(true)}
+                                                className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-5 py-2 text-sm font-bold text-blue-700 shadow-sm transition-all hover:bg-blue-100"
+                                            >
+                                                <Pencil size={16} /> CHỈNH SỬA
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
                             )}
                         </div>

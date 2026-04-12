@@ -382,7 +382,8 @@ export interface Activity {
 
 export interface IDeal {
   id: string;
-  leadId: string; // Link back to Lead/Contact
+  leadId: string; // Link back to Contact hoặc Lead gốc khi không liên kết khách hàng
+  customerLinkMode?: 'linked_contact' | 'no_contact';
   title: string; // Tên Deal (Ví dụ: Combo Đức A1-B1)
   value: number; // Giá trị dự kiến
   stage: DealStage;

@@ -1,10 +1,13 @@
 ﻿import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom'; // Add import
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { getLeads, saveLead, saveLeads, getClosedLeadReasons, getTags, saveTags } from '../utils/storage';
-import { LeadStatus, ILead, DealStage, UserRole } from '../types';
+import { getDeals, getLeads, saveDeals, saveLeads, getClosedLeadReasons, getTags, saveTags } from '../utils/storage';
+import { LeadStatus, ILead, DealStage, UserRole, type Activity } from '../types';
 import ConvertLeadModal, { ConvertLeadModalSubmitData } from '../components/ConvertLeadModal';
-import LeadConvertConflictReviewModal from '../components/LeadConvertConflictReviewModal';
+import LeadCareScheduleModal, {
+   POST_CONVERT_SCHEDULE_OPTIONS,
+   type PostConvertScheduleAction,
+} from '../components/LeadCareScheduleModal';
 import UnifiedLeadDrawer from '../components/UnifiedLeadDrawer';
 import LeadDrawerProfileForm from '../components/LeadDrawerProfileForm';
 import LeadPivotTable from '../components/LeadPivotTable';
@@ -43,7 +46,7 @@ import {
 import { decodeMojibakeReactNode, decodeMojibakeText } from '../utils/mojibake';
 import { getLeadPhoneValidationMessage, normalizeLeadPhone } from '../utils/phone';
 import { clearLeadReclaimTracking } from '../utils/leadSla';
-import { convertLeadToOpportunity, getLeadBatchConversionPreview } from '../utils/leadConversion';
+import { convertLeadToOpportunity } from '../utils/leadConversion';
 import {
    Inbox, Search, Phone, Filter, CheckCircle2, Clock,
    ListFilter, Star, Grid, List as ListIcon, ChevronLeft, ChevronRight,
@@ -57,6 +60,12 @@ type MyLeadsAdvancedFieldKey = 'ownerId' | 'source' | 'program' | 'city';
 type MyLeadsAdvancedFilters = Record<MyLeadsAdvancedFieldKey, string[]>;
 type MyLeadsAdvancedQueries = Record<MyLeadsAdvancedFieldKey, string>;
 type AdvancedFieldOption = { value: string; label: string };
+type PostConvertScheduleState = {
+   dealId: string;
+   leadId: string;
+   defaultAction: PostConvertScheduleAction;
+   defaultDateTime: string;
+};
 
 const DEFAULT_ADVANCED_FIELD_FILTERS: MyLeadsAdvancedFilters = {
    ownerId: [],
@@ -70,6 +79,16 @@ const DEFAULT_ADVANCED_FIELD_QUERIES: MyLeadsAdvancedQueries = {
    source: '',
    program: '',
    city: '',
+};
+
+const getPostConvertScheduleLabel = (action: PostConvertScheduleAction) =>
+   POST_CONVERT_SCHEDULE_OPTIONS.find((option) => option.value === action)?.label || 'Gọi điện';
+
+const getDefaultPostConvertScheduleDateTime = (action: PostConvertScheduleAction) => {
+   const matchedOption = POST_CONVERT_SCHEDULE_OPTIONS.find((option) => option.value === action);
+   const nextDate = new Date();
+   nextDate.setHours(nextDate.getHours() + (matchedOption?.defaultDelayHours || 2));
+   return new Date(nextDate.getTime() - (nextDate.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
 };
 
 type SearchableMultiSelectFieldProps = {
@@ -363,8 +382,7 @@ const MyLeads: React.FC = () => {
    // Drawer State
    const [selectedLead, setSelectedLead] = useState<ILead | null>(null);
    const [leadToConvert, setLeadToConvert] = useState<ILead | null>(null);
-   const [singleLeadReviewTarget, setSingleLeadReviewTarget] = useState<ILead | null>(null);
-   const [bulkLeadReviewTargets, setBulkLeadReviewTargets] = useState<ILead[]>([]);
+   const [postConvertSchedule, setPostConvertSchedule] = useState<PostConvertScheduleState | null>(null);
    const [bulkLeadsToConvert, setBulkLeadsToConvert] = useState<ILead[]>([]);
 
    // Column Management
@@ -1388,21 +1406,94 @@ const MyLeads: React.FC = () => {
 
    // Handle Convert
    const handleConvertLead = (lead: ILead) => {
-      const preview = getLeadBatchConversionPreview([lead]);
-      const hasPhoneConflicts = preview.duplicatePhoneGroupCount > 0 || preview.existingContactMatchCount > 0;
-
-      if (hasPhoneConflicts) {
-         setSingleLeadReviewTarget(lead);
-         return;
-      }
-
       setLeadToConvert(lead);
    };
 
-   const handleProceedSingleLeadReview = () => {
-      if (!singleLeadReviewTarget) return;
-      setLeadToConvert(singleLeadReviewTarget);
-      setSingleLeadReviewTarget(null);
+   const handleClosePostConvertSchedule = () => {
+      const nextDealId = postConvertSchedule?.dealId;
+      setPostConvertSchedule(null);
+      if (nextDealId) {
+         navigate(`/pipeline?newDeal=${nextDealId}`);
+      }
+   };
+
+   const handleSavePostConvertSchedule = ({
+      action,
+      summary,
+      datetime,
+   }: {
+      action: PostConvertScheduleAction;
+      summary: string;
+      datetime: string;
+   }) => {
+      if (!postConvertSchedule) return;
+
+      const scheduledDate = new Date(datetime);
+      const scheduledAt = Number.isNaN(scheduledDate.getTime())
+         ? new Date().toISOString()
+         : scheduledDate.toISOString();
+      const activityLabel = getPostConvertScheduleLabel(action);
+      const actorName = decodeMojibakeText(user?.name || 'System');
+      const newActivity: Activity = {
+         id: `a-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+         type: action,
+         timestamp: scheduledAt,
+         title: activityLabel,
+         description: summary,
+         status: 'scheduled',
+      };
+
+      const updatedDeals = getDeals().map((deal) => (
+         deal.id !== postConvertSchedule.dealId
+            ? deal
+            : {
+               ...deal,
+               activities: [newActivity, ...(deal.activities || [])],
+            }
+      ));
+
+      saveDeals(updatedDeals);
+
+      const persistedLead = getLeads().find((lead) => lead.id === postConvertSchedule.leadId);
+      if (persistedLead) {
+         const updatedLead = appendLeadLogs(
+            {
+               ...persistedLead,
+               updatedAt: new Date().toISOString(),
+            },
+            {
+               activities: [
+                  buildLeadActivityLog({
+                     type: 'activity',
+                     title: activityLabel,
+                     description: summary,
+                     user: actorName,
+                     status: 'scheduled',
+                     datetime,
+                  }),
+               ],
+               audits: [
+                  buildLeadAuditLog({
+                     action: 'Tạo lịch chăm sóc sau chuyển đổi',
+                     actor: actorName,
+                     changes: [
+                        buildLeadAuditChange(
+                           'postConvertSchedule',
+                           '',
+                           `${activityLabel} | ${summary} | ${datetime}`,
+                           'Lịch chăm sóc'
+                        ),
+                     ],
+                  }),
+               ],
+            }
+         );
+
+         saveLead(updatedLead);
+         setLeads((prev) => prev.map((lead) => (lead.id === updatedLead.id ? updatedLead : lead)));
+      }
+
+      handleClosePostConvertSchedule();
    };
 
    const handleConfirmLeadConvert = ({ ownerId, salesChannel, conversionAction, customerAction, targetDealId }: ConvertLeadModalSubmitData) => {
@@ -1429,8 +1520,12 @@ const MyLeads: React.FC = () => {
          setLeads(prev => prev.map(item => item.id === leadToConvert.id ? convertedLead : item));
          setSelectedLead(null);
          setLeadToConvert(null);
-
-         navigate(`/pipeline?newDeal=${deal.id}`);
+         setPostConvertSchedule({
+            dealId: deal.id,
+            leadId: convertedLead.id,
+            defaultAction: 'call',
+            defaultDateTime: getDefaultPostConvertScheduleDateTime('call'),
+         });
       } catch (error) {
          console.error('Convert Error', error);
          alert('Có lỗi xảy ra khi chuyển đổi Lead!');
@@ -1494,26 +1589,7 @@ const MyLeads: React.FC = () => {
          return;
       }
 
-      const preview = getLeadBatchConversionPreview(nextBulkLeads);
-      const hasPhoneConflicts = preview.duplicatePhoneGroupCount > 0 || preview.existingContactMatchCount > 0;
-
-      if (hasPhoneConflicts) {
-         setBulkLeadReviewTargets(nextBulkLeads);
-         return;
-      }
-
       setBulkLeadsToConvert(nextBulkLeads);
-   };
-
-   const handleProceedBulkLeadReview = () => {
-      if (bulkLeadReviewTargets.length === 0) return;
-      setBulkLeadsToConvert(bulkLeadReviewTargets);
-      setBulkLeadReviewTargets([]);
-   };
-
-   const handleOpenLeadFromReview = (lead: ILead) => {
-      setBulkLeadReviewTargets([]);
-      setSelectedLead(lead);
    };
 
    const handleBulkWon = () => {
@@ -3449,23 +3525,12 @@ const MyLeads: React.FC = () => {
              onConfirm={handleConfirmLeadConvert}
           />
 
-         <LeadConvertConflictReviewModal
-            isOpen={!!singleLeadReviewTarget}
-            leads={singleLeadReviewTarget ? [singleLeadReviewTarget] : []}
-            onClose={() => setSingleLeadReviewTarget(null)}
-            onProceed={handleProceedSingleLeadReview}
-            onOpenLead={(lead) => {
-               setSingleLeadReviewTarget(null);
-               setSelectedLead(lead);
-            }}
-         />
-
-         <LeadConvertConflictReviewModal
-            isOpen={bulkLeadReviewTargets.length > 0}
-            leads={bulkLeadReviewTargets}
-            onClose={() => setBulkLeadReviewTargets([])}
-            onProceed={handleProceedBulkLeadReview}
-            onOpenLead={handleOpenLeadFromReview}
+         <LeadCareScheduleModal
+            isOpen={!!postConvertSchedule}
+            onClose={handleClosePostConvertSchedule}
+            onSave={handleSavePostConvertSchedule}
+            defaultAction={postConvertSchedule?.defaultAction || 'call'}
+            defaultDateTime={postConvertSchedule?.defaultDateTime}
          />
 
          <ConvertLeadModal

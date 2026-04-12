@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { ContractStatus, IContract, IQuotation, QuotationStatus } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { CONTRACT_FIELD_CONFIG, EditableContractFieldKey } from '../utils/contractFields';
-import { decodeMojibakeReactNode } from '../utils/mojibake';
+import { decodeMojibakeReactNode, decodeMojibakeText } from '../utils/mojibake';
 import { getContracts, getPrimaryQuotationStudentName, getQuotations, updateContract } from '../utils/storage';
 import PinnedSearchInput, { PinnedSearchChip } from '../components/PinnedSearchInput';
 
@@ -18,6 +18,53 @@ const statusConfig: Record<ContractStatus, { label: string; badge: string }> = {
   [ContractStatus.ACTIVE]: { label: 'Active', badge: 'bg-indigo-100 text-indigo-700' },
   [ContractStatus.COMPLETED]: { label: 'Hoàn tất', badge: 'bg-violet-100 text-violet-700' },
   [ContractStatus.CANCELLED]: { label: 'Hủy', badge: 'bg-rose-100 text-rose-700' }
+};
+
+const contractStatusOptions = Object.values(ContractStatus) as ContractStatus[];
+
+const normalizeStatusToken = (value: unknown) =>
+  decodeMojibakeText(typeof value === 'string' ? value : String(value || ''))
+    .trim()
+    .toLocaleLowerCase('vi-VN');
+
+const contractStatusLookup = (() => {
+  const lookup = new Map<string, ContractStatus>();
+
+  contractStatusOptions.forEach((status) => {
+    [
+      status,
+      statusConfig[status].label,
+      status === ContractStatus.SENT ? 'Da gui' : '',
+      status === ContractStatus.ACTIVE ? 'Dang hieu luc' : '',
+      status === ContractStatus.CANCELLED ? 'Huy' : ''
+    ].forEach((candidate) => {
+      const token = normalizeStatusToken(candidate);
+      if (token) lookup.set(token, status);
+    });
+  });
+
+  return lookup;
+})();
+
+const normalizeContractStatus = (value: unknown): ContractStatus | null => {
+  const token = normalizeStatusToken(value);
+  return token ? contractStatusLookup.get(token) || null : null;
+};
+
+const getContractStatusMeta = (value: unknown) => {
+  const normalizedStatus = normalizeContractStatus(value);
+  if (normalizedStatus) {
+    return {
+      key: normalizedStatus,
+      ...statusConfig[normalizedStatus]
+    };
+  }
+
+  return {
+    key: null,
+    label: decodeMojibakeText(String(value || '')).trim() || 'Unknown',
+    badge: 'bg-slate-100 text-slate-500'
+  };
 };
 
 const formatCurrency = (value?: number) => `${(value || 0).toLocaleString('vi-VN')} đ`;
@@ -106,6 +153,15 @@ const EnrollmentContracts: React.FC = () => {
     setStatusFilter('ALL');
   };
 
+  const applyStatusFilter = (nextFilter: ContractFilter) => {
+    if (nextFilter === 'ALL') {
+      setStatusFilter('ALL');
+      return;
+    }
+
+    setStatusFilter(normalizeContractStatus(nextFilter) || nextFilter);
+  };
+
   const closeEditModal = () => {
     setEditingContract(null);
     setEditingQuotation(undefined);
@@ -184,10 +240,16 @@ const EnrollmentContracts: React.FC = () => {
           contract.importedAt || contract.signedDate || quotation?.updatedAt || quotation?.createdAt || Date.now()
         ).getTime();
 
-        return { contract, quotation, searchable, sortTime };
+        return {
+          contract,
+          quotation,
+          searchable,
+          sortTime,
+          normalizedStatus: normalizeContractStatus(contract.status)
+        };
       })
-      .filter(({ contract, searchable }) => {
-        if (statusFilter !== 'ALL' && contract.status !== statusFilter) return false;
+      .filter(({ normalizedStatus, searchable }) => {
+        if (statusFilter !== 'ALL' && normalizedStatus !== statusFilter) return false;
         if (!keyword) return true;
         return searchable.includes(keyword);
       })
@@ -196,7 +258,10 @@ const EnrollmentContracts: React.FC = () => {
 
   const summary = useMemo(() => {
     const total = contracts.length;
-    const signed = contracts.filter((item) => item.status === ContractStatus.SIGNED || item.status === ContractStatus.ACTIVE).length;
+    const signed = contracts.filter((item) => {
+      const normalizedStatus = normalizeContractStatus(item.status);
+      return normalizedStatus === ContractStatus.SIGNED || normalizedStatus === ContractStatus.ACTIVE;
+    }).length;
     const totalValue = contracts.reduce((sum, item) => sum + (item.totalValue || 0), 0);
     return { total, signed, totalValue };
   }, [contracts]);
@@ -239,6 +304,85 @@ const EnrollmentContracts: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2 flex-wrap md:flex-nowrap shrink-0">
+            <div
+              className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition ${
+                statusFilter !== 'ALL'
+                  ? 'border-blue-200 bg-blue-50 text-blue-700'
+                  : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+              }`}
+            >
+              <Filter size={16} />
+                <span>Bá»™ lá»c</span>
+                <span className="text-slate-300">|</span>
+                <div className="relative">
+                  <select
+                    value={statusFilter}
+                    onChange={(event) => applyStatusFilter(event.target.value as ContractFilter)}
+                    className={`appearance-none bg-transparent pr-5 text-sm font-semibold outline-none ${
+                      statusFilter !== 'ALL' ? 'text-blue-700' : 'text-slate-500'
+                    }`}
+                  >
+                    <option value="ALL">Tất cả</option>
+                    {contractStatusOptions.map((status) => (
+                      <option key={status} value={status}>
+                        {statusLabelMap[status]}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="pointer-events-none absolute right-0 top-1/2 -translate-y-1/2 text-xs text-slate-400">
+                    ▾
+                  </span>
+                </div>
+
+              {false && (
+                <div className="absolute right-0 top-full z-20 mt-2 w-64 rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
+                  <div className="px-2 pb-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+                    Tráº¡ng thÃ¡i há»£p Ä‘á»“ng
+                  </div>
+                  <div className="space-y-1">
+                    <button
+                      type="button"
+                      onClick={() => applyStatusFilter('ALL')}
+                      className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
+                        statusFilter === 'ALL'
+                          ? 'bg-blue-50 font-semibold text-blue-700'
+                          : 'text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <span>Táº¥t cáº£ tráº¡ng thÃ¡i</span>
+                      {statusFilter === 'ALL' && <span>✓</span>}
+                    </button>
+                    {Object.values(ContractStatus).map((status) => (
+                      <button
+                        key={status}
+                        type="button"
+                        onClick={() => applyStatusFilter(status)}
+                        className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
+                          statusFilter === status
+                            ? 'bg-blue-50 font-semibold text-blue-700'
+                            : 'text-slate-700 hover:bg-slate-50'
+                        }`}
+                      >
+                        <span>{statusConfig[status].label}</span>
+                        {statusFilter === status && <span>✓</span>}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="mt-2 border-t border-slate-100 pt-2">
+                    <button
+                      type="button"
+                      onClick={clearAllFilters}
+                      className="w-full rounded-lg px-3 py-2 text-left text-sm font-medium text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
+                    >
+                      XÃ³a bá»™ lá»c
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="hidden">
             <div className="flex items-center gap-2 px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm font-semibold text-slate-700">
               <Filter size={16} /> Bộ lọc
             </div>
@@ -275,6 +419,7 @@ const EnrollmentContracts: React.FC = () => {
             {rows.length ? (
               rows.map(({ contract, quotation }, index) => {
                 const canPrint = Boolean(quotation?.id && quotation.status === QuotationStatus.LOCKED);
+                const statusMeta = getContractStatusMeta(contract.status);
                 return (
                   <tr key={contract.id} className="hover:bg-slate-50">
                     <td className="px-4 py-3 text-center font-semibold text-slate-500">{index + 1}</td>
@@ -304,8 +449,8 @@ const EnrollmentContracts: React.FC = () => {
                     </td>
                     <td className="px-4 py-3 font-semibold text-slate-900">{formatCurrency(contract.totalValue)}</td>
                     <td className="px-4 py-3">
-                      <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-bold ${statusConfig[contract.status].badge}`}>
-                        {statusConfig[contract.status].label}
+                      <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-bold ${statusMeta.badge}`}>
+                        {statusMeta.label}
                       </span>
                     </td>
                     <td className="px-4 py-3">{formatDate(contract.signedDate)}</td>

@@ -37,19 +37,45 @@ const labelClassName = 'text-[12px] font-medium text-slate-700';
 const inputClassName =
   'h-8 w-full rounded border border-slate-300 bg-white px-3 text-[12px] text-slate-800 outline-none transition focus:border-sky-400 focus:ring-1 focus:ring-sky-200';
 
+type LeadBatchExecutionGroup = LeadBatchConversionPreview['groups'][number] & {
+  usesExistingContact?: boolean;
+  bypassedExistingContact?: LeadBatchConversionPreview['groups'][number]['existingContact'];
+  opportunityOnlyCount: number;
+};
+
+type LeadBatchExecutionPreview = Omit<LeadBatchConversionPreview, 'groups' | 'createCount' | 'mergeCount'> & {
+  groups: LeadBatchExecutionGroup[];
+  createCount: number;
+  mergeCount: number;
+  opportunityOnlyCount: number;
+  bypassedExistingContactMatchCount: number;
+};
+
 const buildBatchExecutionPreview = (
   preview: LeadBatchConversionPreview,
   customerAction: LeadConversionCustomerAction
-) => {
+) : LeadBatchExecutionPreview => {
   const groups = preview.groups.map((group) => {
     const canGroupByPhone = group.normalizedPhone.length > 6;
     const usesExistingContact = customerAction === 'link_existing_customer' && Boolean(group.existingContact);
+
+    if (customerAction === 'no_customer_link') {
+      return {
+        ...group,
+        createCount: 0,
+        mergeCount: 0,
+        opportunityOnlyCount: group.leads.length,
+        usesExistingContact: false,
+        bypassedExistingContact: group.existingContact,
+      };
+    }
 
     if (usesExistingContact) {
       return {
         ...group,
         createCount: 0,
         mergeCount: group.leads.length,
+        opportunityOnlyCount: 0,
         usesExistingContact,
         bypassedExistingContact: undefined,
       };
@@ -60,6 +86,7 @@ const buildBatchExecutionPreview = (
         ...group,
         createCount: 1,
         mergeCount: Math.max(0, group.leads.length - 1),
+        opportunityOnlyCount: 0,
         usesExistingContact,
         bypassedExistingContact: group.existingContact,
       };
@@ -69,6 +96,7 @@ const buildBatchExecutionPreview = (
       ...group,
       createCount: group.leads.length,
       mergeCount: 0,
+      opportunityOnlyCount: 0,
       usesExistingContact,
       bypassedExistingContact: group.existingContact,
     };
@@ -78,6 +106,7 @@ const buildBatchExecutionPreview = (
     ...preview,
     createCount: groups.reduce((sum, group) => sum + group.createCount, 0),
     mergeCount: groups.reduce((sum, group) => sum + group.mergeCount, 0),
+    opportunityOnlyCount: groups.reduce((sum, group) => sum + group.opportunityOnlyCount, 0),
     existingContactMatchCount: groups.filter((group) => group.usesExistingContact).length,
     bypassedExistingContactMatchCount: groups.filter((group) => Boolean(group.bypassedExistingContact)).length,
     groups,
@@ -85,11 +114,24 @@ const buildBatchExecutionPreview = (
 };
 
 const buildPhoneHandlingDescription = (
-  group: LeadBatchConversionPreview['groups'][number] & {
-    usesExistingContact?: boolean;
-    bypassedExistingContact?: LeadBatchConversionPreview['groups'][number]['existingContact'];
-  }
+  group: LeadBatchExecutionGroup
 ) => {
+  if (group.opportunityOnlyCount > 0) {
+    if (group.leads.length > 1) {
+      const baseText = `${group.leads.length} lead trùng SĐT, không tạo Contact; mỗi lead sẽ tạo 1 cơ hội riêng trong Pipeline.`;
+      if (group.bypassedExistingContact) {
+        return `${baseText} Bỏ qua Contact ${group.bypassedExistingContact.name} (${group.bypassedExistingContact.id}) theo lựa chọn hiện tại.`;
+      }
+      return baseText;
+    }
+
+    if (group.bypassedExistingContact) {
+      return `Lead này trùng SĐT với Contact ${group.bypassedExistingContact.name} (${group.bypassedExistingContact.id}), nhưng sẽ chỉ tạo cơ hội trong Pipeline mà không liên kết Contact.`;
+    }
+
+    return 'Lead này sẽ chỉ tạo cơ hội trong Pipeline, không tạo Contact.';
+  }
+
   if (group.usesExistingContact && group.existingContact) {
     return `${group.leads.length} lead trùng SĐT, nhập vào Contact ${group.existingContact.name} (${group.existingContact.id}).`;
   }
@@ -188,9 +230,9 @@ const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ isOpen, lead, leads
   const shouldShowPhoneHandlingTable = phoneHandlingGroups.length > 0;
   const hasPhoneConflict = shouldShowPhoneHandlingTable || hasExistingContactMatch;
   const shouldShowConversionActionSection = true;
-  const shouldShowCustomerSection = hasPhoneConflict;
-  const shouldShowCustomerOptions = hasExistingContactMatch;
-  const shouldShowSummary = hasPhoneConflict || isMergeActionSelected;
+  const shouldShowCustomerSection = true;
+  const shouldShowCustomerOptions = !isMergeActionSelected;
+  const shouldShowSummary = true;
   const phoneHandlingTableTitle = isBatchMode ? 'Nhóm SĐT được xử lý' : 'SĐT được xử lý';
 
   useEffect(() => {
@@ -284,6 +326,15 @@ const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ isOpen, lead, leads
       <strong>{selectedExistingOpportunity.contactId}</strong>.
     </>
   ) : isBatchMode ? (
+    effectiveCustomerAction === 'no_customer_link' ? (
+      <>
+        Đã chọn <strong>{batchExecutionPreview.totalLeads}</strong> lead, hệ thống sẽ tạo <strong>{batchExecutionPreview.totalLeads}</strong> cơ hội trong Pipeline
+        và <strong>không tạo Contact</strong>.
+        {batchExecutionPreview.bypassedExistingContactMatchCount > 0 ? (
+          <> Bỏ qua <strong>{batchExecutionPreview.bypassedExistingContactMatchCount}</strong> Contact trùng hiện có theo lựa chọn không liên kết.</>
+        ) : null}
+      </>
+    ) : (
     <>
       Đã chọn <strong>{batchExecutionPreview.totalLeads}</strong> lead, hệ thống sẽ tạo <strong>{batchExecutionPreview.createCount}</strong>{' '}
       Contact và gộp <strong>{batchExecutionPreview.mergeCount}</strong> lead theo nhóm SĐT trùng.
@@ -292,6 +343,14 @@ const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ isOpen, lead, leads
       ) : null}
       {effectiveCustomerAction === 'create_new_customer' && batchExecutionPreview.bypassedExistingContactMatchCount > 0 ? (
         <> Bỏ qua <strong>{batchExecutionPreview.bypassedExistingContactMatchCount}</strong> Contact trùng hiện có theo lựa chọn tạo mới.</>
+      ) : null}
+    </>
+    )
+  ) : effectiveCustomerAction === 'no_customer_link' ? (
+    <>
+      Hệ thống sẽ chỉ tạo <strong>Deal mới trong Pipeline</strong> từ lead này, không tạo hoặc cập nhật Contact.
+      {existingContact ? (
+        <> Đồng thời bỏ qua Contact trùng SĐT <strong>{existingContact.id}</strong> theo lựa chọn hiện tại.</>
       ) : null}
     </>
   ) : effectiveCustomerAction === 'link_existing_customer' && existingContact ? (
@@ -445,8 +504,15 @@ const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ isOpen, lead, leads
                   <span>Tạo khách hàng mới</span>
                 </label>
 
-                <label className="flex items-center gap-2 text-[12px] text-slate-400">
-                  <input type="radio" disabled className="h-4 w-4" />
+                <label className={`flex items-center gap-2 text-[12px] ${!isMergeActionSelected ? 'text-slate-800' : 'text-slate-400'}`}>
+                  <input
+                    type="radio"
+                    name="customer-action"
+                    checked={effectiveCustomerAction === 'no_customer_link'}
+                    onChange={() => setCustomerAction('no_customer_link')}
+                    disabled={isMergeActionSelected}
+                    className="h-4 w-4 accent-sky-600"
+                  />
                   <span>Không liên kết khách hàng</span>
                 </label>
               </div>

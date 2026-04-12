@@ -78,22 +78,34 @@ const SalesLeadQuickProcess: React.FC = () => {
         if (!lead) return;
 
         try {
+            const resolvedOwnerId = ownerId || lead.ownerId || user?.id || 'admin';
             const { deal, mode, action } = convertLeadToOpportunity(lead, {
-                ownerId: ownerId || lead.ownerId || user?.id || 'admin',
+                ownerId: resolvedOwnerId,
                 salesChannel,
                 conversionAction,
                 customerAction,
                 targetDealId,
             });
 
-            deleteLead(lead.id);
+            if (customerAction === 'no_customer_link') {
+                saveLead({
+                    ...lead,
+                    ownerId: resolvedOwnerId,
+                    status: LeadStatus.CONVERTED,
+                    updatedAt: new Date().toISOString(),
+                });
+            } else {
+                deleteLead(lead.id);
+            }
             setShowConvertConfirm(false);
             showToast(
                 action === 'merge_existing_opportunity'
                     ? 'Đã gộp lead vào cơ hội hiện có. Đang chuyển sang Pipeline...'
                     : mode === 'merge_contact'
                         ? 'Đã gộp vào Contact cũ và tạo cơ hội mới. Đang chuyển sang Pipeline...'
-                        : 'Đã tạo Contact mới và cơ hội mới. Đang chuyển sang Pipeline...',
+                        : mode === 'no_contact'
+                            ? 'Đã tạo cơ hội trong Pipeline mà không sinh Contact. Đang chuyển sang Pipeline...'
+                            : 'Đã tạo Contact mới và cơ hội mới. Đang chuyển sang Pipeline...',
                 'success'
             );
 

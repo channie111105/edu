@@ -214,6 +214,8 @@ const Pipeline: React.FC = () => {
     return PIPELINE_TIME_PRESETS.find((option) => option.id === timeRangeType)?.label || 'Tất cả thời gian';
   }, [customRange, timeRangeType]);
   const isListView = viewMode === 'list';
+  const isKanbanView = viewMode === 'kanban';
+  const supportsListFilters = isListView || isKanbanView;
 
   const toggleAdvancedFieldSelection = (type: 'filter' | 'group', fieldId: string) => {
     if (type === 'filter') {
@@ -375,7 +377,52 @@ const Pipeline: React.FC = () => {
     [contacts]
   );
 
+  const isDealDetachedFromContact = (deal?: IDeal | null) => deal?.customerLinkMode === 'no_contact';
+
+  const buildVirtualContactFromLead = (lead: ILead): IContact => {
+    const studentInfo = lead.studentInfo || {};
+
+    return {
+      id: lead.id,
+      leadId: lead.id,
+      name: lead.name,
+      phone: lead.phone,
+      targetCountry: lead.targetCountry || studentInfo.targetCountry || 'Đức',
+      email: lead.email || '',
+      address: lead.address,
+      city: lead.city,
+      identityCard: lead.identityCard || studentInfo.identityCard,
+      identityDate: lead.identityDate,
+      identityPlace: lead.identityPlace,
+      gender: lead.gender || studentInfo.gender,
+      guardianName: lead.guardianName || studentInfo.parentName,
+      guardianPhone: lead.guardianPhone || studentInfo.parentPhone,
+      guardianRelation: lead.guardianRelation,
+      studentName: studentInfo.studentName,
+      studentPhone: studentInfo.studentPhone,
+      school: studentInfo.school,
+      educationLevel: lead.educationLevel || studentInfo.educationLevel,
+      languageLevel: studentInfo.languageLevel,
+      financialStatus: studentInfo.financialStatus,
+      socialLink: studentInfo.socialLink,
+      company: lead.company,
+      title: lead.title,
+      ownerId: lead.ownerId,
+      source: lead.source,
+      createdAt: lead.createdAt,
+      updatedAt: lead.updatedAt,
+      notes: lead.notes,
+      activities: lead.activities || [],
+      marketingData: lead.marketingData as IContact['marketingData'],
+    };
+  };
+
   const resolveLinkedLeadForPipeline = (deal: IDeal, contact?: IContact | null) => {
+    if (isDealDetachedFromContact(deal)) {
+      const detachedLead = getLeadById(deal.leadId);
+      if (detachedLead) return detachedLead;
+    }
+
     if (contact?.leadId) {
       const directLead = getLeadById(contact.leadId);
       if (directLead) return directLead;
@@ -393,9 +440,23 @@ const Pipeline: React.FC = () => {
     return getLeads().find((lead) => String(lead.name || '').trim().toLowerCase() === potentialName);
   };
 
+  const getDealContactRecord = (deal: IDeal, sourceContacts: IContact[] = contacts) => {
+    let contact = sourceContacts.find((item) => item.id === deal.leadId);
+
+    if (!contact && !isDealDetachedFromContact(deal)) {
+      const potentialName = deal.title.split(' - ')[0].trim();
+      contact = sourceContacts.find((item) => item.name.toLowerCase() === potentialName.toLowerCase());
+    }
+
+    if (contact) return contact;
+
+    const linkedLead = resolveLinkedLeadForPipeline(deal);
+    return linkedLead ? buildVirtualContactFromLead(linkedLead) : undefined;
+  };
+
   const isDealClosedForPipeline = (deal: IDeal) => {
     if (deal.stage === DealStage.LOST) return true;
-    const linkedLead = resolveLinkedLeadForPipeline(deal, contactsById[deal.leadId]);
+    const linkedLead = resolveLinkedLeadForPipeline(deal, getDealContactRecord(deal));
     return Boolean(linkedLead && isClosedLeadStatusKey(String(linkedLead.status || '')));
   };
 
@@ -632,7 +693,7 @@ const Pipeline: React.FC = () => {
       });
     }
 
-    if (selectedAdvancedGroupOptions.length > 0) {
+    if (isListView && selectedAdvancedGroupOptions.length > 0) {
       chips.push({
         field: 'advanced_group_fields',
         label: 'Group by',
@@ -647,6 +708,7 @@ const Pipeline: React.FC = () => {
     activityFilter,
     activityFilterLabel,
     searchFilters,
+    isListView,
     selectedAdvancedFilterOptions,
     selectedAdvancedGroupOptions,
     timeRangeLabel,
@@ -669,8 +731,8 @@ const Pipeline: React.FC = () => {
     [searchFilters]
   );
 
-  const headerSearchFilters = isListView ? toolbarFilterChips : searchOnlyToolbarChips;
-  const headerActiveField = isListView && selectedAdvancedFilterOptions.length === 1
+  const headerSearchFilters = supportsListFilters ? toolbarFilterChips : searchOnlyToolbarChips;
+  const headerActiveField = supportsListFilters && selectedAdvancedFilterOptions.length === 1
     ? {
       field: selectedAdvancedFilterOptions[0].id,
       label: selectedAdvancedFilterOptions[0].label,
@@ -720,7 +782,7 @@ const Pipeline: React.FC = () => {
   };
 
   const handleHeaderSearchAddFilter = (filter: SearchFilter) => {
-    if (!isListView) {
+    if (!supportsListFilters) {
       setSearchFilters((prev) => [...prev, filter]);
       return;
     }
@@ -755,7 +817,7 @@ const Pipeline: React.FC = () => {
   };
 
   const handleHeaderSearchRemoveFilter = (index: number) => {
-    if (isListView) {
+    if (supportsListFilters) {
       handleToolbarFilterRemove(index);
       return;
     }
@@ -766,7 +828,7 @@ const Pipeline: React.FC = () => {
   };
 
   const handleHeaderSearchClearAll = () => {
-    if (isListView) {
+    if (supportsListFilters) {
       handleClearToolbarFilters();
       return;
     }
@@ -864,16 +926,16 @@ const Pipeline: React.FC = () => {
     if (searchOnlyFilters.length === 0) return pipelineDeals;
 
     return pipelineDeals.filter((deal) => {
-      const contact = contactsById[deal.leadId];
+      const contact = getDealContactRecord(deal);
       return searchOnlyFilters.every((filter) => doesDealMatchFilter(deal, contact, filter.field, filter.value));
     });
-  }, [contactsById, pipelineDeals, searchOnlyFilters]);
+  }, [contacts, pipelineDeals, searchOnlyFilters]);
 
   const filteredDeals = React.useMemo(() => {
     const activityBounds = getTimeRangeBounds(timeRangeType);
 
     return pipelineDeals.filter((deal) => {
-      const contact = contactsById[deal.leadId];
+      const contact = getDealContactRecord(deal);
       const relevantActivities = getFilteredActivities(deal, contact);
 
       if (activityFilter !== 'all' && relevantActivities.length === 0) {
@@ -900,14 +962,14 @@ const Pipeline: React.FC = () => {
 
       return true;
     });
-  }, [activityFilter, contactsById, pipelineDeals, searchFilters, timeRangeType, customRange]);
+  }, [activityFilter, contacts, pipelineDeals, searchFilters, timeRangeType, customRange]);
 
   const buildGroupedDealBuckets = (dealList: IDeal[]) => {
     if (selectedAdvancedGroupFields.length === 0) return [];
 
     const buckets = new Map<string, { key: string; label: string; deals: IDeal[] }>();
     dealList.forEach((deal) => {
-      const contact = contactsById[deal.leadId];
+      const contact = getDealContactRecord(deal);
       const values = selectedAdvancedGroupFields.map((fieldId) => getGroupValue(deal, contact, fieldId));
       const key = values.join('||');
       const label = values
@@ -932,11 +994,11 @@ const Pipeline: React.FC = () => {
 
   const groupedDeals = React.useMemo(() => {
     return buildGroupedDealBuckets(filteredDeals);
-  }, [contactsById, filteredDeals, selectedAdvancedGroupFields, selectedAdvancedGroupOptions]);
+  }, [contacts, filteredDeals, selectedAdvancedGroupFields, selectedAdvancedGroupOptions]);
 
   // Group deals by stage bucket
   const getDealsByStage = (stage: DealStage) => {
-    return searchFilteredDeals.filter(deal => getPipelineBucket(deal.stage) === stage);
+    return filteredDeals.filter(deal => getPipelineBucket(deal.stage) === stage);
   };
 
   function getDefaultActivityDate(typeId: ActivityType) {
@@ -947,33 +1009,14 @@ const Pipeline: React.FC = () => {
   }
 
   const resolveLinkedLead = (contact?: IContact | null, deal?: IDeal | null) => {
-    if (contact?.leadId) {
-      const directLead = getLeadById(contact.leadId);
-      if (directLead) return directLead;
-    }
-
-    const normalizedPhone = normalizePhone(contact?.phone);
-    if (normalizedPhone) {
-      const byPhone = getLeads().find((lead) => normalizePhone(lead.phone) === normalizedPhone);
-      if (byPhone) return byPhone;
-    }
-
-    const potentialName = String(contact?.name || deal?.title.split(' - ')[0] || '').trim().toLowerCase();
-    if (!potentialName) return undefined;
-
-    return getLeads().find((lead) => String(lead.name || '').trim().toLowerCase() === potentialName);
+    if (!deal) return undefined;
+    return resolveLinkedLeadForPipeline(deal, contact);
   };
 
   // Handle Deal Click -> Open Drawer (Unified Form)
   const handleDealClick = (deal: IDeal) => {
     const contacts = getContacts();
-    let contact = contacts.find(c => c.id === deal.leadId);
-
-    // Fallback: Try to find by name if ID link is broken (for older conversions)
-    if (!contact) {
-      const potentialName = deal.title.split(' - ')[0].trim();
-      contact = contacts.find(c => c.name.toLowerCase() === potentialName.toLowerCase());
-    }
+    const contact = getDealContactRecord(deal, contacts);
 
     if (contact) {
       const linkedLead = resolveLinkedLead(contact, deal);
@@ -1037,7 +1080,10 @@ const Pipeline: React.FC = () => {
         productItems: linkedLead?.productItems || deal.productItems || [],
         discount: linkedLead?.discount || deal.discount || 0,
         paymentRoadmap: linkedLead?.paymentRoadmap || deal.paymentRoadmap || '',
-        activities: mergeActivities(linkedLead?.activities || [], contact.activities || []),
+        activities: mergeActivities(
+          linkedLead?.activities || [],
+          isDealDetachedFromContact(deal) ? [] : (contact.activities || [])
+        ),
       };
 
       skipNextDrawerAutoCloseRef.current = true;
@@ -1052,12 +1098,17 @@ const Pipeline: React.FC = () => {
   const handleDrawerUpdate = (updatedLead: ILead) => {
     // 1. Update Contact
     if (drawerLead && selectedDeal) {
-      const existingContact = getContacts().find(contact =>
-        contact.id === drawerLead.id ||
-        contact.leadId === drawerLead.id ||
-        normalizePhone(contact.phone) === normalizePhone(updatedLead.phone)
-      );
-      const linkedLead = resolveLinkedLead(existingContact || null, selectedDeal);
+      const shouldSkipContactUpdate = isDealDetachedFromContact(selectedDeal);
+      const existingContact = shouldSkipContactUpdate
+        ? undefined
+        : getContacts().find(contact =>
+            contact.id === drawerLead.id ||
+            contact.leadId === drawerLead.id ||
+            normalizePhone(contact.phone) === normalizePhone(updatedLead.phone)
+          );
+      const linkedLead = shouldSkipContactUpdate
+        ? (getLeadById(selectedDeal.leadId) || resolveLinkedLead(null, selectedDeal))
+        : resolveLinkedLead(existingContact || null, selectedDeal);
       const studentInfo = updatedLead.studentInfo || {};
       const contactUpdate = {
         id: existingContact?.id || drawerLead.id,
@@ -1094,14 +1145,16 @@ const Pipeline: React.FC = () => {
           ...(updatedLead.marketingData || {})
         }
       };
-      // Update contact in storage
-      if (existingContact) {
-        saveContact({
-          ...existingContact,
-          ...contactUpdate
-        } as IContact);
-      } else {
-        addContact(contactUpdate as any);
+      // Update contact in storage only when the deal is linked to a real contact.
+      if (!shouldSkipContactUpdate) {
+        if (existingContact) {
+          saveContact({
+            ...existingContact,
+            ...contactUpdate
+          } as IContact);
+        } else {
+          addContact(contactUpdate as any);
+        }
       }
 
       const persistedLead: ILead = {
@@ -1155,7 +1208,9 @@ const Pipeline: React.FC = () => {
 
       // 3. Update UI State
       setDeals(prev => prev.map(d => d.id === updatedDeal.id ? updatedDeal : d));
-      setContacts(getContacts());
+      if (!shouldSkipContactUpdate) {
+        setContacts(getContacts());
+      }
       setSelectedDeal(updatedDeal);
       setDrawerLead(persistedLead);
     }
@@ -1163,7 +1218,7 @@ const Pipeline: React.FC = () => {
 
   const listTableColumnCount = visibleColumns.length + 2;
   const renderListRow = (deal: IDeal, rowNumber: number) => {
-    const contact = contactsById[deal.leadId];
+    const contact = getDealContactRecord(deal);
     const opportunityName = deal.title.split(' - ')[0] || deal.title;
     const programName = deal.title.split(' - ')[1] || '';
     const leadCreatedDate = getLeadCreatedDate(deal);
@@ -1289,7 +1344,7 @@ const Pipeline: React.FC = () => {
   };
 
   const renderKanbanCard = (deal: IDeal, index: number) => {
-    const contact = contactsById[deal.leadId];
+    const contact = getDealContactRecord(deal);
     const nextDate = getNextActivityDate(deal, contact) || deal.expectedCloseDate;
     const leadCreatedDate = getLeadCreatedDate(deal);
     const demand = getDealDemand(deal, contact);
@@ -1402,7 +1457,7 @@ const Pipeline: React.FC = () => {
             </div>
 
             <div className="flex flex-wrap items-center justify-end gap-2">
-              {isListView && (
+              {supportsListFilters && (
                 <>
               <div className="relative">
                 <button
@@ -1555,9 +1610,9 @@ const Pipeline: React.FC = () => {
                 >
                   <Filter size={14} />
                   <span>Lọc nâng cao</span>
-                  {(selectedAdvancedFilterFields.length + selectedAdvancedGroupFields.length) > 0 ? (
+                  {(selectedAdvancedFilterFields.length + (isListView ? selectedAdvancedGroupFields.length : 0)) > 0 ? (
                     <span className="inline-flex min-w-[18px] items-center justify-center rounded-full bg-blue-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
-                      {selectedAdvancedFilterFields.length + selectedAdvancedGroupFields.length}
+                      {selectedAdvancedFilterFields.length + (isListView ? selectedAdvancedGroupFields.length : 0)}
                     </span>
                   ) : null}
                 </button>
@@ -1565,9 +1620,9 @@ const Pipeline: React.FC = () => {
                 {showFilterDropdown && (
                   <>
                     <div className="fixed inset-0 z-40" onClick={() => setShowFilterDropdown(false)}></div>
-                    <div className="absolute right-0 top-full z-50 mt-2 w-[720px] max-w-[calc(100vw-2rem)] rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl">
-                      <div className="grid grid-cols-2 gap-4 text-sm">
-                        <div className="border-r border-slate-100 pr-3">
+                    <div className={`absolute right-0 top-full z-50 mt-2 max-w-[calc(100vw-2rem)] rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl ${isListView ? 'w-[720px]' : 'w-[360px]'}`}>
+                      <div className={`grid gap-4 text-sm ${isListView ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                        <div className={isListView ? 'border-r border-slate-100 pr-3' : ''}>
                           <div className="mb-3 flex items-center gap-2 font-bold text-slate-800">
                             <Filter size={14} /> Filter
                           </div>
@@ -1587,83 +1642,99 @@ const Pipeline: React.FC = () => {
                           </div>
                         </div>
 
-                        <div className="pl-1">
-                          <div className="mb-3 flex items-center gap-2 font-bold text-slate-800">
-                            <Users size={14} /> Group by
-                          </div>
-                          <p className="mb-3 text-xs text-slate-500">
-                            Có thể chọn nhiều trường. Thứ tự bấm sẽ là thứ tự nhóm hiển thị ở dạng danh sách.
-                          </p>
-                          <div className="max-h-[360px] space-y-1 overflow-y-auto">
-                            <button
-                              onClick={() => setSelectedAdvancedGroupFields([])}
-                              className={`flex w-full items-center rounded-lg border px-3 py-2 text-left text-sm transition-colors ${selectedAdvancedGroupFields.length === 0 ? 'border-blue-200 bg-blue-50 font-semibold text-blue-700' : 'border-transparent text-slate-700 hover:bg-slate-50'}`}
-                            >
-                              <span className="flex-1">Không nhóm</span>
-                            </button>
-                            {ALL_COLUMNS.map((column) => (
+                        {isListView ? (
+                          <div className="pl-1">
+                            <div className="mb-3 flex items-center gap-2 font-bold text-slate-800">
+                              <Users size={14} /> Group by
+                            </div>
+                            <p className="mb-3 text-xs text-slate-500">
+                              Có thể chọn nhiều trường. Thứ tự bấm sẽ là thứ tự nhóm hiển thị ở dạng danh sách.
+                            </p>
+                            <div className="max-h-[360px] space-y-1 overflow-y-auto">
                               <button
-                                key={`group-${column.id}`}
-                                onClick={() => toggleAdvancedFieldSelection('group', column.id)}
-                                className={`flex w-full items-center rounded-lg border px-3 py-2 text-left text-sm transition-colors ${selectedAdvancedGroupFields.includes(column.id) ? 'border-blue-200 bg-blue-50 font-semibold text-blue-700' : 'border-transparent text-slate-700 hover:bg-slate-50'}`}
+                                onClick={() => setSelectedAdvancedGroupFields([])}
+                                className={`flex w-full items-center rounded-lg border px-3 py-2 text-left text-sm transition-colors ${selectedAdvancedGroupFields.length === 0 ? 'border-blue-200 bg-blue-50 font-semibold text-blue-700' : 'border-transparent text-slate-700 hover:bg-slate-50'}`}
                               >
-                                <span className="flex-1">{column.label}</span>
-                                {selectedAdvancedGroupFields.includes(column.id) ? (
-                                  <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-bold text-blue-700 border border-blue-100">
-                                    {selectedAdvancedGroupFields.indexOf(column.id) + 1}
-                                  </span>
-                                ) : null}
+                                <span className="flex-1">Không nhóm</span>
                               </button>
-                            ))}
+                              {ALL_COLUMNS.map((column) => (
+                                <button
+                                  key={`group-${column.id}`}
+                                  onClick={() => toggleAdvancedFieldSelection('group', column.id)}
+                                  className={`flex w-full items-center rounded-lg border px-3 py-2 text-left text-sm transition-colors ${selectedAdvancedGroupFields.includes(column.id) ? 'border-blue-200 bg-blue-50 font-semibold text-blue-700' : 'border-transparent text-slate-700 hover:bg-slate-50'}`}
+                                >
+                                  <span className="flex-1">{column.label}</span>
+                                  {selectedAdvancedGroupFields.includes(column.id) ? (
+                                    <span className="rounded-full border border-blue-100 bg-white px-2 py-0.5 text-[11px] font-bold text-blue-700">
+                                      {selectedAdvancedGroupFields.indexOf(column.id) + 1}
+                                    </span>
+                                  ) : null}
+                                </button>
+                              ))}
+                            </div>
                           </div>
-                        </div>
+                        ) : (
+                          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                            <div>Group by chỉ áp dụng ở dạng danh sách.</div>
+                            {selectedAdvancedGroupFields.length > 0 && (
+                              <button
+                                onClick={() => setSelectedAdvancedGroupFields([])}
+                                className="mt-2 font-semibold text-blue-600 hover:text-blue-700"
+                              >
+                                Xóa nhóm đang lưu
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </>
                 )}
               </div>
 
-              <div className="relative">
-                <button
-                  onClick={() => {
-                    setShowColumnsDropdown(!showColumnsDropdown);
-                    setShowActivityDropdown(false);
-                    setShowTimePicker(false);
-                    setShowFilterDropdown(false);
-                  }}
-                  className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-2 text-slate-600 shadow-sm transition-all hover:border-blue-200 hover:text-blue-600"
-                  title="Cài đặt cột"
-                >
-                  <Columns size={18} />
-                  <span className="text-xs font-bold font-inter">Cột</span>
-                </button>
+              {isListView && (
+                <div className="relative">
+                  <button
+                    onClick={() => {
+                      setShowColumnsDropdown(!showColumnsDropdown);
+                      setShowActivityDropdown(false);
+                      setShowTimePicker(false);
+                      setShowFilterDropdown(false);
+                    }}
+                    className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-2 text-slate-600 shadow-sm transition-all hover:border-blue-200 hover:text-blue-600"
+                    title="Cài đặt cột"
+                  >
+                    <Columns size={18} />
+                    <span className="text-xs font-bold font-inter">Cột</span>
+                  </button>
 
-                {showColumnsDropdown && (
-                  <>
-                    <div className="fixed inset-0 z-40" onClick={() => setShowColumnsDropdown(false)}></div>
-                    <div className="absolute right-0 top-full mt-2 w-48 rounded-xl border border-slate-200 bg-white p-2 shadow-xl z-50 animate-in zoom-in-95">
-                      <div className="mb-1 border-b border-slate-100 px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">Hiển thị cột</div>
-                      {ALL_COLUMNS.map(col => (
-                        <button
-                          key={col.id}
-                          onClick={() => {
-                            if (visibleColumns.includes(col.id)) {
-                              if (visibleColumns.length > 1) setVisibleColumns(visibleColumns.filter(id => id !== col.id));
-                            } else {
-                              const nextCols = ALL_COLUMNS.filter(c => c.id === col.id || visibleColumns.includes(c.id)).map(c => c.id);
-                              setVisibleColumns(nextCols);
-                            }
-                          }}
-                          className="group flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs transition-colors hover:bg-slate-50"
-                        >
-                          <span className={`${visibleColumns.includes(col.id) ? 'font-semibold text-slate-900' : 'text-slate-500'}`}>{col.label}</span>
-                          {visibleColumns.includes(col.id) && <Check size={14} className="text-blue-600" />}
-                        </button>
-                      ))}
-                    </div>
-                  </>
-                )}
-              </div>
+                  {showColumnsDropdown && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setShowColumnsDropdown(false)}></div>
+                      <div className="absolute right-0 top-full mt-2 w-48 rounded-xl border border-slate-200 bg-white p-2 shadow-xl z-50 animate-in zoom-in-95">
+                        <div className="mb-1 border-b border-slate-100 px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">Hiển thị cột</div>
+                        {ALL_COLUMNS.map(col => (
+                          <button
+                            key={col.id}
+                            onClick={() => {
+                              if (visibleColumns.includes(col.id)) {
+                                if (visibleColumns.length > 1) setVisibleColumns(visibleColumns.filter(id => id !== col.id));
+                              } else {
+                                const nextCols = ALL_COLUMNS.filter(c => c.id === col.id || visibleColumns.includes(c.id)).map(c => c.id);
+                                setVisibleColumns(nextCols);
+                              }
+                            }}
+                            className="group flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs transition-colors hover:bg-slate-50"
+                          >
+                            <span className={`${visibleColumns.includes(col.id) ? 'font-semibold text-slate-900' : 'text-slate-500'}`}>{col.label}</span>
+                            {visibleColumns.includes(col.id) && <Check size={14} className="text-blue-600" />}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
                 </>
               )}
 
@@ -2005,6 +2076,8 @@ const Pipeline: React.FC = () => {
         <UnifiedLeadDrawer
           isOpen={!!drawerLead}
           lead={drawerLead}
+          statusBarMode="pipeline"
+          statusBarStage={selectedDeal?.stage}
           onClose={() => {
             setDrawerLead(null);
             setSelectedDeal(null);

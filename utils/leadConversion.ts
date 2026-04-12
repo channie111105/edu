@@ -150,7 +150,13 @@ const buildDealActivities = (lead: ILead, nowIso: string, dealId: string, conver
   ];
 };
 
-const buildDealFromLead = (lead: ILead, contactId: string, nowIso: string, conversionDescription: string): IDeal => {
+const buildDealFromLead = (
+  lead: ILead,
+  linkedEntityId: string,
+  nowIso: string,
+  conversionDescription: string,
+  customerLinkMode: IDeal['customerLinkMode'] = 'linked_contact'
+): IDeal => {
   const dealStage = Object.values(DealStage).includes(lead.status as DealStage)
     ? (lead.status as DealStage)
     : DealStage.NEW_OPP;
@@ -163,7 +169,8 @@ const buildDealFromLead = (lead: ILead, contactId: string, nowIso: string, conve
 
   return {
     id: dealId,
-    leadId: contactId,
+    leadId: linkedEntityId,
+    customerLinkMode,
     title: `${lead.name} - ${lead.program || 'Cơ hội mới'}`,
     value: computedValue || 0,
     stage: dealStage,
@@ -211,9 +218,9 @@ const buildContactConversionActivity = (
   user: 'System',
 });
 
-export type LeadConversionContactMode = 'merge_contact' | 'create_contact';
+export type LeadConversionContactMode = 'merge_contact' | 'create_contact' | 'no_contact';
 export type LeadConversionAction = 'create_opportunity' | 'merge_existing_opportunity';
-export type LeadConversionCustomerAction = 'auto' | 'link_existing_customer' | 'create_new_customer';
+export type LeadConversionCustomerAction = 'auto' | 'link_existing_customer' | 'create_new_customer' | 'no_customer_link';
 
 export interface LeadConversionPreview {
   existingContact?: IContact;
@@ -250,7 +257,7 @@ export interface ConvertLeadToOpportunityOptions {
 }
 
 export interface ConvertLeadToOpportunityResult {
-  contact: IContact;
+  contact?: IContact;
   deal: IDeal;
   existingContact?: IContact;
   mode: LeadConversionContactMode;
@@ -426,6 +433,9 @@ export const convertLeadToOpportunity = (
   const targetDeal = options.targetDealId ? getDealById(options.targetDealId) : undefined;
   const targetContact = targetDeal ? getContactById(targetDeal.leadId) : undefined;
   const contactDraft = convertLeadToContact({ ...lead, ownerId } as ILead);
+  const shouldSkipContactLink =
+    conversionAction !== 'merge_existing_opportunity' &&
+    customerAction === 'no_customer_link';
 
   if (conversionAction === 'merge_existing_opportunity' && (!targetDeal || !targetContact)) {
     throw new Error('Không tìm thấy cơ hội hoặc Contact đích để gộp.');
@@ -433,10 +443,13 @@ export const convertLeadToOpportunity = (
 
   const forcedExistingContact = conversionAction === 'merge_existing_opportunity'
     ? targetContact || preview.existingContact
+    : shouldSkipContactLink
+      ? undefined
     : customerAction === 'create_new_customer'
       ? targetContact
       : targetContact || preview.existingContact;
   const shouldUseExistingContact =
+    !shouldSkipContactLink &&
     Boolean(forcedExistingContact) &&
     (
       conversionAction === 'merge_existing_opportunity' ||
@@ -444,7 +457,9 @@ export const convertLeadToOpportunity = (
       customerAction === 'auto'
     );
 
-  const persistedContact = shouldUseExistingContact && forcedExistingContact
+  const persistedContact = shouldSkipContactLink
+    ? undefined
+    : shouldUseExistingContact && forcedExistingContact
     ? saveContact(mergeContactRecords(forcedExistingContact, contactDraft, nowIso))
     : customerAction === 'create_new_customer'
       ? saveContact({
@@ -455,15 +470,17 @@ export const convertLeadToOpportunity = (
         })
       : addContact(contactDraft);
 
-  const mergedIntoExistingContact = shouldUseExistingContact && Boolean(forcedExistingContact);
+  const mergedIntoExistingContact = !shouldSkipContactLink && shouldUseExistingContact && Boolean(forcedExistingContact);
 
   const conversionDescription = conversionAction === 'merge_existing_opportunity' && targetDeal
-    ? `Gộp lead ${lead.name} vào cơ hội ${targetDeal.title} (${targetDeal.id}) của Contact ${persistedContact.name} (${persistedContact.id}).`
+    ? `Gộp lead ${lead.name} vào cơ hội ${targetDeal.title} (${targetDeal.id}) của Contact ${persistedContact?.name} (${persistedContact?.id}).`
+    : shouldSkipContactLink
+      ? `Tạo cơ hội ${lead.name} trong Pipeline mà không tạo hoặc liên kết Contact.`
     : mergedIntoExistingContact
-      ? `Gộp vào Contact ${persistedContact.name} (${persistedContact.id}) theo SĐT ${persistedContact.phone}.`
+      ? `Gộp vào Contact ${persistedContact?.name} (${persistedContact?.id}) theo SĐT ${persistedContact?.phone}.`
       : preview.existingContact && customerAction === 'create_new_customer'
-        ? `Tạo Contact mới ${persistedContact.id} từ lead ${lead.name}, bỏ qua Contact trùng SĐT ${preview.existingContact.id}.`
-        : `Tạo Contact mới ${persistedContact.id} từ lead ${lead.name}.`;
+        ? `Tạo Contact mới ${persistedContact?.id} từ lead ${lead.name}, bỏ qua Contact trùng SĐT ${preview.existingContact.id}.`
+        : `Tạo Contact mới ${persistedContact?.id} từ lead ${lead.name}.`;
 
   const finalDescription = [conversionDescription, options.salesChannel ? `Nhóm kinh doanh: ${options.salesChannel}.` : '']
     .filter(Boolean)
@@ -473,9 +490,10 @@ export const convertLeadToOpportunity = (
     ? mergeLeadIntoExistingDeal(targetDeal, { ...lead, ownerId } as ILead, nowIso, finalDescription, ownerId)
     : buildDealFromLead(
         { ...lead, ownerId } as ILead,
-        persistedContact.id,
+        shouldSkipContactLink ? lead.id : String(persistedContact?.id || lead.id),
         nowIso,
-        finalDescription
+        finalDescription,
+        shouldSkipContactLink ? 'no_contact' : 'linked_contact'
       );
 
   if (conversionAction === 'merge_existing_opportunity') {
@@ -486,12 +504,22 @@ export const convertLeadToOpportunity = (
     addDeal(deal);
   }
 
+  if (shouldSkipContactLink) {
+    return {
+      contact: undefined,
+      deal,
+      existingContact: preview.existingContact,
+      mode: 'no_contact',
+      action: conversionAction,
+    };
+  }
+
   const finalContact = saveContact({
     ...persistedContact,
     ownerId,
-    dealIds: mergeUniqueStrings(persistedContact.dealIds, [deal.id]),
+    dealIds: mergeUniqueStrings(persistedContact?.dealIds, [deal.id]),
     activities: mergeUniqueRecordsById(
-      (persistedContact.activities || []) as Array<{ id?: string }>,
+      (persistedContact?.activities || []) as Array<{ id?: string }>,
       [buildContactConversionActivity(lead, deal, nowIso, mergedIntoExistingContact, options.salesChannel, conversionAction)]
     ) as any[],
     updatedAt: nowIso,

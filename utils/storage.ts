@@ -3892,6 +3892,11 @@ export const getDeals = (): IDeal[] => {
 const normalizeStoragePhone = (value?: string) => String(value || '').replace(/\D/g, '');
 
 const resolveLeadForDealStatusSync = (deal: IDeal, contacts: IContact[], leads: ILead[]) => {
+  if (deal.customerLinkMode === 'no_contact') {
+    const detachedLead = leads.find((lead) => lead.id === deal.leadId);
+    if (detachedLead) return detachedLead;
+  }
+
   const linkedContact = contacts.find((contact) => contact.id === deal.leadId);
 
   if (linkedContact?.leadId) {

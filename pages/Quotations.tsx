@@ -477,7 +477,7 @@ const Quotations: React.FC = () => {
   const [groupMode, setGroupMode] = useState<GroupMode>('none');
   const [favoriteMode, setFavoriteMode] = useState<FavoriteMode>('all');
   const [displayView, setDisplayView] = useState<DisplayView>('list');
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [selectedIds] = useState<string[]>([]);
   const [favoriteIds, setFavoriteIds] = useState<string[]>(() => {
     if (typeof window === 'undefined') return [];
 
@@ -512,10 +512,6 @@ const Quotations: React.FC = () => {
     if (typeof window === 'undefined') return;
     window.localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(favoriteIds));
   }, [favoriteIds]);
-
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchTerm, timeFilterField, timeRangeType, customTimeRange, dataScope, groupMode, favoriteMode]);
 
   const studentMap = useMemo(() => new Map(students.map((student) => [student.id, student])), [students]);
 
@@ -630,33 +626,6 @@ const Quotations: React.FC = () => {
 
   const pageStart = filteredData.length === 0 ? 0 : 1;
   const pageEnd = filteredData.length;
-  const setCurrentPage = (_value: number | ((page: number) => number)) => {};
-
-  const allVisibleSelected =
-    filteredData.length > 0 && filteredData.every((item) => selectedIds.includes(item.quotation.id));
-
-  const toggleSelectAllVisible = () => {
-    if (allVisibleSelected) {
-      setSelectedIds((current) =>
-        current.filter((id) => !filteredData.some((item) => item.quotation.id === id))
-      );
-      return;
-    }
-
-    setSelectedIds((current) => {
-      const next = new Set(current);
-      filteredData.forEach((item) => next.add(item.quotation.id));
-      return Array.from(next);
-    });
-  };
-
-  const toggleRowSelection = (quotationId: string) => {
-    setSelectedIds((current) =>
-      current.includes(quotationId)
-        ? current.filter((id) => id !== quotationId)
-        : [...current, quotationId]
-    );
-  };
 
   const toggleFavorite = (quotationId: string) => {
     setFavoriteIds((current) =>
@@ -681,7 +650,6 @@ const Quotations: React.FC = () => {
       return;
     }
 
-    setSelectedIds((current) => current.filter((id) => id !== quotation.id));
     setFavoriteIds((current) => current.filter((id) => id !== quotation.id));
   };
 
@@ -710,8 +678,6 @@ const Quotations: React.FC = () => {
     setGroupMode('none');
     setFavoriteMode('all');
     setDisplayView('list');
-    setSelectedIds([]);
-    setCurrentPage(1);
   };
 
   const removeToolbarChip = (key: ActiveToolbarChipKey) => {
@@ -752,7 +718,7 @@ const Quotations: React.FC = () => {
         lastGroup = groupValue;
         rows.push(
           <tr key={`group-${groupMode}-${groupValue}`} className="bg-slate-50/80">
-            <td colSpan={12} className="px-3 py-2 text-[11px] font-semibold text-slate-600">
+            <td colSpan={11} className="px-3 py-2 text-[11px] font-semibold text-slate-600">
               {getGroupPrefix(groupMode)}: {groupValue || '-'}
             </td>
           </tr>
@@ -760,7 +726,6 @@ const Quotations: React.FC = () => {
       }
 
       const createdDate = formatDateParts(item.createdDateValue);
-      const isSelected = selectedIds.includes(item.quotation.id);
       const currentRowNumber = ++rowNumber;
       const isDeletable = canDeleteQuotation(item.quotation);
 
@@ -770,15 +735,7 @@ const Quotations: React.FC = () => {
           className="cursor-pointer transition-colors hover:bg-slate-50"
           onClick={() => navigate(`/contracts/quotations/${item.quotation.id}`)}
         >
-          <td className="w-9 px-2.5 py-3" onClick={(event) => event.stopPropagation()}>
-            <input
-              type="checkbox"
-              checked={isSelected}
-              onChange={() => toggleRowSelection(item.quotation.id)}
-              className="h-4 w-4 rounded border-slate-300"
-            />
-          </td>
-          <td className="w-[52px] px-2.5 py-3 text-center text-[12px] font-semibold text-slate-500">{currentRowNumber}</td>
+          <td className="w-[38px] px-1.5 py-3 text-center text-[12px] font-semibold text-slate-500">{currentRowNumber}</td>
           <td className="px-2.5 py-3">
             <div className="flex items-center gap-3">
               <button
@@ -795,9 +752,6 @@ const Quotations: React.FC = () => {
               <div>
                 <div className="truncate text-[12px] font-bold text-blue-600">
                   {normalizeText(item.quotation.soCode)}
-                </div>
-                <div className="mt-0.5 truncate text-[10px] text-slate-400">
-                  {normalizeText(item.quotation.id)}
                 </div>
               </div>
             </div>
@@ -870,7 +824,7 @@ const Quotations: React.FC = () => {
 
       return rows;
     });
-  }, [filteredData, groupMode, navigate, selectedIds]);
+  }, [filteredData, groupMode, navigate]);
 
   const timePresetOptions = useMemo(
     () =>
@@ -1062,15 +1016,7 @@ const Quotations: React.FC = () => {
             <table className="w-full min-w-[1020px] table-fixed border-collapse text-left">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">
-                  <th className="w-9 px-2.5 py-2.5 whitespace-nowrap">
-                    <input
-                      type="checkbox"
-                      checked={allVisibleSelected}
-                      onChange={toggleSelectAllVisible}
-                      className="h-4 w-4 rounded border-slate-300"
-                    />
-                  </th>
-                  <th className="w-[52px] px-2.5 py-2.5 whitespace-nowrap text-center">STT</th>
+                  <th className="w-[38px] px-1.5 py-2.5 whitespace-nowrap text-center">STT</th>
                   <th className="w-[112px] px-2.5 py-2.5 whitespace-nowrap">Mã báo giá</th>
                   <th className="w-[92px] px-2.5 py-2.5 whitespace-nowrap">Ngày tạo</th>
                   <th className="w-[152px] px-2.5 py-2.5 whitespace-nowrap">Khách hàng</th>
@@ -1089,7 +1035,7 @@ const Quotations: React.FC = () => {
                   groupedRows
                 ) : (
                   <tr>
-                    <td colSpan={12} className="px-4 py-12 text-center text-[13px] italic text-slate-400">
+                    <td colSpan={11} className="px-4 py-12 text-center text-[13px] italic text-slate-400">
                       Không tìm thấy báo giá phù hợp.
                     </td>
                   </tr>

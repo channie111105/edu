@@ -128,7 +128,42 @@ const COLLABORATOR_SCHEDULE_TYPES = [
     { id: 'other', label: 'Khác', defaultDelayHours: 4 }
 ] as const;
 
-const COLLABORATOR_REGION_OPTIONS = ['Miền Bắc', 'Miền Trung', 'Miền Nam'] as const;
+const COLLABORATOR_PROVINCE_OPTIONS = [
+    'Hà Nội',
+    'Cao Bằng',
+    'Tuyên Quang',
+    'Điện Biên',
+    'Lai Châu',
+    'Sơn La',
+    'Lào Cai',
+    'Thái Nguyên',
+    'Lạng Sơn',
+    'Quảng Ninh',
+    'Bắc Ninh',
+    'Phú Thọ',
+    'Hải Phòng',
+    'Hưng Yên',
+    'Ninh Bình',
+    'Thanh Hóa',
+    'Nghệ An',
+    'Hà Tĩnh',
+    'Quảng Trị',
+    'Huế',
+    'Đà Nẵng',
+    'Quảng Ngãi',
+    'Gia Lai',
+    'Khánh Hòa',
+    'Đắk Lắk',
+    'Lâm Đồng',
+    'Đồng Nai',
+    'Hồ Chí Minh',
+    'Tây Ninh',
+    'Đồng Tháp',
+    'Vĩnh Long',
+    'An Giang',
+    'Cần Thơ',
+    'Cà Mau'
+] as const;
 
 const COLLABORATOR_FOCUS_KEY = 'educrm_collaborator_focus_id';
 
@@ -188,32 +223,62 @@ const normalizeTextToken = (value?: string) =>
         .trim()
         .toLowerCase()
         .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '');
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/đ/g, 'd')
+        .replace(/[^a-z0-9]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
 
-const normalizeCollaboratorRegion = (value?: string): (typeof COLLABORATOR_REGION_OPTIONS)[number] => {
-    const token = normalizeTextToken(value);
+const COLLABORATOR_PROVINCE_ALIAS_GROUPS: Array<{ province: (typeof COLLABORATOR_PROVINCE_OPTIONS)[number]; aliases: string[] }> = [
+    { province: 'Hà Nội', aliases: ['ha noi'] },
+    { province: 'Cao Bằng', aliases: ['cao bang'] },
+    { province: 'Tuyên Quang', aliases: ['tuyen quang', 'ha giang'] },
+    { province: 'Điện Biên', aliases: ['dien bien'] },
+    { province: 'Lai Châu', aliases: ['lai chau'] },
+    { province: 'Sơn La', aliases: ['son la'] },
+    { province: 'Lào Cai', aliases: ['lao cai', 'yen bai'] },
+    { province: 'Thái Nguyên', aliases: ['thai nguyen', 'bac kan', 'bac can'] },
+    { province: 'Lạng Sơn', aliases: ['lang son'] },
+    { province: 'Quảng Ninh', aliases: ['quang ninh'] },
+    { province: 'Bắc Ninh', aliases: ['bac ninh', 'bac giang'] },
+    { province: 'Phú Thọ', aliases: ['phu tho', 'vinh phuc', 'hoa binh'] },
+    { province: 'Hải Phòng', aliases: ['hai phong', 'hai duong'] },
+    { province: 'Hưng Yên', aliases: ['hung yen', 'thai binh'] },
+    { province: 'Ninh Bình', aliases: ['ninh binh', 'ha nam', 'nam dinh'] },
+    { province: 'Thanh Hóa', aliases: ['thanh hoa'] },
+    { province: 'Nghệ An', aliases: ['nghe an'] },
+    { province: 'Hà Tĩnh', aliases: ['ha tinh'] },
+    { province: 'Quảng Trị', aliases: ['quang tri', 'quang binh'] },
+    { province: 'Huế', aliases: ['hue', 'thua thien hue'] },
+    { province: 'Đà Nẵng', aliases: ['da nang', 'quang nam'] },
+    { province: 'Quảng Ngãi', aliases: ['quang ngai', 'kon tum'] },
+    { province: 'Gia Lai', aliases: ['gia lai', 'binh dinh'] },
+    { province: 'Khánh Hòa', aliases: ['khanh hoa', 'ninh thuan'] },
+    { province: 'Đắk Lắk', aliases: ['dak lak', 'daklak', 'phu yen'] },
+    { province: 'Lâm Đồng', aliases: ['lam dong', 'dak nong', 'binh thuan'] },
+    { province: 'Đồng Nai', aliases: ['dong nai', 'binh phuoc'] },
+    { province: 'Hồ Chí Minh', aliases: ['ho chi minh', 'thanh pho ho chi minh', 'tp ho chi minh', 'hcm', 'hcmc', 'sai gon', 'saigon', 'binh duong', 'ba ria vung tau', 'vung tau', 'ba ria'] },
+    { province: 'Tây Ninh', aliases: ['tay ninh', 'long an'] },
+    { province: 'Đồng Tháp', aliases: ['dong thap', 'tien giang'] },
+    { province: 'Vĩnh Long', aliases: ['vinh long', 'ben tre', 'tra vinh'] },
+    { province: 'An Giang', aliases: ['an giang', 'kien giang'] },
+    { province: 'Cần Thơ', aliases: ['can tho', 'soc trang', 'hau giang'] },
+    { province: 'Cà Mau', aliases: ['ca mau', 'bac lieu'] }
+];
 
-    if (
-        token.includes('mien trung') ||
-        token.includes('da nang') ||
-        token.includes('central') ||
-        token === 'trung'
-    ) {
-        return 'Miền Trung';
-    }
+const normalizeCollaboratorProvince = (value?: string): string => {
+    const rawValue = String(value || '').trim();
+    const token = normalizeTextToken(rawValue);
+    if (!token) return '';
 
-    if (
-        token.includes('mien nam') ||
-        token.includes('ho chi minh') ||
-        token.includes('sai gon') ||
-        token === 'hcm' ||
-        token.includes('south') ||
-        token === 'nam'
-    ) {
-        return 'Miền Nam';
-    }
+    const directMatch = COLLABORATOR_PROVINCE_OPTIONS.find((option) => normalizeTextToken(option) === token);
+    if (directMatch) return directMatch;
 
-    return 'Miền Bắc';
+    const matchedAlias = COLLABORATOR_PROVINCE_ALIAS_GROUPS.find(({ aliases }) =>
+        aliases.some((alias) => token === alias || token.includes(alias))
+    );
+
+    return matchedAlias?.province || rawValue;
 };
 
 const normalizeCollaboratorLogDescription = (description?: string) => {
@@ -349,7 +414,7 @@ const ALL_COLUMNS = [
     { id: 'index', label: '#', visible: true },
     { id: 'status', label: 'Trạng thái', visible: true },
     { id: 'name', label: 'Họ tên & SĐT', visible: true },
-    { id: 'city', label: 'Khu vực', visible: true },
+    { id: 'city', label: 'Tỉnh / thành', visible: true },
     { id: 'industry', label: 'Ngành nghề', visible: true },
     { id: 'segment', label: 'Mảng hợp tác', visible: true },
     { id: 'stats', label: 'Hiệu quả (HVGT/HĐ)', visible: true },
@@ -762,7 +827,7 @@ const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, is
                                         {ctv.code}
                                     </span>
                                 )}
-                                <p className="text-xs text-slate-500 font-medium">{ctv.phone} • {normalizeCollaboratorRegion(ctv.city)}</p>
+                                <p className="text-xs text-slate-500 font-medium">{ctv.phone} • {normalizeCollaboratorProvince(ctv.city)}</p>
                             </div>
                         </div>
                     </div>
@@ -1064,8 +1129,8 @@ const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, is
                                     <p className="text-sm font-bold text-slate-900 mt-0.5">{ctv.segment}</p>
                                 </div>
                                 <div>
-                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Khu vực</label>
-                                    <p className="text-sm font-bold text-slate-900 mt-0.5">{normalizeCollaboratorRegion(ctv.city)}</p>
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Tỉnh / thành</label>
+                                    <p className="text-sm font-bold text-slate-900 mt-0.5">{normalizeCollaboratorProvince(ctv.city)}</p>
                                 </div>
                                 <div>
                                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Sale phụ trách</label>
@@ -1314,6 +1379,7 @@ const Collaborators: React.FC = () => {
                     code: normalizeCollaboratorCode(item.code),
                     ownerId,
                     ownerName: item.ownerName || getOwnerName(ownerId),
+                    city: normalizeCollaboratorProvince(item.city) || item.city || 'Hà Nội',
                     status: normalizeCollaboratorStatus(item.status),
                     activities: (item.activities || []).map((activity) => ({
                         ...activity,
@@ -1331,6 +1397,7 @@ const Collaborators: React.FC = () => {
                 code: normalizeCollaboratorCode(item.code),
                 ownerId: item.ownerId || defaultOwnerId,
                 ownerName: item.ownerName || getOwnerName(item.ownerId || defaultOwnerId),
+                city: normalizeCollaboratorProvince(item.city) || item.city || 'Hà Nội',
                 status: normalizeCollaboratorStatus(item.status)
             })));
             setCollaborators(seeded);
@@ -1367,7 +1434,7 @@ const Collaborators: React.FC = () => {
     const scopedCollaborators = visibleCollaborators;
 
     // Derived Options for Filters
-    const cityOptions = useMemo(() => ['All', ...COLLABORATOR_REGION_OPTIONS], []);
+    const cityOptions = useMemo(() => ['All', ...COLLABORATOR_PROVINCE_OPTIONS], []);
     // Filter Logic
     const filteredList = useMemo(() => {
         return visibleCollaborators.filter(c => {
@@ -1376,7 +1443,7 @@ const Collaborators: React.FC = () => {
                 normalizeCollaboratorCode(c.code).toLowerCase().includes(normalizedSearch) ||
                 c.name.toLowerCase().includes(normalizedSearch) ||
                 c.phone.includes(searchTerm);
-            const matchesCity = filterCity === 'All' || normalizeCollaboratorRegion(c.city) === filterCity;
+            const matchesCity = filterCity === 'All' || normalizeCollaboratorProvince(c.city) === filterCity;
             return matchesSearch && matchesCity;
         });
     }, [visibleCollaborators, searchTerm, filterCity]);
@@ -1389,7 +1456,7 @@ const Collaborators: React.FC = () => {
         }
 
         if (filterCity !== 'All') {
-            chips.push({ key: 'city', label: `Khu vực: ${filterCity}` });
+            chips.push({ key: 'city', label: `Tỉnh / thành: ${filterCity}` });
         }
 
         return chips;
@@ -1426,7 +1493,7 @@ const Collaborators: React.FC = () => {
             ownerId,
             ownerName: getOwnerName(ownerId),
             followers: ownerId ? [buildCollaboratorFollower(ownerId, getOwnerName(ownerId), 'Sale phụ trách')] : [],
-            city: newCtv.city || 'Hà Nội',
+            city: normalizeCollaboratorProvince(newCtv.city) || 'Hà Nội',
             industry: newCtv.industry || '',
             segment: newCtv.segment || '',
             notes: newCtv.notes || '',
@@ -1451,6 +1518,7 @@ const Collaborators: React.FC = () => {
             code: normalizeCollaboratorCode(ctv.code),
             ownerId: ctv.ownerId || user?.id || 'u1',
             ownerName: ctv.ownerName || getOwnerName(ctv.ownerId || user?.id || 'u1'),
+            city: normalizeCollaboratorProvince(ctv.city) || ctv.city || 'Hà Nội',
             status: normalizeCollaboratorStatus(ctv.status)
         });
         setIsEditModalOpen(true);
@@ -1473,7 +1541,7 @@ const Collaborators: React.FC = () => {
             phone: editingCtv.phone.trim(),
             ownerId,
             ownerName: getOwnerName(ownerId),
-            city: editingCtv.city || current.city || 'Hà Nội',
+            city: normalizeCollaboratorProvince(editingCtv.city) || normalizeCollaboratorProvince(current.city) || 'Hà Nội',
             industry: editingCtv.industry || '',
             segment: editingCtv.segment || '',
             notes: editingCtv.notes || '',
@@ -1577,7 +1645,7 @@ const Collaborators: React.FC = () => {
                         <PinnedSearchInput
                             value={searchTerm}
                             onChange={setSearchTerm}
-                            placeholder="Tim kiem theo ma CTV, ten, SDT, thanh pho..."
+                            placeholder="Tim kiem theo ma CTV, ten, SDT, tinh/thanh..."
                             chips={activeSearchChips}
                             onRemoveChip={removeSearchChip}
                             inputClassName="text-sm"
@@ -1594,7 +1662,7 @@ const Collaborators: React.FC = () => {
                                 onChange={(e) => setFilterCity(e.target.value)}
                                 className="w-full pl-8 pr-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 focus:bg-white outline-none appearance-none cursor-pointer font-medium text-slate-700 hover:border-slate-300"
                             >
-                                <option value="All">Khu vực: Tất cả</option>
+                                <option value="All">Tỉnh / thành: Tất cả</option>
                                 {cityOptions.filter(o => o !== 'All').map(c => (
                                     <option key={c} value={c}>{c}</option>
                                 ))}
@@ -1664,7 +1732,7 @@ const Collaborators: React.FC = () => {
                                 <tr>
                                     {isColVisible('index') && <th className="p-3 border-r border-slate-200 w-12 text-center">#</th>}
                                     {isColVisible('name') && <th className="p-3 border-r border-slate-200 min-w-[220px]">Thông tin CTV / Liên hệ</th>}
-                                    {isColVisible('city') && <th className="p-3 border-r border-slate-200">Khu vực</th>}
+                                    {isColVisible('city') && <th className="p-3 border-r border-slate-200">Tỉnh / thành</th>}
                                     {isColVisible('industry') && <th className="p-3 border-r border-slate-200">Ngành nghề</th>}
                                     {isColVisible('segment') && <th className="p-3 border-r border-slate-200">Mảng hợp tác</th>}
                                     {isColVisible('status') && <th className="p-3 border-r border-slate-200">Trạng thái</th>}
@@ -1721,7 +1789,7 @@ const Collaborators: React.FC = () => {
                                             {isColVisible('city') && (
                                                 <td className="p-3 border-r border-slate-200">
                                                     <span className="flex items-center gap-1.5">
-                                                        <MapPin size={14} className="text-slate-400" /> {normalizeCollaboratorRegion(ctv.city)}
+                                                        <MapPin size={14} className="text-slate-400" /> {normalizeCollaboratorProvince(ctv.city)}
                                                     </span>
                                                 </td>
                                             )}
@@ -1908,17 +1976,16 @@ const Collaborators: React.FC = () => {
 
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="col-span-1">
-                                    <label className="block text-sm font-bold text-slate-700 mb-1">Khu vực</label>
+                                    <label className="block text-sm font-bold text-slate-700 mb-1">Tỉnh / thành</label>
                                     <select
                                         className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none bg-white focus:border-blue-500 transition-all"
                                         value={newCtv.city || ''}
                                         onChange={e => setNewCtv({ ...newCtv, city: e.target.value })}
                                     >
-                                        <option value="">-- Chọn khu vực --</option>
-                                        <option value="Hà Nội">Hà Nội</option>
-                                        <option value="Hồ Chí Minh">Hồ Chí Minh</option>
-                                        <option value="Đà Nẵng">Đà Nẵng</option>
-                                        <option value="Khác">Khác</option>
+                                        <option value="">-- Chọn tỉnh / thành --</option>
+                                        {COLLABORATOR_PROVINCE_OPTIONS.map((province) => (
+                                            <option key={province} value={province}>{province}</option>
+                                        ))}
                                     </select>
                                 </div>
                                 <div className="col-span-1">
@@ -2086,17 +2153,16 @@ const Collaborators: React.FC = () => {
 
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="col-span-1">
-                                    <label className="block text-sm font-bold text-slate-700 mb-1">Khu vực</label>
+                                    <label className="block text-sm font-bold text-slate-700 mb-1">Tỉnh / thành</label>
                                     <select
                                         className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none bg-white focus:border-blue-500 transition-all"
                                         value={editingCtv.city || ''}
                                         onChange={e => setEditingCtv({ ...editingCtv, city: e.target.value })}
                                     >
-                                        <option value="">-- Chọn khu vực --</option>
-                                        <option value="Hà Nội">Hà Nội</option>
-                                        <option value="Hồ Chí Minh">Hồ Chí Minh</option>
-                                        <option value="Đà Nẵng">Đà Nẵng</option>
-                                        <option value="Khác">Khác</option>
+                                        <option value="">-- Chọn tỉnh / thành --</option>
+                                        {COLLABORATOR_PROVINCE_OPTIONS.map((province) => (
+                                            <option key={province} value={province}>{province}</option>
+                                        ))}
                                     </select>
                                 </div>
                                 <div className="col-span-1">
