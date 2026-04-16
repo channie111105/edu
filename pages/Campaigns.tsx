@@ -1,6 +1,7 @@
 
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import {
   Search,
   Plus,
@@ -21,6 +22,7 @@ import {
 
 type CampaignType = 'manual' | 'auto';
 type CampaignStatus = 'Running' | 'Paused' | 'Planned' | 'Completed';
+type CampaignStatusFilter = 'All' | CampaignStatus;
 
 type CampaignFormData = {
   name: string;
@@ -53,10 +55,7 @@ type CampaignItem = {
   reportFileNames?: string[];
 };
 
-const CAMPAIGN_TYPE_OPTIONS: { value: CampaignType; label: string; apiLabel: string }[] = [
-  { value: 'manual', label: 'Chiến dịch thường', apiLabel: 'API Off' },
-  { value: 'auto', label: 'Chiến dịch tự động', apiLabel: 'API On' }
-];
+const CAMPAIGN_TYPE_OPTIONS: CampaignType[] = ['manual', 'auto'];
 
 // --- MOCK DATA ---
 const CAMPAIGNS: CampaignItem[] = [
@@ -195,10 +194,22 @@ const mapCampaignToFormData = (campaign: CampaignItem): CampaignFormData => ({
 
 const Campaigns: React.FC = () => {
   const navigate = useNavigate();
+  const { t } = useTranslation('marketing');
   const [searchTerm, setSearchTerm] = useState('');
   const [campaignTypeTab, setCampaignTypeTab] = useState<CampaignType>('manual');
-  const [statusFilter, setStatusFilter] = useState('All');
+  const [statusFilter, setStatusFilter] = useState<CampaignStatusFilter>('All');
   const [viewMode, setViewMode] = useState<'table' | 'kanban'>('table');
+  const campaignTypeLabels: Record<CampaignType, string> = {
+    manual: t('campaigns.types.manual'),
+    auto: t('campaigns.types.auto'),
+  };
+  const campaignStatusLabels: Record<CampaignStatusFilter, string> = {
+    All: t('campaigns.statuses.all'),
+    Running: t('campaigns.statuses.running'),
+    Paused: t('campaigns.statuses.paused'),
+    Planned: t('campaigns.statuses.planned'),
+    Completed: t('campaigns.statuses.completed'),
+  };
 
   // State for Campaigns to support Drag & Drop updates
   const [campaigns, setCampaigns] = useState(CAMPAIGNS);
@@ -473,7 +484,7 @@ const Campaigns: React.FC = () => {
                         status === 'Planned' ? 'bg-purple-500' :
                           'bg-slate-500'
                       }`}></div>
-                    {status}
+                    {campaignStatusLabels[status]}
                   </div>
                   <span className="bg-white px-2 py-0.5 rounded-md text-xs font-bold text-slate-500 shadow-sm">
                     {filteredCampaigns.filter(c => c.status === status).length}
@@ -574,21 +585,21 @@ const Campaigns: React.FC = () => {
         {/* Header */}
         <div className="flex flex-wrap justify-between items-center gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-slate-900">Chiến dịch Marketing</h1>
-            <p className="text-slate-500 mt-1">Quản lý tập trung các chiến dịch, ngân sách và hiệu quả đầu tư.</p>
+            <h1 className="text-3xl font-bold text-slate-900">{t('campaigns.title')}</h1>
+            <p className="text-slate-500 mt-1">{t('campaigns.description')}</p>
           </div>
           <div className="flex gap-3">
             <button
               onClick={() => navigate('/campaigns/camp_01/evaluation')}
               className="px-5 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-lg font-bold flex items-center gap-2 shadow-sm hover:bg-slate-50 transition-all"
             >
-              <BarChart3 size={20} className="text-blue-600" /> Đánh giá
+              <BarChart3 size={20} className="text-blue-600" /> {t('campaigns.evaluate')}
             </button>
             <button
               onClick={handleOpenCreateModal}
               className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg font-bold flex items-center gap-2 shadow-sm transition-all focus:ring-4 focus:ring-blue-100"
             >
-              <Plus size={20} /> Tạo chiến dịch mới
+              <Plus size={20} /> {t('campaigns.createNew')}
             </button>
           </div>
         </div>
@@ -597,14 +608,14 @@ const Campaigns: React.FC = () => {
         <div className="inline-flex items-center gap-1 bg-white p-1 rounded-xl border border-slate-200 shadow-sm w-fit">
           {CAMPAIGN_TYPE_OPTIONS.map(option => (
             <button
-              key={option.value}
-              onClick={() => setCampaignTypeTab(option.value)}
-              className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors ${campaignTypeTab === option.value
+              key={option}
+              onClick={() => setCampaignTypeTab(option)}
+              className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors ${campaignTypeTab === option
                 ? 'bg-slate-800 text-white'
                 : 'text-slate-600 hover:bg-slate-100'
                 }`}
             >
-              {option.label}
+              {campaignTypeLabels[option]}
             </button>
           ))}
         </div>
@@ -616,7 +627,7 @@ const Campaigns: React.FC = () => {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
             <input
               type="text"
-              placeholder="Tìm kiếm chiến dịch..."
+              placeholder={t('campaigns.searchPlaceholder')}
               className="w-full pl-10 pr-4 py-2 border-0 bg-transparent text-sm focus:ring-0 outline-none"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
@@ -627,7 +638,7 @@ const Campaigns: React.FC = () => {
 
           {/* Status Filters */}
           <div className="flex gap-1 overflow-x-auto no-scrollbar">
-            {['All', 'Running', 'Paused', 'Planned', 'Completed'].map(status => (
+            {(['All', 'Running', 'Paused', 'Planned', 'Completed'] as CampaignStatusFilter[]).map(status => (
               <button
                 key={status}
                 onClick={() => setStatusFilter(status)}
@@ -636,7 +647,7 @@ const Campaigns: React.FC = () => {
                   : 'bg-white text-slate-500 hover:bg-slate-100'
                   }`}
               >
-                {status === 'All' ? 'Tất cả' : status}
+                {campaignStatusLabels[status]}
               </button>
             ))}
           </div>
@@ -648,14 +659,14 @@ const Campaigns: React.FC = () => {
             <button
               onClick={() => setViewMode('table')}
               className={`p-1.5 rounded-md transition-all ${viewMode === 'table' ? 'bg-white shadow text-blue-600' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200'}`}
-              title="Dạng Bảng (List)"
+              title={t('campaigns.viewModes.table')}
             >
               <TableIcon size={18} />
             </button>
             <button
               onClick={() => setViewMode('kanban')}
               className={`p-1.5 rounded-md transition-all ${viewMode === 'kanban' ? 'bg-white shadow text-blue-600' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200'}`}
-              title="Dạng Kanban (Status)"
+              title={t('campaigns.viewModes.kanban')}
             >
               <Columns size={18} />
             </button>
@@ -678,7 +689,7 @@ const Campaigns: React.FC = () => {
             <div className="p-5 border-b border-slate-200 flex justify-between items-center bg-slate-50 shrink-0">
               <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
                 <Megaphone size={20} className="text-blue-600" />
-                {editingCampaignId ? 'Sửa chiến dịch Marketing' : 'Thêm chiến dịch Marketing mới'}
+                {editingCampaignId ? t('campaigns.modal.editTitle') : t('campaigns.modal.newTitle')}
               </h3>
               <button onClick={handleCloseCampaignModal} className="text-slate-400 hover:text-slate-600 transition-colors">
                 <X size={24} />
@@ -725,7 +736,7 @@ const Campaigns: React.FC = () => {
                         <div className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow-sm transition-all ${newCampaignData.status === 'Running' ? 'left-7' : 'left-1'}`}></div>
                       </button>
                       <span className={`text-sm font-bold ${newCampaignData.status === 'Running' ? 'text-green-600' : 'text-slate-500'}`}>
-                        {newCampaignData.status === 'Running' ? 'Đang chạy' : 'Tạm dừng'}
+                        {newCampaignData.status === 'Running' ? t('campaigns.modal.running') : t('campaigns.modal.paused')}
                       </span>
                     </div>
                   </div>
@@ -740,8 +751,8 @@ const Campaigns: React.FC = () => {
                       onChange={e => handleCampaignTypeChange(e.target.value as CampaignType)}
                     >
                       {CAMPAIGN_TYPE_OPTIONS.map(option => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
+                        <option key={option} value={option}>
+                          {campaignTypeLabels[option]}
                         </option>
                       ))}
                     </select>
@@ -751,7 +762,7 @@ const Campaigns: React.FC = () => {
                     {newCampaignData.campaignType === 'auto' ? (
                     <div className="h-[42px] px-3 border border-emerald-200 rounded-lg bg-emerald-50 flex items-center justify-between">
                       <span className={`text-sm font-bold ${newCampaignData.apiConnected ? 'text-emerald-600' : 'text-slate-500'}`}>
-                        {newCampaignData.apiConnected ? 'Đang bật' : 'Đang tắt'}
+                        {newCampaignData.apiConnected ? t('campaigns.modal.enabled') : t('campaigns.modal.disabled')}
                       </span>
                       <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-widest border ${newCampaignData.apiConnected
                         ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
@@ -867,7 +878,7 @@ const Campaigns: React.FC = () => {
                 onClick={handleSaveCampaign}
                 className="px-8 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg flex items-center gap-2 shadow-lg shadow-blue-100 transition-all active:scale-95"
               >
-                <Save size={18} /> {editingCampaignId ? 'Cập nhật chiến dịch' : 'Lưu chiến dịch'}
+                <Save size={18} /> {editingCampaignId ? t('campaigns.modal.update') : t('campaigns.modal.save')}
               </button>
             </div>
           </div>

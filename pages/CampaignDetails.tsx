@@ -1,5 +1,6 @@
 ﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import {
     ArrowLeft,
     LayoutDashboard,
@@ -132,13 +133,6 @@ const CAMPAIGN_DETAIL_META: Record<string, CampaignDetailMeta> = {
     }
 };
 
-const CAMPAIGN_STATUS_LABELS: Record<CampaignDetailStatus, string> = {
-    Running: 'Đang chạy',
-    Paused: 'Tạm dừng',
-    Planned: 'Đã lên kế hoạch',
-    Completed: 'Hoàn thành'
-};
-
 const CAMPAIGN_CHANNEL_LABELS: Record<string, string> = {
     'Facebook Lead Form': 'Biểu mẫu khách hàng tiềm năng Facebook',
     'Biểu mẫu khách hàng tiềm năng Facebook': 'Biểu mẫu khách hàng tiềm năng Facebook',
@@ -147,11 +141,6 @@ const CAMPAIGN_CHANNEL_LABELS: Record<string, string> = {
     'Sự kiện trực tiếp': 'Sự kiện trực tiếp',
     'TikTok': 'TikTok',
     'Email': 'Email'
-};
-
-const CAMPAIGN_TYPE_LABELS: Record<CampaignDetailType, string> = {
-    auto: 'Chiến dịch tự động',
-    manual: 'Chiến dịch thủ công'
 };
 
 const IMPORT_TEMPLATE_ROWS = [
@@ -289,9 +278,6 @@ const normalizeSearchValue = (value: string) =>
         .toLowerCase()
         .trim();
 
-const getCampaignStatusLabel = (status?: string) =>
-    CAMPAIGN_STATUS_LABELS[status as CampaignDetailStatus] || decodeMojibakeText(status || '');
-
 const getCampaignStatusTone = (status?: string) => {
     switch (status) {
         case 'Running':
@@ -312,7 +298,18 @@ const CampaignDetails: React.FC = () => {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
     const location = useLocation();
+    const { t } = useTranslation('marketing');
     const [activeTab, setActiveTab] = useState<'dashboard' | 'api' | 'form' | 'data'>('dashboard');
+    const campaignStatusLabels: Record<CampaignDetailStatus, string> = {
+        Running: t('campaigns.statuses.running'),
+        Paused: t('campaigns.statuses.paused'),
+        Planned: t('campaigns.statuses.planned'),
+        Completed: t('campaigns.statuses.completed')
+    };
+    const campaignTypeLabels: Record<CampaignDetailType, string> = {
+        auto: t('campaigns.types.auto'),
+        manual: t('campaigns.types.manual')
+    };
     const campaignMeta = useMemo<CampaignDetailMeta>(() => {
         const routeState = location.state as {
             campaignName?: string;
@@ -332,17 +329,17 @@ const CampaignDetails: React.FC = () => {
         }
 
         return CAMPAIGN_DETAIL_META[id || ''] || {
-            name: id || 'Chiến dịch',
+            name: id || t('campaignDetails.defaultName'),
             channel: 'Biểu mẫu khách hàng tiềm năng Facebook',
             status: 'Running',
             campaignType: 'auto',
             apiConnected: true
         };
-    }, [id, location.state]);
+    }, [id, location.state, t]);
     const isAutoCampaign = campaignMeta.campaignType === 'auto';
-    const campaignStatusLabel = getCampaignStatusLabel(campaignMeta.status);
+    const campaignStatusLabel = campaignStatusLabels[campaignMeta.status];
     const campaignChannelLabel = getCampaignChannelLabel(campaignMeta.channel);
-    const campaignTypeLabel = CAMPAIGN_TYPE_LABELS[campaignMeta.campaignType];
+    const campaignTypeLabel = campaignTypeLabels[campaignMeta.campaignType];
 
     useEffect(() => {
         if (!isAutoCampaign && activeTab === 'api') {
@@ -978,7 +975,7 @@ const CampaignDetails: React.FC = () => {
                         <ArrowLeft size={20} />
                     </button>
                     <div>
-                        <h1 className="text-xl font-bold text-slate-900 tracking-tight">Chiến dịch: {campaignMeta.name}</h1>
+                        <h1 className="text-xl font-bold text-slate-900 tracking-tight">{t('campaignDetails.title', { name: campaignMeta.name })}</h1>
                         <p className="text-xs text-slate-500 font-medium">
                             {campaignChannelLabel} • {campaignTypeLabel} • <span className={`font-bold ${getCampaignStatusTone(campaignMeta.status)}`}>{campaignStatusLabel}</span>
                         </p>
@@ -1335,7 +1332,7 @@ const CampaignDetails: React.FC = () => {
                                                     disabled={importing}
                                                     className="inline-flex h-9 items-center gap-2 rounded-lg px-3 text-sm font-medium text-slate-700 transition-colors hover:bg-[#f5f6f8] disabled:cursor-not-allowed disabled:opacity-60"
                                                 >
-                                                    <Upload size={15} /> {importing ? 'Đang nhập...' : 'Nhập tệp'}
+                                                    <Upload size={15} /> {importing ? t('campaignDetails.importing') : t('campaignDetails.importFile')}
                                                 </button>
 
                                                 <button
@@ -1343,7 +1340,7 @@ const CampaignDetails: React.FC = () => {
                                                     onClick={handleExportFilteredLeads}
                                                     className="inline-flex h-9 items-center gap-2 rounded-lg px-3 text-sm font-medium text-slate-700 transition-colors hover:bg-[#f5f6f8]"
                                                 >
-                                                    <Download size={15} /> Xuất Excel
+                                                    <Download size={15} /> {t('campaignDetails.exportExcel')}
                                                 </button>
                                             </div>
 
@@ -1351,7 +1348,7 @@ const CampaignDetails: React.FC = () => {
                                                 type="button"
                                                 onClick={handleDownloadTemplate}
                                                 className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-[#e2e5ea] bg-white text-slate-500 shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition-colors hover:bg-sky-50 hover:text-sky-700"
-                                                title="Tải file mẫu"
+                                                title={t('campaignDetails.downloadTemplate')}
                                             >
                                                 <FileDown size={16} />
                                             </button>
@@ -1372,7 +1369,7 @@ const CampaignDetails: React.FC = () => {
                                                 <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                                                 <input
                                                     className="h-10 w-full rounded-xl border border-[#e2e5ea] bg-[#fbfbfc] pl-10 pr-4 text-sm text-slate-700 outline-none shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition-all placeholder:text-slate-400 focus:border-sky-300 focus:bg-white focus:shadow-[0_0_0_3px_rgba(56,139,201,0.12)]"
-                                                    placeholder="Tìm tên, số điện thoại, email..."
+                                                    placeholder={t('campaignDetails.searchPlaceholder')}
                                                     value={searchTerm}
                                                     onChange={(e) => setSearchTerm(e.target.value)}
                                                 />

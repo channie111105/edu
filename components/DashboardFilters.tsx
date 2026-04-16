@@ -1,4 +1,5 @@
 ﻿import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Calendar, MapPin, Package, ShieldCheck } from 'lucide-react';
 
 export type DateRangeType =
@@ -62,26 +63,28 @@ const DashboardFilters: React.FC<DashboardFiltersProps> = ({
     verificationOptions,
     compact
 }) => {
+    const { i18n } = useTranslation('common');
+    const isEnglish = i18n.resolvedLanguage === 'en';
     const defaultDateOptions: DateOption[] = [
-        { value: 'today', label: 'Hôm nay' },
-        { value: 'yesterday', label: 'Hôm qua' },
-        { value: '30days', label: '30 ngày qua' },
-        { value: 'thisMonth', label: 'Tháng này' },
-        { value: 'thisQuarter', label: 'Quý này' },
-        { value: 'thisYear', label: 'Năm nay' },
-        { value: 'custom', label: 'Chọn ngày cụ thể...' }
+        { value: 'today', label: isEnglish ? 'Today' : 'Hôm nay' },
+        { value: 'yesterday', label: isEnglish ? 'Yesterday' : 'Hôm qua' },
+        { value: '30days', label: isEnglish ? 'Last 30 days' : '30 ngày qua' },
+        { value: 'thisMonth', label: isEnglish ? 'This month' : 'Tháng này' },
+        { value: 'thisQuarter', label: isEnglish ? 'This quarter' : 'Quý này' },
+        { value: 'thisYear', label: isEnglish ? 'This year' : 'Năm nay' },
+        { value: 'custom', label: isEnglish ? 'Pick a date...' : 'Chọn ngày cụ thể...' }
     ];
 
     const renderedDateOptions = dateOptions && dateOptions.length > 0 ? dateOptions : defaultDateOptions;
     const renderedProductOptions = productOptions && productOptions.length > 0
         ? productOptions
-        : [{ value: 'all', label: 'Tất cả sản phẩm' }];
+        : [{ value: 'all', label: isEnglish ? 'All products' : 'Tất cả sản phẩm' }];
     const renderedVerificationOptions = verificationOptions && verificationOptions.length > 0
         ? verificationOptions
         : [
-            { value: 'all', label: 'Tất cả xác thực' },
-            { value: 'verified', label: 'Đã xác thực' },
-            { value: 'unverified', label: 'Chưa xác thực' }
+            { value: 'all', label: isEnglish ? 'All verification' : 'Tất cả xác thực' },
+            { value: 'verified', label: isEnglish ? 'Verified' : 'Đã xác thực' },
+            { value: 'unverified', label: isEnglish ? 'Unverified' : 'Chưa xác thực' }
         ];
     const showProductFilter = Boolean(onProductChange);
     const showVerificationFilter = Boolean(onVerificationChange);
@@ -125,10 +128,10 @@ const DashboardFilters: React.FC<DashboardFiltersProps> = ({
                             onChange={(e) => onLocationChange(e.target.value as LocationType)}
                             className="bg-transparent border-none text-sm font-bold focus:ring-0 cursor-pointer outline-none text-slate-700"
                         >
-                            <option value="all">Tất cả chi nhánh</option>
-                            <option value="hanoi">Hà Nội</option>
-                            <option value="hcm">Hồ Chí Minh</option>
-                            <option value="danang">Đà Nẵng</option>
+                            <option value="all">{isEnglish ? 'All branches' : 'Tất cả chi nhánh'}</option>
+                            <option value="hanoi">{isEnglish ? 'Hanoi' : 'Hà Nội'}</option>
+                            <option value="hcm">{isEnglish ? 'Ho Chi Minh City' : 'Hồ Chí Minh'}</option>
+                            <option value="danang">{isEnglish ? 'Da Nang' : 'Đà Nẵng'}</option>
                         </select>
                     </div>
 

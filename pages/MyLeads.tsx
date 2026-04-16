@@ -375,7 +375,7 @@ const MyLeads: React.FC = () => {
 
    // Pivot/Group State
    const [groupBy, setGroupBy] = useState<MyLeadsGroupBy[]>([]);
-   const [viewMode, setViewMode] = useState<'list' | 'pivot' | 'kanban'>('list');
+   const [viewMode, setViewMode] = useState<'list' | 'pivot' | 'kanban'>('kanban');
    const [filterType, setFilterType] = useState('all');
    const [statusFilterSource, setStatusFilterSource] = useState<'tabs' | 'advanced' | null>(null);
 
@@ -1650,25 +1650,67 @@ const MyLeads: React.FC = () => {
          key: string;
          title: string;
          color: string;
+         statusKeys: string[];
          leads: ILead[];
       }> = [
-            { key: LEAD_STATUS_KEYS.NEW, title: getLeadStatusLabel(LEAD_STATUS_KEYS.NEW), color: 'bg-blue-50 border-blue-200', leads: [] },
-            { key: LEAD_STATUS_KEYS.ASSIGNED, title: getLeadStatusLabel(LEAD_STATUS_KEYS.ASSIGNED), color: 'bg-amber-50 border-amber-200', leads: [] },
-            { key: LEAD_STATUS_KEYS.PICKED, title: getLeadStatusLabel(LEAD_STATUS_KEYS.PICKED), color: 'bg-yellow-50 border-yellow-200', leads: [] },
-            { key: LEAD_STATUS_KEYS.CONTACTED, title: getLeadStatusLabel(LEAD_STATUS_KEYS.CONTACTED), color: 'bg-purple-50 border-purple-200', leads: [] },
-            { key: LEAD_STATUS_KEYS.NURTURING, title: getLeadStatusLabel(LEAD_STATUS_KEYS.NURTURING), color: 'bg-teal-50 border-teal-200', leads: [] },
-            { key: LEAD_STATUS_KEYS.CONVERTED, title: getLeadStatusLabel(LEAD_STATUS_KEYS.CONVERTED), color: 'bg-cyan-50 border-cyan-200', leads: [] },
-            { key: LEAD_STATUS_KEYS.UNVERIFIED, title: getLeadStatusLabel(LEAD_STATUS_KEYS.UNVERIFIED), color: 'bg-slate-100 border-slate-300', leads: [] },
-            { key: LEAD_STATUS_KEYS.LOST, title: getLeadStatusLabel(LEAD_STATUS_KEYS.LOST), color: 'bg-red-50 border-red-200', leads: [] },
+            {
+               key: 'pending_pickup',
+               title: 'Chờ tiếp nhận',
+               color: 'bg-blue-50 border-blue-200',
+               statusKeys: [LEAD_STATUS_KEYS.NEW, LEAD_STATUS_KEYS.ASSIGNED],
+               leads: []
+            },
+            {
+               key: LEAD_STATUS_KEYS.PICKED,
+               title: getLeadStatusLabel(LEAD_STATUS_KEYS.PICKED),
+               color: 'bg-yellow-50 border-yellow-200',
+               statusKeys: [LEAD_STATUS_KEYS.PICKED],
+               leads: []
+            },
+            {
+               key: LEAD_STATUS_KEYS.CONTACTED,
+               title: getLeadStatusLabel(LEAD_STATUS_KEYS.CONTACTED),
+               color: 'bg-purple-50 border-purple-200',
+               statusKeys: [LEAD_STATUS_KEYS.CONTACTED],
+               leads: []
+            },
+            {
+               key: LEAD_STATUS_KEYS.NURTURING,
+               title: getLeadStatusLabel(LEAD_STATUS_KEYS.NURTURING),
+               color: 'bg-teal-50 border-teal-200',
+               statusKeys: [LEAD_STATUS_KEYS.NURTURING],
+               leads: []
+            },
+            {
+               key: LEAD_STATUS_KEYS.CONVERTED,
+               title: getLeadStatusLabel(LEAD_STATUS_KEYS.CONVERTED),
+               color: 'bg-cyan-50 border-cyan-200',
+               statusKeys: [LEAD_STATUS_KEYS.CONVERTED],
+               leads: []
+            },
+            {
+               key: LEAD_STATUS_KEYS.UNVERIFIED,
+               title: getLeadStatusLabel(LEAD_STATUS_KEYS.UNVERIFIED),
+               color: 'bg-slate-100 border-slate-300',
+               statusKeys: [LEAD_STATUS_KEYS.UNVERIFIED],
+               leads: []
+            },
+            {
+               key: LEAD_STATUS_KEYS.LOST,
+               title: getLeadStatusLabel(LEAD_STATUS_KEYS.LOST),
+               color: 'bg-red-50 border-red-200',
+               statusKeys: [LEAD_STATUS_KEYS.LOST],
+               leads: []
+            },
          ];
 
       filteredLeads.forEach((lead) => {
          const normalized = normalizeLeadStatusKey(String(lead.status || ''));
-         const col = columns.find((item) => item.key === normalized);
-         if (col) col.leads.push(lead);
+         const column = columns.find((item) => item.statusKeys.includes(normalized));
+         if (column) column.leads.push(lead);
       });
 
-      return columns;
+      return columns.map(({ statusKeys, ...column }) => column);
    }, [filteredLeads]);
 
    const currentSLAStatus = (created: string) => {
@@ -2656,8 +2698,6 @@ const MyLeads: React.FC = () => {
 
                      <SalesRoleTestSwitcher className="shrink-0" />
 
-                     {viewMode !== 'list' && renderStatusTabs('pb-1')}
-
 
                      {false && showTimePicker && timeRangeType === 'custom' && (
                         <div className="flex items-center gap-2 flex-wrap">
@@ -2899,6 +2939,12 @@ const MyLeads: React.FC = () => {
                   </div>
                </div>
             </div>
+
+            {viewMode !== 'list' && (
+               <div className="mt-3 border-t border-slate-100 pt-3">
+                  {renderStatusTabs()}
+               </div>
+            )}
          </div>
 
          {/* DATA GRID */}
@@ -2908,16 +2954,16 @@ const MyLeads: React.FC = () => {
                   <LeadPivotTable leads={filteredLeads} />
                </div>
             ) : viewMode === 'kanban' ? (
-               <div className="p-4 h-full overflow-auto animate-in fade-in">
+               <div className="p-4 h-full overflow-x-auto overflow-y-hidden animate-in fade-in">
                   {filteredLeads.length === 0 ? (
                      <div className="h-full flex flex-col items-center justify-center text-slate-500 gap-3">
                         <Inbox size={36} className="text-slate-300" />
                                  <p>{isSalesLeader ? 'Chưa có lead đã phân bổ trong chế độ Kanban.' : 'Chưa có lead trong chế độ Kanban.'}</p>
                      </div>
                   ) : (
-                     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4 h-full min-h-[520px]">
+                     <div className="flex gap-4 h-full min-h-[520px] min-w-max">
                         {kanbanColumns.map((column) => (
-                           <div key={column.key} className={`rounded-xl border p-3 h-full min-h-[280px] flex flex-col ${column.color}`}>
+                           <div key={column.key} className={`rounded-xl border p-3 h-full min-h-[280px] min-w-[290px] max-w-[320px] flex flex-col flex-shrink-0 ${column.color}`}>
                               <div className="flex items-center justify-between mb-3">
                                  <h4 className="text-sm font-bold text-slate-700">{column.title}</h4>
                                  <span className="text-xs px-2 py-0.5 rounded-full bg-white border border-slate-200 text-slate-600 font-semibold">{column.leads.length}</span>

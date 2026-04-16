@@ -1,12 +1,30 @@
 import React, { useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '../contexts/AuthContext';
 import { NAV_ITEMS, APP_NAME } from '../constants';
 import { ArrowLeft, LogOut, Menu, X, User as UserIcon } from 'lucide-react';
 import NotificationBell from './NotificationBell';
 
+const NAV_TRANSLATION_KEYS: Record<string, string> = {
+  '/': 'nav.overview',
+  '/leads': 'nav.leads',
+  '/campaigns': 'nav.campaigns',
+  '/marketing/collaborators': 'nav.collaborators',
+  '/marketing/sla-leads': 'nav.slaLeads',
+  '/reports': 'nav.reports',
+};
+
+const NAV_FALLBACK_LABELS: Record<string, { vi: string; en: string }> = {
+  '/reports': {
+    vi: 'Báo cáo',
+    en: 'Reports',
+  },
+};
+
 const Layout: React.FC = () => {
   const { user, logout } = useAuth();
+  const { t, i18n } = useTranslation('common');
   const location = useLocation();
   const navigate = useNavigate();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -64,6 +82,20 @@ const Layout: React.FC = () => {
 
   // Check if we are on the Library page
   const isLibraryPage = location.pathname.startsWith('/library');
+  const getNavLabel = (path: string, fallbackLabel: string) => {
+    const translationKey = NAV_TRANSLATION_KEYS[path];
+    if (translationKey) {
+      const translated = t(translationKey);
+      if (translated !== translationKey) return translated;
+    }
+
+    const fallback = NAV_FALLBACK_LABELS[path];
+    if (fallback) {
+      return i18n.resolvedLanguage === 'en' ? fallback.en : fallback.vi;
+    }
+
+    return fallbackLabel;
+  };
 
   return (
     <div className="flex h-screen w-full bg-[#f8fafc]">
@@ -116,7 +148,7 @@ const Layout: React.FC = () => {
                   `}
                 >
                   <item.icon size={20} className={isActive ? 'text-blue-600' : 'text-slate-400'} />
-                  {item.label}
+                  {getNavLabel(item.path, item.label)}
                 </NavLink>
               );
             })}
@@ -137,14 +169,14 @@ const Layout: React.FC = () => {
               className="w-full mb-2 flex items-center justify-center gap-2 px-4 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg text-sm font-medium transition-colors"
             >
               <ArrowLeft size={18} />
-              Back
+              {t('actions.backToModules')}
             </button>
             <button
               onClick={handleLogout}
               className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-slate-50 hover:bg-slate-100 text-slate-700 rounded-lg text-sm font-medium transition-colors"
             >
               <LogOut size={18} />
-              Đăng xuất
+              {t('actions.logout')}
             </button>
           </div>
         </aside>

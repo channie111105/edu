@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+.chrome-dom.txt
+.chrome-headless/
+.edge-headless/

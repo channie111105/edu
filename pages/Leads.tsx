@@ -1,6 +1,7 @@
 ﻿
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { ILead, LeadStatus, UserRole } from '../types';
 import SLABadge from '../components/SLABadge';
 import ConvertLeadModal, { ConvertLeadModalSubmitData } from '../components/ConvertLeadModal';
@@ -109,6 +110,7 @@ const buildLeadCountByRatio = (leadCount: number, ratios: Record<string, number>
 
 const Leads: React.FC = () => {
   const { user, hasPermission } = useAuth();
+  const { t } = useTranslation('marketing');
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -2441,21 +2443,21 @@ const Leads: React.FC = () => {
       <div className="mx-auto min-h-screen max-w-[1600px] bg-[#f8fafc] px-4 py-6 font-inter text-slate-900 md:px-6">
         <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h1 className="text-[20px] font-bold tracking-tight text-[#2f5bd3] md:text-[22px]">CÃƒâ€ Ã‚Â¡ hÃƒÂ¡Ã‚Â»Ã¢â€žÂ¢i (Leads)</h1>
-            <p className="mt-1 text-[13px] text-slate-600">QuÃƒÂ¡Ã‚ÂºÃ‚Â£n lÃƒÆ’Ã‚Â½ Lead Ãƒâ€žÃ¢â‚¬ËœÃƒÂ¡Ã‚ÂºÃ‚Â§u vÃƒÆ’Ã‚Â o vÃƒÆ’Ã‚Â  phÃƒÆ’Ã‚Â¢n bÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¢ cho Ãƒâ€žÃ¢â‚¬ËœÃƒÂ¡Ã‚Â»Ã¢â€žÂ¢i Sales</p>
+            <h1 className="text-[20px] font-bold tracking-tight text-[#2f5bd3] md:text-[22px]">{t('leads.title')}</h1>
+            <p className="mt-1 text-[13px] text-slate-600">{t('leads.description')}</p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <button
               onClick={() => setShowImportModal(true)}
               className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-[14px] font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50 hover:text-slate-900"
             >
-              <FileSpreadsheet size={18} /> Import Excel
+              <FileSpreadsheet size={18} /> {t('leads.importExcel')}
             </button>
             <button
               onClick={openCreateLeadModal}
               className="inline-flex items-center gap-2 rounded-xl bg-[#2f5bd3] px-4 py-2.5 text-[14px] font-semibold text-white shadow-sm transition-colors hover:bg-[#244fc4]"
             >
-              <Plus size={18} /> ThÃƒÆ’Ã‚Âªm Lead
+              <Plus size={18} /> {t('leads.addLead')}
             </button>
           </div>
         </div>
@@ -2464,7 +2466,7 @@ const Leads: React.FC = () => {
           <button onClick={() => setActiveTab('all')} className="rounded-[18px] border border-slate-200 bg-white px-5 py-4 text-left shadow-sm transition-transform hover:-translate-y-0.5">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">TÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¢ng sÃƒÂ¡Ã‚Â»Ã¢â‚¬Ëœ lead</div>
+                <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">{t('leads.stats.totalLeads')}</div>
                 <div className="mt-2 text-[18px] font-bold text-slate-900">{stats.total.toLocaleString()}</div>
               </div>
               <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-[#2f5bd3]">
@@ -2475,7 +2477,7 @@ const Leads: React.FC = () => {
           <button onClick={() => setActiveTab('new')} className="rounded-[18px] border border-slate-200 bg-white px-5 py-4 text-left shadow-sm transition-transform hover:-translate-y-0.5">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">Lead mÃƒÂ¡Ã‚Â»Ã¢â‚¬Âºi</div>
+                <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">{t('leads.stats.newLeads')}</div>
                 <div className="mt-2 text-[18px] font-bold text-slate-900">{stats.newLeads.toLocaleString()}</div>
               </div>
               <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">

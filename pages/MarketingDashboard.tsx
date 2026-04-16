@@ -1,5 +1,6 @@
 ﻿
 import React, { useState, useMemo, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend, LineChart, Line
@@ -288,6 +289,8 @@ const generateMockLeads = (): ILead[] => {
 };
 
 const MarketingDashboard: React.FC = () => {
+  const { i18n } = useTranslation('common');
+  const isEnglish = i18n.resolvedLanguage === 'en';
   const [dateRange, setDateRange] = useState<DateRangeType>('today');
   const [customDate, setCustomDate] = useState<string>('');
   const [location, setLocation] = useState<LocationType>('all');
@@ -320,11 +323,19 @@ const MarketingDashboard: React.FC = () => {
 
   const productOptions = useMemo<SelectOption[]>(() => {
     return [
-      { value: 'all', label: 'Tất cả sản phẩm' },
-      { value: 'Tiếng Đức', label: 'Tiếng Đức' },
-      { value: 'Tiếng Trung', label: 'Tiếng Trung' }
+      { value: 'all', label: isEnglish ? 'All products' : 'Tất cả sản phẩm' },
+      { value: 'Tiếng Đức', label: isEnglish ? 'German' : 'Tiếng Đức' },
+      { value: 'Tiếng Trung', label: isEnglish ? 'Chinese' : 'Tiếng Trung' }
     ];
-  }, []);
+  }, [isEnglish]);
+
+  const translateProductName = (name: string) => {
+    if (!isEnglish) return name;
+    return name
+      .replaceAll('Tiếng Đức', 'German')
+      .replaceAll('Tiếng Trung', 'Chinese')
+      .replaceAll('Khác', 'Other');
+  };
 
   // Filter data based on date range, location and product
   const leadsFilteredByCore = useMemo(() => {
@@ -597,13 +608,13 @@ const MarketingDashboard: React.FC = () => {
 
     return Object.values(stats)
       .map((item) => ({
-        name: item.label,
+        name: conversionDimension === 'product' ? translateProductName(item.label) : item.label,
         rate: item.total > 0 ? Math.round((item.won / item.total) * 100) : 0,
         total: item.total,
         color: item.color,
       }))
       .sort((a, b) => b.total - a.total);
-  }, [chartDataLeads, deals, conversionDimension]);
+  }, [chartDataLeads, deals, conversionDimension, isEnglish]);
 
   // Lead growth by channel over time
   const leadGrowthByChannel = useMemo(() => {
@@ -621,7 +632,7 @@ const MarketingDashboard: React.FC = () => {
         const start = new Date(anchorWeek);
         start.setDate(anchorWeek.getDate() - i * 7);
         const key = toDayKey(start);
-        const label = `Tuần ${String(start.getDate()).padStart(2, '0')}/${String(start.getMonth() + 1).padStart(2, '0')}`;
+        const label = `${isEnglish ? 'Week' : 'Tuần'} ${String(start.getDate()).padStart(2, '0')}/${String(start.getMonth() + 1).padStart(2, '0')}`;
         periods.push({ key, label });
         periodIndex.set(key, periods.length - 1);
       }
@@ -641,7 +652,7 @@ const MarketingDashboard: React.FC = () => {
         const start = new Date(anchorYear);
         start.setFullYear(anchorYear.getFullYear() - i);
         const key = `${start.getFullYear()}`;
-        const label = `Năm ${start.getFullYear()}`;
+        const label = `${isEnglish ? 'Year' : 'Năm'} ${start.getFullYear()}`;
         periods.push({ key, label });
         periodIndex.set(key, periods.length - 1);
       }
@@ -696,13 +707,13 @@ const MarketingDashboard: React.FC = () => {
     });
 
     return { rows, channels };
-  }, [growthGranularity, growthLookback, growthYearOffset, sourceDistribution]);
+  }, [growthGranularity, growthLookback, growthYearOffset, sourceDistribution, isEnglish]);
 
   const growthLookbackLabel = growthGranularity === 'week'
-    ? 'Số tuần trước'
+    ? (isEnglish ? 'Previous weeks' : 'Số tuần trước')
     : growthGranularity === 'month'
-      ? 'Số tháng trước'
-      : 'Số năm trước';
+      ? (isEnglish ? 'Previous months' : 'Số tháng trước')
+      : (isEnglish ? 'Previous years' : 'Số năm trước');
 
   const growthLookbackMax = growthGranularity === 'week'
     ? 52
@@ -855,8 +866,8 @@ const MarketingDashboard: React.FC = () => {
         onVerificationChange={setVerification}
         customDate={customDate}
         onCustomDateChange={setCustomDate}
-        title="Phân tích Marketing & Nguồn Lead"
-        subtitle="Hiệu suất thời gian thực theo nguồn và chiến dịch quảng cáo."
+        title={isEnglish ? 'Marketing Analysis & Lead Sources' : 'Phân tích Marketing & Nguồn Lead'}
+        subtitle={isEnglish ? 'Real-time performance by source and campaign.' : 'Hiệu suất thời gian thực theo nguồn và chiến dịch quảng cáo.'}
       />
 
       {/* --- KPI CARDS --- */}
@@ -872,7 +883,7 @@ const MarketingDashboard: React.FC = () => {
               <TrendingUp size={14} className="mr-1" /> +12.5%
             </span>
           </div>
-          <h3 className="text-slate-500 text-sm font-medium">Tổng số Leads</h3>
+          <h3 className="text-slate-500 text-sm font-medium">{isEnglish ? 'Total Leads' : 'Tổng số Leads'}</h3>
           <p className="text-3xl font-bold mt-1 text-slate-900">{kpis.totalLeads.toLocaleString()}</p>
         </div>
 
@@ -886,7 +897,7 @@ const MarketingDashboard: React.FC = () => {
               <TrendingUp size={14} className="mr-1" /> +8.2%
             </span>
           </div>
-          <h3 className="text-slate-500 text-sm font-medium">% Lead xác thực</h3>
+          <h3 className="text-slate-500 text-sm font-medium">{isEnglish ? '% Verified Leads' : '% Lead xác thực'}</h3>
           <p className="text-3xl font-bold mt-1 text-slate-900">{kpis.qualifiedRate}%</p>
         </div>
 
@@ -900,7 +911,7 @@ const MarketingDashboard: React.FC = () => {
               <TrendingDown size={14} className="mr-1" /> -2.4%
             </span>
           </div>
-          <h3 className="text-slate-500 text-sm font-medium">% Chuyển đổi ra Hợp đồng</h3>
+          <h3 className="text-slate-500 text-sm font-medium">{isEnglish ? '% Conversion to Contract' : '% Chuyển đổi ra Hợp đồng'}</h3>
           <p className="text-3xl font-bold mt-1 text-slate-900">{kpis.conversionRate}%</p>
         </div>
 
@@ -914,7 +925,7 @@ const MarketingDashboard: React.FC = () => {
               <TrendingUp size={14} className="mr-1" /> +15%
             </span>
           </div>
-          <h3 className="text-slate-500 text-sm font-medium">Lead Xác thực</h3>
+          <h3 className="text-slate-500 text-sm font-medium">{isEnglish ? 'Verified Leads' : 'Lead Xác thực'}</h3>
           <p className="text-3xl font-bold mt-1 text-slate-900">{kpis.qualifiedLeads.toLocaleString()}</p>
         </div>
       </div>
@@ -925,7 +936,7 @@ const MarketingDashboard: React.FC = () => {
         {/* Source Distribution Chart (Doughnut) */}
         <div className="lg:col-span-1 bg-white p-6 rounded-2xl shadow-sm border border-slate-100 animate-in fade-in slide-in-from-left-4 duration-700 delay-400">
           <div className="flex justify-between items-center mb-6">
-            <h3 className="font-bold text-lg text-slate-900">Tỉ trọng Lead theo các Kênh</h3>
+            <h3 className="font-bold text-lg text-slate-900">{isEnglish ? 'Lead Share by Channel' : 'Tỉ trọng Lead theo các Kênh'}</h3>
             <button className="text-slate-400 hover:text-slate-600">
               <MoreVertical size={20} />
             </button>
@@ -990,7 +1001,7 @@ const MarketingDashboard: React.FC = () => {
           </div>
           <div className="mt-4 grid grid-cols-2 gap-2 text-xs font-medium text-slate-500">
             <ChartLegendButton
-              label="Tổng"
+              label={isEnglish ? 'Total' : 'Tổng'}
               active={!selectedSource}
               onClick={() => setSelectedSource(null)}
               neutral
@@ -1012,7 +1023,9 @@ const MarketingDashboard: React.FC = () => {
         <div className="lg:col-span-1 bg-white p-6 rounded-2xl shadow-sm border border-slate-100 animate-in fade-in slide-in-from-left-4 duration-700 delay-450">
           <div className="flex justify-between items-center mb-6">
             <h3 className="font-bold text-lg text-slate-900">
-              {selectedProductDrill ? `Kênh theo ${selectedProductDrill}` : 'Tỷ trọng Sản phẩm'}
+              {selectedProductDrill
+                ? (isEnglish ? `Channels for ${translateProductName(selectedProductDrill)}` : `Kênh theo ${selectedProductDrill}`)
+                : (isEnglish ? 'Product Share' : 'Tỷ trọng Sản phẩm')}
             </h3>
             <button className="text-slate-400 hover:text-slate-600">
               <MoreVertical size={20} />
@@ -1054,14 +1067,14 @@ const MarketingDashboard: React.FC = () => {
                     }}
                     formatter={(value: number, _name, props: any) => [
                       `${props?.payload?.count || 0} (${value}%)`,
-                      props?.payload?.name || ''
+                      props?.payload?.name ? translateProductName(props.payload.name) : ''
                     ]}
                   />
                 </PieChart>
               </ResponsiveContainer>
             ) : (
               <div className="h-full flex items-center justify-center text-sm text-slate-400">
-                Chưa có dữ liệu
+                {isEnglish ? 'No data available' : 'Chưa có dữ liệu'}
               </div>
             )}
             {productDrillData.length > 0 && (
@@ -1076,7 +1089,7 @@ const MarketingDashboard: React.FC = () => {
           {productDrillData.length > 0 && (
             <div className="mt-4 grid grid-cols-2 gap-2 text-xs font-medium text-slate-500">
               <ChartLegendButton
-                label="Tổng"
+                label={isEnglish ? 'Total' : 'Tổng'}
                 active={!selectedProductDrill}
                 onClick={() => setSelectedProductDrill(null)}
                 neutral
@@ -1084,7 +1097,7 @@ const MarketingDashboard: React.FC = () => {
               {productDrillData.map((item) => (
                 <ChartLegendButton
                   key={item.rawName}
-                  label={`${item.name} (${item.value}%)`}
+                  label={`${translateProductName(item.name)} (${item.value}%)`}
                   color={item.color}
                   active={false}
                   disabled={!!selectedProductDrill}
@@ -1100,7 +1113,7 @@ const MarketingDashboard: React.FC = () => {
         {/* Contract Share by Source */}
         <div className="lg:col-span-1 bg-white p-6 rounded-2xl shadow-sm border border-slate-100 animate-in fade-in slide-in-from-bottom-4 duration-700 delay-500">
           <div className="flex justify-between items-center mb-6">
-            <h3 className="font-bold text-lg text-slate-900">Tỷ trọng Hợp đồng theo Nguồn</h3>
+            <h3 className="font-bold text-lg text-slate-900">{isEnglish ? 'Contract Share by Source' : 'Tỷ trọng Hợp đồng theo Nguồn'}</h3>
             <button className="text-slate-400 hover:text-slate-600">
               <MoreVertical size={20} />
             </button>
@@ -1145,7 +1158,7 @@ const MarketingDashboard: React.FC = () => {
                       padding: '8px 12px'
                     }}
                     formatter={(value: number, _name, props: any) => [
-                      `${value} HĐ (${props?.payload?.percent || 0}%)`,
+                      isEnglish ? `${value} contracts (${props?.payload?.percent || 0}%)` : `${value} HĐ (${props?.payload?.percent || 0}%)`,
                       props?.payload?.name || ''
                     ]}
                   />
@@ -1155,7 +1168,7 @@ const MarketingDashboard: React.FC = () => {
               <div className="h-full flex items-center justify-center">
                 <div className="text-center">
                   <span className="block text-2xl font-bold text-slate-800">0</span>
-                  <span className="text-sm text-slate-400">Chưa có dữ liệu hợp đồng</span>
+                  <span className="text-sm text-slate-400">{isEnglish ? 'No contract data' : 'Chưa có dữ liệu hợp đồng'}</span>
                 </div>
               </div>
             )}
@@ -1166,7 +1179,7 @@ const MarketingDashboard: React.FC = () => {
                     {selectedContractSlice ? selectedContractSlice.value : totalContracts}
                   </span>
                   <span className="text-xs text-slate-400">
-                    {selectedContractSlice ? selectedContractSlice.name : 'Hợp đồng'}
+                    {selectedContractSlice ? selectedContractSlice.name : (isEnglish ? 'Contracts' : 'Hợp đồng')}
                   </span>
                 </div>
               </div>
@@ -1175,7 +1188,7 @@ const MarketingDashboard: React.FC = () => {
           {contractShareBySource.length > 0 && (
             <div className="mt-4 grid grid-cols-2 gap-2 text-xs font-medium text-slate-500">
               <ChartLegendButton
-                label="Tổng"
+                label={isEnglish ? 'Total' : 'Tổng'}
                 active={!selectedContractSource}
                 onClick={() => setSelectedContractSource(null)}
                 neutral
@@ -1197,7 +1210,7 @@ const MarketingDashboard: React.FC = () => {
         {/* Status Distribution Pie */}
         <div className="lg:col-span-1 bg-white p-6 rounded-2xl shadow-sm border border-slate-100 animate-in fade-in slide-in-from-bottom-4 duration-700 delay-550">
           <div className="flex justify-between items-center mb-6">
-            <h3 className="font-bold text-lg text-slate-900">Tỷ trọng Trạng thái theo Nguồn</h3>
+            <h3 className="font-bold text-lg text-slate-900">{isEnglish ? 'Status Share by Source' : 'Tỷ trọng Trạng thái theo Nguồn'}</h3>
             <button className="text-slate-400 hover:text-slate-600">
               <MoreVertical size={20} />
             </button>
@@ -1250,7 +1263,7 @@ const MarketingDashboard: React.FC = () => {
               </ResponsiveContainer>
             ) : (
               <div className="h-full flex items-center justify-center text-sm text-slate-400">
-                Chưa có dữ liệu
+                {isEnglish ? 'No data available' : 'Chưa có dữ liệu'}
               </div>
             )}
             {statusDistributionPie.length > 0 && (
@@ -1269,7 +1282,7 @@ const MarketingDashboard: React.FC = () => {
           {statusDistributionPie.length > 0 && (
             <div className="mt-4 grid grid-cols-2 gap-2 text-xs font-medium text-slate-500">
               <ChartLegendButton
-                label="Tổng"
+                label={isEnglish ? 'Total' : 'Tổng'}
                 active={!selectedStatusKey}
                 onClick={() => setSelectedStatusKey(null)}
                 neutral
@@ -1296,7 +1309,9 @@ const MarketingDashboard: React.FC = () => {
           <div className="flex justify-between items-center mb-6">
             <div className="flex items-center gap-3">
               <h3 className="font-bold text-lg text-slate-900">
-                Tỷ lệ chuyển đổi HĐ theo {conversionDimension === 'source' ? 'Nguồn' : 'Sản phẩm'}
+                {isEnglish
+                  ? `Contract Conversion Rate by ${conversionDimension === 'source' ? 'Source' : 'Product'}`
+                  : `Tỷ lệ chuyển đổi HĐ theo ${conversionDimension === 'source' ? 'Nguồn' : 'Sản phẩm'}`}
               </h3>
               <div className="inline-flex bg-slate-100 rounded-lg p-1">
                 <button
@@ -1307,7 +1322,7 @@ const MarketingDashboard: React.FC = () => {
                       : 'text-slate-500 hover:text-slate-700'
                   }`}
                 >
-                  Theo nguồn
+                  {isEnglish ? 'By source' : 'Theo nguồn'}
                 </button>
                 <button
                   onClick={() => setConversionDimension('product')}
@@ -1317,7 +1332,7 @@ const MarketingDashboard: React.FC = () => {
                       : 'text-slate-500 hover:text-slate-700'
                   }`}
                 >
-                  Theo sản phẩm
+                  {isEnglish ? 'By product' : 'Theo sản phẩm'}
                 </button>
               </div>
             </div>
@@ -1348,13 +1363,13 @@ const MarketingDashboard: React.FC = () => {
                     contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
                     formatter={(value: number, _name, props: any) => [
                       `${value}% (n=${props?.payload?.total || 0})`,
-                      'Tỷ lệ chuyển đổi',
+                      isEnglish ? 'Conversion rate' : 'Tỷ lệ chuyển đổi',
                     ]}
                   />
                   <Bar
                     dataKey="rate"
                     radius={[6, 6, 0, 0]}
-                    name="Tỷ lệ chuyển đổi (%)"
+                    name={isEnglish ? 'Conversion rate (%)' : 'Tỷ lệ chuyển đổi (%)'}
                     animationDuration={1000}
                     animationEasing="ease-out"
                   >
@@ -1366,7 +1381,7 @@ const MarketingDashboard: React.FC = () => {
               </ResponsiveContainer>
             ) : (
               <div className="h-full flex items-center justify-center text-sm text-slate-400">
-                Chưa có dữ liệu chuyển đổi
+                {isEnglish ? 'No conversion data' : 'Chưa có dữ liệu chuyển đổi'}
               </div>
             )}
           </div>
@@ -1378,9 +1393,11 @@ const MarketingDashboard: React.FC = () => {
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 animate-in fade-in slide-in-from-bottom-4 duration-700 delay-700">
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-6">
             <div>
-              <h3 className="font-bold text-lg text-slate-900">Tốc độ Lead theo Kênh theo Thời gian</h3>
+              <h3 className="font-bold text-lg text-slate-900">{isEnglish ? 'Lead Velocity by Channel Over Time' : 'Tốc độ Lead theo Kênh theo Thời gian'}</h3>
               <p className="text-xs text-slate-500 mt-1">
-                Dữ liệu minh họa cho biểu đồ đường. Trục X là thời gian, mỗi đường là một kênh.
+                {isEnglish
+                  ? 'Sample data for the trend chart. The X axis is time and each line represents a channel.'
+                  : 'Dữ liệu minh họa cho biểu đồ đường. Trục X là thời gian, mỗi đường là một kênh.'}
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -1389,9 +1406,9 @@ const MarketingDashboard: React.FC = () => {
                 onChange={(e) => setGrowthGranularity(e.target.value as 'week' | 'month' | 'year')}
                 className="bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-sm font-semibold text-slate-700"
               >
-                <option value="week">Theo tuần</option>
-                <option value="month">Theo tháng</option>
-                <option value="year">Theo năm</option>
+                  <option value="week">{isEnglish ? 'By week' : 'Theo tuần'}</option>
+                  <option value="month">{isEnglish ? 'By month' : 'Theo tháng'}</option>
+                  <option value="year">{isEnglish ? 'By year' : 'Theo năm'}</option>
               </select>
               <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1">
                 <span className="text-xs text-slate-500 whitespace-nowrap">
@@ -1411,7 +1428,7 @@ const MarketingDashboard: React.FC = () => {
                 />
               </div>
               <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1">
-                <span className="text-xs text-slate-500 whitespace-nowrap">Số năm trước</span>
+                  <span className="text-xs text-slate-500 whitespace-nowrap">{isEnglish ? 'Year offset' : 'Số năm trước'}</span>
                 <input
                   type="number"
                   min={0}
@@ -1448,7 +1465,7 @@ const MarketingDashboard: React.FC = () => {
                   <Tooltip
                     cursor={{ stroke: '#cbd5e1', strokeDasharray: '4 4' }}
                     contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
-                    formatter={(value: number, name: string) => [`${value} lead`, name]}
+                    formatter={(value: number, name: string) => [isEnglish ? `${value} leads` : `${value} lead`, name]}
                   />
                   <Legend wrapperStyle={{ paddingTop: '16px' }} iconType="plainline" />
                   {leadGrowthByChannel.channels.map((channel) => (
@@ -1470,7 +1487,7 @@ const MarketingDashboard: React.FC = () => {
               </ResponsiveContainer>
             ) : (
               <div className="h-full flex items-center justify-center text-sm text-slate-400">
-                Chưa có dữ liệu cho khoảng thời gian đã chọn
+                {isEnglish ? 'No data for the selected time range' : 'Chưa có dữ liệu cho khoảng thời gian đã chọn'}
               </div>
             )}
           </div>
