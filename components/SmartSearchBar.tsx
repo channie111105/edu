@@ -1,14 +1,9 @@
 import React from 'react';
 import { X, Search } from 'lucide-react';
+import type { SearchFilter } from '../utils/filterToolbar';
 import { decodeMojibakeText } from '../utils/mojibake';
 
-export interface SearchFilter {
-    field: string;
-    label: string;
-    value: string;
-    color?: string;
-    matchMode?: 'includes' | 'equals';
-}
+export type { SearchFilter } from '../utils/filterToolbar';
 
 interface SmartSearchBarProps {
     filters: SearchFilter[];
@@ -38,6 +33,7 @@ const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
     const [inputValue, setInputValue] = React.useState('');
     const inputRef = React.useRef<HTMLInputElement | null>(null);
     const text = React.useCallback((value?: string) => decodeMojibakeText(String(value || '')), []);
+    const shouldShowClearAllButton = filters.length > 0 || Boolean(activeField) || Boolean(contextLabel);
 
     React.useEffect(() => {
         if (activeField || contextLabel) {
@@ -63,6 +59,11 @@ const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
         : contextLabel
             ? 'Nhập giá trị rồi nhấn Enter...'
             : text(placeholder);
+
+    const handleClearAllClick = () => {
+        setInputValue('');
+        onClearAll();
+    };
 
     return (
         <div className={`relative flex-1 ${fullWidth ? 'max-w-none' : 'max-w-2xl'}`}>
@@ -111,9 +112,9 @@ const SmartSearchBar: React.FC<SmartSearchBarProps> = ({
                 />
             </div>
 
-            {filters.length > 0 && (
+            {shouldShowClearAllButton && (
                 <button
-                    onClick={onClearAll}
+                    onClick={handleClearAllClick}
                     className={`absolute right-3 top-1/2 -translate-y-1/2 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 ${compact ? 'text-slate-500' : ''}`}
                     title={text('Xóa tất cả bộ lọc')}
                 >

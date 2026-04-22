@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   BarChart3,
@@ -12,6 +12,7 @@ import {
   Trash2
 } from 'lucide-react';
 import AdvancedDateFilter, { DateRange } from '../components/AdvancedDateFilter';
+import { AdvancedFilterDropdown } from '../components/filters';
 import PinnedSearchInput from '../components/PinnedSearchInput';
 import { IQuotation, IQuotationPaymentScheduleTerm, IStudent, ITransaction, QuotationStatus } from '../types';
 import { deleteQuotation, getQuotations, getStudents, getTransactions } from '../utils/storage';
@@ -45,34 +46,25 @@ const TIME_PRESETS = [
   { value: 'custom', label: 'Tùy chọn' }
 ] as const;
 
-const DATA_SCOPE_OPTIONS = [
-  { value: 'all', label: 'Tất cả dữ liệu' },
-  { value: 'quotation', label: 'Quotation' },
-  { value: 'locked', label: 'Locked' },
-  { value: 'overdue_expected', label: 'Quá hạn dự kiến đóng' }
+const QUOTATION_TIME_FIELD_OPTIONS = [
+  { value: 'createdDate', label: 'Ngày tạo' },
+  { value: 'confirmDate', label: 'Ngày confirm' },
+  { value: 'expectedDate', label: 'Thời gian dự kiến' },
+  { value: 'dueDate', label: 'Thời gian cần đóng' }
 ] as const;
 
-const GROUP_OPTIONS = [
-  { value: 'none', label: 'Không nhóm' },
-  { value: 'status', label: 'Trạng thái' },
-  { value: 'payment', label: 'Thanh toán' },
-  { value: 'salesperson', label: 'Tư vấn' },
-  { value: 'sale_type', label: 'Loại đơn' }
-] as const;
-
-const FAVORITE_OPTIONS = [
-  { value: 'all', label: 'Tất cả' },
-  { value: 'only', label: 'Chỉ yêu thích' },
-  { value: 'first', label: 'Ưu tiên yêu thích' }
+const QUOTATION_ADVANCED_FIELD_OPTIONS = [
+  { id: 'branch', label: 'Cơ sở' },
+  { id: 'salesperson', label: 'Sale' },
+  { id: 'status', label: 'Trạng thái' },
+  { id: 'product', label: 'Sản phẩm' }
 ] as const;
 
 type DisplayView = (typeof DISPLAY_VIEW_OPTIONS)[number]['value'];
-type TimeFilterField = (typeof TIME_FIELD_OPTIONS)[number]['value'];
+type TimeFilterField = (typeof QUOTATION_TIME_FIELD_OPTIONS)[number]['value'];
 type TimeRangeType = (typeof TIME_PRESETS)[number]['value'];
-type DataScope = (typeof DATA_SCOPE_OPTIONS)[number]['value'];
-type GroupMode = (typeof GROUP_OPTIONS)[number]['value'];
-type FavoriteMode = (typeof FAVORITE_OPTIONS)[number]['value'];
-type ActiveToolbarChipKey = 'dataScope' | 'groupMode' | 'favoriteMode' | 'time';
+type QuotationAdvancedFieldKey = (typeof QUOTATION_ADVANCED_FIELD_OPTIONS)[number]['id'];
+type ActiveToolbarChipKey = 'advancedFilter' | 'groupMode' | 'time';
 type ActiveToolbarChip = {
   key: ActiveToolbarChipKey;
   label: string;
@@ -85,48 +77,19 @@ type SelectOption = {
 
 type EnrichedQuotation = {
   quotation: IQuotation;
+  branchName: string;
   studentName: string;
   salespersonName: string;
+  productName: string;
   paymentState: { label: string; className: string };
   displayStatus: { label: string; className: string };
   saleTypeLabel: string;
   createdDateValue?: string;
-  hasOverdueExpectedPayment: boolean;
+  confirmDateValue?: string;
+  expectedDateValue?: string;
+  dueDateValue?: string;
   isFavorite: boolean;
 };
-
-interface CompactSelectProps {
-  label?: string;
-  value: string;
-  options: readonly SelectOption[];
-  onChange: (value: string) => void;
-  className?: string;
-}
-
-const CompactSelect: React.FC<CompactSelectProps> = ({
-  label,
-  value,
-  options,
-  onChange,
-  className
-}) => (
-  <label
-    className={`inline-flex min-h-[34px] items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-[12px] text-slate-600 shadow-sm ${className || ''}`}
-  >
-    {label ? <span className="whitespace-nowrap">{label}</span> : null}
-    <select
-      value={value}
-      onChange={(event) => onChange(event.target.value)}
-      className="min-w-0 flex-1 bg-transparent py-1.5 text-[12px] font-semibold text-slate-800 outline-none"
-    >
-      {options.map((option) => (
-        <option key={option.value} value={option.value}>
-          {option.label}
-        </option>
-      ))}
-    </select>
-  </label>
-);
 
 interface GroupedDateFilterSelectProps {
   primaryValue: string;
@@ -363,6 +326,27 @@ const getSaleTypeLabel = (quotation: IQuotation) => {
 
 const getCreatedDateValue = (quotation: IQuotation) => quotation.createdAt || quotation.quotationDate;
 
+const getBranchName = (quotation: IQuotation) => normalizeText(quotation.branchName);
+
+const getProductName = (quotation: IQuotation) => normalizeText(quotation.product);
+
+const getConfirmDateValue = (quotation: IQuotation) => quotation.confirmDate || quotation.saleConfirmedAt || '';
+
+const getScheduleDateValue = (
+  quotation: IQuotation,
+  field: keyof Pick<IQuotationPaymentScheduleTerm, 'expectedDate' | 'dueDate'>
+) => {
+  const matchedValue = (quotation.lineItems || [])
+    .flatMap((item) => normalizePaymentSchedule(item.paymentSchedule))
+    .map((term) => String(term[field] || '').trim())
+    .filter(Boolean)
+    .map((value) => ({ value, timestamp: new Date(value).getTime() }))
+    .filter((item) => !Number.isNaN(item.timestamp))
+    .sort((left, right) => left.timestamp - right.timestamp)[0];
+
+  return matchedValue?.value || '';
+};
+
 const getTimePresetLabel = (_timeFilterField: TimeFilterField, timeRangeType: TimeRangeType) => {
   if (timeRangeType === 'all') {
     return 'Mọi ngày';
@@ -373,24 +357,6 @@ const getTimePresetLabel = (_timeFilterField: TimeFilterField, timeRangeType: Ti
   }
 
   return TIME_PRESETS.find((preset) => preset.value === timeRangeType)?.label || 'Mọi ngày';
-};
-
-const getOptionLabelByValue = (options: readonly SelectOption[], value: string) =>
-  options.find((option) => option.value === value)?.label || value;
-
-const getGroupPrefix = (groupMode: GroupMode) => {
-  switch (groupMode) {
-    case 'status':
-      return 'Trạng thái';
-    case 'payment':
-      return 'Thanh toán';
-    case 'salesperson':
-      return 'Tư vấn';
-    case 'sale_type':
-      return 'Loại đơn';
-    default:
-      return '';
-  }
 };
 
 const isTimeRangeMatch = (
@@ -473,9 +439,10 @@ const Quotations: React.FC = () => {
     label: 'Tùy chọn'
   });
   const [isCustomRangeOpen, setIsCustomRangeOpen] = useState(false);
-  const [dataScope, setDataScope] = useState<DataScope>('all');
-  const [groupMode, setGroupMode] = useState<GroupMode>('none');
-  const [favoriteMode, setFavoriteMode] = useState<FavoriteMode>('all');
+  const [showFilterDropdown, setShowFilterDropdown] = useState(false);
+  const [selectedAdvancedFilterFields, setSelectedAdvancedFilterFields] = useState<QuotationAdvancedFieldKey[]>([]);
+  const [selectedAdvancedFilterValue, setSelectedAdvancedFilterValue] = useState('');
+  const [selectedAdvancedGroupFields, setSelectedAdvancedGroupFields] = useState<QuotationAdvancedFieldKey[]>([]);
   const [displayView, setDisplayView] = useState<DisplayView>('list');
   const [selectedIds] = useState<string[]>([]);
   const [favoriteIds, setFavoriteIds] = useState<string[]>(() => {
@@ -488,6 +455,7 @@ const Quotations: React.FC = () => {
       return [];
     }
   });
+  const filterDropdownRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const loadData = () => {
@@ -513,6 +481,19 @@ const Quotations: React.FC = () => {
     window.localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(favoriteIds));
   }, [favoriteIds]);
 
+  useEffect(() => {
+    if (!showFilterDropdown) return undefined;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (filterDropdownRef.current && !filterDropdownRef.current.contains(event.target as Node)) {
+        setShowFilterDropdown(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showFilterDropdown]);
+
   const studentMap = useMemo(() => new Map(students.map((student) => [student.id, student])), [students]);
 
   const getStudentName = (quotation: IQuotation) => {
@@ -528,48 +509,99 @@ const Quotations: React.FC = () => {
   const enrichedData = useMemo<EnrichedQuotation[]>(
     () =>
       quotations.map((quotation) => {
-        const overdueExpectedPayment = hasOverdueExpectedPayment(quotation, transactions);
-
         return {
           quotation,
+          branchName: getBranchName(quotation),
           studentName: getStudentName(quotation),
           salespersonName: getSalespersonName(quotation),
+          productName: getProductName(quotation),
           paymentState: getPaymentStateConfig(quotation),
           displayStatus: getDisplayStatusConfig(quotation.status),
           saleTypeLabel: getSaleTypeLabel(quotation),
           createdDateValue: getCreatedDateValue(quotation),
-          hasOverdueExpectedPayment: overdueExpectedPayment,
+          confirmDateValue: getConfirmDateValue(quotation),
+          expectedDateValue: getScheduleDateValue(quotation, 'expectedDate'),
+          dueDateValue: getScheduleDateValue(quotation, 'dueDate'),
           isFavorite: favoriteIds.includes(quotation.id)
         };
       }),
-    [favoriteIds, quotations, studentMap, transactions]
+    [favoriteIds, quotations, studentMap]
   );
 
-  const getGroupValue = (item: EnrichedQuotation) => {
-    switch (groupMode) {
-      case 'status':
-        return item.displayStatus.label;
-      case 'payment':
-        return item.paymentState.label;
+  const selectedAdvancedFilterOptions = useMemo(
+    () =>
+      selectedAdvancedFilterFields
+        .map((fieldId) => QUOTATION_ADVANCED_FIELD_OPTIONS.find((option) => option.id === fieldId))
+        .filter((option): option is (typeof QUOTATION_ADVANCED_FIELD_OPTIONS)[number] => Boolean(option)),
+    [selectedAdvancedFilterFields]
+  );
+  const activeAdvancedFilterField = selectedAdvancedFilterOptions[0] || null;
+  const selectedAdvancedGroupOptions = useMemo(
+    () =>
+      selectedAdvancedGroupFields
+        .map((fieldId) => QUOTATION_ADVANCED_FIELD_OPTIONS.find((option) => option.id === fieldId))
+        .filter((option): option is (typeof QUOTATION_ADVANCED_FIELD_OPTIONS)[number] => Boolean(option)),
+    [selectedAdvancedGroupFields]
+  );
+
+  const toggleAdvancedFieldSelection = (type: 'filter' | 'group', fieldId: QuotationAdvancedFieldKey) => {
+    if (type === 'filter') {
+      setSelectedAdvancedFilterValue('');
+      setSelectedAdvancedFilterFields((prev) => (prev.includes(fieldId) ? [] : [fieldId]));
+      return;
+    }
+
+    setSelectedAdvancedGroupFields((prev) => (
+      prev.includes(fieldId)
+        ? prev.filter((item) => item !== fieldId)
+        : [...prev, fieldId]
+    ));
+  };
+
+  const getAdvancedFieldValue = (item: EnrichedQuotation, fieldId: QuotationAdvancedFieldKey) => {
+    switch (fieldId) {
+      case 'branch':
+        return item.branchName;
       case 'salesperson':
         return item.salespersonName;
-      case 'sale_type':
-        return item.saleTypeLabel;
+      case 'status':
+        return item.displayStatus.label;
+      case 'product':
+        return item.productName;
       default:
         return '';
     }
   };
 
-  const matchesDataScope = (item: EnrichedQuotation) => {
-    switch (dataScope) {
-      case 'quotation':
-        return item.quotation.status !== QuotationStatus.LOCKED;
-      case 'locked':
-        return item.quotation.status === QuotationStatus.LOCKED;
-      case 'overdue_expected':
-        return item.hasOverdueExpectedPayment;
+  const formatAdvancedFieldValue = (fieldId: QuotationAdvancedFieldKey, value: string) => {
+    if (fieldId === 'branch' && value === '-') {
+      return 'Chưa có cơ sở';
+    }
+
+    return value || '-';
+  };
+
+  const getGroupValue = (item: EnrichedQuotation) =>
+    selectedAdvancedGroupFields.map((fieldId) => getAdvancedFieldValue(item, fieldId)).join('||');
+
+  const getGroupLabel = (item: EnrichedQuotation) =>
+    selectedAdvancedGroupFields
+      .map((fieldId, index) => (
+        `${selectedAdvancedGroupOptions[index]?.label || fieldId}: ${formatAdvancedFieldValue(fieldId, getAdvancedFieldValue(item, fieldId))}`
+      ))
+      .join(' • ');
+
+  const getTimeFieldValue = (item: EnrichedQuotation) => {
+    switch (timeFilterField) {
+      case 'confirmDate':
+        return item.confirmDateValue;
+      case 'expectedDate':
+        return item.expectedDateValue;
+      case 'dueDate':
+        return item.dueDateValue;
+      case 'createdDate':
       default:
-        return true;
+        return item.createdDateValue;
     }
   };
 
@@ -583,28 +615,29 @@ const Quotations: React.FC = () => {
         normalizeText(item.quotation.customerName),
         normalizeText(item.quotation.product),
         item.studentName,
-        item.salespersonName
+        item.salespersonName,
+        item.branchName,
+        item.displayStatus.label
       ]
         .join(' ')
         .toLowerCase();
 
-      const selectedTimeValue = item.createdDateValue;
+      const selectedTimeValue = getTimeFieldValue(item);
+      const matchesAdvancedFilter =
+        !activeAdvancedFilterField ||
+        !selectedAdvancedFilterValue ||
+        getAdvancedFieldValue(item, activeAdvancedFilterField.id as QuotationAdvancedFieldKey) === selectedAdvancedFilterValue;
 
       if (keyword && !haystack.includes(keyword)) return false;
       if (!isTimeRangeMatch(selectedTimeValue, timeRangeType, customTimeRange)) return false;
-      if (!matchesDataScope(item)) return false;
-      if (favoriteMode === 'only' && !item.isFavorite) return false;
+      if (!matchesAdvancedFilter) return false;
 
       return true;
     });
 
     result.sort((a, b) => {
-      if (favoriteMode === 'first' && a.isFavorite !== b.isFavorite) {
-        return a.isFavorite ? -1 : 1;
-      }
-
-      if (groupMode !== 'none') {
-        const groupCompare = getGroupValue(a).localeCompare(getGroupValue(b), 'vi');
+      if (selectedAdvancedGroupFields.length > 0) {
+        const groupCompare = getGroupLabel(a).localeCompare(getGroupLabel(b), 'vi');
         if (groupCompare !== 0) return groupCompare;
       }
 
@@ -614,18 +647,44 @@ const Quotations: React.FC = () => {
 
     return result;
   }, [
+    activeAdvancedFilterField,
     customTimeRange,
-    dataScope,
     enrichedData,
-    favoriteMode,
-    groupMode,
     searchTerm,
+    selectedAdvancedFilterValue,
+    selectedAdvancedGroupFields,
+    selectedAdvancedGroupOptions,
     timeFilterField,
     timeRangeType
   ]);
 
   const pageStart = filteredData.length === 0 ? 0 : 1;
   const pageEnd = filteredData.length;
+  const advancedFilterSelectableValues = useMemo(
+    () => {
+      if (!activeAdvancedFilterField) return [];
+
+      return Array.from(
+        new Set(
+          enrichedData.map((item) =>
+            getAdvancedFieldValue(item, activeAdvancedFilterField.id as QuotationAdvancedFieldKey)
+          )
+        )
+      )
+        .sort((left, right) => left.localeCompare(right, 'vi'))
+        .map((value) => ({
+          value,
+          label: formatAdvancedFieldValue(activeAdvancedFilterField.id as QuotationAdvancedFieldKey, value)
+        }));
+    },
+    [activeAdvancedFilterField, enrichedData]
+  );
+  const advancedToolbarActiveCount =
+    selectedAdvancedGroupFields.length +
+    (selectedAdvancedFilterValue ? 1 : 0);
+  const hasAdvancedToolbarFilters =
+    selectedAdvancedGroupFields.length > 0 ||
+    Boolean(selectedAdvancedFilterValue);
 
   const toggleFavorite = (quotationId: string) => {
     setFavoriteIds((current) =>
@@ -674,27 +733,26 @@ const Quotations: React.FC = () => {
     setTimeRangeType('all');
     setCustomTimeRange({ startDate: null, endDate: null, label: 'Tùy chọn' });
     setIsCustomRangeOpen(false);
-    setDataScope('all');
-    setGroupMode('none');
-    setFavoriteMode('all');
+    setSelectedAdvancedFilterFields([]);
+    setSelectedAdvancedFilterValue('');
+    setSelectedAdvancedGroupFields([]);
+    setShowFilterDropdown(false);
     setDisplayView('list');
   };
 
   const removeToolbarChip = (key: ActiveToolbarChipKey) => {
     switch (key) {
-      case 'dataScope':
-        setDataScope('all');
+      case 'advancedFilter':
+        setSelectedAdvancedFilterFields([]);
+        setSelectedAdvancedFilterValue('');
         break;
       case 'groupMode':
-        setGroupMode('none');
-        break;
-      case 'favoriteMode':
-        setFavoriteMode('all');
+        setSelectedAdvancedGroupFields([]);
         break;
       case 'time':
         setTimeFilterField('createdDate');
         setTimeRangeType('all');
-        setCustomTimeRange({ startDate: null, endDate: null, label: 'Tuy chon' });
+        setCustomTimeRange({ startDate: null, endDate: null, label: 'Tùy chọn' });
         setIsCustomRangeOpen(false);
         break;
       default:
@@ -712,14 +770,15 @@ const Quotations: React.FC = () => {
 
     return filteredData.flatMap((item) => {
       const groupValue = getGroupValue(item);
+      const groupLabel = getGroupLabel(item);
       const rows: React.ReactNode[] = [];
 
-      if (groupMode !== 'none' && groupValue !== lastGroup) {
+      if (selectedAdvancedGroupFields.length > 0 && groupValue !== lastGroup) {
         lastGroup = groupValue;
         rows.push(
-          <tr key={`group-${groupMode}-${groupValue}`} className="bg-slate-50/80">
+          <tr key={`group-${groupValue}`} className="bg-slate-50/80">
             <td colSpan={11} className="px-3 py-2 text-[11px] font-semibold text-slate-600">
-              {getGroupPrefix(groupMode)}: {groupValue || '-'}
+              {groupLabel || '-'}
             </td>
           </tr>
         );
@@ -824,7 +883,7 @@ const Quotations: React.FC = () => {
 
       return rows;
     });
-  }, [filteredData, groupMode, navigate]);
+  }, [filteredData, navigate, selectedAdvancedGroupFields, selectedAdvancedGroupOptions]);
 
   const timePresetOptions = useMemo(
     () =>
@@ -838,32 +897,26 @@ const Quotations: React.FC = () => {
   const activeToolbarChips = useMemo<ActiveToolbarChip[]>(() => {
     const chips: ActiveToolbarChip[] = [];
 
-    if (dataScope !== 'all') {
+    if (activeAdvancedFilterField && selectedAdvancedFilterValue) {
       chips.push({
-        key: 'dataScope',
-        label: `Bo loc: ${getOptionLabelByValue(DATA_SCOPE_OPTIONS, dataScope)}`
+        key: 'advancedFilter',
+        label: `${activeAdvancedFilterField.label}: ${formatAdvancedFieldValue(activeAdvancedFilterField.id as QuotationAdvancedFieldKey, selectedAdvancedFilterValue)}`
       });
     }
 
-    if (groupMode !== 'none') {
+    if (selectedAdvancedGroupFields.length > 0) {
       chips.push({
         key: 'groupMode',
-        label: `Nhom: ${getOptionLabelByValue(GROUP_OPTIONS, groupMode)}`
-      });
-    }
-
-    if (favoriteMode !== 'all') {
-      chips.push({
-        key: 'favoriteMode',
-        label: `Yeu thich: ${getOptionLabelByValue(FAVORITE_OPTIONS, favoriteMode)}`
+        label: `Nhóm theo: ${selectedAdvancedGroupOptions.map((option) => option.label).join(', ')}`
       });
     }
 
     if (timeRangeType !== 'all') {
-      const timeFieldLabel = getOptionLabelByValue(TIME_FIELD_OPTIONS, timeFilterField);
+      const timeFieldLabel =
+        QUOTATION_TIME_FIELD_OPTIONS.find((option) => option.value === timeFilterField)?.label || timeFilterField;
       const timeRangeLabel =
         timeRangeType === 'custom'
-          ? customTimeRange.label || 'Tuy chon'
+          ? customTimeRange.label || 'Tùy chọn'
           : getTimePresetLabel(timeFilterField, timeRangeType);
 
       chips.push({
@@ -873,7 +926,15 @@ const Quotations: React.FC = () => {
     }
 
     return chips;
-  }, [customTimeRange.label, dataScope, favoriteMode, groupMode, timeFilterField, timeRangeType]);
+  }, [
+    activeAdvancedFilterField,
+    customTimeRange.label,
+    selectedAdvancedFilterValue,
+    selectedAdvancedGroupFields.length,
+    selectedAdvancedGroupOptions,
+    timeFilterField,
+    timeRangeType
+  ]);
 
   return (
     <div className="flex h-full flex-col bg-[#f6f8fc] text-slate-800">
@@ -911,7 +972,7 @@ const Quotations: React.FC = () => {
 
               <GroupedDateFilterSelect
                 primaryValue={timeFilterField}
-                primaryOptions={TIME_FIELD_OPTIONS}
+                primaryOptions={QUOTATION_TIME_FIELD_OPTIONS}
                 onPrimaryChange={(value) => setTimeFilterField(value as TimeFilterField)}
                 secondaryValue={timeRangeType}
                 secondaryOptions={timePresetOptions}
@@ -949,29 +1010,35 @@ const Quotations: React.FC = () => {
 
             <div className="flex flex-col gap-3 lg:col-start-2 lg:flex-row lg:items-center lg:justify-between">
               <div className="flex flex-wrap items-center gap-2 lg:flex-nowrap">
-                <CompactSelect
-                  label="Bộ lọc"
-                  value={dataScope}
-                  options={DATA_SCOPE_OPTIONS}
-                  onChange={(value) => setDataScope(value as DataScope)}
-                  className="w-[174px] shrink-0"
-                />
-
-                <CompactSelect
-                  label="Nhóm theo"
-                  value={groupMode}
-                  options={GROUP_OPTIONS}
-                  onChange={(value) => setGroupMode(value as GroupMode)}
-                  className="w-[198px] shrink-0"
-                />
-
-                <CompactSelect
-                  label="Yêu thích"
-                  value={favoriteMode}
-                  options={FAVORITE_OPTIONS}
-                  onChange={(value) => setFavoriteMode(value as FavoriteMode)}
-                  className="w-[148px] shrink-0"
-                />
+                <div ref={filterDropdownRef} className="shrink-0">
+                  <AdvancedFilterDropdown
+                    isOpen={showFilterDropdown}
+                    activeCount={advancedToolbarActiveCount}
+                    hasActiveFilters={hasAdvancedToolbarFilters}
+                    filterOptions={QUOTATION_ADVANCED_FIELD_OPTIONS}
+                    groupOptions={QUOTATION_ADVANCED_FIELD_OPTIONS}
+                    selectedFilterFieldIds={selectedAdvancedFilterFields}
+                    selectedGroupFieldIds={selectedAdvancedGroupFields}
+                    activeFilterField={activeAdvancedFilterField}
+                    selectableValues={advancedFilterSelectableValues}
+                    selectedFilterValue={selectedAdvancedFilterValue}
+                    onOpenChange={setShowFilterDropdown}
+                    onToggleFilterField={(fieldId) => toggleAdvancedFieldSelection('filter', fieldId as QuotationAdvancedFieldKey)}
+                    onToggleGroupField={(fieldId) => toggleAdvancedFieldSelection('group', fieldId as QuotationAdvancedFieldKey)}
+                    onFilterValueChange={setSelectedAdvancedFilterValue}
+                    onClearAll={() => {
+                      setSelectedAdvancedFilterFields([]);
+                      setSelectedAdvancedFilterValue('');
+                      setSelectedAdvancedGroupFields([]);
+                    }}
+                    triggerLabel="Bộ lọc nâng cao"
+                    filterDescription="Chọn 1 trường rồi chọn giá trị tương ứng để lọc nhanh danh sách báo giá."
+                    groupDescription="Có thể chọn nhiều trường. Thứ tự bấm sẽ là thứ tự ghép nhóm hiển thị trong bảng."
+                    triggerClassName="min-h-[34px] rounded-lg px-3 py-1.5 text-[12px] shadow-sm"
+                    panelAlign="left"
+                    className="relative"
+                  />
+                </div>
               </div>
 
               <div className="flex items-center gap-1.5 lg:ml-auto">

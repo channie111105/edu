@@ -1,18 +1,46 @@
 ﻿import React, { useState, useEffect, useRef } from 'react';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 import { DealStage, IDeal, ILead, LeadStatus, IContact, Activity, ActivityType } from '../types';
-import { getDeals, saveDeals, getContacts, addContact, updateDeal, saveContact, getLeadById, getLeads, saveLead } from '../utils/storage';
+import { getDeals, saveDeals, getContacts, addContact, updateDeal, saveContact, getLeadById, getLeads, saveLead, getSalesTeams } from '../utils/storage';
 import { useAuth } from '../contexts/AuthContext';
 import { useLocation, useNavigate, Link } from 'react-router-dom';
 import UnifiedLeadDrawer from '../components/UnifiedLeadDrawer';
 import DealPivotTable from '../components/DealPivotTable';
 import SmartSearchBar, { SearchFilter } from '../components/SmartSearchBar';
-import { isClosedLeadStatusKey } from '../utils/leadStatus';
+import { AdvancedFilterDropdown, ToolbarTimeFilter } from '../components/filters';
+import { isClosedLeadStatusKey, LEAD_STATUS_OPTIONS } from '../utils/leadStatus';
+import {
+  ToolbarFilterChip,
+  ToolbarValueOption,
+  appendUniqueSearchFilter,
+  buildMultiFieldFilterKey,
+  doesDateMatchTimeRange,
+  getTimeRangeSummaryLabel,
+  parseMultiFieldFilterKeys,
+} from '../utils/filterToolbar';
+import {
+  LEAD_CAMPUS_OPTIONS,
+  LEAD_POTENTIAL_OPTIONS,
+  LEAD_PRODUCT_OPTIONS,
+  LEAD_SOURCE_OPTIONS,
+  LEAD_TARGET_COUNTRY_OPTIONS,
+} from '../utils/leadCreateForm';
+import {
+  DEFAULT_LEAD_ACTION_FILTER_FIELD,
+  LEAD_TOOLBAR_TIME_FIELD_OPTIONS,
+  LEAD_TOOLBAR_TIME_PRESETS,
+  getLeadToolbarFieldValue,
+  getLeadToolbarFieldValues,
+  getLeadToolbarTimeFieldLabel,
+  getLeadToolbarTimeValue,
+  type LeadActionFilterField,
+  type LeadActionFilterSelection,
+} from '../utils/leadToolbarConfig';
+import { decodeMojibakeText } from '../utils/mojibake';
 import {
   Phone, Mail, MessageCircle, Calendar, DollarSign, User,
   FileText, CheckCircle, XCircle, AlertCircle, Clock, Plus,
   TrendingUp, Package, Sparkles, LayoutGrid, Kanban, List as ListIcon, Columns, Check,
-  Filter, ChevronDown, Users
 } from 'lucide-react';
 
 // Pipeline stages with specific activities
@@ -69,28 +97,66 @@ const NEXT_ACTIVITY_TYPES: { id: ActivityType; label: string }[] = [
   { id: 'email', label: 'Email' }
 ];
 
-const PIPELINE_ACTIVITY_OPTIONS: Array<{ id: 'all' | ActivityType; label: string }> = [
-  { id: 'all', label: 'Hoạt động' },
-  ...NEXT_ACTIVITY_TYPES
-];
+const PIPELINE_MULTI_FILTER_PREFIX = '__pipeline_multi__:';
 
-const PIPELINE_TIME_PRESETS = [
-  { id: 'all', label: 'Tất cả thời gian' },
-  { id: 'today', label: 'Hôm nay' },
-  { id: 'yesterday', label: 'Hôm qua' },
-  { id: 'thisWeek', label: 'Tuần này' },
-  { id: 'last7Days', label: '7 ngày qua' },
-  { id: 'last30Days', label: '30 ngày qua' },
-  { id: 'thisMonth', label: 'Tháng này' },
-  { id: 'lastMonth', label: 'Tháng trước' },
-  { id: 'custom', label: 'Tùy chỉnh khoảng...' }
-] as const;
+type PipelineAdvancedFieldKey =
+  | 'status'
+  | 'salesperson'
+  | 'source'
+  | 'campaign'
+  | 'product'
+  | 'market'
+  | 'potential'
+  | 'company';
+
+const PIPELINE_ADVANCED_FIELD_OPTIONS: ReadonlyArray<{ id: PipelineAdvancedFieldKey; label: string }> = [
+  { id: 'status', label: 'Trạng thái lead' },
+  { id: 'salesperson', label: 'Nhân viên phụ trách' },
+  { id: 'source', label: 'Nguồn lead' },
+  { id: 'campaign', label: 'Chiến dịch' },
+  { id: 'product', label: 'Sản phẩm quan tâm' },
+  { id: 'market', label: 'Thị trường' },
+  { id: 'potential', label: 'Mức độ tiềm năng' },
+  { id: 'company', label: 'Cơ sở' },
+];
+const PIPELINE_ADVANCED_FIELD_ID_SET = new Set<PipelineAdvancedFieldKey>(
+  PIPELINE_ADVANCED_FIELD_OPTIONS.map((option) => option.id)
+);
+
+const normalizeToolbarLabel = (value: unknown) => decodeMojibakeText(String(value || '')).trim();
+const normalizeToolbarToken = (value: unknown) =>
+  normalizeToolbarLabel(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/gi, '')
+    .toLowerCase();
+const LEAD_CAMPUS_OPTION_TOKEN_SET = new Set(
+  LEAD_CAMPUS_OPTIONS.map((option) => normalizeToolbarToken(option))
+);
+
+const mapLabelsToValueOptions = (labels: ReadonlyArray<string>): ToolbarValueOption[] =>
+  labels
+    .map((label) => normalizeToolbarLabel(label))
+    .filter(Boolean)
+    .map((label) => ({ value: label, label }));
+
+const mergeValueOptions = (...groups: Array<ReadonlyArray<ToolbarValueOption> | undefined>) => {
+  const optionMap = new Map<string, ToolbarValueOption>();
+
+  groups.forEach((group) => {
+    group?.forEach((option) => {
+      const label = normalizeToolbarLabel(option.label || option.value);
+      const key = normalizeToolbarToken(label);
+      if (!label || !key || optionMap.has(key)) return;
+      optionMap.set(key, { value: label, label });
+    });
+  });
+
+  return Array.from(optionMap.values()).sort((left, right) => left.label.localeCompare(right.label, 'vi'));
+};
 
 const normalizePhone = (value?: string) => String(value || '').replace(/\D/g, '');
 const normalizeText = (value: unknown) => String(value || '').trim().toLowerCase();
-const buildPipelineMultiFilterField = (fieldIds: string[]) => `multi:${fieldIds.join('|')}`;
-const parsePipelineMultiFilterFields = (field: string) =>
-  field.startsWith('multi:') ? field.replace('multi:', '').split('|').filter(Boolean) : [];
 
 const getActivityTimestamp = (activity: any) => {
   const raw = activity?.datetime || activity?.timestamp || activity?.date || activity?.createdAt || '';
@@ -136,12 +202,12 @@ const Pipeline: React.FC = () => {
   const [highlightDealId, setHighlightDealId] = useState<string | null>(null);
   const [contacts, setContacts] = useState<IContact[]>([]);
   const [searchFilters, setSearchFilters] = useState<SearchFilter[]>([]);
-  const [selectedAdvancedFilterFields, setSelectedAdvancedFilterFields] = useState<string[]>([]);
-  const [selectedAdvancedGroupFields, setSelectedAdvancedGroupFields] = useState<string[]>([]);
+  const [selectedAdvancedFilterFields, setSelectedAdvancedFilterFields] = useState<PipelineAdvancedFieldKey[]>([]);
+  const [selectedAdvancedFilterValue, setSelectedAdvancedFilterValue] = useState('');
+  const [selectedAdvancedGroupFields, setSelectedAdvancedGroupFields] = useState<PipelineAdvancedFieldKey[]>([]);
   const [showFilterDropdown, setShowFilterDropdown] = useState(false);
-  const [showActivityDropdown, setShowActivityDropdown] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
-  const [activityFilter, setActivityFilter] = useState<'all' | ActivityType>('all');
+  const [timeFilterField, setTimeFilterField] = useState<LeadActionFilterSelection>('action');
   const [timeRangeType, setTimeRangeType] = useState<string>('all');
   const [customRange, setCustomRange] = useState<{ start: string; end: string } | null>(null);
   const [showNextActivityModal, setShowNextActivityModal] = useState(false);
@@ -195,94 +261,40 @@ const Pipeline: React.FC = () => {
   const selectedAdvancedFilterOptions = React.useMemo(
     () =>
       selectedAdvancedFilterFields
-        .map((fieldId) => ALL_COLUMNS.find((column) => column.id === fieldId))
-        .filter((column): column is { id: string; label: string } => Boolean(column)),
-    [ALL_COLUMNS, selectedAdvancedFilterFields]
+        .map((fieldId) => PIPELINE_ADVANCED_FIELD_OPTIONS.find((option) => option.id === fieldId))
+        .filter((option): option is { id: PipelineAdvancedFieldKey; label: string } => Boolean(option)),
+    [selectedAdvancedFilterFields]
   );
+  const activeAdvancedFilterField = selectedAdvancedFilterOptions[0] || null;
   const selectedAdvancedGroupOptions = React.useMemo(
     () =>
       selectedAdvancedGroupFields
-        .map((fieldId) => ALL_COLUMNS.find((column) => column.id === fieldId))
-        .filter((column): column is { id: string; label: string } => Boolean(column)),
-    [ALL_COLUMNS, selectedAdvancedGroupFields]
+        .map((fieldId) => PIPELINE_ADVANCED_FIELD_OPTIONS.find((option) => option.id === fieldId))
+        .filter((option): option is { id: PipelineAdvancedFieldKey; label: string } => Boolean(option)),
+    [selectedAdvancedGroupFields]
   );
-  const activityFilterLabel = PIPELINE_ACTIVITY_OPTIONS.find((option) => option.id === activityFilter)?.label || 'Hoạt động';
-  const timeRangeLabel = React.useMemo(() => {
-    if (timeRangeType === 'custom' && customRange?.start && customRange?.end) {
-      return `${customRange.start} - ${customRange.end}`;
-    }
-    return PIPELINE_TIME_PRESETS.find((option) => option.id === timeRangeType)?.label || 'Tất cả thời gian';
-  }, [customRange, timeRangeType]);
   const isListView = viewMode === 'list';
   const isKanbanView = viewMode === 'kanban';
   const supportsListFilters = isListView || isKanbanView;
+  const timePresets = LEAD_TOOLBAR_TIME_PRESETS;
+  const timeFieldOptions = LEAD_TOOLBAR_TIME_FIELD_OPTIONS;
+  const resolvedTimeFilterField =
+    timeFilterField === 'action' ? DEFAULT_LEAD_ACTION_FILTER_FIELD : timeFilterField;
 
-  const toggleAdvancedFieldSelection = (type: 'filter' | 'group', fieldId: string) => {
+  const toggleAdvancedFieldSelection = (type: 'filter' | 'group', fieldId: PipelineAdvancedFieldKey) => {
     if (type === 'filter') {
-      setSelectedAdvancedFilterFields((prev) =>
-        prev.includes(fieldId) ? prev.filter((item) => item !== fieldId) : [...prev, fieldId]
-      );
+      setSelectedAdvancedFilterValue('');
+      setSelectedAdvancedFilterFields((prev) => (prev.includes(fieldId) ? [] : [fieldId]));
       return;
+    }
+
+    if (viewMode !== 'list') {
+      setViewMode('list');
     }
 
     setSelectedAdvancedGroupFields((prev) =>
       prev.includes(fieldId) ? prev.filter((item) => item !== fieldId) : [...prev, fieldId]
     );
-  };
-
-  const getTimeRangeBounds = (rangeType: string) => {
-    if (rangeType === 'all') return null;
-
-    const now = new Date();
-    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const endOfToday = new Date(startOfToday);
-    endOfToday.setHours(23, 59, 59, 999);
-
-    switch (rangeType) {
-      case 'today':
-        return { start: startOfToday, end: endOfToday };
-      case 'yesterday': {
-        const start = new Date(startOfToday);
-        start.setDate(start.getDate() - 1);
-        const end = new Date(start);
-        end.setHours(23, 59, 59, 999);
-        return { start, end };
-      }
-      case 'thisWeek': {
-        const start = new Date(startOfToday);
-        const dayOfWeek = start.getDay() === 0 ? 7 : start.getDay();
-        start.setDate(start.getDate() - dayOfWeek + 1);
-        return { start, end: endOfToday };
-      }
-      case 'last7Days': {
-        const start = new Date(startOfToday);
-        start.setDate(start.getDate() - 6);
-        return { start, end: endOfToday };
-      }
-      case 'last30Days': {
-        const start = new Date(startOfToday);
-        start.setDate(start.getDate() - 29);
-        return { start, end: endOfToday };
-      }
-      case 'thisMonth': {
-        const start = new Date(now.getFullYear(), now.getMonth(), 1);
-        return { start, end: endOfToday };
-      }
-      case 'lastMonth': {
-        const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-        const end = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
-        return { start, end };
-      }
-      case 'custom': {
-        if (!customRange?.start || !customRange?.end) return null;
-        const start = new Date(customRange.start);
-        const end = new Date(customRange.end);
-        end.setHours(23, 59, 59, 999);
-        return { start, end };
-      }
-      default:
-        return null;
-    }
   };
 
   // Load deals and handle highlight
@@ -508,6 +520,14 @@ const Pipeline: React.FC = () => {
 
   const getActivityDateValue = (activity: any) => activity?.datetime || activity?.timestamp || activity?.date || '';
 
+  const getLatestPipelineInteractionDate = (activities: any[] = [], fallback = '') => {
+    const latestActivity = activities.find(
+      (activity) => activity && String(activity?.status || '').toLowerCase() !== 'scheduled' && getActivityTimestamp(activity) > 0
+    );
+
+    return latestActivity ? getActivityDateValue(latestActivity) : fallback;
+  };
+
   const getLeadCreatedDate = (deal: IDeal) => {
     return deal.leadCreatedAt || deal.createdAt || '';
   };
@@ -538,17 +558,37 @@ const Pipeline: React.FC = () => {
     return '';
   };
 
-  const OWNER_LABELS: Record<string, string> = {
-    u1: 'Tran Van Quan Tri',
-    u2: 'Sarah Miller',
-    u3: 'David Clark',
-    u4: 'Alex Rivera',
-    admin: 'Admin'
-  };
+  const pipelineSalesOptions = React.useMemo(() => {
+    const optionMap = new Map<string, { value: string; label: string }>();
+
+    getSalesTeams().forEach((team) => {
+      team.members.forEach((member) => {
+        if (!member.userId) return;
+        optionMap.set(member.userId, {
+          value: member.userId,
+          label: normalizeToolbarLabel(member.name || member.userId)
+        });
+      });
+    });
+
+    if (user?.id) {
+      optionMap.set(user.id, {
+        value: user.id,
+        label: normalizeToolbarLabel(user.name || user.id)
+      });
+    }
+
+    return Array.from(optionMap.values()).sort((left, right) => left.label.localeCompare(right.label, 'vi'));
+  }, [user?.id, user?.name]);
+
+  const ownerLabelMap = React.useMemo(() => {
+    const entries = pipelineSalesOptions.map((option) => [option.value, option.label] as const);
+    return Object.fromEntries(entries) as Record<string, string>;
+  }, [pipelineSalesOptions]);
 
   const getOwnerDisplayName = (ownerId?: string) => {
     if (!ownerId) return 'Chưa phân công';
-    return OWNER_LABELS[ownerId] || ownerId;
+    return ownerLabelMap[ownerId] || normalizeToolbarLabel(ownerId) || ownerId;
   };
 
   const parseTags = (raw: unknown): string[] => {
@@ -573,46 +613,161 @@ const Pipeline: React.FC = () => {
     return fromProductItem || fromProducts || fromTitle || fromContact || 'Chưa rõ nhu cầu';
   };
 
-  const getFilteredActivities = (deal: IDeal, contact?: IContact | null) => {
-    const allowedTypes = new Set<ActivityType>(NEXT_ACTIVITY_TYPES.map((item) => item.id));
-    return mergeActivities(deal.activities || [], contact?.activities || []).filter((activity) => {
-      const rawType = String(activity?.type || '').toLowerCase() as ActivityType;
-      if (!allowedTypes.has(rawType)) return false;
-      if (activityFilter === 'all') return true;
-      return rawType === activityFilter;
+  const getPipelineToolbarLead = (deal: IDeal, contact?: IContact) => {
+    const linkedLead = resolveLinkedLeadForPipeline(deal, contact);
+    const mergedActivities = mergeActivities(
+      Array.isArray(linkedLead?.activities) ? (linkedLead.activities as any[]) : [],
+      mergeActivities(deal.activities || [], (contact?.activities as any[]) || [])
+    );
+    const mergedMarketingData = {
+      ...(contact?.marketingData || {}),
+      ...(linkedLead?.marketingData || {})
+    };
+    const campus =
+      normalizeToolbarLabel(linkedLead?.company) ||
+      normalizeToolbarLabel(contact?.company) ||
+      normalizeToolbarLabel(mergedMarketingData.region) ||
+      normalizeToolbarLabel(mergedMarketingData.market);
+    const fallbackMarket = normalizeToolbarLabel(mergedMarketingData.market);
+    const targetMarket =
+      normalizeToolbarLabel(linkedLead?.targetCountry) ||
+      normalizeToolbarLabel(linkedLead?.studentInfo?.targetCountry) ||
+      normalizeToolbarLabel(contact?.targetCountry) ||
+      (
+        fallbackMarket && !LEAD_CAMPUS_OPTION_TOKEN_SET.has(normalizeToolbarToken(fallbackMarket))
+          ? fallbackMarket
+          : ''
+      );
+    const productInterest =
+      normalizeToolbarLabel(linkedLead?.product) ||
+      normalizeToolbarLabel(linkedLead?.program) ||
+      normalizeToolbarLabel(getDealDemand(deal, contact));
+    const createdAt = linkedLead?.createdAt || contact?.createdAt || getLeadCreatedDate(deal) || new Date().toISOString();
+    const assignedAt = linkedLead?.pickUpDate || getAssignedDate(deal, contact);
+    const lastInteraction =
+      linkedLead?.lastInteraction ||
+      getLatestPipelineInteractionDate(mergedActivities, linkedLead?.updatedAt || createdAt);
+    const fallbackProgram = productInterest || 'Tiếng Đức';
+
+    return {
+      ...(linkedLead || {}),
+      id: linkedLead?.id || contact?.leadId || contact?.id || deal.id,
+      name: linkedLead?.name || contact?.name || deal.title.split(' - ')[0] || deal.title,
+      phone: linkedLead?.phone || contact?.phone || '',
+      email: linkedLead?.email || contact?.email || '',
+      source: linkedLead?.source || contact?.source || mergedMarketingData.source || '',
+      campaign: linkedLead?.campaign || mergedMarketingData.campaign || '',
+      program: (linkedLead?.program || fallbackProgram) as ILead['program'],
+      status: linkedLead?.status || '',
+      ownerId: linkedLead?.ownerId || deal.ownerId || contact?.ownerId || '',
+      createdAt,
+      pickUpDate: assignedAt || undefined,
+      updatedAt: linkedLead?.updatedAt,
+      lastInteraction,
+      notes: linkedLead?.notes || contact?.notes || '',
+      activities: mergedActivities as any,
+      company: campus || undefined,
+      product: productInterest || undefined,
+      targetCountry: targetMarket || undefined,
+      studentInfo: {
+        ...(linkedLead?.studentInfo || {}),
+        targetCountry: targetMarket || linkedLead?.studentInfo?.targetCountry || undefined
+      },
+      marketingData: {
+        ...mergedMarketingData,
+        source: linkedLead?.source || contact?.source || mergedMarketingData.source || '',
+        campaign: linkedLead?.campaign || mergedMarketingData.campaign || '',
+        market: targetMarket || mergedMarketingData.market || '',
+        region: campus || mergedMarketingData.region || ''
+      },
+      internalNotes: {
+        ...(linkedLead?.internalNotes || {}),
+        potential: linkedLead?.internalNotes?.potential || (linkedLead as any)?.potential || undefined
+      }
+    } as ILead;
+  };
+
+  const getPipelineTimeFieldValue = (
+    deal: IDeal,
+    contact: IContact | undefined,
+    field: LeadActionFilterField
+  ) => {
+    const toolbarLead = getPipelineToolbarLead(deal, contact);
+
+    if (field === 'appointment') {
+      return getNextActivityDate(deal, contact) || getLeadToolbarTimeValue(toolbarLead, field);
+    }
+
+    return getLeadToolbarTimeValue(toolbarLead, field);
+  };
+
+  const getPipelineAdvancedFieldValues = (
+    deal: IDeal,
+    contact: IContact | undefined,
+    fieldId: PipelineAdvancedFieldKey
+  ) => {
+    const toolbarLead = getPipelineToolbarLead(deal, contact);
+    return getLeadToolbarFieldValues(toolbarLead, fieldId, {
+      getSalespersonLabel: (lead) => getOwnerDisplayName(lead.ownerId)
     });
   };
 
-  const getDealFieldValue = (deal: IDeal, contact: IContact | undefined, fieldId: string) => {
+  const getPipelineAdvancedSelectableOptions = (
+    fieldId: PipelineAdvancedFieldKey,
+    dynamicValues: ReadonlyArray<string>
+  ) => {
+    const baseOptions = (() => {
+      switch (fieldId) {
+        case 'status':
+          return mapLabelsToValueOptions(LEAD_STATUS_OPTIONS.map((option) => option.label));
+        case 'salesperson':
+          return pipelineSalesOptions.map((option) => ({ value: option.label, label: option.label }));
+        case 'source':
+          return mapLabelsToValueOptions(LEAD_SOURCE_OPTIONS.map((option) => option.label));
+        case 'campaign':
+          return [];
+        case 'product':
+          return mapLabelsToValueOptions(LEAD_PRODUCT_OPTIONS.map((option) => option.label));
+        case 'market':
+          return mapLabelsToValueOptions([...LEAD_TARGET_COUNTRY_OPTIONS]);
+        case 'potential':
+          return mapLabelsToValueOptions(LEAD_POTENTIAL_OPTIONS.map((option) => option.label));
+        case 'company':
+          return mapLabelsToValueOptions([...LEAD_CAMPUS_OPTIONS]);
+        default:
+          return [];
+      }
+    })();
+
+    return mergeValueOptions(baseOptions, mapLabelsToValueOptions(dynamicValues));
+  };
+
+  const getDealFieldValues = (deal: IDeal, contact: IContact | undefined, fieldId: string) => {
     const opportunityName = deal.title.split(' - ')[0] || deal.title;
     const programName = deal.title.split(' - ')[1] || '';
     const assignedDate = getAssignedDate(deal, contact);
     const tags = parseTags(contact?.marketingData?.tags);
     const nextActivityDate = getNextActivityDate(deal, contact);
 
+    if (PIPELINE_ADVANCED_FIELD_ID_SET.has(fieldId as PipelineAdvancedFieldKey)) {
+      return getPipelineAdvancedFieldValues(deal, contact, fieldId as PipelineAdvancedFieldKey);
+    }
+
     switch (fieldId) {
       case 'opportunity':
-        return [opportunityName, programName, getDealDemand(deal, contact)].filter(Boolean).join(' | ');
+        return [opportunityName, programName, getDealDemand(deal, contact)].filter(Boolean);
       case 'contact':
-        return [contact?.name, contact?.phone].filter(Boolean).join(' | ');
+        return [contact?.name, contact?.phone].filter(Boolean);
       case 'email':
-        return contact?.email || '';
+        return [contact?.email].filter(Boolean);
       case 'city':
-        return [contact?.city, contact?.address].filter(Boolean).join(' | ');
-      case 'company':
-        return contact?.company || '';
-      case 'source':
-        return contact?.source || '';
-      case 'salesperson':
-        return getOwnerDisplayName(deal.ownerId);
+        return [contact?.city, contact?.address].filter(Boolean);
       case 'assignedDate':
-        return [assignedDate, formatDate(assignedDate)].filter(Boolean).join(' | ');
+        return [assignedDate, formatDate(assignedDate)].filter(Boolean);
       case 'tags':
-        return tags.join(' | ');
-      case 'status':
-        return getStageLabel(deal.stage);
+        return [...tags, tags.join(' | ')].filter(Boolean);
       case 'nextActivity':
-        return [nextActivityDate, formatDate(nextActivityDate)].filter(Boolean).join(' | ');
+        return [nextActivityDate, formatDate(nextActivityDate)].filter(Boolean);
       default:
         return [
           opportunityName,
@@ -624,76 +779,100 @@ const Pipeline: React.FC = () => {
           contact?.company,
           contact?.source,
           getOwnerDisplayName(deal.ownerId),
-          tags.join(' | '),
+          ...tags,
           getStageLabel(deal.stage)
-        ].filter(Boolean).join(' | ');
+        ].filter(Boolean);
     }
   };
 
-  const doesDealMatchFilter = (deal: IDeal, contact: IContact | undefined, field: string, value: string) => {
+  const getDealFieldValue = (deal: IDeal, contact: IContact | undefined, fieldId: string) => {
+    const values = getDealFieldValues(deal, contact, fieldId);
+    if (fieldId === 'tags') {
+      return parseTags(contact?.marketingData?.tags).join(' | ');
+    }
+    return values.join(' | ');
+  };
+
+  const getDealSelectableFieldValues = (deal: IDeal, contact: IContact | undefined, fieldId: string) => {
+    const assignedDate = getAssignedDate(deal, contact);
+
+    switch (fieldId) {
+      case 'opportunity':
+        return [deal.title.split(' - ')[0] || deal.title].filter(Boolean);
+      case 'assignedDate': {
+        const formattedDate = formatDate(assignedDate);
+        return formattedDate && formattedDate !== '-' ? [formattedDate] : [];
+      }
+      case 'tags':
+        return parseTags(contact?.marketingData?.tags);
+      default:
+        return getDealFieldValues(deal, contact, fieldId);
+    }
+  };
+
+  const doesDealMatchFilter = (
+    deal: IDeal,
+    contact: IContact | undefined,
+    field: string,
+    value: string,
+    matchMode: SearchFilter['matchMode'] = 'includes'
+  ) => {
     const normalizedValue = normalizeText(value);
     if (!normalizedValue) return true;
 
-    const groupedFields = parsePipelineMultiFilterFields(field);
+    const matchesFieldValues = (fieldId: string, mode: SearchFilter['matchMode'] = matchMode) =>
+      getDealFieldValues(deal, contact, fieldId).some((item) => {
+        const normalizedItem = normalizeText(item);
+        if (!normalizedItem) return false;
+        return mode === 'equals'
+          ? normalizedItem === normalizedValue
+          : normalizedItem.includes(normalizedValue);
+      });
+
+    const groupedFields = parseMultiFieldFilterKeys(field, PIPELINE_MULTI_FILTER_PREFIX);
     if (groupedFields.length > 0) {
-      return groupedFields.some((fieldId) => normalizeText(getDealFieldValue(deal, contact, fieldId)).includes(normalizedValue));
+      return groupedFields.some((fieldId) => matchesFieldValues(fieldId));
     }
 
     if (field === 'search') {
-      return normalizeText(getDealFieldValue(deal, contact, 'search')).includes(normalizedValue);
+      return matchesFieldValues('search', 'includes');
     }
 
-    return normalizeText(getDealFieldValue(deal, contact, field)).includes(normalizedValue);
+    return matchesFieldValues(field);
   };
 
   const getGroupValue = (deal: IDeal, contact: IContact | undefined, fieldId: string) => {
+    if (PIPELINE_ADVANCED_FIELD_ID_SET.has(fieldId as PipelineAdvancedFieldKey)) {
+      const toolbarLead = getPipelineToolbarLead(deal, contact);
+      return getLeadToolbarFieldValue(toolbarLead, fieldId as PipelineAdvancedFieldKey, {
+        getSalespersonLabel: (lead) => getOwnerDisplayName(lead.ownerId),
+        emptyLabel: 'Chưa có dữ liệu'
+      });
+    }
+
     const rawValue = getDealFieldValue(deal, contact, fieldId);
     const normalized = String(rawValue || '').trim();
     return normalized || 'Chưa có dữ liệu';
   };
 
-  const toolbarFilterChips = React.useMemo(() => {
-    const chips: Array<SearchFilter & {
-      origin: 'search' | 'synthetic';
-      originalIndex?: number;
-      syntheticKey?: string;
-    }> = searchFilters.map((filter, index) => ({
+  const toolbarFilterChips = React.useMemo<ToolbarFilterChip[]>(() => {
+    const chips: ToolbarFilterChip[] = searchFilters.map((filter, index) => ({
       ...filter,
       origin: 'search',
       originalIndex: index
     }));
 
-    if (activityFilter !== 'all') {
+    if (timeFilterField !== 'action' || timeRangeType !== 'all') {
       chips.push({
-        field: 'activity',
-        label: 'Activity',
-        value: activityFilterLabel,
+        field: 'time',
+        label: 'Hành động',
+        value: `${getLeadToolbarTimeFieldLabel(timeFilterField)} / ${getTimeRangeSummaryLabel(timePresets, timeRangeType, customRange)}`,
         origin: 'synthetic',
-        syntheticKey: 'activity'
+        syntheticKey: 'time'
       });
     }
 
-    if (timeRangeType !== 'all') {
-      chips.push({
-        field: 'time_range',
-        label: 'Arrange time',
-        value: timeRangeLabel,
-        origin: 'synthetic',
-        syntheticKey: 'timeRange'
-      });
-    }
-
-    if (selectedAdvancedFilterOptions.length > 0) {
-      chips.push({
-        field: 'advanced_filter_fields',
-        label: 'Filter',
-        value: selectedAdvancedFilterOptions.map((item) => item.label).join(' OR '),
-        origin: 'synthetic',
-        syntheticKey: 'filterFields'
-      });
-    }
-
-    if (isListView && selectedAdvancedGroupOptions.length > 0) {
+    if (selectedAdvancedGroupOptions.length > 0) {
       chips.push({
         field: 'advanced_group_fields',
         label: 'Group by',
@@ -705,13 +884,11 @@ const Pipeline: React.FC = () => {
 
     return chips;
   }, [
-    activityFilter,
-    activityFilterLabel,
+    customRange,
     searchFilters,
-    isListView,
-    selectedAdvancedFilterOptions,
     selectedAdvancedGroupOptions,
-    timeRangeLabel,
+    timeFilterField,
+    timePresets,
     timeRangeType
   ]);
 
@@ -720,11 +897,12 @@ const Pipeline: React.FC = () => {
     [searchFilters]
   );
 
-  const searchOnlyToolbarChips = React.useMemo(
+  const searchOnlyToolbarChips = React.useMemo<ToolbarFilterChip[]>(
     () =>
       searchFilters
         .map((filter, index) => ({
           ...filter,
+          origin: 'search' as const,
           originalIndex: index
         }))
         .filter((filter) => filter.field === 'search'),
@@ -732,13 +910,66 @@ const Pipeline: React.FC = () => {
   );
 
   const headerSearchFilters = supportsListFilters ? toolbarFilterChips : searchOnlyToolbarChips;
-  const headerActiveField = supportsListFilters && selectedAdvancedFilterOptions.length === 1
+  const headerActiveField = supportsListFilters && activeAdvancedFilterField
     ? {
-      field: selectedAdvancedFilterOptions[0].id,
-      label: selectedAdvancedFilterOptions[0].label,
+      field: activeAdvancedFilterField.id,
+      label: activeAdvancedFilterField.label,
       color: 'bg-emerald-100 text-emerald-700'
     }
     : null;
+
+  const addToolbarFilter = (
+    field: string,
+    label: string,
+    value: string,
+    color?: string,
+    matchMode: SearchFilter['matchMode'] = 'includes'
+  ) => {
+    setSearchFilters((prev) => appendUniqueSearchFilter(prev, {
+      field,
+      label,
+      value,
+      color,
+      matchMode
+    }, normalizeText));
+  };
+
+  const applySelectedAdvancedFilter = (
+    rawValue: string,
+    options?: { matchMode?: SearchFilter['matchMode']; closeDropdown?: boolean }
+  ) => {
+    const normalizedValue = String(rawValue || '').trim();
+    const matchMode = options?.matchMode || 'includes';
+    const closeDropdown = options?.closeDropdown ?? true;
+
+    if (!normalizedValue || selectedAdvancedFilterOptions.length === 0) return false;
+
+    if (selectedAdvancedFilterOptions.length > 1) {
+      addToolbarFilter(
+        buildMultiFieldFilterKey(PIPELINE_MULTI_FILTER_PREFIX, selectedAdvancedFilterOptions.map((option) => option.id)),
+        selectedAdvancedFilterOptions.map((option) => option.label).join(' OR '),
+        normalizedValue,
+        'bg-emerald-100 text-emerald-700',
+        matchMode
+      );
+    } else {
+      addToolbarFilter(
+        selectedAdvancedFilterOptions[0].id,
+        selectedAdvancedFilterOptions[0].label,
+        normalizedValue,
+        'bg-emerald-100 text-emerald-700',
+        matchMode
+      );
+    }
+
+    if (closeDropdown) {
+      setSelectedAdvancedFilterFields([]);
+      setSelectedAdvancedFilterValue('');
+      setShowFilterDropdown(false);
+    }
+
+    return true;
+  };
 
   const handleToolbarFilterRemove = (index: number) => {
     const chip = toolbarFilterChips[index];
@@ -749,20 +980,11 @@ const Pipeline: React.FC = () => {
       return;
     }
 
-    if (chip.syntheticKey === 'activity') {
-      setActivityFilter('all');
-      return;
-    }
-
-    if (chip.syntheticKey === 'timeRange') {
+    if (chip.syntheticKey === 'time') {
+      setTimeFilterField('action');
       setTimeRangeType('all');
       setCustomRange(null);
       setShowTimePicker(false);
-      return;
-    }
-
-    if (chip.syntheticKey === 'filterFields') {
-      setSelectedAdvancedFilterFields([]);
       return;
     }
 
@@ -774,46 +996,44 @@ const Pipeline: React.FC = () => {
   const handleClearToolbarFilters = () => {
     setSearchFilters([]);
     setSelectedAdvancedFilterFields([]);
+    setSelectedAdvancedFilterValue('');
     setSelectedAdvancedGroupFields([]);
-    setActivityFilter('all');
+    setTimeFilterField('action');
     setTimeRangeType('all');
     setCustomRange(null);
     setShowTimePicker(false);
+    setShowFilterDropdown(false);
   };
 
   const handleHeaderSearchAddFilter = (filter: SearchFilter) => {
     if (!supportsListFilters) {
-      setSearchFilters((prev) => [...prev, filter]);
+      addToolbarFilter(filter.field, filter.label, filter.value, filter.color, filter.matchMode);
       return;
     }
 
     if (selectedAdvancedFilterOptions.length > 1) {
-      setSearchFilters((prev) => ([
-        ...prev,
-        {
-          field: buildPipelineMultiFilterField(selectedAdvancedFilterOptions.map((option) => option.id)),
-          label: 'Logic lọc',
-          value: filter.value,
-          color: 'bg-emerald-100 text-emerald-700'
-        }
-      ]));
+      addToolbarFilter(
+        buildMultiFieldFilterKey(PIPELINE_MULTI_FILTER_PREFIX, selectedAdvancedFilterOptions.map((option) => option.id)),
+        'Logic lọc',
+        filter.value,
+        'bg-emerald-100 text-emerald-700',
+        filter.matchMode
+      );
       return;
     }
 
     if (selectedAdvancedFilterOptions.length === 1) {
-      setSearchFilters((prev) => ([
-        ...prev,
-        {
-          field: selectedAdvancedFilterOptions[0].id,
-          label: selectedAdvancedFilterOptions[0].label,
-          value: filter.value,
-          color: 'bg-emerald-100 text-emerald-700'
-        }
-      ]));
+      addToolbarFilter(
+        selectedAdvancedFilterOptions[0].id,
+        selectedAdvancedFilterOptions[0].label,
+        filter.value,
+        'bg-emerald-100 text-emerald-700',
+        filter.matchMode
+      );
       return;
     }
 
-    setSearchFilters((prev) => [...prev, filter]);
+    addToolbarFilter(filter.field, filter.label, filter.value, filter.color, filter.matchMode);
   };
 
   const handleHeaderSearchRemoveFilter = (index: number) => {
@@ -927,42 +1147,42 @@ const Pipeline: React.FC = () => {
 
     return pipelineDeals.filter((deal) => {
       const contact = getDealContactRecord(deal);
-      return searchOnlyFilters.every((filter) => doesDealMatchFilter(deal, contact, filter.field, filter.value));
+      return searchOnlyFilters.every((filter) =>
+        doesDealMatchFilter(deal, contact, filter.field, filter.value, filter.matchMode)
+      );
     });
   }, [contacts, pipelineDeals, searchOnlyFilters]);
 
   const filteredDeals = React.useMemo(() => {
-    const activityBounds = getTimeRangeBounds(timeRangeType);
-
     return pipelineDeals.filter((deal) => {
       const contact = getDealContactRecord(deal);
-      const relevantActivities = getFilteredActivities(deal, contact);
 
-      if (activityFilter !== 'all' && relevantActivities.length === 0) {
-        return false;
-      }
-
-      if (activityBounds) {
-        const matchesActivityTime = relevantActivities.some((activity) => {
-          const rawDate = getActivityDateValue(activity);
-          if (!rawDate) return false;
-          const activityDate = new Date(rawDate);
-          if (Number.isNaN(activityDate.getTime())) return false;
-          return activityDate >= activityBounds.start && activityDate <= activityBounds.end;
-        });
-
-        if (!matchesActivityTime) {
+      if (timeRangeType !== 'all') {
+        if (!doesDateMatchTimeRange(getPipelineTimeFieldValue(deal, contact, resolvedTimeFilterField), timeRangeType, customRange)) {
           return false;
         }
       }
 
       if (searchFilters.length > 0) {
-        return searchFilters.every((filter) => doesDealMatchFilter(deal, contact, filter.field, filter.value));
+        return searchFilters.every((filter) =>
+          doesDealMatchFilter(deal, contact, filter.field, filter.value, filter.matchMode)
+        );
       }
 
       return true;
     });
-  }, [activityFilter, contacts, pipelineDeals, searchFilters, timeRangeType, customRange]);
+  }, [contacts, customRange, pipelineDeals, resolvedTimeFilterField, searchFilters, timeRangeType]);
+
+  const advancedFilterSelectableValues = React.useMemo<ReadonlyArray<ToolbarValueOption>>(() => {
+    if (!activeAdvancedFilterField) return [];
+
+    const dynamicValues = filteredDeals.flatMap((deal) => {
+      const contact = getDealContactRecord(deal);
+      return getDealSelectableFieldValues(deal, contact, activeAdvancedFilterField.id);
+    });
+
+    return getPipelineAdvancedSelectableOptions(activeAdvancedFilterField.id, dynamicValues);
+  }, [activeAdvancedFilterField, filteredDeals, pipelineSalesOptions]);
 
   const buildGroupedDealBuckets = (dealList: IDeal[]) => {
     if (selectedAdvancedGroupFields.length === 0) return [];
@@ -999,6 +1219,60 @@ const Pipeline: React.FC = () => {
   // Group deals by stage bucket
   const getDealsByStage = (stage: DealStage) => {
     return filteredDeals.filter(deal => getPipelineBucket(deal.stage) === stage);
+  };
+
+  const advancedDropdownFilterOptions = PIPELINE_ADVANCED_FIELD_OPTIONS;
+  const advancedDropdownGroupOptions = PIPELINE_ADVANCED_FIELD_OPTIONS;
+  const hasTimeToolbarFilter = timeFilterField !== 'action' || timeRangeType !== 'all';
+  const advancedToolbarActiveCount =
+    searchFilters.length +
+    selectedAdvancedGroupFields.length +
+    (hasTimeToolbarFilter ? 1 : 0);
+  const hasAdvancedToolbarFilters =
+    searchFilters.length > 0 ||
+    selectedAdvancedGroupFields.length > 0 ||
+    hasTimeToolbarFilter;
+
+  const handleTimeFilterFieldChange = (nextFieldId: string) => {
+    setShowFilterDropdown(false);
+    setShowColumnsDropdown(false);
+    setShowTimePicker(false);
+    setTimeFilterField(nextFieldId as LeadActionFilterSelection);
+  };
+
+  const handleTimeFilterOpenChange = (nextOpen: boolean) => {
+    setShowFilterDropdown(false);
+    setShowColumnsDropdown(false);
+    setShowTimePicker(nextOpen);
+  };
+
+  const handleTimePresetSelect = (presetId: string) => {
+    setTimeRangeType(presetId);
+    if (presetId !== 'custom') {
+      setShowTimePicker(false);
+    }
+  };
+
+  const handleApplyCustomTimeRange = () => {
+    if (customRange?.start && customRange?.end) {
+      setTimeRangeType('custom');
+      setShowTimePicker(false);
+      return;
+    }
+
+    alert('Vui lòng chọn khoảng ngày');
+  };
+
+  const handleAdvancedFilterOpenChange = (nextOpen: boolean) => {
+    setShowTimePicker(false);
+    setShowColumnsDropdown(false);
+    setShowFilterDropdown(nextOpen);
+  };
+
+  const handleAdvancedFilterValueChange = (nextValue: string) => {
+    setSelectedAdvancedFilterValue(nextValue);
+    if (!nextValue) return;
+    applySelectedAdvancedFilter(nextValue, { matchMode: 'equals' });
   };
 
   function getDefaultActivityDate(typeId: ActivityType) {
@@ -1442,7 +1716,7 @@ const Pipeline: React.FC = () => {
             </p>
           </div>
 
-          <div className="flex w-full flex-col gap-3 xl:w-[780px] xl:max-w-[780px] xl:items-end">
+          <div className="flex w-full flex-col gap-3 xl:w-[780px] xl:max-w-[780px]">
             <div className="w-full">
               <SmartSearchBar
                 filters={headerSearchFilters}
@@ -1456,293 +1730,100 @@ const Pipeline: React.FC = () => {
               />
             </div>
 
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              {supportsListFilters && (
-                <>
-              <div className="relative">
-                <button
-                  onClick={() => {
-                    setShowActivityDropdown((prev) => !prev);
-                    setShowTimePicker(false);
-                    setShowFilterDropdown(false);
-                    setShowColumnsDropdown(false);
-                  }}
-                  className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold transition-all ${showActivityDropdown ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}
-                >
-                  <span>{activityFilterLabel}</span>
-                  <ChevronDown size={14} className="text-slate-400" />
-                </button>
+            <div className={`flex w-full flex-col gap-2 sm:flex-row sm:items-start ${supportsListFilters ? 'sm:justify-between' : 'sm:justify-end'}`}>
+              {supportsListFilters ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <ToolbarTimeFilter
+                    isOpen={showTimePicker}
+                    fieldOptions={timeFieldOptions}
+                    selectedField={timeFilterField}
+                    selectedRangeType={timeRangeType}
+                    customRange={customRange}
+                    presets={timePresets}
+                    onOpenChange={handleTimeFilterOpenChange}
+                    onFieldChange={handleTimeFilterFieldChange}
+                    onPresetSelect={handleTimePresetSelect}
+                    onCustomRangeChange={setCustomRange}
+                    onReset={() => {
+                      setTimeFilterField('action');
+                      setTimeRangeType('all');
+                      setCustomRange(null);
+                      setShowTimePicker(false);
+                    }}
+                    onCancel={() => setShowTimePicker(false)}
+                    onApplyCustomRange={handleApplyCustomTimeRange}
+                  />
 
-                {showActivityDropdown && (
-                  <>
-                    <div className="fixed inset-0 z-40" onClick={() => setShowActivityDropdown(false)}></div>
-                    <div className="absolute right-0 top-full z-50 mt-2 w-44 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
-                      {PIPELINE_ACTIVITY_OPTIONS.map((option) => (
-                        <button
-                          key={option.id}
-                          onClick={() => {
-                            setActivityFilter(option.id);
-                            setShowActivityDropdown(false);
-                          }}
-                          className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs font-semibold transition-colors ${activityFilter === option.id ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50'}`}
-                        >
-                          <span>{option.label}</span>
-                          {activityFilter === option.id && <Check size={14} className="text-blue-600" />}
-                        </button>
-                      ))}
-                    </div>
-                  </>
-                )}
-              </div>
+                  <AdvancedFilterDropdown
+                    isOpen={showFilterDropdown}
+                    activeCount={advancedToolbarActiveCount}
+                    hasActiveFilters={hasAdvancedToolbarFilters}
+                    filterOptions={advancedDropdownFilterOptions}
+                    groupOptions={advancedDropdownGroupOptions}
+                    selectedFilterFieldIds={selectedAdvancedFilterFields}
+                    selectedGroupFieldIds={selectedAdvancedGroupFields}
+                    activeFilterField={activeAdvancedFilterField}
+                    selectableValues={advancedFilterSelectableValues}
+                    selectedFilterValue={selectedAdvancedFilterValue}
+                    onOpenChange={handleAdvancedFilterOpenChange}
+                    onToggleFilterField={(fieldId) => toggleAdvancedFieldSelection('filter', fieldId as PipelineAdvancedFieldKey)}
+                    onToggleGroupField={(fieldId) => toggleAdvancedFieldSelection('group', fieldId as PipelineAdvancedFieldKey)}
+                    onFilterValueChange={handleAdvancedFilterValueChange}
+                    onClearAll={handleClearToolbarFilters}
+                    filterDescription="Chọn 1 trường lead trong pipeline rồi chọn giá trị tương ứng ở dropdown bên dưới để lọc đúng theo dữ liệu của form thêm lead."
+                    groupDescription="Có thể chọn nhiều trường lead. Khi chọn group by, pipeline sẽ chuyển sang dạng danh sách để hiển thị nhóm."
+                  />
+                </div>
+              ) : null}
 
-              <div className="relative">
-                <button
-                  onClick={() => {
-                    setShowTimePicker((prev) => !prev);
-                    setShowActivityDropdown(false);
-                    setShowFilterDropdown(false);
-                    setShowColumnsDropdown(false);
-                  }}
-                  className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold transition-all ${showTimePicker ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}
-                >
-                  <Calendar size={14} className="text-slate-400" />
-                  <span>{timeRangeLabel}</span>
-                  <ChevronDown size={14} className="text-slate-400" />
-                </button>
+              <div className="flex items-center justify-end gap-2">
+                {isListView && (
+                  <div className="relative">
+                    <button
+                      onClick={() => {
+                        setShowColumnsDropdown(!showColumnsDropdown);
+                        setShowTimePicker(false);
+                        setShowFilterDropdown(false);
+                      }}
+                      className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-2 text-slate-600 shadow-sm transition-all hover:border-blue-200 hover:text-blue-600"
+                      title="Cài đặt cột"
+                    >
+                      <Columns size={18} />
+                      <span className="text-xs font-bold font-inter">Cột</span>
+                    </button>
 
-                {showTimePicker && (
-                  <>
-                    <div className="fixed inset-0 z-40" onClick={() => setShowTimePicker(false)}></div>
-                    <div className="absolute right-0 top-full z-50 mt-2 flex w-[680px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
-                      <div className="w-[180px] border-r border-slate-100 bg-slate-50/80 p-3">
-                        <div className="space-y-1">
-                          {PIPELINE_TIME_PRESETS.map((preset) => (
+                    {showColumnsDropdown && (
+                      <>
+                        <div className="fixed inset-0 z-40" onClick={() => setShowColumnsDropdown(false)}></div>
+                        <div className="absolute right-0 top-full mt-2 w-48 rounded-xl border border-slate-200 bg-white p-2 shadow-xl z-50 animate-in zoom-in-95">
+                          <div className="mb-1 border-b border-slate-100 px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">Hiển thị cột</div>
+                          {ALL_COLUMNS.map(col => (
                             <button
-                              key={preset.id}
+                              key={col.id}
                               onClick={() => {
-                                if (preset.id === 'custom') {
-                                  setTimeRangeType('custom');
-                                  return;
+                                if (visibleColumns.includes(col.id)) {
+                                  if (visibleColumns.length > 1) setVisibleColumns(visibleColumns.filter(id => id !== col.id));
+                                } else {
+                                  const nextCols = ALL_COLUMNS.filter(c => c.id === col.id || visibleColumns.includes(c.id)).map(c => c.id);
+                                  setVisibleColumns(nextCols);
                                 }
-                                setTimeRangeType(preset.id);
-                                setCustomRange(null);
-                                setShowTimePicker(false);
                               }}
-                              className={`w-full rounded-xl px-3 py-2 text-left text-sm font-semibold transition-colors ${timeRangeType === preset.id ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:bg-white hover:text-slate-900'}`}
+                              className="group flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs transition-colors hover:bg-slate-50"
                             >
-                              {preset.label}
+                              <span className={`${visibleColumns.includes(col.id) ? 'font-semibold text-slate-900' : 'text-slate-500'}`}>{col.label}</span>
+                              {visibleColumns.includes(col.id) && <Check size={14} className="text-blue-600" />}
                             </button>
                           ))}
                         </div>
-                      </div>
-
-                      <div className="flex flex-1 flex-col p-5">
-                        <div className="mb-4 text-xs font-black uppercase tracking-widest text-slate-400">Khoảng thời gian tùy chỉnh</div>
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <label className="mb-1 block text-[10px] font-bold text-slate-400">Từ ngày</label>
-                            <input
-                              type="date"
-                              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold outline-none focus:border-blue-500"
-                              value={customRange?.start || ''}
-                              onChange={(event) => setCustomRange((prev) => ({ start: event.target.value, end: prev?.end || event.target.value }))}
-                            />
-                          </div>
-                          <div>
-                            <label className="mb-1 block text-[10px] font-bold text-slate-400">Đến ngày</label>
-                            <input
-                              type="date"
-                              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold outline-none focus:border-blue-500"
-                              value={customRange?.end || ''}
-                              onChange={(event) => setCustomRange((prev) => ({ start: prev?.start || event.target.value, end: event.target.value }))}
-                            />
-                          </div>
-                        </div>
-
-                        <div className="mt-auto flex items-center justify-between pt-6">
-                          <button
-                            onClick={() => {
-                              setTimeRangeType('all');
-                              setCustomRange(null);
-                              setShowTimePicker(false);
-                            }}
-                            className="text-xs font-bold text-slate-400 hover:text-slate-600"
-                          >
-                            Làm lại
-                          </button>
-                          <div className="flex items-center gap-2">
-                            <button
-                              onClick={() => setShowTimePicker(false)}
-                              className="rounded-lg px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100"
-                            >
-                              Hủy
-                            </button>
-                            <button
-                              onClick={() => {
-                                if (customRange?.start && customRange?.end) {
-                                  setTimeRangeType('custom');
-                                  setShowTimePicker(false);
-                                  return;
-                                }
-                                alert('Vui lòng chọn khoảng ngày');
-                              }}
-                              className="rounded-lg bg-blue-600 px-6 py-2 text-xs font-bold text-white shadow-sm hover:bg-blue-700"
-                            >
-                              Áp dụng
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </>
+                      </>
+                    )}
+                  </div>
                 )}
-              </div>
 
-              <div className="relative">
-                <button
-                  onClick={() => {
-                    setShowFilterDropdown((prev) => !prev);
-                    setShowActivityDropdown(false);
-                    setShowTimePicker(false);
-                    setShowColumnsDropdown(false);
-                  }}
-                  className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold transition-all ${showFilterDropdown ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}
-                >
-                  <Filter size={14} />
-                  <span>Lọc nâng cao</span>
-                  {(selectedAdvancedFilterFields.length + (isListView ? selectedAdvancedGroupFields.length : 0)) > 0 ? (
-                    <span className="inline-flex min-w-[18px] items-center justify-center rounded-full bg-blue-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
-                      {selectedAdvancedFilterFields.length + (isListView ? selectedAdvancedGroupFields.length : 0)}
-                    </span>
-                  ) : null}
-                </button>
-
-                {showFilterDropdown && (
-                  <>
-                    <div className="fixed inset-0 z-40" onClick={() => setShowFilterDropdown(false)}></div>
-                    <div className={`absolute right-0 top-full z-50 mt-2 max-w-[calc(100vw-2rem)] rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl ${isListView ? 'w-[720px]' : 'w-[360px]'}`}>
-                      <div className={`grid gap-4 text-sm ${isListView ? 'grid-cols-2' : 'grid-cols-1'}`}>
-                        <div className={isListView ? 'border-r border-slate-100 pr-3' : ''}>
-                          <div className="mb-3 flex items-center gap-2 font-bold text-slate-800">
-                            <Filter size={14} /> Filter
-                          </div>
-                          <p className="mb-3 text-xs text-slate-500">
-                            Chọn trường pipeline để nhập giá trị ở ô tìm kiếm và tạo bộ lọc.
-                          </p>
-                          <div className="max-h-[360px] space-y-1 overflow-y-auto">
-                            {ALL_COLUMNS.map((column) => (
-                              <button
-                                key={`filter-${column.id}`}
-                                onClick={() => toggleAdvancedFieldSelection('filter', column.id)}
-                                className={`w-full rounded-lg border px-3 py-2 text-left text-sm transition-colors ${selectedAdvancedFilterFields.includes(column.id) ? 'border-emerald-200 bg-emerald-50 font-semibold text-emerald-700' : 'border-transparent text-slate-700 hover:bg-slate-50'}`}
-                              >
-                                {column.label}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-
-                        {isListView ? (
-                          <div className="pl-1">
-                            <div className="mb-3 flex items-center gap-2 font-bold text-slate-800">
-                              <Users size={14} /> Group by
-                            </div>
-                            <p className="mb-3 text-xs text-slate-500">
-                              Có thể chọn nhiều trường. Thứ tự bấm sẽ là thứ tự nhóm hiển thị ở dạng danh sách.
-                            </p>
-                            <div className="max-h-[360px] space-y-1 overflow-y-auto">
-                              <button
-                                onClick={() => setSelectedAdvancedGroupFields([])}
-                                className={`flex w-full items-center rounded-lg border px-3 py-2 text-left text-sm transition-colors ${selectedAdvancedGroupFields.length === 0 ? 'border-blue-200 bg-blue-50 font-semibold text-blue-700' : 'border-transparent text-slate-700 hover:bg-slate-50'}`}
-                              >
-                                <span className="flex-1">Không nhóm</span>
-                              </button>
-                              {ALL_COLUMNS.map((column) => (
-                                <button
-                                  key={`group-${column.id}`}
-                                  onClick={() => toggleAdvancedFieldSelection('group', column.id)}
-                                  className={`flex w-full items-center rounded-lg border px-3 py-2 text-left text-sm transition-colors ${selectedAdvancedGroupFields.includes(column.id) ? 'border-blue-200 bg-blue-50 font-semibold text-blue-700' : 'border-transparent text-slate-700 hover:bg-slate-50'}`}
-                                >
-                                  <span className="flex-1">{column.label}</span>
-                                  {selectedAdvancedGroupFields.includes(column.id) ? (
-                                    <span className="rounded-full border border-blue-100 bg-white px-2 py-0.5 text-[11px] font-bold text-blue-700">
-                                      {selectedAdvancedGroupFields.indexOf(column.id) + 1}
-                                    </span>
-                                  ) : null}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
-                            <div>Group by chỉ áp dụng ở dạng danh sách.</div>
-                            {selectedAdvancedGroupFields.length > 0 && (
-                              <button
-                                onClick={() => setSelectedAdvancedGroupFields([])}
-                                className="mt-2 font-semibold text-blue-600 hover:text-blue-700"
-                              >
-                                Xóa nhóm đang lưu
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
-
-              {isListView && (
-                <div className="relative">
-                  <button
-                    onClick={() => {
-                      setShowColumnsDropdown(!showColumnsDropdown);
-                      setShowActivityDropdown(false);
-                      setShowTimePicker(false);
-                      setShowFilterDropdown(false);
-                    }}
-                    className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-2 text-slate-600 shadow-sm transition-all hover:border-blue-200 hover:text-blue-600"
-                    title="Cài đặt cột"
-                  >
-                    <Columns size={18} />
-                    <span className="text-xs font-bold font-inter">Cột</span>
-                  </button>
-
-                  {showColumnsDropdown && (
-                    <>
-                      <div className="fixed inset-0 z-40" onClick={() => setShowColumnsDropdown(false)}></div>
-                      <div className="absolute right-0 top-full mt-2 w-48 rounded-xl border border-slate-200 bg-white p-2 shadow-xl z-50 animate-in zoom-in-95">
-                        <div className="mb-1 border-b border-slate-100 px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">Hiển thị cột</div>
-                        {ALL_COLUMNS.map(col => (
-                          <button
-                            key={col.id}
-                            onClick={() => {
-                              if (visibleColumns.includes(col.id)) {
-                                if (visibleColumns.length > 1) setVisibleColumns(visibleColumns.filter(id => id !== col.id));
-                              } else {
-                                const nextCols = ALL_COLUMNS.filter(c => c.id === col.id || visibleColumns.includes(c.id)).map(c => c.id);
-                                setVisibleColumns(nextCols);
-                              }
-                            }}
-                            className="group flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs transition-colors hover:bg-slate-50"
-                          >
-                            <span className={`${visibleColumns.includes(col.id) ? 'font-semibold text-slate-900' : 'text-slate-500'}`}>{col.label}</span>
-                            {visibleColumns.includes(col.id) && <Check size={14} className="text-blue-600" />}
-                          </button>
-                        ))}
-                      </div>
-                    </>
-                  )}
-                </div>
-              )}
-                </>
-              )}
-
-              <div className="flex rounded-lg border border-slate-200 bg-slate-100 p-1 transition-all">
+                <div className="flex rounded-lg border border-slate-200 bg-slate-100 p-1 transition-all">
                 <button
                   onClick={() => {
                     setViewMode('kanban');
-                    setShowActivityDropdown(false);
                     setShowTimePicker(false);
                     setShowFilterDropdown(false);
                     setShowColumnsDropdown(false);
@@ -1755,7 +1836,6 @@ const Pipeline: React.FC = () => {
                 <button
                   onClick={() => {
                     setViewMode('list');
-                    setShowActivityDropdown(false);
                     setShowTimePicker(false);
                     setShowFilterDropdown(false);
                     setShowColumnsDropdown(false);
@@ -1768,7 +1848,6 @@ const Pipeline: React.FC = () => {
                 <button
                   onClick={() => {
                     setViewMode('pivot');
-                    setShowActivityDropdown(false);
                     setShowTimePicker(false);
                     setShowFilterDropdown(false);
                     setShowColumnsDropdown(false);
@@ -1778,6 +1857,7 @@ const Pipeline: React.FC = () => {
                 >
                   <LayoutGrid size={18} />
                 </button>
+                </div>
               </div>
             </div>
           </div>
@@ -1996,8 +2076,8 @@ const Pipeline: React.FC = () => {
                     className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none bg-white"
                   >
                     <option value="">Chưa phân công</option>
-                    {Object.entries(OWNER_LABELS).map(([ownerId, label]) => (
-                      <option key={ownerId} value={ownerId}>{label}</option>
+                    {pipelineSalesOptions.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
                     ))}
                   </select>
                 </div>

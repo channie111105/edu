@@ -2,7 +2,10 @@ import React from 'react';
 import { ShieldCheck } from 'lucide-react';
 import {
   LEAD_CAMPUS_OPTIONS,
+  LEAD_POTENTIAL_OPTIONS,
+  LEAD_PRODUCT_OPTIONS,
   LEAD_RELATION_OPTIONS,
+  LEAD_SOURCE_OPTIONS,
   LEAD_TARGET_COUNTRY_OPTIONS,
   LeadCreateFormData,
   LeadCreateModalTab,
@@ -32,29 +35,6 @@ interface LeadDrawerProfileFormProps {
   onRemoveSelectedTag: (tag: string) => void;
   onDeleteTag: (tag: string) => void;
 }
-
-const SOURCE_OPTIONS = [
-  { value: 'facebook', label: 'Facebook' },
-  { value: 'tiktok', label: 'TikTok' },
-  { value: 'google', label: 'Google Search' },
-  { value: 'hotline', label: 'Hotline' },
-  { value: 'referral', label: 'Giới thiệu' },
-] as const;
-
-const POTENTIAL_OPTIONS = [
-  { value: 'Nóng', label: 'Nóng' },
-  { value: 'Tiềm năng', label: 'Tiềm năng' },
-  { value: 'Tham khảo', label: 'Tham khảo' },
-];
-
-const PRODUCT_OPTIONS = [
-  { value: 'Tiếng Đức', label: 'Tiếng Đức' },
-  { value: 'Tiếng Trung', label: 'Tiếng Trung' },
-  { value: 'Du học Đức', label: 'Du học Đức' },
-  { value: 'Du học Trung', label: 'Du học Trung' },
-  { value: 'Du học Nghề', label: 'Du học Nghề' },
-  { value: 'XKLĐ', label: 'XKLĐ' },
-];
 
 const getFieldInputClassName = (extraClassName = '') =>
   ['field-input', extraClassName].filter(Boolean).join(' ');
@@ -91,7 +71,7 @@ const renderTextAreaField = (
 
 const renderSelectField = (
   value: string,
-  options: Array<{ value: string; label: string }>,
+  options: ReadonlyArray<{ value: string; label: string }>,
   placeholder: string,
   onChange: (value: string) => void,
   extraClassName = '',
@@ -156,7 +136,7 @@ const SectionShell: React.FC<{
   </section>
 );
 
-const getOptionLabel = (options: Array<{ value: string; label: string }>, value: string) =>
+const getOptionLabel = (options: ReadonlyArray<{ value: string; label: string }>, value: string) =>
   options.find((option) => option.value === value)?.label || value;
 
 const LeadDrawerProfileForm: React.FC<LeadDrawerProfileFormProps> = ({
@@ -228,7 +208,7 @@ const LeadDrawerProfileForm: React.FC<LeadDrawerProfileFormProps> = ({
 
   const selectField = (
     value: string,
-    options: Array<{ value: string; label: string }>,
+    options: ReadonlyArray<{ value: string; label: string }>,
     placeholder: string,
     onChange: (value: string) => void,
     inputClassName = '',
@@ -415,7 +395,7 @@ const LeadDrawerProfileForm: React.FC<LeadDrawerProfileFormProps> = ({
           <FieldBlock label="Nguồn data">
             {selectField(
               leadFormData.source,
-              SOURCE_OPTIONS.map((option) => ({ value: option.value, label: option.label })),
+              LEAD_SOURCE_OPTIONS.map((option) => ({ value: option.value, label: option.label })),
               '-- Chọn nguồn --',
               (value) => onPatch({ source: value }),
             )}
@@ -436,7 +416,7 @@ const LeadDrawerProfileForm: React.FC<LeadDrawerProfileFormProps> = ({
           <FieldBlock label="Sản phẩm">
             {selectField(
               leadFormData.product,
-              PRODUCT_OPTIONS,
+              LEAD_PRODUCT_OPTIONS,
               '-- Chọn --',
               (value) => onPatch({ product: value }),
             )}
@@ -540,7 +520,7 @@ const LeadDrawerProfileForm: React.FC<LeadDrawerProfileFormProps> = ({
           <FieldBlock label="Mức độ tiềm năng">
             {selectField(
               leadFormData.potential,
-              POTENTIAL_OPTIONS,
+              LEAD_POTENTIAL_OPTIONS,
               '-- Chọn --',
               (value) => onPatch({ potential: value }),
             )}

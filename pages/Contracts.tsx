@@ -1,11 +1,13 @@
 ﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Search, Settings, SlidersHorizontal } from 'lucide-react';
+import { RotateCcw, Search, Settings } from 'lucide-react';
 import ClassCodeLookupInput from '../components/ClassCodeLookupInput';
+import { AdvancedFilterDropdown, ToolbarTimeFilter } from '../components/filters';
 import {
   IAdmission,
   IClassStudent,
   IContract,
   IQuotation,
+  ISalesTeam,
   IStudent,
   IStudentClaim,
   ITeacher,
@@ -23,6 +25,7 @@ import {
   getClassStudents,
   getContracts,
   getQuotations,
+  getSalesTeams,
   getStudentClaims,
   getStudentClassEligibility,
   getStudents,
@@ -33,14 +36,33 @@ import {
   updateAdmission,
   updateStudent
 } from '../utils/storage';
+import {
+  CustomDateRange,
+  ToolbarOption,
+  ToolbarValueOption,
+  doesDateMatchTimeRange
+} from '../utils/filterToolbar';
 import { approveAdmission, cancelAdmission, createAdmission } from '../services/enrollmentFlow.service';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { decodeMojibakeReactNode, decodeMojibakeText } from '../utils/mojibake';
 
 type EnrollmentTabKey = 'waiting_enrollment' | 'waiting_approval' | 'enrolled' | 'processing' | 'students' | 'all';
-type GroupByKey = 'campus' | 'program' | 'currentClass' | 'studentStatus' | 'admissionStatus';
-type AdvancedFilterFieldKey = 'campus' | 'program' | 'currentClass' | 'studentStatus' | 'admissionStatus' | 'claimStatus';
+type EnrollmentMarketValue = 'Đức' | 'Trung';
+type EnrollmentProgramValue = 'A1' | 'A2';
+type EnrollmentAdvancedFieldKey =
+  | 'market'
+  | 'campus'
+  | 'owner'
+  | 'product'
+  | 'program'
+  | 'admissionStatus'
+  | 'claimStatus'
+  | 'debtStatus'
+  | 'classStatus';
+type EnrollmentAdvancedGroupFieldKey = EnrollmentAdvancedFieldKey;
+type EnrollmentTimeField = 'studyStartDate' | 'expectedEndDate' | 'admissionApprovedAt' | 'claimCreatedAt';
+type EnrollmentTimeFieldSelection = 'action' | EnrollmentTimeField;
 type StudentLifecycleStatus =
   | 'MOI_TAO'
   | 'CHO_GHI_DANH'
@@ -62,13 +84,27 @@ type StudentEnrollmentRow = {
   contract?: IContract;
   teacher?: ITeacher;
   desiredCampus: string;
+  campusName: string;
   currentClassLabel: string;
+  marketLabel: string;
+  salesOwnerName: string;
+  interestedProductName: string;
+  programLabels: EnrollmentProgramValue[];
+  programDisplayLabel: string;
   studentStatusKey: StudentLifecycleStatus;
   studentStatusLabel: string;
   admissionStatusKey: AdmissionDisplayStatus;
   admissionStatusLabel: string;
   claimStatusKey: StudentClaimStatus;
   claimStatusLabel: string;
+  debtStatusKey?: NonNullable<IClassStudent['debtStatus']>;
+  debtStatusLabel: string;
+  classStatusKey?: ITrainingClass['status'];
+  classStatusLabel: string;
+  studyStartDateValue?: string;
+  expectedEndDateValue?: string;
+  admissionApprovedAtValue?: string;
+  claimCreatedAtValue?: string;
   canEnroll: boolean;
   canCancelAdmission: boolean;
   needsProcessing: boolean;
@@ -81,14 +117,6 @@ const TAB_CONFIG: Array<{ key: EnrollmentTabKey; label: string }> = [
   { key: 'waiting_approval', label: 'Chá» duyá»‡t' },
   { key: 'enrolled', label: 'ÄÃ£ ghi danh' },
   { key: 'students', label: 'Cần xử lý' }
-];
-
-const GROUP_BY_OPTIONS: Array<{ value: GroupByKey; label: string }> = [
-  { value: 'campus', label: 'NhÃ³m theo cÆ¡ sá»Ÿ' },
-  { value: 'program', label: 'NhÃ³m theo chÆ°Æ¡ng trÃ¬nh' },
-  { value: 'currentClass', label: 'NhÃ³m theo lá»›p hiá»‡n táº¡i' },
-  { value: 'studentStatus', label: 'NhÃ³m theo tráº¡ng thÃ¡i há»c viÃªn' },
-  { value: 'admissionStatus', label: 'NhÃ³m theo tráº¡ng thÃ¡i ghi danh' }
 ];
 
 const STUDENT_STATUS_LABELS: Record<StudentLifecycleStatus, string> = {
@@ -124,14 +152,72 @@ const CLAIM_STATUS_LABELS: Record<string, string> = {
   DA_HUY: 'Đã hủy'
 };
 
-const ADVANCED_FILTER_FIELDS: Array<{ key: AdvancedFilterFieldKey; label: string }> = [
-  { key: 'campus', label: 'Cơ sở' },
-  { key: 'program', label: 'Chương trình' },
-  { key: 'currentClass', label: 'Lớp hiện tại' },
-  { key: 'studentStatus', label: 'Trạng thái học viên' },
-  { key: 'admissionStatus', label: 'Trạng thái ghi danh' },
-  { key: 'claimStatus', label: 'Trạng thái claim' }
-];
+const DEBT_STATUS_LABELS: Record<NonNullable<IClassStudent['debtStatus']>, string> = {
+  DA_DONG: 'Đã đóng',
+  THIEU: 'Thiếu',
+  QUA_HAN: 'Quá hạn'
+};
+
+const CLASS_STATUS_LABELS: Record<ITrainingClass['status'], string> = {
+  DRAFT: 'Nháp',
+  ACTIVE: 'Đang học',
+  DONE: 'Đã kết thúc',
+  CANCELED: 'Đã hủy'
+};
+
+const ENROLLMENT_MARKET_OPTIONS = ['Đức', 'Trung'] as const satisfies ReadonlyArray<EnrollmentMarketValue>;
+const ENROLLMENT_PROGRAM_OPTIONS = ['A1', 'A2'] as const satisfies ReadonlyArray<EnrollmentProgramValue>;
+const ENROLLMENT_ADMISSION_STATUS_ORDER = ['CHUA_TAO', 'CHO_DUYET', 'DA_DUYET'] as const;
+const ENROLLMENT_CLAIM_STATUS_ORDER = ['KHONG_CO', 'CHO_XU_LY', 'DA_XU_LY', 'TU_CHOI', 'DA_HUY'] as const;
+const ENROLLMENT_DEBT_STATUS_ORDER = ['DA_DONG', 'THIEU', 'QUA_HAN'] as const;
+const ENROLLMENT_CLASS_STATUS_ORDER = ['DRAFT', 'ACTIVE', 'DONE', 'CANCELED'] as const;
+
+const ENROLLMENT_TOOLBAR_FILTER_OPTIONS = [
+  { id: 'market', label: 'Thị trường' },
+  { id: 'campus', label: 'Cơ sở' },
+  { id: 'owner', label: 'Nhân viên phụ trách' },
+  { id: 'product', label: 'Sản phẩm quan tâm' },
+  { id: 'program', label: 'Chương trình' },
+  { id: 'admissionStatus', label: 'Trạng thái ghi danh' },
+  { id: 'claimStatus', label: 'Trạng thái claim' },
+  { id: 'debtStatus', label: 'Trạng thái công nợ' },
+  { id: 'classStatus', label: 'Trạng thái lớp' }
+] as const satisfies ReadonlyArray<ToolbarOption>;
+
+const ENROLLMENT_TOOLBAR_GROUP_OPTIONS = [
+  { id: 'market', label: 'Thị trường' },
+  { id: 'campus', label: 'Cơ sở' },
+  { id: 'owner', label: 'Nhân viên phụ trách' },
+  { id: 'product', label: 'Sản phẩm quan tâm' },
+  { id: 'program', label: 'Chương trình' },
+  { id: 'admissionStatus', label: 'Trạng thái ghi danh' },
+  { id: 'claimStatus', label: 'Trạng thái claim' },
+  { id: 'debtStatus', label: 'Trạng thái công nợ' },
+  { id: 'classStatus', label: 'Trạng thái lớp' }
+] as const satisfies ReadonlyArray<ToolbarOption>;
+
+const ENROLLMENT_TOOLBAR_TIME_FIELD_OPTIONS = [
+  { id: 'studyStartDate', label: 'Ngày bắt đầu học' },
+  { id: 'expectedEndDate', label: 'Ngày dự kiến kết thúc' },
+  { id: 'admissionApprovedAt', label: 'Duyệt ghi danh' },
+  { id: 'claimCreatedAt', label: 'Tạo claim' }
+] as const satisfies ReadonlyArray<ToolbarOption>;
+
+const ENROLLMENT_TOOLBAR_TIME_PRESETS = [
+  { id: 'all', label: 'Tất cả thời gian' },
+  { id: 'today', label: 'Hôm nay' },
+  { id: 'yesterday', label: 'Hôm qua' },
+  { id: 'thisWeek', label: 'Tuần này' },
+  { id: 'last7Days', label: '7 ngày qua' },
+  { id: 'last30Days', label: '30 ngày qua' },
+  { id: 'thisMonth', label: 'Tháng này' },
+  { id: 'lastMonth', label: 'Tháng trước' },
+  { id: 'custom', label: 'Tùy chỉnh khoảng...' }
+] as const satisfies ReadonlyArray<ToolbarOption>;
+
+const ENROLLMENT_TOOLBAR_TIME_GROUP_LABEL = 'Hành động';
+const ENROLLMENT_TOOLBAR_TIME_PLACEHOLDER = 'action';
+const DEFAULT_ENROLLMENT_ACTION_FIELD: EnrollmentTimeField = 'studyStartDate';
 
 const formatDisplayDate = (value?: string) => {
   if (!value) return '--/--/----';
@@ -156,6 +242,21 @@ const PROCESSING_NOTE_RULES: Array<{ keyword: string; label: string }> = [
   { keyword: 'sai lop', label: 'Sai lớp' }
 ];
 
+const detectEnrollmentMarket = (...values: Array<string | undefined>) => {
+  const normalized = normalizeText(values.filter(Boolean).join(' '));
+  if (!normalized) return '';
+  if (['duc', 'german', 'deutsch'].some((keyword) => normalized.includes(keyword))) return 'Đức';
+  if (['trung', 'china', 'chinese', 'hsk'].some((keyword) => normalized.includes(keyword))) return 'Trung';
+  return '';
+};
+
+const extractEnrollmentPrograms = (...values: Array<string | undefined>) => {
+  const normalized = normalizeText(values.filter(Boolean).join(' '));
+  return ENROLLMENT_PROGRAM_OPTIONS.filter((program) => normalized.includes(program.toLowerCase()));
+};
+
+const formatEnrollmentProgramLabel = (values: EnrollmentProgramValue[]) => values.join(' / ');
+
 const Contracts: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -172,18 +273,18 @@ const Contracts: React.FC = () => {
   const [classes, setClasses] = useState<ITrainingClass[]>([]);
   const [contracts, setContracts] = useState<IContract[]>([]);
   const [teachers, setTeachers] = useState<ITeacher[]>([]);
+  const [salesTeams, setSalesTeams] = useState<ISalesTeam[]>([]);
   const [claims, setClaims] = useState<IStudentClaim[]>([]);
   const [activeTab, setActiveTab] = useState<EnrollmentTabKey>('all');
   const [search, setSearch] = useState('');
-  const [campusFilter, setCampusFilter] = useState('all');
-  const [programFilter, setProgramFilter] = useState('all');
-  const [currentClassFilter, setCurrentClassFilter] = useState('all');
-  const [studentStatusFilter, setStudentStatusFilter] = useState<'all' | StudentLifecycleStatus>('all');
-  const [admissionStatusFilter, setAdmissionStatusFilter] = useState<'all' | AdmissionDisplayStatus>('all');
-  const [claimStatusFilter, setClaimStatusFilter] = useState<'all' | Exclude<StudentClaimStatus, 'KHONG_CO'>>('all');
-  const [groupBy, setGroupBy] = useState<GroupByKey[]>([]);
-  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
-  const [activeAdvancedFilterField, setActiveAdvancedFilterField] = useState<AdvancedFilterFieldKey>('campus');
+  const [showTimePicker, setShowTimePicker] = useState(false);
+  const [timeFilterField, setTimeFilterField] = useState<EnrollmentTimeFieldSelection>(ENROLLMENT_TOOLBAR_TIME_PLACEHOLDER);
+  const [timeRangeType, setTimeRangeType] = useState<(typeof ENROLLMENT_TOOLBAR_TIME_PRESETS)[number]['id']>('all');
+  const [customRange, setCustomRange] = useState<CustomDateRange | null>(null);
+  const [showFilterDropdown, setShowFilterDropdown] = useState(false);
+  const [selectedAdvancedFilterFields, setSelectedAdvancedFilterFields] = useState<EnrollmentAdvancedFieldKey[]>([]);
+  const [selectedAdvancedFilterValue, setSelectedAdvancedFilterValue] = useState('');
+  const [selectedAdvancedGroupFields, setSelectedAdvancedGroupFields] = useState<EnrollmentAdvancedGroupFieldKey[]>([]);
   const [showActionMenu, setShowActionMenu] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showAssignModal, setShowAssignModal] = useState(false);
@@ -209,6 +310,7 @@ const Contracts: React.FC = () => {
     setClasses(getTrainingClasses());
     setContracts(getContracts());
     setTeachers(getTeachers());
+    setSalesTeams(getSalesTeams());
     setClaims(getStudentClaims());
   };
 
@@ -221,6 +323,7 @@ const Contracts: React.FC = () => {
       'educrm:class-students-changed',
       'educrm:training-classes-changed',
       'educrm:contracts-changed',
+      'educrm:sales-teams-changed',
       'educrm:student-claims-changed'
     ] as const;
     events.forEach((eventName) => window.addEventListener(eventName, loadData as EventListener));
@@ -244,6 +347,26 @@ const Contracts: React.FC = () => {
     () => classes.filter((item) => item.status === 'ACTIVE').sort((left, right) => left.code.localeCompare(right.code)),
     [classes]
   );
+
+  const salesOwnerLookup = useMemo(() => {
+    const lookup = new Map<string, string>();
+
+    salesTeams.forEach((team) => {
+      team.members.forEach((member) => {
+        const memberId = String(member.userId || '').trim();
+        const memberName = text(member.name).trim();
+        if (memberId && memberName) {
+          lookup.set(memberId, memberName);
+        }
+      });
+    });
+
+    if (user?.id && user.name) {
+      lookup.set(user.id, text(user.name).trim());
+    }
+
+    return lookup;
+  }, [salesTeams, user?.id, user?.name]);
 
   const studentRows = useMemo<StudentEnrollmentRow[]>(() => {
     const now = Date.now();
@@ -297,11 +420,59 @@ const Contracts: React.FC = () => {
         const activeClaim = studentClaims.find((item) => item.claimStatus === 'CHO_XU_LY');
         const teacher = teachers.find((item) => item.id === currentClass?.teacherId);
         const desiredCampus = latestAdmission?.campusId || student.campus || '--';
+        const campusName = currentClass?.campus || desiredCampus || '--';
         const currentClassLabel =
           currentClass?.code ||
           currentClassStudent?.classId ||
           latestAdmission?.classId ||
           ((student.enrollmentStatus === 'DA_GHI_DANH' || student.status === StudentStatus.ENROLLED) ? student.className || '--' : '--');
+        const quotationLinePrograms = (lockedQuotation?.lineItems || [])
+          .flatMap((item) => [item.courseName, item.name, ...(item.programs || [])])
+          .filter(Boolean)
+          .join(' ');
+        const quotationTargetMarkets = (lockedQuotation?.lineItems || [])
+          .map((item) => item.targetMarket)
+          .filter(Boolean)
+          .join(' ');
+        const salesOwnerName =
+          text(
+            lockedQuotation?.salespersonName ||
+              (student.salesPersonId ? salesOwnerLookup.get(student.salesPersonId) : '') ||
+              (lockedQuotation?.saleConfirmedBy ? salesOwnerLookup.get(lockedQuotation.saleConfirmedBy) : '') ||
+              (lockedQuotation?.createdBy ? salesOwnerLookup.get(lockedQuotation.createdBy) : '') ||
+              (latestAdmission?.createdBy ? salesOwnerLookup.get(latestAdmission.createdBy) : '') ||
+              student.salesPersonId ||
+              lockedQuotation?.saleConfirmedBy ||
+              lockedQuotation?.createdBy ||
+              latestAdmission?.createdBy ||
+              '--'
+          ).trim() || '--';
+        const interestedProductName =
+          text(
+            lockedQuotation?.product ||
+              currentClass?.name ||
+              student.level ||
+              currentClass?.level ||
+              '--'
+          ).trim() || '--';
+        const marketLabel =
+          detectEnrollmentMarket(
+            lockedQuotation?.country,
+            lockedQuotation?.targetCountry,
+            lockedQuotation?.product,
+            quotationTargetMarkets,
+            currentClass?.language,
+            student.level,
+            currentClass?.code
+          ) || '';
+        const programLabels = extractEnrollmentPrograms(
+          lockedQuotation?.product,
+          quotationLinePrograms,
+          currentClass?.level,
+          currentClass?.code,
+          student.level
+        );
+        const programDisplayLabel = formatEnrollmentProgramLabel(programLabels);
         const studentStatusKey = resolveStudentStatus(student, latestAdmission, currentClassStudent, currentClass, lockedQuotation);
         const admissionStatusKey: AdmissionDisplayStatus =
           latestAdmission?.status === 'DA_DUYET'
@@ -310,6 +481,8 @@ const Contracts: React.FC = () => {
               ? 'CHO_DUYET'
               : 'CHUA_TAO';
         const claimStatusKey: StudentClaimStatus = latestClaim?.claimStatus || 'KHONG_CO';
+        const debtStatusKey = currentClassStudent?.debtStatus;
+        const classStatusKey = currentClass?.status;
         const canEnroll =
           !!lockedQuotation &&
           student.enrollmentStatus !== 'DA_GHI_DANH' &&
@@ -337,13 +510,30 @@ const Contracts: React.FC = () => {
           contract,
           teacher,
           desiredCampus,
+          campusName,
           currentClassLabel,
+          marketLabel,
+          salesOwnerName,
+          interestedProductName,
+          programLabels,
+          programDisplayLabel,
           studentStatusKey,
           studentStatusLabel: STUDENT_STATUS_LABELS[studentStatusKey],
           admissionStatusKey,
           admissionStatusLabel: ADMISSION_STATUS_LABELS[admissionStatusKey],
           claimStatusKey,
           claimStatusLabel: CLAIM_STATUS_LABELS[claimStatusKey],
+          debtStatusKey,
+          debtStatusLabel: debtStatusKey ? DEBT_STATUS_LABELS[debtStatusKey] : '',
+          classStatusKey,
+          classStatusLabel: classStatusKey ? CLASS_STATUS_LABELS[classStatusKey] : '',
+          studyStartDateValue: currentClassStudent?.startDate || currentClass?.startDate || student.admissionDate,
+          expectedEndDateValue: currentClass?.endDate,
+          admissionApprovedAtValue:
+            latestAdmission?.approvedAt ||
+            latestAdmission?.updatedAt ||
+            (latestAdmission?.status === 'DA_DUYET' ? latestAdmission?.createdAt : ''),
+          claimCreatedAtValue: activeClaim?.createdAt || latestClaim?.createdAt,
           canEnroll,
           canCancelAdmission,
           needsProcessing: processingReasons.length > 0 || !!activeClaim,
@@ -351,7 +541,7 @@ const Contracts: React.FC = () => {
         };
       })
       .filter(Boolean) as StudentEnrollmentRow[];
-  }, [admissions, claims, classStudents, classes, contracts, quotations, students, teachers]);
+  }, [admissions, claims, classStudents, classes, contracts, quotations, salesOwnerLookup, students, teachers]);
 
   const tabCounts = useMemo(() => {
     const next = {
@@ -377,10 +567,189 @@ const Contracts: React.FC = () => {
   const canAssignClass = (row: StudentEnrollmentRow) =>
     row.admissionStatusKey === 'DA_DUYET' || ['DA_GHI_DANH', 'DANG_HOC', 'TAM_DUNG'].includes(row.studentStatusKey);
 
+  const selectedAdvancedFilterOptions = useMemo(
+    () =>
+      selectedAdvancedFilterFields
+        .map((fieldId) => ENROLLMENT_TOOLBAR_FILTER_OPTIONS.find((option) => option.id === fieldId))
+        .filter((option): option is (typeof ENROLLMENT_TOOLBAR_FILTER_OPTIONS)[number] => Boolean(option)),
+    [selectedAdvancedFilterFields]
+  );
+  const activeAdvancedFilterField = selectedAdvancedFilterOptions[0] || null;
+  const resolvedTimeFilterField =
+    timeFilterField === ENROLLMENT_TOOLBAR_TIME_PLACEHOLDER ? DEFAULT_ENROLLMENT_ACTION_FIELD : timeFilterField;
+
+  const getRowTimeFieldValue = (
+    row: StudentEnrollmentRow,
+    fieldId: EnrollmentTimeField = resolvedTimeFilterField
+  ) => {
+    switch (fieldId) {
+      case 'expectedEndDate':
+        return row.expectedEndDateValue;
+      case 'admissionApprovedAt':
+        return row.admissionApprovedAtValue;
+      case 'claimCreatedAt':
+        return row.claimCreatedAtValue;
+      case 'studyStartDate':
+      default:
+        return row.studyStartDateValue;
+    }
+  };
+
+  const getAdvancedFieldValues = (
+    row: StudentEnrollmentRow,
+    fieldId: EnrollmentAdvancedFieldKey | EnrollmentAdvancedGroupFieldKey
+  ) => {
+    switch (fieldId) {
+      case 'market':
+        return row.marketLabel ? [row.marketLabel] : [];
+      case 'campus':
+        return row.campusName && row.campusName !== '--' ? [row.campusName] : [];
+      case 'owner':
+        return row.salesOwnerName && row.salesOwnerName !== '--' ? [row.salesOwnerName] : [];
+      case 'product':
+        return row.interestedProductName && row.interestedProductName !== '--' ? [row.interestedProductName] : [];
+      case 'program':
+        return row.programLabels;
+      case 'admissionStatus':
+        return row.admissionStatusLabel ? [row.admissionStatusLabel] : [];
+      case 'claimStatus':
+        return row.claimStatusLabel ? [row.claimStatusLabel] : [];
+      case 'debtStatus':
+        return row.debtStatusLabel ? [row.debtStatusLabel] : [];
+      case 'classStatus':
+        return row.classStatusLabel ? [row.classStatusLabel] : [];
+      default:
+        return [];
+    }
+  };
+
+  const getAdvancedFieldEmptyLabel = (
+    fieldId: EnrollmentAdvancedFieldKey | EnrollmentAdvancedGroupFieldKey
+  ) => {
+    switch (fieldId) {
+      case 'market':
+        return 'Khác';
+      case 'campus':
+        return 'Chưa có cơ sở';
+      case 'owner':
+        return 'Chưa phân công';
+      case 'product':
+        return 'Chưa có sản phẩm';
+      case 'program':
+        return 'Chưa có chương trình';
+      case 'debtStatus':
+        return 'Chưa phát sinh công nợ';
+      case 'classStatus':
+        return 'Chưa có lớp';
+      default:
+        return 'Chưa có dữ liệu';
+    }
+  };
+
+  const formatAdvancedFieldValue = (
+    fieldId: EnrollmentAdvancedFieldKey | EnrollmentAdvancedGroupFieldKey,
+    value: string
+  ) => value || getAdvancedFieldEmptyLabel(fieldId);
+
+  const getAdvancedFieldDisplayValue = (
+    row: StudentEnrollmentRow,
+    fieldId: EnrollmentAdvancedFieldKey | EnrollmentAdvancedGroupFieldKey
+  ) => {
+    const values = getAdvancedFieldValues(row, fieldId);
+    if (!values.length) return '';
+    if (fieldId === 'program') {
+      return formatEnrollmentProgramLabel(values as EnrollmentProgramValue[]);
+    }
+    return values.join(' / ');
+  };
+
+  const getPresetAdvancedFilterValues = (
+    fieldId: EnrollmentAdvancedFieldKey
+  ): string[] => {
+    switch (fieldId) {
+      case 'market':
+        return [...ENROLLMENT_MARKET_OPTIONS];
+      case 'program':
+        return [...ENROLLMENT_PROGRAM_OPTIONS];
+      case 'admissionStatus':
+        return ENROLLMENT_ADMISSION_STATUS_ORDER.map((status) => ADMISSION_STATUS_LABELS[status]);
+      case 'claimStatus':
+        return ENROLLMENT_CLAIM_STATUS_ORDER.map((status) => CLAIM_STATUS_LABELS[status]);
+      case 'debtStatus':
+        return ENROLLMENT_DEBT_STATUS_ORDER.map((status) => DEBT_STATUS_LABELS[status]);
+      case 'classStatus':
+        return ENROLLMENT_CLASS_STATUS_ORDER.map((status) => CLASS_STATUS_LABELS[status]);
+      default:
+        return [];
+    }
+  };
+
+  const sortSelectableValues = (fieldId: EnrollmentAdvancedFieldKey, values: string[]) => {
+    const sortByOrder = (orderedValues: string[]) => {
+      const orderLookup = new Map(orderedValues.map((value, index) => [value, index]));
+      return [...values].sort((left, right) => {
+        const leftOrder = orderLookup.get(left) ?? Number.MAX_SAFE_INTEGER;
+        const rightOrder = orderLookup.get(right) ?? Number.MAX_SAFE_INTEGER;
+        if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+        return left.localeCompare(right, 'vi');
+      });
+    };
+
+    switch (fieldId) {
+      case 'market':
+        return sortByOrder([...ENROLLMENT_MARKET_OPTIONS]);
+      case 'program':
+        return sortByOrder([...ENROLLMENT_PROGRAM_OPTIONS]);
+      case 'admissionStatus':
+        return sortByOrder(ENROLLMENT_ADMISSION_STATUS_ORDER.map((status) => ADMISSION_STATUS_LABELS[status]));
+      case 'claimStatus':
+        return sortByOrder(ENROLLMENT_CLAIM_STATUS_ORDER.map((status) => CLAIM_STATUS_LABELS[status]));
+      case 'debtStatus':
+        return sortByOrder(ENROLLMENT_DEBT_STATUS_ORDER.map((status) => DEBT_STATUS_LABELS[status]));
+      case 'classStatus':
+        return sortByOrder(ENROLLMENT_CLASS_STATUS_ORDER.map((status) => CLASS_STATUS_LABELS[status]));
+      default:
+        return [...values].sort((left, right) => left.localeCompare(right, 'vi'));
+    }
+  };
+
+  const advancedFilterSelectableValues = useMemo<ReadonlyArray<ToolbarValueOption>>(() => {
+    if (!activeAdvancedFilterField) return [];
+
+    const fieldId = activeAdvancedFilterField.id as EnrollmentAdvancedFieldKey;
+    const derivedValues = studentRows.flatMap((row) => getAdvancedFieldValues(row, fieldId));
+
+    return sortSelectableValues(
+      fieldId,
+      Array.from(new Set([...getPresetAdvancedFilterValues(fieldId), ...derivedValues].filter(Boolean)))
+    ).map((value) => ({
+      value,
+      label: formatAdvancedFieldValue(fieldId, value)
+    }));
+  }, [activeAdvancedFilterField, studentRows]);
+
+  const toggleAdvancedFieldSelection = (
+    type: 'filter' | 'group',
+    fieldId: EnrollmentAdvancedFieldKey | EnrollmentAdvancedGroupFieldKey
+  ) => {
+    if (type === 'filter') {
+      setSelectedAdvancedFilterValue('');
+      setSelectedAdvancedFilterFields((prev) =>
+        prev.includes(fieldId as EnrollmentAdvancedFieldKey) ? [] : [fieldId as EnrollmentAdvancedFieldKey]
+      );
+      return;
+    }
+
+    setSelectedAdvancedGroupFields((prev) =>
+      prev.includes(fieldId as EnrollmentAdvancedGroupFieldKey)
+        ? prev.filter((item) => item !== fieldId)
+        : [...prev, fieldId as EnrollmentAdvancedGroupFieldKey]
+    );
+  };
+
   const filteredRows = useMemo(() => {
     const byTab = studentRows.filter((row) => {
       if (activeTab === 'students') {
-        if (claimStatusFilter !== 'all') return row.claimStatusKey === claimStatusFilter;
         return row.needsProcessing;
       }
       if (activeTab === 'processing') return row.needsProcessing;
@@ -403,62 +772,102 @@ const Contracts: React.FC = () => {
           row.student.email,
           row.lockedQuotation?.soCode,
           row.lockedQuotation?.product,
-          row.desiredCampus,
+          row.marketLabel,
+          row.campusName,
+          row.salesOwnerName,
+          row.interestedProductName,
+          row.programDisplayLabel,
           row.currentClassLabel,
           row.currentClass?.level,
           row.teacher?.fullName,
           row.studentStatusLabel,
           row.admissionStatusLabel,
           row.claimStatusLabel,
+          row.debtStatusLabel,
+          row.classStatusLabel,
           row.processingReasons.join(' ')
         ]
           .map(normalizeText)
           .join(' ')
           .includes(query);
 
-      const campusMatch = campusFilter === 'all' || row.desiredCampus === campusFilter || row.currentClass?.campus === campusFilter;
-      const programMatch = programFilter === 'all' || row.lockedQuotation?.product === programFilter;
-      const currentClassMatch = currentClassFilter === 'all' || row.currentClassLabel === currentClassFilter;
-      const studentStatusMatch = studentStatusFilter === 'all' || row.studentStatusKey === studentStatusFilter;
-      const admissionStatusMatch = admissionStatusFilter === 'all' || row.admissionStatusKey === admissionStatusFilter;
-      const claimStatusMatch = activeTab !== 'students' || claimStatusFilter === 'all' || row.claimStatusKey === claimStatusFilter;
+      if (timeRangeType !== 'all' && !doesDateMatchTimeRange(getRowTimeFieldValue(row), timeRangeType, customRange)) {
+        return false;
+      }
 
-      return searchMatch && campusMatch && programMatch && currentClassMatch && studentStatusMatch && admissionStatusMatch && claimStatusMatch;
+      if (
+        activeAdvancedFilterField &&
+        selectedAdvancedFilterValue &&
+        !getAdvancedFieldValues(row, activeAdvancedFilterField.id as EnrollmentAdvancedFieldKey).includes(selectedAdvancedFilterValue)
+      ) {
+        return false;
+      }
+
+      return searchMatch;
+    }).sort((left, right) => {
+      if (selectedAdvancedGroupFields.length > 0) {
+        const leftGroup = selectedAdvancedGroupFields
+          .map((fieldId) => getAdvancedFieldDisplayValue(left, fieldId))
+          .join('||');
+        const rightGroup = selectedAdvancedGroupFields
+          .map((fieldId) => getAdvancedFieldDisplayValue(right, fieldId))
+          .join('||');
+        const groupCompare = leftGroup.localeCompare(rightGroup, 'vi');
+        if (groupCompare !== 0) return groupCompare;
+      }
+      return left.student.code.localeCompare(right.student.code, 'vi');
     });
-  }, [activeTab, admissionStatusFilter, campusFilter, claimStatusFilter, currentClassFilter, programFilter, search, studentRows, studentStatusFilter]);
+  }, [
+    activeAdvancedFilterField,
+    activeTab,
+    customRange,
+    search,
+    selectedAdvancedFilterValue,
+    selectedAdvancedGroupFields,
+    studentRows,
+    timeRangeType
+  ]);
 
   const groupedRows = useMemo(() => {
-    if (!groupBy.length) return [{ key: 'all', label: `Táº¥t cáº£ (${filteredRows.length})`, rows: filteredRows }];
+    if (!selectedAdvancedGroupFields.length) {
+      return [{ key: 'all', label: `Táº¥t cáº£ (${filteredRows.length})`, rows: filteredRows }];
+    }
 
-    const getGroupValue = (row: StudentEnrollmentRow, field: GroupByKey) => {
-      if (field === 'campus') return row.desiredCampus || '--';
-      if (field === 'program') return row.lockedQuotation?.product || '--';
-      if (field === 'currentClass') return row.currentClassLabel || '--';
-      if (field === 'studentStatus') return row.studentStatusLabel;
-      return row.admissionStatusLabel;
-    };
-
-    const buildGroups = (rows: StudentEnrollmentRow[], fields: GroupByKey[], path: string[] = []) => {
+    const buildGroups = (
+      rows: StudentEnrollmentRow[],
+      fields: EnrollmentAdvancedGroupFieldKey[],
+      path: string[] = [],
+      keyPath: string[] = []
+    ) => {
       if (!fields.length) {
         const label = `${path.join(' / ')} (${rows.length})`;
-        return [{ key: path.join('||') || 'all', label, rows }];
+        return [{ key: keyPath.join('||') || 'all', label, rows }];
       }
 
       const [currentField, ...restFields] = fields;
       const groups = new Map<string, StudentEnrollmentRow[]>();
+      const fieldLabel =
+        ENROLLMENT_TOOLBAR_GROUP_OPTIONS.find((option) => option.id === currentField)?.label || currentField;
 
       rows.forEach((row) => {
-        const key = getGroupValue(row, currentField);
+        const key = getAdvancedFieldDisplayValue(row, currentField);
         groups.set(key, [...(groups.get(key) || []), row]);
       });
 
       return Array.from(groups.entries())
         .sort((left, right) => left[0].localeCompare(right[0]))
-        .flatMap(([key, nestedRows]) => buildGroups(nestedRows, restFields, [...path, key]));
+        .flatMap(([key, nestedRows]) =>
+          buildGroups(
+            nestedRows,
+            restFields,
+            [...path, `${fieldLabel}: ${formatAdvancedFieldValue(currentField, key)}`],
+            [...keyPath, `${fieldLabel}:${formatAdvancedFieldValue(currentField, key)}`]
+          )
+        );
     };
 
-    return buildGroups(filteredRows, groupBy);
-  }, [filteredRows, groupBy]);
+    return buildGroups(filteredRows, selectedAdvancedGroupFields);
+  }, [filteredRows, selectedAdvancedGroupFields]);
 
   const filteredRowIds = useMemo(() => filteredRows.map((row) => row.student.id), [filteredRows]);
   const selectedRows = useMemo(
@@ -470,52 +879,59 @@ const Contracts: React.FC = () => {
   const campusOptions = useMemo(() => {
     const source = new Set<string>();
     studentRows.forEach((row) => {
-      if (row.desiredCampus) source.add(row.desiredCampus);
-      if (row.currentClass?.campus) source.add(row.currentClass.campus);
+      if (row.campusName && row.campusName !== '--') source.add(row.campusName);
     });
     return Array.from(source).sort();
   }, [studentRows]);
 
-  const programOptions = useMemo(() => {
-    const source = new Set<string>();
-    studentRows.forEach((row) => {
-      if (row.lockedQuotation?.product) source.add(row.lockedQuotation.product);
-    });
-    return Array.from(source).sort();
-  }, [studentRows]);
+  const advancedToolbarActiveCount =
+    selectedAdvancedGroupFields.length + (selectedAdvancedFilterValue ? 1 : 0);
+  const hasAdvancedToolbarFilters =
+    selectedAdvancedGroupFields.length > 0 || Boolean(selectedAdvancedFilterValue);
 
-  const currentClassOptions = useMemo(() => {
-    const source = new Set<string>();
-    studentRows.forEach((row) => {
-      if (row.currentClassLabel && row.currentClassLabel !== '--') source.add(row.currentClassLabel);
-    });
-    return Array.from(source).sort();
-  }, [studentRows]);
-
-  const advancedFilterCount = useMemo(() => {
-    let count = 0;
-    if (campusFilter !== 'all') count += 1;
-    if (programFilter !== 'all') count += 1;
-    if (currentClassFilter !== 'all') count += 1;
-    if (studentStatusFilter !== 'all') count += 1;
-    if (admissionStatusFilter !== 'all') count += 1;
-    if (claimStatusFilter !== 'all') count += 1;
-    count += groupBy.length;
-    return count;
-  }, [admissionStatusFilter, campusFilter, claimStatusFilter, currentClassFilter, groupBy, programFilter, studentStatusFilter]);
-
-  const resetAdvancedFilters = () => {
-    setCampusFilter('all');
-    setProgramFilter('all');
-    setCurrentClassFilter('all');
-    setStudentStatusFilter('all');
-    setAdmissionStatusFilter('all');
-    setClaimStatusFilter('all');
-    setGroupBy([]);
+  const clearAllFilters = () => {
+    setSearch('');
+    setShowTimePicker(false);
+    setTimeFilterField(ENROLLMENT_TOOLBAR_TIME_PLACEHOLDER);
+    setTimeRangeType('all');
+    setCustomRange(null);
+    setShowFilterDropdown(false);
+    setSelectedAdvancedFilterFields([]);
+    setSelectedAdvancedFilterValue('');
+    setSelectedAdvancedGroupFields([]);
   };
 
-  const activeAdvancedFilterLabel =
-    ADVANCED_FILTER_FIELDS.find((field) => field.key === activeAdvancedFilterField)?.label || 'Bộ lọc';
+  const handleTimeFilterOpenChange = (nextOpen: boolean) => {
+    setShowFilterDropdown(false);
+    setShowTimePicker(nextOpen);
+  };
+
+  const handleTimeFilterFieldChange = (fieldId: string) => {
+    setShowFilterDropdown(false);
+    setShowTimePicker(false);
+    setTimeFilterField(fieldId as EnrollmentTimeFieldSelection);
+  };
+
+  const handleTimePresetSelect = (presetId: string) => {
+    setTimeRangeType(presetId as (typeof ENROLLMENT_TOOLBAR_TIME_PRESETS)[number]['id']);
+    if (presetId !== 'custom') {
+      setShowTimePicker(false);
+    }
+  };
+
+  const handleApplyCustomTimeRange = () => {
+    if (customRange?.start && customRange?.end) {
+      setTimeRangeType('custom');
+      setShowTimePicker(false);
+      return;
+    }
+    window.alert('Vui lòng chọn khoảng ngày');
+  };
+
+  const handleAdvancedFilterOpenChange = (nextOpen: boolean) => {
+    setShowTimePicker(false);
+    setShowFilterDropdown(nextOpen);
+  };
 
   const findActiveClass = (value?: string) => {
     const normalizedValue = normalizeText(value?.trim());
@@ -1029,153 +1445,95 @@ const Contracts: React.FC = () => {
         </div>
       </div>
 
-      <div className="mb-5 overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="mb-5 overflow-visible rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
+          <div className="flex flex-wrap items-center gap-2 xl:flex-none">
+            <button
+              type="button"
+              onClick={clearAllFilters}
+              className="inline-flex min-h-[36px] items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-[13px] font-semibold text-emerald-700 transition hover:bg-emerald-100"
+            >
+              <RotateCcw size={16} />
+              Đặt lại
+            </button>
+
+            <ToolbarTimeFilter
+              isOpen={showTimePicker}
+              fieldOptions={ENROLLMENT_TOOLBAR_TIME_FIELD_OPTIONS}
+              fieldPlaceholderValue={ENROLLMENT_TOOLBAR_TIME_PLACEHOLDER}
+              fieldPlaceholderLabel={ENROLLMENT_TOOLBAR_TIME_GROUP_LABEL}
+              selectedField={timeFilterField}
+              selectedRangeType={timeRangeType}
+              customRange={customRange}
+              presets={ENROLLMENT_TOOLBAR_TIME_PRESETS}
+              onOpenChange={handleTimeFilterOpenChange}
+              onFieldChange={handleTimeFilterFieldChange}
+              onPresetSelect={handleTimePresetSelect}
+              onCustomRangeChange={setCustomRange}
+              onReset={() => {
+                setTimeFilterField(ENROLLMENT_TOOLBAR_TIME_PLACEHOLDER);
+                setTimeRangeType('all');
+                setCustomRange(null);
+                setShowTimePicker(false);
+              }}
+              onCancel={() => setShowTimePicker(false)}
+              onApplyCustomRange={handleApplyCustomTimeRange}
+              controlClassName="min-h-[36px] rounded-xl border-slate-300 shadow-none"
+              fieldSectionClassName="bg-white"
+              fieldSelectClassName="text-[13px]"
+              rangeButtonClassName="px-2.5 text-[13px]"
+              panelAlign="left"
+              className="shrink-0"
+            />
+          </div>
+
           <div className="relative xl:flex-1">
-            <Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+            <Search className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
             <input
               type="text"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="TÃ¬m kiáº¿m theo mÃ£ há»c viÃªn, SO, chÆ°Æ¡ng trÃ¬nh, lá»›p..."
-              className="w-full rounded-xl border border-slate-300 py-3 pl-11 pr-4 text-sm outline-none transition focus:border-slate-500"
+              className="h-9 w-full rounded-xl border border-slate-300 pl-10 pr-4 text-[13px] outline-none transition focus:border-slate-500"
             />
           </div>
-          <div className="flex flex-col gap-3 sm:flex-row xl:flex-none">
-            <button
-              type="button"
-              onClick={() => setShowAdvancedFilters((prev) => !prev)}
-              className="inline-flex min-w-[190px] items-center justify-between rounded-xl border border-slate-300 px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-slate-400 hover:text-slate-900"
-            >
-              <span className="inline-flex items-center gap-2">
-                <SlidersHorizontal size={16} />
-                {advancedFilterCount ? `Lá»c nÃ¢ng cao (${advancedFilterCount})` : 'Lá»c nÃ¢ng cao'}
-              </span>
-              <span className={['text-xs text-slate-400 transition', showAdvancedFilters ? 'rotate-180' : ''].join(' ')}>▼</span>
-            </button>
-          </div>
+          <AdvancedFilterDropdown
+            isOpen={showFilterDropdown}
+            activeCount={advancedToolbarActiveCount}
+            hasActiveFilters={hasAdvancedToolbarFilters}
+            filterOptions={ENROLLMENT_TOOLBAR_FILTER_OPTIONS}
+            groupOptions={ENROLLMENT_TOOLBAR_GROUP_OPTIONS}
+            selectedFilterFieldIds={selectedAdvancedFilterFields}
+            selectedGroupFieldIds={selectedAdvancedGroupFields}
+            activeFilterField={activeAdvancedFilterField}
+            selectableValues={advancedFilterSelectableValues}
+            selectedFilterValue={selectedAdvancedFilterValue}
+            onOpenChange={handleAdvancedFilterOpenChange}
+            onToggleFilterField={(fieldId) =>
+              toggleAdvancedFieldSelection('filter', fieldId as EnrollmentAdvancedFieldKey)
+            }
+            onToggleGroupField={(fieldId) =>
+              toggleAdvancedFieldSelection('group', fieldId as EnrollmentAdvancedGroupFieldKey)
+            }
+            onFilterValueChange={setSelectedAdvancedFilterValue}
+            onClearAll={() => {
+              setSelectedAdvancedFilterFields([]);
+              setSelectedAdvancedFilterValue('');
+              setSelectedAdvancedGroupFields([]);
+            }}
+            triggerLabel="Lọc nâng cao"
+            filterDescription="Chọn 1 trường rồi chọn giá trị tương ứng để lọc nhanh danh sách học viên ghi danh."
+            groupDescription="Có thể chọn nhiều trường. Thứ tự bấm sẽ là thứ tự ghép nhóm hiển thị trong bảng."
+            triggerClassName="min-h-[36px] rounded-xl px-3 py-1.5 text-[13px] font-medium shadow-none"
+            className="xl:flex-none"
+          />
         </div>
-
-        {showAdvancedFilters ? (
-          <div className="mt-3 overflow-hidden rounded-2xl border border-slate-200 bg-slate-50/60">
-            <div className="grid divide-y divide-slate-200 lg:grid-cols-2 lg:divide-x lg:divide-y-0">
-              <div className="p-5">
-                <div className="mb-2 text-lg font-semibold text-slate-900">Filter</div>
-                <p className="mb-4 text-sm text-slate-500">Chọn trường học viên để lọc. Sau đó chọn giá trị tương ứng ở khung bên phải.</p>
-                <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
-                  <div className="max-h-72 overflow-y-auto pr-1">
-                    {ADVANCED_FILTER_FIELDS.map((field) => (
-                      <button
-                        key={field.key}
-                        type="button"
-                        onClick={() => setActiveAdvancedFilterField(field.key)}
-                        className={[
-                          'flex w-full items-center rounded-xl px-3 py-2.5 text-left text-sm transition',
-                          activeAdvancedFilterField === field.key
-                            ? 'bg-blue-50 font-semibold text-blue-900'
-                            : 'text-slate-700 hover:bg-white'
-                        ].join(' ')}
-                      >
-                        {field.label}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="rounded-2xl border border-slate-200 bg-white p-4">
-                    <div className="text-sm font-semibold text-slate-900">{activeAdvancedFilterLabel}</div>
-                    <div className="mt-3">
-                      {activeAdvancedFilterField === 'campus' ? (
-                        <select value={campusFilter} onChange={(event) => setCampusFilter(event.target.value)} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm">
-                          <option value="all">Tất cả cơ sở</option>
-                          {campusOptions.map((item) => <option key={item} value={item}>{item}</option>)}
-                        </select>
-                      ) : null}
-                      {activeAdvancedFilterField === 'program' ? (
-                        <select value={programFilter} onChange={(event) => setProgramFilter(event.target.value)} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm">
-                          <option value="all">Tất cả chương trình</option>
-                          {programOptions.map((item) => <option key={item} value={item}>{item}</option>)}
-                        </select>
-                      ) : null}
-                      {activeAdvancedFilterField === 'currentClass' ? (
-                        <select value={currentClassFilter} onChange={(event) => setCurrentClassFilter(event.target.value)} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm">
-                          <option value="all">Tất cả lớp hiện tại</option>
-                          {currentClassOptions.map((item) => <option key={item} value={item}>{item}</option>)}
-                        </select>
-                      ) : null}
-                      {activeAdvancedFilterField === 'studentStatus' ? (
-                        <select value={studentStatusFilter} onChange={(event) => setStudentStatusFilter(event.target.value as 'all' | StudentLifecycleStatus)} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm">
-                          <option value="all">Tất cả trạng thái học viên</option>
-                          {Object.entries(STUDENT_STATUS_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
-                        </select>
-                      ) : null}
-                      {activeAdvancedFilterField === 'admissionStatus' ? (
-                        <select value={admissionStatusFilter} onChange={(event) => setAdmissionStatusFilter(event.target.value as 'all' | AdmissionDisplayStatus)} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm">
-                          <option value="all">Tất cả trạng thái ghi danh</option>
-                          {Object.entries(ADMISSION_STATUS_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
-                        </select>
-                      ) : null}
-                      {activeAdvancedFilterField === 'claimStatus' ? (
-                        <select value={claimStatusFilter} onChange={(event) => setClaimStatusFilter(event.target.value as 'all' | Exclude<StudentClaimStatus, 'KHONG_CO'>)} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm">
-                          <option value="all">Tất cả trạng thái claim</option>
-                          {(['CHO_XU_LY', 'DA_XU_LY', 'TU_CHOI', 'DA_HUY'] as Array<Exclude<StudentClaimStatus, 'KHONG_CO'>>).map((status) => (
-                            <option key={status} value={status}>{CLAIM_STATUS_LABELS[status]}</option>
-                          ))}
-                        </select>
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div className="p-5">
-                <div className="mb-2 text-lg font-semibold text-slate-900">Group by</div>
-                <p className="mb-4 text-sm text-slate-500">Có thể chọn nhiều trường để gom nhóm. Thứ tự bấm sẽ là thứ tự nhóm hiển thị.</p>
-                <div className="max-h-72 overflow-y-auto pr-1">
-                  <button
-                    type="button"
-                    onClick={() => setGroupBy([])}
-                    className={[
-                      'mb-1 flex w-full items-center rounded-xl px-3 py-2.5 text-left text-sm transition',
-                      !groupBy.length
-                        ? 'bg-blue-50 font-semibold text-blue-900'
-                        : 'text-slate-700 hover:bg-white'
-                    ].join(' ')}
-                  >
-                    Không nhóm
-                  </button>
-                  {GROUP_BY_OPTIONS.map((option) => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      onClick={() => setGroupBy((prev) => (
-                        prev.includes(option.value)
-                          ? prev.filter((item) => item !== option.value)
-                          : [...prev, option.value]
-                      ))}
-                      className={[
-                        'flex w-full items-center rounded-xl px-3 py-2.5 text-left text-sm transition',
-                        groupBy.includes(option.value)
-                          ? 'bg-blue-50 font-semibold text-blue-900'
-                          : 'text-slate-700 hover:bg-white'
-                      ].join(' ')}
-                    >
-                      <span className="flex-1">{option.label}</span>
-                      {groupBy.includes(option.value) ? (
-                        <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-semibold text-blue-700">
-                          {groupBy.indexOf(option.value) + 1}
-                        </span>
-                      ) : null}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        ) : null}
 
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-3">
           <div className="text-xs font-medium text-slate-500">Äang hiá»ƒn thá»‹ {filteredRows.length} há»“ sÆ¡ sau khi lá»c.{selectedStudentIds.length ? ` ÄÃ£ chá»n ${selectedStudentIds.length} há»c viÃªn.` : ''}</div>
-          {advancedFilterCount ? (
-            <button type="button" onClick={resetAdvancedFilters} className="text-xs font-semibold text-blue-700 hover:text-blue-800">
-              XÃ³a lá»c nÃ¢ng cao
+          {search.trim() || timeRangeType !== 'all' || hasAdvancedToolbarFilters ? (
+            <button type="button" onClick={clearAllFilters} className="text-xs font-semibold text-blue-700 hover:text-blue-800">
+              Đặt lại bộ lọc
             </button>
           ) : null}
         </div>
@@ -1256,7 +1614,7 @@ const Contracts: React.FC = () => {
       <div className="space-y-4">
         {groupedRows.map((group) => (
           <section key={group.key} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-            {groupBy.length ? <div className="border-b border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-800">{group.label}</div> : null}
+            {selectedAdvancedGroupFields.length ? <div className="border-b border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-800">{group.label}</div> : null}
             <div className="overflow-hidden">
               {isClaimFocusedTab ? (
                 <table className="w-full table-fixed text-left text-sm">

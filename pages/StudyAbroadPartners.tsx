@@ -20,7 +20,15 @@ import {
   Trash2,
   X
 } from 'lucide-react';
+import { AdvancedFilterDropdown, ToolbarTimeFilter } from '../components/filters';
 import PinnedSearchInput, { PinnedSearchChip } from '../components/PinnedSearchInput';
+import {
+  CustomDateRange,
+  ToolbarOption,
+  ToolbarValueOption,
+  doesDateMatchTimeRange,
+  getTimeRangeSummaryLabel
+} from '../utils/filterToolbar';
 import { decodeMojibakeReactNode, decodeMojibakeText } from '../utils/mojibake';
 
 type PartnerLevel = 'GOLD' | 'SILVER' | 'PREMIUM';
@@ -43,6 +51,9 @@ type PartnerGroupByKey =
   | 'cmtc'
   | 'website'
   | 'applicantBand';
+type PartnerAdvancedFieldKey = 'country' | 'program' | 'intake' | 'major';
+type PartnerTimeField = 'intakeTerm';
+type PartnerTimeFieldSelection = 'action' | PartnerTimeField;
 
 interface IPartnerDetails {
   tuition: string;
@@ -181,6 +192,26 @@ const GROUP_BY_OPTIONS: Array<{ key: PartnerGroupByKey; label: string }> = [
   { key: 'applicantBand', label: 'Nhóm hồ sơ hiện tại' }
 ];
 
+const PARTNER_TIME_FIELD_OPTIONS = [
+  { id: 'intakeTerm', label: 'K\u1ef3 tuy\u1ec3n sinh' }
+] as const satisfies ReadonlyArray<ToolbarOption>;
+
+const PARTNER_TIME_PLACEHOLDER = 'action';
+
+const PARTNER_ADVANCED_FILTER_OPTIONS = [
+  { id: 'country', label: 'Qu\u1ed1c gia' },
+  { id: 'program', label: 'Chương trình' },
+  { id: 'intake', label: 'K\u1ef3 nh\u1eadp h\u1ecdc' },
+  { id: 'major', label: 'Ngành' }
+] as const satisfies ReadonlyArray<ToolbarOption>;
+
+const PARTNER_ADVANCED_FILTER_LABELS: Record<PartnerAdvancedFieldKey, string> = {
+  country: 'Qu\u1ed1c gia',
+  program: 'Chương trình',
+  intake: 'K\u1ef3 nh\u1eadp h\u1ecdc',
+  major: 'Ngành'
+};
+
 const PARTNER_MODAL_TABS: Array<{ id: PartnerModalTab; label: string }> = [
   { id: 'general', label: 'Thông tin chung' },
   { id: 'admissions', label: 'Tuyển sinh & Tài chính' },
@@ -277,6 +308,46 @@ const isDateInTimeRange = (value: string, rangeType: TimeRangeType, startDate?: 
   if (!bounds) return true;
 
   return current >= bounds.start && current <= bounds.end;
+};
+
+const extractPartnerIntakeMonths = (value?: string) =>
+  Array.from(
+    new Set(
+      (decodeMojibakeText(value || '').match(/\d{1,2}/g) || [])
+        .map((token) => Number(token))
+        .filter((month) => month >= 1 && month <= 12)
+    )
+  );
+
+const getPartnerIntakeDateCandidates = (partner: IStudyAbroadPartner, now = new Date()) => {
+  const months = new Set<number>();
+
+  extractPartnerIntakeMonths(partner.intake).forEach((month) => months.add(month));
+  partner.details.programs.forEach((program) => {
+    extractPartnerIntakeMonths(program.intake).forEach((month) => months.add(month));
+  });
+
+  return Array.from(months).map((month) => `${now.getFullYear()}-${`${month}`.padStart(2, '0')}-01`);
+};
+
+const doesPartnerTimeFieldMatch = (
+  partner: IStudyAbroadPartner,
+  fieldId: PartnerTimeField,
+  rangeType: TimeRangeType,
+  range: CustomDateRange | null
+) => {
+  if (fieldId !== 'intakeTerm') return true;
+
+  return getPartnerIntakeDateCandidates(partner).some((dateValue) =>
+    doesDateMatchTimeRange(dateValue, rangeType, range)
+  );
+};
+
+const formatPartnerAdvancedFilterValue = (fieldId: PartnerAdvancedFieldKey, value: string) => {
+  if (fieldId === 'country' && value in COUNTRY_LABEL) {
+    return COUNTRY_LABEL[value as IStudyAbroadPartner['country']];
+  }
+  return value;
 };
 
 const PARTNERS: IStudyAbroadPartner[] = [
@@ -729,10 +800,15 @@ const getLevelBadge = (level: PartnerLevel) => {
 
 const StudyAbroadPartners: React.FC = () => {
   const [partners, setPartners] = useState<IStudyAbroadPartner[]>(() => loadPersistedPartners());
-  const [expandedId, setExpandedId] = useState<number | null>(1);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
+  const [timeFilterField, setTimeFilterField] = useState<PartnerTimeFieldSelection>(PARTNER_TIME_PLACEHOLDER);
+  const [customRange, setCustomRange] = useState<CustomDateRange | null>(null);
+  const [showAdvancedFilterDropdown, setShowAdvancedFilterDropdown] = useState(false);
+  const [selectedAdvancedFilterFields, setSelectedAdvancedFilterFields] = useState<PartnerAdvancedFieldKey[]>([]);
+  const [selectedAdvancedFilterValues, setSelectedAdvancedFilterValues] = useState<Partial<Record<PartnerAdvancedFieldKey, string>>>({});
   const [countryFilter, setCountryFilter] = useState<CountryFilter>('ALL');
   const [levelFilter, setLevelFilter] = useState<'ALL' | PartnerLevel>('ALL');
   const [typeFilter, setTypeFilter] = useState('ALL');
@@ -758,7 +834,19 @@ const StudyAbroadPartners: React.FC = () => {
 
   const typeOptions = useMemo(() => Array.from(new Set(partners.map((partner) => partner.type))).filter(Boolean), [partners]);
   const rankingOptions = useMemo(() => Array.from(new Set(partners.map((partner) => partner.ranking))).filter(Boolean), [partners]);
-  const intakeOptions = useMemo(() => Array.from(new Set(partners.map((partner) => partner.intake))).filter(Boolean), [partners]);
+  const programOptions = useMemo(
+    () => Array.from(new Set(partners.flatMap((partner) => partner.details.programs.map((program) => program.name)).filter(Boolean))) as string[],
+    [partners]
+  );
+  const intakeOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          partners.flatMap((partner) => [partner.intake, ...partner.details.programs.map((program) => program.intake)]).filter(Boolean)
+        )
+      ) as string[],
+    [partners]
+  );
   const schoolTypeOptions = useMemo(
     () => Array.from(new Set(partners.map((partner) => partner.details.schoolType).filter(Boolean))) as string[],
     [partners]
@@ -768,7 +856,14 @@ const StudyAbroadPartners: React.FC = () => {
     [partners]
   );
   const majorOptions = useMemo(
-    () => Array.from(new Set(partners.flatMap((partner) => partner.details.majors || []).filter(Boolean))) as string[],
+    () =>
+      Array.from(
+        new Set(
+          partners
+            .flatMap((partner) => [...(partner.details.majors || []), ...partner.details.programs.map((program) => program.major)])
+            .filter(Boolean)
+        )
+      ) as string[],
     [partners]
   );
   const quotaOptions = useMemo(
@@ -779,176 +874,163 @@ const StudyAbroadPartners: React.FC = () => {
     () => Array.from(new Set(partners.map((partner) => partner.details.cmtc).filter(Boolean))) as string[],
     [partners]
   );
-  const hasTimeFilter = timeRangeType !== 'all' && (timeRangeType !== 'custom' || (!!startDateFromFilter && !!endDateToFilter));
-  const timeRangeLabel = useMemo(() => {
-    if (timeRangeType === 'custom') {
-      return formatCustomDateRangeLabel(startDateFromFilter, endDateToFilter);
-    }
-
-    return TIME_RANGE_PRESETS.find((item) => item.id === timeRangeType)?.label || 'Tất cả thời gian';
-  }, [endDateToFilter, startDateFromFilter, timeRangeType]);
-
-  const activeFilterCount = useMemo(
+  const selectedAdvancedFilterOptions = useMemo(
     () =>
-      [
-        actionFilter !== 'ALL',
-        hasTimeFilter,
-        countryFilter !== 'ALL',
-        levelFilter !== 'ALL',
-        typeFilter !== 'ALL',
-        rankingFilter !== 'ALL',
-        intakeFilter !== 'ALL',
-        schoolTypeFilter !== 'ALL',
-        rankingGlobalFilter !== 'ALL',
-        majorFilter !== 'ALL',
-        quotaFilter !== 'ALL',
-        cmtcFilter !== 'ALL',
-        websiteFilter !== 'ALL',
-        applicantBandFilter !== 'ALL',
-        groupBy.length > 0
-      ].filter(Boolean).length,
-    [
-      actionFilter,
-      hasTimeFilter,
-      countryFilter,
-      levelFilter,
-      typeFilter,
-      rankingFilter,
-      intakeFilter,
-      schoolTypeFilter,
-      rankingGlobalFilter,
-      majorFilter,
-      quotaFilter,
-      cmtcFilter,
-      websiteFilter,
-      applicantBandFilter,
-      groupBy.length
-    ]
+      selectedAdvancedFilterFields
+        .map((fieldId) => PARTNER_ADVANCED_FILTER_OPTIONS.find((option) => option.id === fieldId))
+        .filter((option): option is (typeof PARTNER_ADVANCED_FILTER_OPTIONS)[number] => Boolean(option)),
+    [selectedAdvancedFilterFields]
   );
+  const activeAdvancedFilterField = selectedAdvancedFilterOptions[0] || null;
+  const selectedAdvancedFilterEntries = useMemo(
+    () =>
+      Object.entries(selectedAdvancedFilterValues).filter(
+        (entry): entry is [PartnerAdvancedFieldKey, string] => Boolean(entry[1])
+      ),
+    [selectedAdvancedFilterValues]
+  );
+  const advancedFilterSelectableValuesByField = useMemo(
+    () =>
+      selectedAdvancedFilterFields.reduce<Partial<Record<PartnerAdvancedFieldKey, ReadonlyArray<ToolbarValueOption>>>>(
+        (accumulator, fieldId) => {
+          if (fieldId === 'country') {
+            accumulator[fieldId] = Object.entries(COUNTRY_LABEL).map(([value, label]) => ({ value, label }));
+          } else if (fieldId === 'program') {
+            accumulator[fieldId] = programOptions.map((value) => ({ value, label: value }));
+          } else if (fieldId === 'intake') {
+            accumulator[fieldId] = intakeOptions.map((value) => ({ value, label: value }));
+          } else if (fieldId === 'major') {
+            accumulator[fieldId] = majorOptions.map((value) => ({ value, label: value }));
+          }
+
+          return accumulator;
+        },
+        {}
+      ),
+    [intakeOptions, majorOptions, programOptions, selectedAdvancedFilterFields]
+  );
+  const advancedFilterSelectableValues =
+    (activeAdvancedFilterField
+      ? advancedFilterSelectableValuesByField[activeAdvancedFilterField.id as PartnerAdvancedFieldKey]
+      : []) || [];
+  const resolvedTimeFilterField =
+    timeFilterField === PARTNER_TIME_PLACEHOLDER ? ('intakeTerm' as PartnerTimeField) : timeFilterField;
+  const hasTimeFilter = timeRangeType !== 'all' && (timeRangeType !== 'custom' || Boolean(customRange?.start && customRange?.end));
+  const timeRangeLabel = useMemo(
+    () => getTimeRangeSummaryLabel(TIME_RANGE_PRESETS as ReadonlyArray<ToolbarOption>, timeRangeType, customRange),
+    [customRange, timeRangeType]
+  );
+  const advancedFilterActiveCount = selectedAdvancedFilterEntries.length;
+  const hasAdvancedFilters = selectedAdvancedFilterEntries.length > 0;
+  const activeFilterCount = selectedAdvancedFilterEntries.length + (hasTimeFilter ? 1 : 0);
 
   const activeSearchChips = useMemo<PinnedSearchChip[]>(() => {
-    const chips: PinnedSearchChip[] = [];
-    if (actionFilter !== 'ALL') chips.push({ key: 'action', label: `Hành động: ${PARTNER_ACTION_LABEL[actionFilter]}` });
-    if (hasTimeFilter) chips.push({ key: 'timeRange', label: `Thời gian: ${timeRangeLabel}` });
-
-    if (countryFilter !== 'ALL') chips.push({ key: 'country', label: `Quốc gia: ${COUNTRY_LABEL[countryFilter]}` });
-    if (levelFilter !== 'ALL') chips.push({ key: 'level', label: `Cấp độ: ${LEVEL_LABEL[levelFilter]}` });
-    if (typeFilter !== 'ALL') chips.push({ key: 'type', label: `Loại trường: ${typeFilter}` });
-    if (rankingFilter !== 'ALL') chips.push({ key: 'ranking', label: `Ranking: ${rankingFilter}` });
-    if (intakeFilter !== 'ALL') chips.push({ key: 'intake', label: `Kỳ nhập học: ${intakeFilter}` });
-    if (schoolTypeFilter !== 'ALL') chips.push({ key: 'schoolType', label: `Mô hình trường: ${schoolTypeFilter}` });
-    if (rankingGlobalFilter !== 'ALL') chips.push({ key: 'rankingGlobal', label: `Xếp hạng global: ${rankingGlobalFilter}` });
-    if (majorFilter !== 'ALL') chips.push({ key: 'major', label: `Ngành: ${majorFilter}` });
-    if (quotaFilter !== 'ALL') chips.push({ key: 'quota', label: `Chỉ tiêu: ${quotaFilter}` });
-    if (cmtcFilter !== 'ALL') chips.push({ key: 'cmtc', label: `CMTC: ${cmtcFilter}` });
-    if (websiteFilter !== 'ALL') chips.push({ key: 'website', label: `Website: ${websiteFilter === 'HAS_WEBSITE' ? 'Có' : 'Chưa có'}` });
-    if (applicantBandFilter !== 'ALL') chips.push({ key: 'applicantBand', label: `Nhóm hồ sơ: ${APPLICANT_BAND_LABEL[applicantBandFilter]}` });
-    if (groupBy.length > 0) {
-      chips.push({
-        key: 'groupBy',
-        label: `Nhóm theo: ${groupBy.map((key) => GROUP_BY_OPTIONS.find((option) => option.key === key)?.label || key).join(', ')}`
-      });
+    const chips: PinnedSearchChip[] = selectedAdvancedFilterEntries.map(([fieldId, value]) => ({
+      key: fieldId,
+      label: `${PARTNER_ADVANCED_FILTER_LABELS[fieldId]}: ${formatPartnerAdvancedFilterValue(fieldId, value)}`
+    }));
+    if (hasTimeFilter) {
+      chips.push({ key: 'timeRange', label: `K\u1ef3 tuy\u1ec3n sinh: ${timeRangeLabel}` });
     }
 
     return chips;
-  }, [
-    actionFilter,
-    hasTimeFilter,
-    timeRangeLabel,
-    countryFilter,
-    levelFilter,
-    typeFilter,
-    rankingFilter,
-    intakeFilter,
-    schoolTypeFilter,
-    rankingGlobalFilter,
-    majorFilter,
-    quotaFilter,
-    cmtcFilter,
-    websiteFilter,
-    applicantBandFilter,
-    groupBy
-  ]);
+  }, [hasTimeFilter, selectedAdvancedFilterEntries, timeRangeLabel]);
 
   const resetFilters = () => {
     setShowTimePicker(false);
-    setActionFilter('ALL');
+    setShowAdvancedFilterDropdown(false);
+    setTimeFilterField(PARTNER_TIME_PLACEHOLDER);
     setTimeRangeType('all');
-    setCountryFilter('ALL');
-    setLevelFilter('ALL');
-    setTypeFilter('ALL');
-    setRankingFilter('ALL');
-    setIntakeFilter('ALL');
-    setSchoolTypeFilter('ALL');
-    setRankingGlobalFilter('ALL');
-    setMajorFilter('ALL');
-    setQuotaFilter('ALL');
-    setCmtcFilter('ALL');
-    setWebsiteFilter('ALL');
-    setApplicantBandFilter('ALL');
-    setGroupBy([]);
-    const today = formatDateInput(new Date());
-    setStartDateFromFilter(today);
-    setEndDateToFilter(today);
+    setCustomRange(null);
+    setSelectedAdvancedFilterFields([]);
+    setSelectedAdvancedFilterValues({});
   };
 
   const clearAllSearchFilters = () => {
     setSearchTerm('');
     resetFilters();
-    setFiltersOpen(false);
-    setShowTimePicker(false);
   };
 
   const removeSearchChip = (chipKey: string) => {
     switch (chipKey) {
-      case 'action':
-        setActionFilter('ALL');
-        return;
       case 'timeRange':
+        setShowTimePicker(false);
+        setTimeFilterField(PARTNER_TIME_PLACEHOLDER);
         setTimeRangeType('all');
+        setCustomRange(null);
         return;
       case 'country':
-        setCountryFilter('ALL');
-        return;
-      case 'level':
-        setLevelFilter('ALL');
-        return;
-      case 'type':
-        setTypeFilter('ALL');
-        return;
-      case 'ranking':
-        setRankingFilter('ALL');
-        return;
+      case 'program':
       case 'intake':
-        setIntakeFilter('ALL');
-        return;
-      case 'schoolType':
-        setSchoolTypeFilter('ALL');
-        return;
-      case 'rankingGlobal':
-        setRankingGlobalFilter('ALL');
-        return;
       case 'major':
-        setMajorFilter('ALL');
-        return;
-      case 'quota':
-        setQuotaFilter('ALL');
-        return;
-      case 'cmtc':
-        setCmtcFilter('ALL');
-        return;
-      case 'website':
-        setWebsiteFilter('ALL');
-        return;
-      case 'applicantBand':
-        setApplicantBandFilter('ALL');
-        return;
-      case 'groupBy':
-        setGroupBy([]);
+        setSelectedAdvancedFilterFields((prev) => prev.filter((item) => item !== chipKey));
+        setSelectedAdvancedFilterValues((prev) => {
+          if (!(chipKey in prev)) return prev;
+
+          const nextValues = { ...prev };
+          delete nextValues[chipKey as PartnerAdvancedFieldKey];
+          return nextValues;
+        });
         return;
       default:
         return;
     }
+  };
+
+  const handleTimeFilterOpenChange = (nextOpen: boolean) => {
+    setFiltersOpen(false);
+    setShowAdvancedFilterDropdown(false);
+    setShowTimePicker(nextOpen);
+  };
+
+  const handleTimeFilterFieldChange = (fieldId: string) => {
+    setFiltersOpen(false);
+    setShowAdvancedFilterDropdown(false);
+    setShowTimePicker(false);
+    setTimeFilterField(fieldId as PartnerTimeFieldSelection);
+  };
+
+  const handleTimePresetSelect = (presetId: string) => {
+    const nextPresetId = presetId as TimeRangeType;
+    setTimeRangeType(nextPresetId);
+    if (nextPresetId !== 'custom') {
+      setShowTimePicker(false);
+    }
+  };
+
+  const handleApplyCustomTimeRange = () => {
+    if (customRange?.start && customRange?.end) {
+      setTimeRangeType('custom');
+      setShowTimePicker(false);
+      return;
+    }
+    window.alert('Vui lòng chọn khoảng ngày');
+  };
+
+  const handleAdvancedFilterOpenChange = (nextOpen: boolean) => {
+    setFiltersOpen(false);
+    setShowTimePicker(false);
+    setShowAdvancedFilterDropdown(nextOpen);
+  };
+
+  const toggleAdvancedFilterField = (fieldId: PartnerAdvancedFieldKey) => {
+    setSelectedAdvancedFilterFields((prev) =>
+      prev.includes(fieldId) ? prev.filter((item) => item !== fieldId) : [...prev, fieldId]
+    );
+    setSelectedAdvancedFilterValues((prev) => {
+      if (!(fieldId in prev)) return prev;
+
+      const nextValues = { ...prev };
+      delete nextValues[fieldId];
+      return nextValues;
+    });
+  };
+
+  const handleAdvancedFilterValueChange = (fieldId: PartnerAdvancedFieldKey, value: string) => {
+    setSelectedAdvancedFilterValues((prev) => ({
+      ...prev,
+      [fieldId]: value
+    }));
   };
 
   const toggleGroupBy = (groupKey: PartnerGroupByKey) => {
@@ -1039,59 +1121,31 @@ const StudyAbroadPartners: React.FC = () => {
         .toLowerCase();
 
       const matchesSearch = !keyword || haystack.includes(keyword);
-      const matchesAction = actionFilter === 'ALL' || partner.lastAction === actionFilter;
-      const matchesTimeRange = !hasTimeFilter || isDateInTimeRange(partner.lastActionDate, timeRangeType, startDateFromFilter, endDateToFilter);
-      const matchesCountry = countryFilter === 'ALL' || partner.country === countryFilter;
-      const matchesLevel = levelFilter === 'ALL' || partner.level === levelFilter;
-      const matchesType = typeFilter === 'ALL' || partner.type === typeFilter;
-      const matchesRanking = rankingFilter === 'ALL' || partner.ranking === rankingFilter;
-      const matchesIntake = intakeFilter === 'ALL' || partner.intake === intakeFilter;
-      const matchesSchoolType = schoolTypeFilter === 'ALL' || (partner.details.schoolType || '') === schoolTypeFilter;
-      const matchesRankingGlobal = rankingGlobalFilter === 'ALL' || (partner.details.rankingGlobal || '') === rankingGlobalFilter;
-      const matchesMajor = majorFilter === 'ALL' || (partner.details.majors || []).includes(majorFilter);
-      const matchesQuota = quotaFilter === 'ALL' || partner.details.quota === quotaFilter;
-      const matchesCmtc = cmtcFilter === 'ALL' || partner.details.cmtc === cmtcFilter;
-      const matchesWebsite = websiteFilter === 'ALL' || (websiteFilter === 'HAS_WEBSITE' ? Boolean(partner.details.website) : !partner.details.website);
-      const matchesApplicantBand = applicantBandFilter === 'ALL' || getApplicantBand(partner.applicants) === applicantBandFilter;
+      const matchesTimeRange =
+        !hasTimeFilter || doesPartnerTimeFieldMatch(partner, resolvedTimeFilterField, timeRangeType, customRange);
+      const matchesAdvancedFilters = selectedAdvancedFilterEntries.every(([fieldId, selectedValue]) => {
+        if (fieldId === 'country') {
+          return partner.country === selectedValue;
+        }
+        if (fieldId === 'program') {
+          return partner.details.programs.some((program) => program.name === selectedValue);
+        }
+        if (fieldId === 'intake') {
+          return [partner.intake, ...partner.details.programs.map((program) => program.intake)].includes(selectedValue);
+        }
+        return [...(partner.details.majors || []), ...partner.details.programs.map((program) => program.major)].includes(selectedValue);
+      });
 
-      return (
-        matchesSearch &&
-        matchesAction &&
-        matchesTimeRange &&
-        matchesCountry &&
-        matchesLevel &&
-        matchesType &&
-        matchesRanking &&
-        matchesIntake &&
-        matchesSchoolType &&
-        matchesRankingGlobal &&
-        matchesMajor &&
-        matchesQuota &&
-        matchesCmtc &&
-        matchesWebsite &&
-        matchesApplicantBand
-      );
+      return matchesSearch && matchesTimeRange && matchesAdvancedFilters;
     });
   }, [
     partners,
     searchTerm,
-    actionFilter,
+    customRange,
     hasTimeFilter,
+    resolvedTimeFilterField,
+    selectedAdvancedFilterEntries,
     timeRangeType,
-    startDateFromFilter,
-    endDateToFilter,
-    countryFilter,
-    levelFilter,
-    typeFilter,
-    rankingFilter,
-    intakeFilter,
-    schoolTypeFilter,
-    rankingGlobalFilter,
-    majorFilter,
-    quotaFilter,
-    cmtcFilter,
-    websiteFilter,
-    applicantBandFilter
   ]);
 
   const groupedPartners = useMemo(() => {
@@ -1210,7 +1264,7 @@ const StudyAbroadPartners: React.FC = () => {
     });
 
     if (expandedId === partner.id) {
-      setExpandedId(nextPartners[0]?.id ?? null);
+      setExpandedId(null);
     }
 
     if (editingPartnerId === partner.id) {
@@ -1221,6 +1275,7 @@ const StudyAbroadPartners: React.FC = () => {
   const toggleExpand = (id: number) => {
     setExpandedId((prev) => (prev === id ? null : id));
     setFiltersOpen(false);
+    setShowAdvancedFilterDropdown(false);
     setShowTimePicker(false);
   };
 
@@ -1564,141 +1619,67 @@ const StudyAbroadPartners: React.FC = () => {
               </div>
 
               <div className="flex items-center gap-2">
-                <div className="relative">
-                  {showTimePicker && <div className="fixed inset-0 z-10" onClick={() => setShowTimePicker(false)} />}
-
-                  <div className="relative z-20 flex items-center overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-                    <select
-                      value={actionFilter}
-                      onChange={(event) => setActionFilter(event.target.value as PartnerActionKey)}
-                      className="border-r border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700 outline-none"
-                    >
-                      {PARTNER_ACTION_OPTIONS.map((option) => (
-                        <option key={option.key} value={option.key}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFiltersOpen(false);
-                        setShowTimePicker((prev) => !prev);
-                      }}
-                      className={`inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold ${
-                        hasTimeFilter ? 'bg-blue-50 text-blue-700' : 'text-slate-600'
-                      }`}
-                    >
-                      <Calendar size={16} />
-                      {timeRangeLabel}
-                      <ChevronRight size={14} className={`transition-transform ${showTimePicker ? 'rotate-90' : ''}`} />
-                    </button>
-                  </div>
-
-                  {showTimePicker && (
-                    <div className="absolute right-0 top-full z-20 mt-3 w-[560px] rounded-xl border border-slate-200 bg-white shadow-xl">
-                      <div className="flex overflow-hidden rounded-xl">
-                        <div className="w-40 border-r border-slate-100 bg-slate-50 p-2.5">
-                          <div className="space-y-1">
-                            {TIME_RANGE_PRESETS.map((preset) => (
-                              <button
-                                key={preset.id}
-                                type="button"
-                                onClick={() => applyTimeRangePreset(preset.id)}
-                                className={`w-full rounded-lg px-3 py-1.5 text-left text-sm font-semibold ${
-                                  timeRangeType === preset.id ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-200'
-                                }`}
-                              >
-                                {preset.label}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-
-                        <div className="flex min-h-[280px] flex-1 flex-col p-4">
-                          <div className="mb-4 text-base font-bold uppercase tracking-wide text-slate-300">Khoảng thời gian tùy chỉnh</div>
-                          <div className="grid grid-cols-2 gap-3">
-                            <label className="text-sm">
-                              <span className="mb-1.5 block text-xs font-semibold text-slate-400">Từ ngày</span>
-                              <input
-                                type="date"
-                                value={startDateFromFilter}
-                                onChange={(event) => {
-                                  setTimeRangeType('custom');
-                                  setStartDateFromFilter(event.target.value);
-                                }}
-                                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold"
-                              />
-                            </label>
-
-                            <label className="text-sm">
-                              <span className="mb-1.5 block text-xs font-semibold text-slate-400">Đến ngày</span>
-                              <input
-                                type="date"
-                                value={endDateToFilter}
-                                onChange={(event) => {
-                                  setTimeRangeType('custom');
-                                  setEndDateToFilter(event.target.value);
-                                }}
-                                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold"
-                              />
-                            </label>
-                          </div>
-
-                          <div className="mt-auto flex items-center justify-between pt-5">
-                            <button
-                              type="button"
-                              onClick={() => applyTimeRangePreset('all')}
-                              className="text-xs font-semibold text-slate-400 hover:text-slate-600"
-                            >
-                              Làm lại
-                            </button>
-
-                            <div className="flex items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() => setShowTimePicker(false)}
-                                className="rounded-lg px-3 py-1.5 text-sm font-semibold text-slate-500 hover:bg-slate-50"
-                              >
-                                Hủy
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setTimeRangeType('custom');
-                                  setShowTimePicker(false);
-                                }}
-                                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white"
-                              >
-                                Áp dụng
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => {
+                <ToolbarTimeFilter
+                  isOpen={showTimePicker}
+                  fieldOptions={PARTNER_TIME_FIELD_OPTIONS}
+                  fieldPlaceholderValue={PARTNER_TIME_PLACEHOLDER}
+                  fieldPlaceholderLabel="H\u00E0nh \u0111\u1ED9ng"
+                  selectedField={timeFilterField}
+                  selectedRangeType={timeRangeType}
+                  customRange={customRange}
+                  presets={TIME_RANGE_PRESETS}
+                  onOpenChange={handleTimeFilterOpenChange}
+                  onFieldChange={handleTimeFilterFieldChange}
+                  onPresetSelect={handleTimePresetSelect}
+                  onCustomRangeChange={setCustomRange}
+                  onReset={() => {
+                    setTimeFilterField(PARTNER_TIME_PLACEHOLDER);
+                    setTimeRangeType('all');
+                    setCustomRange(null);
                     setShowTimePicker(false);
-                    setFiltersOpen((prev) => !prev);
                   }}
-                  className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition-colors ${
-                    filtersOpen || activeFilterCount
-                      ? 'border-blue-200 bg-blue-50 text-blue-700'
-                      : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                  }`}
-                >
-                  <Filter size={16} />
-                  Lọc nâng cao
-                  {activeFilterCount > 0 && (
-                    <span className="rounded-full bg-blue-600 px-1.5 py-0.5 text-[11px] font-bold text-white">{activeFilterCount}</span>
-                  )}
-                </button>
+                  onCancel={() => setShowTimePicker(false)}
+                  onApplyCustomRange={handleApplyCustomTimeRange}
+                  controlClassName="min-h-[42px] rounded-xl border-slate-200 shadow-none"
+                  fieldSectionClassName="bg-white"
+                  fieldSelectClassName="text-[13px]"
+                  rangeButtonClassName="px-3 text-[13px]"
+                  className="shrink-0"
+                />
+
+                <AdvancedFilterDropdown
+                  isOpen={showAdvancedFilterDropdown}
+                  activeCount={advancedFilterActiveCount}
+                  hasActiveFilters={hasAdvancedFilters}
+                  filterOptions={PARTNER_ADVANCED_FILTER_OPTIONS}
+                  groupOptions={[]}
+                  selectedFilterFieldIds={selectedAdvancedFilterFields}
+                  selectedGroupFieldIds={[]}
+                  activeFilterField={activeAdvancedFilterField}
+                  selectableValues={advancedFilterSelectableValues}
+                  selectedFilterValue={
+                    activeAdvancedFilterField
+                      ? selectedAdvancedFilterValues[activeAdvancedFilterField.id as PartnerAdvancedFieldKey] || ''
+                      : ''
+                  }
+                  selectedFilterValuesByField={selectedAdvancedFilterValues}
+                  selectableValuesByField={advancedFilterSelectableValuesByField}
+                  onOpenChange={handleAdvancedFilterOpenChange}
+                  onToggleFilterField={(fieldId) => toggleAdvancedFilterField(fieldId as PartnerAdvancedFieldKey)}
+                  onToggleGroupField={() => undefined}
+                  onFilterValueChange={() => undefined}
+                  onFilterValueChangeForField={(fieldId, value) =>
+                    handleAdvancedFilterValueChange(fieldId as PartnerAdvancedFieldKey, value)
+                  }
+                  onClearAll={() => {
+                    setSelectedAdvancedFilterFields([]);
+                    setSelectedAdvancedFilterValues({});
+                  }}
+                  triggerLabel="Lọc nâng cao"
+                  filterDescription="Chọn quốc gia, chương trình, kỳ nhập học và ngành để lọc nhanh danh sách đối tác trường."
+                  triggerClassName="min-h-[42px] rounded-xl px-3 py-1.5 text-[13px] font-medium shadow-none"
+                  className="shrink-0"
+                />
 
                 {activeFilterCount > 0 && (
                   <button
@@ -1711,167 +1692,6 @@ const StudyAbroadPartners: React.FC = () => {
                 )}
               </div>
             </div>
-
-            {filtersOpen && (
-              <div className="absolute right-0 top-full z-20 mt-3 w-full max-w-[760px] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
-                <button
-                  type="button"
-                  onClick={() => setFiltersOpen(false)}
-                  className="absolute right-3 top-3 rounded-lg px-2 py-1 text-xs font-semibold text-slate-500 hover:bg-slate-50"
-                >
-                  Đóng
-                </button>
-
-                <div className="grid grid-cols-[1.25fr_0.95fr] items-start">
-                  <div className="border-r border-slate-100 p-3">
-                    <div className="mb-2 flex items-center gap-2 text-base font-semibold text-slate-800">
-                      <Filter size={18} className="text-slate-700" />
-                      <span>Bộ lọc</span>
-                    </div>
-
-                    <div className="space-y-2">
-                      <div className="space-y-1">
-                        <select value={countryFilter} onChange={(event) => setCountryFilter(event.target.value as CountryFilter)} className="w-full border-0 bg-transparent px-0 py-0 text-sm font-medium leading-5 text-slate-700 outline-none">
-                          <option value="ALL">Tất cả quốc gia</option>
-                          <option value="Germany">Đức</option>
-                          <option value="China">Trung Quốc</option>
-                        </select>
-                        <select value={levelFilter} onChange={(event) => setLevelFilter(event.target.value as 'ALL' | PartnerLevel)} className="w-full border-0 bg-transparent px-0 py-0 text-sm font-medium leading-5 text-slate-700 outline-none">
-                          <option value="ALL">Tất cả cấp độ đối tác</option>
-                          <option value="GOLD">Vàng</option>
-                          <option value="SILVER">Bạc</option>
-                          <option value="PREMIUM">Cao cấp</option>
-                        </select>
-                        <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)} className="w-full border-0 bg-transparent px-0 py-0 text-sm font-medium leading-5 text-slate-700 outline-none">
-                          <option value="ALL">Tất cả loại trường</option>
-                          {typeOptions.map((option) => (
-                            <option key={option} value={option}>
-                              {option}
-                            </option>
-                          ))}
-                        </select>
-                        <select value={rankingFilter} onChange={(event) => setRankingFilter(event.target.value)} className="w-full border-0 bg-transparent px-0 py-0 text-sm font-medium leading-5 text-slate-700 outline-none">
-                          <option value="ALL">Tất cả ranking</option>
-                          {rankingOptions.map((option) => (
-                            <option key={option} value={option}>
-                              {option}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div className="border-t border-slate-100 pt-2">
-                        <div className="space-y-1">
-                          <select value={intakeFilter} onChange={(event) => setIntakeFilter(event.target.value)} className="w-full border-0 bg-transparent px-0 py-0 text-sm font-medium leading-5 text-slate-700 outline-none">
-                            <option value="ALL">Tất cả kỳ nhập học</option>
-                            {intakeOptions.map((option) => (
-                              <option key={option} value={option}>
-                                {option}
-                              </option>
-                            ))}
-                          </select>
-                          <select value={schoolTypeFilter} onChange={(event) => setSchoolTypeFilter(event.target.value)} className="w-full border-0 bg-transparent px-0 py-0 text-sm font-medium leading-5 text-slate-700 outline-none">
-                            <option value="ALL">Tất cả mô hình trường</option>
-                            {schoolTypeOptions.map((option) => (
-                              <option key={option} value={option}>
-                                {option}
-                              </option>
-                            ))}
-                          </select>
-                          <select value={rankingGlobalFilter} onChange={(event) => setRankingGlobalFilter(event.target.value)} className="w-full border-0 bg-transparent px-0 py-0 text-sm font-medium leading-5 text-slate-700 outline-none">
-                            <option value="ALL">Tất cả xếp hạng global</option>
-                            {rankingGlobalOptions.map((option) => (
-                              <option key={option} value={option}>
-                                {option}
-                              </option>
-                            ))}
-                          </select>
-                          <select value={majorFilter} onChange={(event) => setMajorFilter(event.target.value)} className="w-full border-0 bg-transparent px-0 py-0 text-sm font-medium leading-5 text-slate-700 outline-none">
-                            <option value="ALL">Tất cả ngành tuyển sinh</option>
-                            {majorOptions.map((option) => (
-                              <option key={option} value={option}>
-                                {option}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      </div>
-
-                      <div className="border-t border-slate-100 pt-2">
-                        <div className="space-y-1">
-                          <select value={quotaFilter} onChange={(event) => setQuotaFilter(event.target.value)} className="w-full border-0 bg-transparent px-0 py-0 text-sm font-medium leading-5 text-slate-700 outline-none">
-                            <option value="ALL">Tất cả chỉ tiêu tuyển sinh</option>
-                            {quotaOptions.map((option) => (
-                              <option key={option} value={option}>
-                                {option}
-                              </option>
-                            ))}
-                          </select>
-                          <select value={cmtcFilter} onChange={(event) => setCmtcFilter(event.target.value)} className="w-full border-0 bg-transparent px-0 py-0 text-sm font-medium leading-5 text-slate-700 outline-none">
-                            <option value="ALL">Tất cả CMTC</option>
-                            {cmtcOptions.map((option) => (
-                              <option key={option} value={option}>
-                                {option}
-                              </option>
-                            ))}
-                          </select>
-                          <select value={websiteFilter} onChange={(event) => setWebsiteFilter(event.target.value as WebsiteFilter)} className="w-full border-0 bg-transparent px-0 py-0 text-sm font-medium leading-5 text-slate-700 outline-none">
-                            <option value="ALL">Tất cả trạng thái website</option>
-                            <option value="HAS_WEBSITE">Có website</option>
-                            <option value="NO_WEBSITE">Chưa có website</option>
-                          </select>
-                          <select value={applicantBandFilter} onChange={(event) => setApplicantBandFilter(event.target.value as ApplicantBand)} className="w-full border-0 bg-transparent px-0 py-0 text-sm font-medium leading-5 text-slate-700 outline-none">
-                            <option value="ALL">Tất cả nhóm hồ sơ hiện tại</option>
-                            <option value="UNDER_80">{APPLICANT_BAND_LABEL.UNDER_80}</option>
-                            <option value="FROM_80_TO_120">{APPLICANT_BAND_LABEL.FROM_80_TO_120}</option>
-                            <option value="OVER_120">{APPLICANT_BAND_LABEL.OVER_120}</option>
-                          </select>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="p-3">
-                    <div className="mb-2">
-                      <div className="flex items-center gap-2 text-base font-semibold text-slate-800">
-                        <Rows3 size={18} className="text-slate-700" />
-                        <span>Nhóm theo</span>
-                      </div>
-                      {groupBy.length > 0 && (
-                        <div className="mt-2 flex justify-end">
-                          <button
-                            type="button"
-                            onClick={() => setGroupBy([])}
-                            className="shrink-0 whitespace-nowrap rounded-lg px-2 py-1 text-xs font-semibold text-slate-500 hover:bg-slate-50"
-                          >
-                            Bỏ nhóm
-                          </button>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="space-y-1">
-                      {GROUP_BY_OPTIONS.map((option) => (
-                        <label
-                          key={option.key}
-                          className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm font-medium leading-5 transition-colors ${
-                            groupBy.includes(option.key) ? 'bg-blue-50 text-blue-700' : 'text-slate-700 hover:bg-slate-50'
-                          }`}
-                        >
-                          <span>{option.label}</span>
-                          <input
-                            type="checkbox"
-                            checked={groupBy.includes(option.key)}
-                            onChange={() => toggleGroupBy(option.key)}
-                            className="h-4 w-4 rounded border-slate-300 text-blue-600"
-                          />
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
         </div>
 

@@ -1,6 +1,5 @@
 ﻿import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useTranslation } from 'react-i18next';
 import {
   CircleCheck,
   FileText,
@@ -13,7 +12,6 @@ import {
   Target,
   type LucideIcon,
 } from 'lucide-react';
-import LanguageSwitcher from '../components/LanguageSwitcher';
 import { useAuth } from '../contexts/AuthContext';
 import { UserRole } from '../types';
 
@@ -75,18 +73,18 @@ const ModuleCard: React.FC<ModuleCardProps> = ({ role, icon: Icon, title, subtit
     <button
       type="button"
       onClick={() => onSelectRole(role)}
-      className="group flex h-full flex-col rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-md lg:p-4"
+      className="group flex flex-col rounded-xl border border-slate-200 bg-white p-5 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-md lg:p-[1.125rem]"
     >
-      <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-700 transition-colors group-hover:bg-blue-600 group-hover:text-white lg:mb-2.5 lg:h-9 lg:w-9">
+      <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-700 transition-colors group-hover:bg-blue-600 group-hover:text-white lg:mb-2.5 lg:h-10 lg:w-10">
         <Icon size={18} />
       </div>
 
-      <h3 className="text-base font-bold text-slate-900 lg:text-[1rem]">{title}</h3>
-      <p className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-blue-600">{subtitle}</p>
+      <h3 className="text-[1.08rem] font-bold text-slate-900 lg:text-[1.08rem]">{title}</h3>
+      <p className="mt-1.5 text-xs font-semibold uppercase tracking-wide text-blue-600">{subtitle}</p>
 
-      <div className="mt-3 space-y-1.5 lg:mt-2 lg:space-y-1">
+      <div className="mt-3 space-y-1.5 lg:mt-2.5 lg:space-y-1.5">
         {features.map((feature) => (
-          <div key={feature} className="flex items-center gap-2 text-xs leading-5 text-slate-500 lg:text-[12px] lg:leading-4">
+          <div key={feature} className="flex items-center gap-2 text-[13px] leading-5 text-slate-500 lg:text-[13px] lg:leading-5">
             <CircleCheck size={14} className="text-slate-400" />
             <span>{feature}</span>
           </div>
@@ -98,10 +96,8 @@ const ModuleCard: React.FC<ModuleCardProps> = ({ role, icon: Icon, title, subtit
 
 const ModuleSelectionPage: React.FC = () => {
   const { login } = useAuth();
-  const { i18n } = useTranslation('common');
   const navigate = useNavigate();
-  const language = i18n.resolvedLanguage === 'en' ? 'en' : 'vi';
-  const copy = MODULE_COPY[language];
+  const copy = MODULE_COPY.vi;
 
   const handleSelectRole = (role: UserRole) => {
     login(role);
@@ -109,13 +105,9 @@ const ModuleSelectionPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#eef3f9] px-4 py-4 sm:px-6 sm:py-5 lg:h-screen lg:overflow-hidden lg:px-8 lg:py-3">
-      <div className="mx-auto flex w-full max-w-7xl flex-col lg:h-full">
-        <div className="mb-4 flex justify-end lg:mb-4">
-          <LanguageSwitcher />
-        </div>
-
-        <header className="mb-6 text-center lg:mb-5">
+    <div className="min-h-screen bg-[#eef3f9] px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-5">
+      <div className="mx-auto flex w-full max-w-[84rem] flex-col lg:min-h-[calc(100vh-2.5rem)] lg:justify-center">
+        <header className="mb-5 text-center lg:mb-6">
           <h1 className="text-3xl font-extrabold text-slate-900 sm:text-4xl lg:text-[2.35rem]">
             <span className="text-blue-600">ULA</span> EduCRM
           </h1>
@@ -124,7 +116,7 @@ const ModuleSelectionPage: React.FC = () => {
           </p>
         </header>
 
-        <main className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:flex-1 lg:grid-cols-4 lg:auto-rows-fr lg:gap-3">
+        <main className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 lg:gap-5">
           {MODULE_OPTIONS.map((moduleOption) => {
             const moduleCopy = copy.modules[moduleOption.key];
 
@@ -142,7 +134,7 @@ const ModuleSelectionPage: React.FC = () => {
           })}
         </main>
 
-        <footer className="mt-5 text-center text-xs text-slate-400 sm:text-sm lg:mt-3">
+        <footer className="mt-6 text-center text-xs text-slate-400 sm:text-sm lg:mt-5">
           {copy.footer}
         </footer>
       </div>

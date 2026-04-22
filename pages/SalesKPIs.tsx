@@ -345,7 +345,7 @@ const SalesKPIs: React.FC = () => {
     user?.role === UserRole.FOUNDER ||
     salesTestRole === UserRole.SALES_LEADER;
 
-  const [timeFilter, setTimeFilter] = useState<TimeFilterValue>('1m');
+  const [timeFilter, setTimeFilter] = useState<TimeFilterValue>('custom');
   const [customStartDate, setCustomStartDate] = useState(toDateInputValue(currentMonthStart));
   const [customEndDate, setCustomEndDate] = useState(toDateInputValue(today));
   const [branchFilter, setBranchFilter] = useState('all');
@@ -365,7 +365,6 @@ const SalesKPIs: React.FC = () => {
   const [draftTargets, setDraftTargets] = useState<DraftTargetMap>({});
   const [notice, setNotice] = useState('');
   const [isTimeFilterOpen, setIsTimeFilterOpen] = useState(false);
-  const [draftTimeFilter, setDraftTimeFilter] = useState<TimeFilterValue>('1m');
   const [draftCustomStartDate, setDraftCustomStartDate] = useState(toDateInputValue(currentMonthStart));
   const [draftCustomEndDate, setDraftCustomEndDate] = useState(toDateInputValue(today));
   const timeFilterRef = useRef<HTMLDivElement | null>(null);
@@ -419,10 +418,8 @@ const SalesKPIs: React.FC = () => {
   }, [isTimeFilterOpen]);
 
   const openTimeFilter = () => {
-    const nextDraftRange = resolveDraftTimeFilterInputs(timeFilter, customStartDate, customEndDate);
-    setDraftTimeFilter(timeFilter);
-    setDraftCustomStartDate(nextDraftRange.startDate);
-    setDraftCustomEndDate(nextDraftRange.endDate);
+    setDraftCustomStartDate(customStartDate);
+    setDraftCustomEndDate(customEndDate);
     setIsTimeFilterOpen(true);
   };
 
@@ -602,38 +599,10 @@ const SalesKPIs: React.FC = () => {
     };
   };
 
-  const resolveDraftTimeFilterInputs = (
-    filter: TimeFilterValue,
-    startInput: string,
-    endInput: string
-  ) => {
-    if (filter === 'custom') {
-      return {
-        startDate: startInput,
-        endDate: endInput,
-      };
-    }
-
-    if (filter === 'all') {
-      return {
-        startDate: '',
-        endDate: '',
-      };
-    }
-
-    const resolvedRange = resolveTimeFilterRange(filter, startInput, endInput);
-    return {
-      startDate: resolvedRange.start ? toDateInputValue(resolvedRange.start) : '',
-      endDate: resolvedRange.end ? toDateInputValue(resolvedRange.end) : '',
-    };
-  };
-
   const activeDateRange = resolveTimeFilterRange(timeFilter, customStartDate, customEndDate);
-  const draftDateRange = resolveTimeFilterRange(draftTimeFilter, draftCustomStartDate, draftCustomEndDate);
   const activePeriodSet = new Set(activeDateRange.months);
   const activePeriodLabel = activeDateRange.displayLabel;
-  const activeButtonLabel =
-    timeFilter === 'custom' ? activeDateRange.displayLabel : activeDateRange.buttonLabel;
+  const activeButtonLabel = 'Thời gian';
   const isPeriodIncluded = (period?: string) => {
     if (!period) return timeFilter === 'all';
     return timeFilter === 'all' ? true : activePeriodSet.has(period);
@@ -1011,47 +980,23 @@ const SalesKPIs: React.FC = () => {
     closeCreateModal();
   };
 
-  const handleSelectDraftTimeFilter = (nextFilter: TimeFilterValue) => {
-    const nextDraftRange = resolveDraftTimeFilterInputs(
-      nextFilter,
-      draftCustomStartDate,
-      draftCustomEndDate
-    );
-
-    setDraftTimeFilter(nextFilter);
-    setDraftCustomStartDate(nextDraftRange.startDate);
-    setDraftCustomEndDate(nextDraftRange.endDate);
-  };
-
-  const handleResetTimeFilterDraft = () => {
-    setDraftTimeFilter('all');
-    setDraftCustomStartDate('');
-    setDraftCustomEndDate('');
-  };
-
   const handleApplyTimeFilter = () => {
-    if (draftTimeFilter === 'custom') {
-      const startDate = parseDateInputValue(draftCustomStartDate);
-      const endDate = parseDateInputValue(draftCustomEndDate);
+    const startDate = parseDateInputValue(draftCustomStartDate);
+    const endDate = parseDateInputValue(draftCustomEndDate);
 
-      if (!startDate || !endDate) {
-        setNotice('Vui lòng chọn đầy đủ Từ ngày và Đến ngày cho khoảng tùy chỉnh.');
-        return;
-      }
-
-      if (startDate > endDate) {
-        setNotice('Khoảng thời gian tùy chỉnh không hợp lệ. Từ ngày phải trước Đến ngày.');
-        return;
-      }
-
-      setCustomStartDate(draftCustomStartDate);
-      setCustomEndDate(draftCustomEndDate);
-    } else {
-      setCustomStartDate('');
-      setCustomEndDate('');
+    if (!startDate || !endDate) {
+      setNotice('Vui lòng chọn đầy đủ Từ ngày và Đến ngày cho khoảng tùy chỉnh.');
+      return;
     }
 
-    setTimeFilter(draftTimeFilter);
+    if (startDate > endDate) {
+      setNotice('Khoảng thời gian tùy chỉnh không hợp lệ. Từ ngày phải trước Đến ngày.');
+      return;
+    }
+
+    setCustomStartDate(draftCustomStartDate);
+    setCustomEndDate(draftCustomEndDate);
+    setTimeFilter('custom');
     closeTimeFilter();
   };
 
@@ -1114,7 +1059,7 @@ const SalesKPIs: React.FC = () => {
               <SalesRoleTestSwitcher />
             </div>
 
-            <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2 md:justify-end xl:w-auto xl:grid-cols-[220px_176px_176px_148px] xl:gap-1.5">
+            <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2 md:justify-end xl:w-auto xl:grid-cols-[176px_176px_176px_148px] xl:gap-1.5">
               <div ref={timeFilterRef} className="relative min-w-0">
                 <span className="sr-only">Lọc theo thời gian</span>
                 <button
@@ -1138,104 +1083,48 @@ const SalesKPIs: React.FC = () => {
                 </button>
 
                 {isTimeFilterOpen ? (
-                  <div className="absolute left-0 top-[calc(100%+8px)] z-30 w-[500px] max-w-[calc(100vw-2.5rem)] overflow-hidden rounded-[18px] border border-slate-200 bg-white shadow-2xl">
-                    <div className="flex flex-col sm:flex-row">
-                      <div className="border-b border-slate-100 bg-slate-50/70 p-3 sm:w-[180px] sm:border-b-0 sm:border-r">
-                        <div className="space-y-1">
-                          {TIME_FILTER_OPTIONS.map((option) => {
-                            const isActive = option.value === draftTimeFilter;
-                            return (
-                              <button
-                                key={option.value}
-                                type="button"
-                                onClick={() => handleSelectDraftTimeFilter(option.value)}
-                                className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-[12px] font-semibold transition ${
-                                  isActive
-                                    ? 'bg-blue-600 text-white shadow-sm'
-                                    : 'text-slate-700 hover:bg-white hover:text-slate-900'
-                                }`}
-                              >
-                                <span>{option.label}</span>
-                                {isActive ? <span className="text-[10px] font-bold">Đang chọn</span> : null}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
+                  <div className="absolute left-0 top-[calc(100%+8px)] z-30 w-[385px] max-w-[calc(100vw-2.5rem)] rounded-[18px] border border-slate-200 bg-white p-4 shadow-2xl">
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.28em] text-slate-400">
+                      Khoảng thời gian tùy chỉnh
+                    </div>
 
-                      <div className="flex-1 p-4">
-                        <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">
-                          Khoảng thời gian tùy chỉnh
-                        </div>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                      <label className="space-y-1.5">
+                        <span className="block text-[13px] font-semibold text-slate-600">Từ ngày</span>
+                        <input
+                          type="date"
+                          value={draftCustomStartDate}
+                          onChange={(event) => setDraftCustomStartDate(event.target.value)}
+                          className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-800 outline-none transition focus:border-blue-500"
+                        />
+                      </label>
 
-                        <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
-                          <label className="space-y-1">
-                            <span className="block text-[11px] font-semibold text-slate-500">Từ ngày</span>
-                            <input
-                              type="date"
-                              value={draftCustomStartDate}
-                              onChange={(event) => {
-                                setDraftTimeFilter('custom');
-                                setDraftCustomStartDate(event.target.value);
-                              }}
-                              disabled={draftTimeFilter !== 'custom'}
-                              className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-[12px] font-semibold text-slate-800 outline-none transition focus:border-blue-500"
-                            />
-                          </label>
+                      <label className="space-y-1.5">
+                        <span className="block text-[13px] font-semibold text-slate-600">Đến ngày</span>
+                        <input
+                          type="date"
+                          value={draftCustomEndDate}
+                          onChange={(event) => setDraftCustomEndDate(event.target.value)}
+                          className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-800 outline-none transition focus:border-blue-500"
+                        />
+                      </label>
+                    </div>
 
-                          <label className="space-y-1">
-                            <span className="block text-[11px] font-semibold text-slate-500">Đến ngày</span>
-                            <input
-                              type="date"
-                              value={draftCustomEndDate}
-                              onChange={(event) => {
-                                setDraftTimeFilter('custom');
-                                setDraftCustomEndDate(event.target.value);
-                              }}
-                              disabled={draftTimeFilter !== 'custom'}
-                              className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-[12px] font-semibold text-slate-800 outline-none transition focus:border-blue-500"
-                            />
-                          </label>
-                        </div>
-
-                        <div className="mt-3 space-y-1 text-[11px] text-slate-500">
-                          <div>
-                            Đang chọn:{' '}
-                            <span className="font-semibold text-slate-700">{draftDateRange.displayLabel}</span>
-                          </div>
-                          <div>
-                            Áp dụng hiện tại:{' '}
-                            <span className="font-semibold text-slate-700">{activePeriodLabel}</span>
-                          </div>
-                        </div>
-
-                        <div className="mt-4 flex items-center justify-between gap-2.5">
-                          <button
-                            type="button"
-                            onClick={handleResetTimeFilterDraft}
-                            className="text-[12px] font-semibold text-slate-500 transition hover:text-slate-700"
-                          >
-                            Làm lại
-                          </button>
-
-                          <div className="flex items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={closeTimeFilter}
-                              className="rounded-xl px-3.5 py-1.5 text-[12px] font-semibold text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
-                            >
-                              Hủy
-                            </button>
-                            <button
-                              type="button"
-                              onClick={handleApplyTimeFilter}
-                              className="rounded-xl bg-blue-600 px-4 py-1.5 text-[12px] font-semibold text-white transition hover:bg-blue-700"
-                            >
-                              Áp dụng
-                            </button>
-                          </div>
-                        </div>
-                      </div>
+                    <div className="mt-4 flex items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={closeTimeFilter}
+                        className="rounded-xl px-3.5 py-1.5 text-[12px] font-semibold text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+                      >
+                        Hủy
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleApplyTimeFilter}
+                        className="rounded-xl bg-blue-600 px-4 py-1.5 text-[12px] font-semibold text-white transition hover:bg-blue-700"
+                      >
+                        Áp dụng
+                      </button>
                     </div>
                   </div>
                 ) : null}

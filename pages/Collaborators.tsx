@@ -31,6 +31,7 @@ import { useAuth } from '../contexts/AuthContext';
 import LogAudienceFilterControl from '../components/LogAudienceFilter';
 import PinnedSearchInput, { PinnedSearchChip } from '../components/PinnedSearchInput';
 import { LogAudienceFilter } from '../utils/logAudience';
+import { decodeMojibakeText } from '../utils/mojibake';
 
 // Mock Data for Collaborators
 interface ICollaborator {
@@ -1343,6 +1344,8 @@ const Collaborators: React.FC = () => {
     const { user } = useAuth();
     const [searchTerm, setSearchTerm] = useState('');
     const [filterCity, setFilterCity] = useState('All');
+    const [filterSegment, setFilterSegment] = useState('All');
+    const [filterStatus, setFilterStatus] = useState<'All' | CollaboratorStatusValue>('All');
     const [activeTab, setActiveTab] = useState<'all' | 'slow_ctv'>('all');
     const [collaborators, setCollaborators] = useState<ICollaborator[]>([]);
     const [selectedCtv, setSelectedCtv] = useState<ICollaborator | null>(null);
@@ -1435,6 +1438,23 @@ const Collaborators: React.FC = () => {
 
     // Derived Options for Filters
     const cityOptions = useMemo(() => ['All', ...COLLABORATOR_PROVINCE_OPTIONS], []);
+    const segmentOptions = useMemo(
+        () => [
+            'All',
+            ...Array.from(
+                new Set(
+                    visibleCollaborators
+                        .map((item) => String(item.segment || '').trim())
+                        .filter(Boolean)
+                )
+            ).sort((left, right) => left.localeCompare(right, 'vi'))
+        ],
+        [visibleCollaborators]
+    );
+    const statusOptions = useMemo(
+        () => ['All', ...COLLABORATOR_STATUS_OPTIONS.map((statusOption) => statusOption.id)],
+        []
+    );
     // Filter Logic
     const filteredList = useMemo(() => {
         return visibleCollaborators.filter(c => {
@@ -1444,27 +1464,39 @@ const Collaborators: React.FC = () => {
                 c.name.toLowerCase().includes(normalizedSearch) ||
                 c.phone.includes(searchTerm);
             const matchesCity = filterCity === 'All' || normalizeCollaboratorProvince(c.city) === filterCity;
-            return matchesSearch && matchesCity;
+            const matchesSegment = filterSegment === 'All' || normalizeTextToken(c.segment) === normalizeTextToken(filterSegment);
+            const matchesStatus = filterStatus === 'All' || normalizeCollaboratorStatus(c.status) === filterStatus;
+            return matchesSearch && matchesCity && matchesSegment && matchesStatus;
         });
-    }, [visibleCollaborators, searchTerm, filterCity]);
+    }, [visibleCollaborators, searchTerm, filterCity, filterSegment, filterStatus]);
 
     const activeSearchChips = useMemo<PinnedSearchChip[]>(() => {
         const chips: PinnedSearchChip[] = [];
 
         if (activeTab === 'slow_ctv') {
-            chips.push({ key: 'sla', label: 'SLA: Chậm lịch hẹn' });
+            chips.push({ key: 'sla', label: 'SLA: Ch\u1eadm l\u1ecbch h\u1eb9n' });
         }
 
         if (filterCity !== 'All') {
-            chips.push({ key: 'city', label: `Tỉnh / thành: ${filterCity}` });
+            chips.push({ key: 'city', label: `Tỉnh / thành: ${decodeMojibakeText(filterCity)}` });
+        }
+
+        if (filterSegment !== 'All') {
+            chips.push({ key: 'segment', label: `Sản phẩm: ${decodeMojibakeText(filterSegment)}` });
+        }
+
+        if (filterStatus !== 'All') {
+            chips.push({ key: 'status', label: `Trạng thái: ${decodeMojibakeText(filterStatus)}` });
         }
 
         return chips;
-    }, [activeTab, filterCity]);
+    }, [activeTab, filterCity, filterSegment, filterStatus]);
 
     const removeSearchChip = (chipKey: string) => {
         if (chipKey === 'sla') setActiveTab('all');
         if (chipKey === 'city') setFilterCity('All');
+        if (chipKey === 'segment') setFilterSegment('All');
+        if (chipKey === 'status') setFilterStatus('All');
     };
 
     // Stats Calculation
@@ -1639,47 +1671,61 @@ const Collaborators: React.FC = () => {
                 </div>
 
                 {/* Toolbar & Filters */}
-                <div className="flex flex-col md:flex-row gap-4 bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
+                <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm xl:flex-row xl:items-center">
                     {/* Search */}
-                    <div className="flex-[1.5] min-w-[250px]">
+                    <div className="w-full min-w-0 xl:flex-1">
                         <PinnedSearchInput
                             value={searchTerm}
                             onChange={setSearchTerm}
-                            placeholder="Tim kiem theo ma CTV, ten, SDT, tinh/thanh..."
+                            placeholder="T\u00ecm ki\u1ebfm theo m\u00e3 CTV, t\u00ean, S\u0110T, t\u1ec9nh/th\u00e0nh, s\u1ea3n ph\u1ea9m..."
                             chips={activeSearchChips}
                             onRemoveChip={removeSearchChip}
                             inputClassName="text-sm"
                         />
                     </div>
 
-                    <div className="h-full w-px bg-slate-200 hidden md:block mx-1"></div>
+                    <div className="mx-1 hidden h-10 w-px bg-slate-200 xl:block"></div>
 
                     {/* Filters Row */}
-                    <div className="flex flex-1 gap-2 overflow-x-auto">
-                        <div className="relative min-w-[140px]">
+                    <div className="flex w-full min-w-0 flex-wrap gap-2 xl:w-auto xl:flex-nowrap xl:justify-end xl:shrink-0">
+                        <div className="relative min-w-[180px] flex-1 xl:w-[190px] xl:flex-none">
                             <select
                                 value={filterCity}
                                 onChange={(e) => setFilterCity(e.target.value)}
                                 className="w-full pl-8 pr-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 focus:bg-white outline-none appearance-none cursor-pointer font-medium text-slate-700 hover:border-slate-300"
                             >
-                                <option value="All">Tỉnh / thành: Tất cả</option>
+                                <option value="All">{'T\u1ec9nh / th\u00e0nh: T\u1ea5t c\u1ea3'}</option>
                                 {cityOptions.filter(o => o !== 'All').map(c => (
-                                    <option key={c} value={c}>{c}</option>
+                                    <option key={c} value={c}>{decodeMojibakeText(c)}</option>
                                 ))}
                             </select>
                             <MapPin className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={16} />
                         </div>
 
-                        <div className="relative hidden min-w-[140px]">
+                        <div className="relative min-w-[180px] flex-1 xl:w-[190px] xl:flex-none">
                             <select
-                                value="All"
-                                onChange={() => { }}
+                                value={filterSegment}
+                                onChange={(e) => setFilterSegment(e.target.value)}
                                 className="w-full pl-8 pr-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 focus:bg-white outline-none appearance-none cursor-pointer font-medium text-slate-700 hover:border-slate-300"
                             >
-                                <option value="All">Trạng thái: Tất cả</option>
-                                {COLLABORATOR_STATUS_OPTIONS.map((statusOption) => (
-                                    <option key={statusOption.id} value={statusOption.id}>
-                                        {statusOption.label}
+                                <option value="All">{'S\u1ea3n ph\u1ea9m: T\u1ea5t c\u1ea3'}</option>
+                                {segmentOptions.filter((option) => option !== 'All').map((segmentOption) => (
+                                    <option key={segmentOption} value={segmentOption}>{decodeMojibakeText(segmentOption)}</option>
+                                ))}
+                            </select>
+                            <Briefcase className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={16} />
+                        </div>
+
+                        <div className="relative min-w-[180px] flex-1 xl:w-[190px] xl:flex-none">
+                            <select
+                                value={filterStatus}
+                                onChange={(e) => setFilterStatus(e.target.value as 'All' | CollaboratorStatusValue)}
+                                className="w-full pl-8 pr-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 focus:bg-white outline-none appearance-none cursor-pointer font-medium text-slate-700 hover:border-slate-300"
+                            >
+                                <option value="All">{'Tr\u1ea1ng th\u00e1i: T\u1ea5t c\u1ea3'}</option>
+                                {statusOptions.filter((option) => option !== 'All').map((statusOption) => (
+                                    <option key={statusOption} value={statusOption}>
+                                        {decodeMojibakeText(statusOption)}
                                     </option>
                                 ))}
                             </select>
@@ -1687,10 +1733,10 @@ const Collaborators: React.FC = () => {
                         </div>
                     </div>
 
-                    <div className="h-full w-px bg-slate-200 hidden md:block mx-1"></div>
+                    <div className="mx-1 hidden h-10 w-px bg-slate-200 xl:block"></div>
 
                     {/* Column Control */}
-                    <div className="relative">
+                    <div className="relative xl:shrink-0">
                         <button
                             onClick={() => setShowColumnDropdown(!showColumnDropdown)}
                             className="flex items-center gap-2 px-3 py-2 border border-slate-200 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-50 bg-white"

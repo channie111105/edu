@@ -5,17 +5,25 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
-  Filter,
   MapPin,
   Pencil,
   Plus,
-  Search,
   Trash2,
   Bell,
   X
 } from 'lucide-react';
+import { AdvancedFilterDropdown, ToolbarTimeFilter } from '../components/filters';
 import PinnedSearchInput, { PinnedSearchChip } from '../components/PinnedSearchInput';
+import { getStudyAbroadCaseList, type StudyAbroadCaseRecord } from '../services/studyAbroadCases.local';
 import { decodeMojibakeReactNode } from '../utils/mojibake';
+import {
+  CustomDateRange,
+  ToolbarOption,
+  ToolbarValueOption,
+  doesDateMatchTimeRange,
+  getTimeRangeSummaryLabel
+} from '../utils/filterToolbar';
+import { STUDY_ABROAD_TIME_PRESETS, normalizeStudyAbroadSearch } from '../utils/studyAbroadToolbar';
 import {
   addStudyAbroadInterview,
   deleteStudyAbroadInterview,
@@ -42,6 +50,54 @@ const TYPE_LABEL_MAP: Record<'ALL' | StudyAbroadInterviewType, string> = {
 };
 
 const CHANNEL_OPTIONS = ['Zalo', 'Email', 'SMS', 'Call'] as const;
+type InterviewAdvancedFieldKey = 'market' | 'program' | 'status';
+type InterviewResolvedMeta = {
+  market: Exclude<InterviewMarketFilter, 'ALL'> | '';
+  program: Exclude<InterviewProgramFilter, 'ALL'> | '';
+};
+type InterviewMarketFilter = 'ALL' | 'Đức' | 'Trung Quốc';
+type InterviewProgramFilter = 'ALL' | 'Du học đại học' | 'Du học thạc sĩ';
+type InterviewTimeField = 'interviewDate';
+
+const INTERVIEW_MARKET_OPTIONS = [
+  { value: 'ALL', label: 'Thị trường: Tất cả' },
+  { value: 'Đức', label: 'Thị trường: Đức' },
+  { value: 'Trung Quốc', label: 'Thị trường: Trung Quốc' }
+] as const;
+
+const INTERVIEW_PROGRAM_OPTIONS = [
+  { value: 'ALL', label: 'Chương trình: Tất cả' },
+  { value: 'Du học đại học', label: 'Chương trình: Du học đại học' },
+  { value: 'Du học thạc sĩ', label: 'Chương trình: Du học thạc sĩ' }
+] as const;
+
+const INTERVIEW_TIME_FIELD_OPTIONS = [
+  { id: 'interviewDate', label: 'Ngày lịch hẹn' }
+] as const satisfies ReadonlyArray<ToolbarOption>;
+
+const INTERVIEW_ADVANCED_FILTER_OPTIONS = [
+  { id: 'market', label: 'Th\u1ecb tr\u01b0\u1eddng' },
+  { id: 'program', label: 'Ch\u01b0\u01a1ng tr\xECnh' },
+  { id: 'status', label: 'Tr\u1ea1ng th\xE1i' }
+] as const satisfies ReadonlyArray<ToolbarOption>;
+
+const INTERVIEW_ADVANCED_FILTER_LABELS: Record<InterviewAdvancedFieldKey, string> = {
+  market: 'Th\u1ecb tr\u01b0\u1eddng',
+  program: 'Ch\u01b0\u01a1ng tr\xECnh',
+  status: 'Tr\u1ea1ng th\xE1i'
+};
+
+const INTERVIEW_ADVANCED_SELECTABLE_VALUES = {
+  market: INTERVIEW_MARKET_OPTIONS
+    .filter((option) => option.value !== 'ALL')
+    .map((option) => ({ value: option.value, label: option.value })),
+  program: INTERVIEW_PROGRAM_OPTIONS
+    .filter((option) => option.value !== 'ALL')
+    .map((option) => ({ value: option.value, label: option.value })),
+  status: Object.entries(STATUS_LABEL_MAP)
+    .filter(([value]) => value !== 'ALL')
+    .map(([value, label]) => ({ value, label }))
+} as const satisfies Record<InterviewAdvancedFieldKey, ReadonlyArray<ToolbarValueOption>>;
 
 const EMPTY_FORM: StudyAbroadInterviewInput = {
   date: '',
@@ -62,6 +118,51 @@ const formatDisplayDate = (value: string) => {
   return date.toLocaleDateString('vi-VN');
 };
 
+const normalizeInterviewMarket = (value: string) => {
+  const token = normalizeStudyAbroadSearch(value);
+  if (!token) return '';
+  if (token.includes('duc') || token.includes('germany') || token.includes('ger')) return 'Đức';
+  if (token.includes('trung quoc') || token.includes('china')) return 'Trung Quốc';
+  return '';
+};
+
+const normalizeInterviewProgram = (value: string) => {
+  const token = normalizeStudyAbroadSearch(value);
+  if (!token) return '';
+  if (token.includes('du hoc dai hoc') || token.includes('dai hoc') || token.includes('bachelor')) {
+    return 'Du học đại học';
+  }
+  if (token.includes('du hoc thac si') || token.includes('thac si') || token.includes('master')) {
+    return 'Du học thạc sĩ';
+  }
+  return '';
+};
+
+const getInterviewStudentToken = (value: string) => normalizeStudyAbroadSearch(value);
+
+const resolveInterviewMeta = (
+  item: StudyAbroadInterviewItem,
+  caseByStudentToken: Map<string, StudyAbroadCaseRecord>
+): InterviewResolvedMeta => {
+  const matchedCase = caseByStudentToken.get(getInterviewStudentToken(item.studentName));
+  const marketSource = [matchedCase?.country, item.subType, item.location].filter(Boolean).join(' ');
+  const programSource = [matchedCase?.program, matchedCase?.productPackage, item.subType, item.location]
+    .filter(Boolean)
+    .join(' ');
+
+  return {
+    market: normalizeInterviewMarket(marketSource) as InterviewResolvedMeta['market'],
+    program: normalizeInterviewProgram(programSource) as InterviewResolvedMeta['program']
+  };
+};
+
+const formatInterviewAdvancedFilterValue = (fieldId: InterviewAdvancedFieldKey, value: string) => {
+  if (fieldId === 'status') {
+    return STATUS_LABEL_MAP[value as keyof typeof STATUS_LABEL_MAP] || value;
+  }
+  return value;
+};
+
 const toInterviewForm = (item: StudyAbroadInterviewItem): StudyAbroadInterviewInput => ({
   date: item.date,
   time: item.time,
@@ -76,8 +177,13 @@ const toInterviewForm = (item: StudyAbroadInterviewItem): StudyAbroadInterviewIn
 
 const StudyAbroadInterviews: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'ALL' | StudyAbroadInterviewStatus>('ALL');
-  const [typeFilter, setTypeFilter] = useState<'ALL' | StudyAbroadInterviewType>('ALL');
+  const [showTimePicker, setShowTimePicker] = useState(false);
+  const [timeFilterField, setTimeFilterField] = useState<InterviewTimeField>('interviewDate');
+  const [timeRangeType, setTimeRangeType] = useState<(typeof STUDY_ABROAD_TIME_PRESETS)[number]['id']>('all');
+  const [customRange, setCustomRange] = useState<CustomDateRange | null>(null);
+  const [showFilterDropdown, setShowFilterDropdown] = useState(false);
+  const [selectedAdvancedFilterFields, setSelectedAdvancedFilterFields] = useState<InterviewAdvancedFieldKey[]>([]);
+  const [selectedAdvancedFilterValues, setSelectedAdvancedFilterValues] = useState<Partial<Record<InterviewAdvancedFieldKey, string>>>({});
   const [interviews, setInterviews] = useState<StudyAbroadInterviewItem[]>([]);
   const [showFormModal, setShowFormModal] = useState(false);
   const [editingInterview, setEditingInterview] = useState<StudyAbroadInterviewItem | null>(null);
@@ -98,62 +204,205 @@ const StudyAbroadInterviews: React.FC = () => {
     };
   }, []);
 
+  const caseByStudentToken = useMemo(() => {
+    const nextMap = new Map<string, StudyAbroadCaseRecord>();
+
+    getStudyAbroadCaseList().forEach((row) => {
+      const token = getInterviewStudentToken(row.student);
+      if (!token || nextMap.has(token)) return;
+      nextMap.set(token, row);
+    });
+
+    return nextMap;
+  }, [interviews]);
+
+  const interviewMetaById = useMemo(() => {
+    const nextMap = new Map<string, InterviewResolvedMeta>();
+
+    interviews.forEach((item) => {
+      nextMap.set(item.id, resolveInterviewMeta(item, caseByStudentToken));
+    });
+
+    return nextMap;
+  }, [caseByStudentToken, interviews]);
+
+  const selectedAdvancedFilterOptions = useMemo(
+    () =>
+      selectedAdvancedFilterFields
+        .map((fieldId) => INTERVIEW_ADVANCED_FILTER_OPTIONS.find((option) => option.id === fieldId))
+        .filter((option): option is (typeof INTERVIEW_ADVANCED_FILTER_OPTIONS)[number] => Boolean(option)),
+    [selectedAdvancedFilterFields]
+  );
+  const activeAdvancedFilterField = selectedAdvancedFilterOptions[0] || null;
+  const selectedAdvancedFilterEntries = useMemo(
+    () =>
+      Object.entries(selectedAdvancedFilterValues).filter(
+        (entry): entry is [InterviewAdvancedFieldKey, string] => Boolean(entry[1])
+      ),
+    [selectedAdvancedFilterValues]
+  );
+  const advancedFilterSelectableValuesByField = useMemo(
+    () =>
+      selectedAdvancedFilterFields.reduce<Partial<Record<InterviewAdvancedFieldKey, ReadonlyArray<ToolbarValueOption>>>>(
+        (accumulator, fieldId) => {
+          accumulator[fieldId] = INTERVIEW_ADVANCED_SELECTABLE_VALUES[fieldId];
+          return accumulator;
+        },
+        {}
+      ),
+    [selectedAdvancedFilterFields]
+  );
+  const advancedFilterSelectableValues =
+    (activeAdvancedFilterField
+      ? advancedFilterSelectableValuesByField[activeAdvancedFilterField.id as InterviewAdvancedFieldKey]
+      : []) || [];
+  const advancedToolbarActiveCount = selectedAdvancedFilterEntries.length;
+  const hasAdvancedToolbarFilters = selectedAdvancedFilterEntries.length > 0;
+
   const filteredInterviews = useMemo(() => {
-    const keyword = searchTerm.trim().toLowerCase();
+    const keyword = normalizeStudyAbroadSearch(searchTerm);
 
     return interviews.filter((item) => {
+      const meta = interviewMetaById.get(item.id);
       const matchesSearch =
         !keyword ||
-        [
-          item.studentName,
-          item.location,
-          item.subType,
-          item.channel,
-          item.date,
-          item.time,
-          formatDisplayDate(item.date),
-          TYPE_LABEL_MAP[item.type],
-          STATUS_LABEL_MAP[item.status]
-        ]
-          .join(' ')
-          .toLowerCase()
-          .includes(keyword);
+        normalizeStudyAbroadSearch(
+          [
+            item.studentName,
+            item.location,
+            item.subType,
+            item.channel,
+            item.date,
+            item.time,
+            formatDisplayDate(item.date),
+            TYPE_LABEL_MAP[item.type],
+            STATUS_LABEL_MAP[item.status],
+            meta?.market || '',
+            meta?.program || ''
+          ].join(' ')
+        ).includes(keyword);
 
-      const matchesStatus = statusFilter === 'ALL' || item.status === statusFilter;
-      const matchesType = typeFilter === 'ALL' || item.type === typeFilter;
+      if (!matchesSearch) {
+        return false;
+      }
 
-      return matchesSearch && matchesStatus && matchesType;
+      if (timeRangeType !== 'all' && !doesDateMatchTimeRange(item.date, timeRangeType, customRange)) {
+        return false;
+      }
+
+      if (
+        selectedAdvancedFilterEntries.some(([fieldId, selectedValue]) => {
+          if (fieldId === 'status') return item.status !== selectedValue;
+          if (fieldId === 'market') return (meta?.market || '') !== selectedValue;
+          return (meta?.program || '') !== selectedValue;
+        })
+      ) {
+        return false;
+      }
+
+      return true;
     });
-  }, [interviews, searchTerm, statusFilter, typeFilter]);
+  }, [customRange, interviewMetaById, interviews, searchTerm, selectedAdvancedFilterEntries, timeRangeType]);
 
   const activeSearchChips = useMemo<PinnedSearchChip[]>(() => {
-    const chips: PinnedSearchChip[] = [];
+    const chips = selectedAdvancedFilterEntries.map(([fieldId, value]) => ({
+      key: fieldId,
+      label: `${INTERVIEW_ADVANCED_FILTER_LABELS[fieldId]}: ${formatInterviewAdvancedFilterValue(fieldId, value)}`
+    }));
 
-    if (statusFilter !== 'ALL') {
-      chips.push({ key: 'status', label: `Trạng thái: ${STATUS_LABEL_MAP[statusFilter]}` });
-    }
-
-    if (typeFilter !== 'ALL') {
-      chips.push({ key: 'type', label: `Loại lịch: ${TYPE_LABEL_MAP[typeFilter]}` });
+    if (timeRangeType !== 'all') {
+      chips.push({
+        key: 'time',
+        label: `Ng\u00E0y: ${getTimeRangeSummaryLabel(STUDY_ABROAD_TIME_PRESETS, timeRangeType, customRange)}`
+      });
     }
 
     return chips;
-  }, [statusFilter, typeFilter]);
+  }, [customRange, selectedAdvancedFilterEntries, timeRangeType]);
 
   const removeSearchChip = (chipKey: string) => {
-    if (chipKey === 'status') {
-      setStatusFilter('ALL');
+    if (chipKey === 'time') {
+      setShowTimePicker(false);
+      setTimeRangeType('all');
+      setCustomRange(null);
       return;
     }
-    if (chipKey === 'type') {
-      setTypeFilter('ALL');
+
+    if (chipKey === 'market' || chipKey === 'program' || chipKey === 'status') {
+      const fieldId = chipKey as InterviewAdvancedFieldKey;
+      setSelectedAdvancedFilterFields((prev) => prev.filter((item) => item !== fieldId));
+      setSelectedAdvancedFilterValues((prev) => {
+        if (!(fieldId in prev)) return prev;
+
+        const nextValues = { ...prev };
+        delete nextValues[fieldId];
+        return nextValues;
+      });
     }
   };
 
-  const clearAllSearchFilters = () => {
+  const clearAllFilters = () => {
     setSearchTerm('');
-    setStatusFilter('ALL');
-    setTypeFilter('ALL');
+    setShowTimePicker(false);
+    setTimeFilterField('interviewDate');
+    setTimeRangeType('all');
+    setCustomRange(null);
+    setShowFilterDropdown(false);
+    setSelectedAdvancedFilterFields([]);
+    setSelectedAdvancedFilterValues({});
+  };
+
+  const handleTimeFilterOpenChange = (nextOpen: boolean) => {
+    setShowFilterDropdown(false);
+    setShowTimePicker(nextOpen);
+  };
+
+  const handleTimeFilterFieldChange = (fieldId: string) => {
+    setShowFilterDropdown(false);
+    setShowTimePicker(false);
+    setTimeFilterField(fieldId as InterviewTimeField);
+  };
+
+  const handleTimePresetSelect = (presetId: string) => {
+    const nextPresetId = presetId as (typeof STUDY_ABROAD_TIME_PRESETS)[number]['id'];
+    setTimeRangeType(nextPresetId);
+    if (nextPresetId !== 'custom') {
+      setShowTimePicker(false);
+    }
+  };
+
+  const handleApplyCustomTimeRange = () => {
+    if (customRange?.start && customRange?.end) {
+      setTimeRangeType('custom');
+      setShowTimePicker(false);
+      return;
+    }
+    window.alert('Vui l\xF2ng ch\u1ECDn kho\u1EA3ng ng\xE0y');
+  };
+
+  const handleAdvancedFilterOpenChange = (nextOpen: boolean) => {
+    setShowTimePicker(false);
+    setShowFilterDropdown(nextOpen);
+  };
+
+  const toggleAdvancedFilterField = (fieldId: InterviewAdvancedFieldKey) => {
+    setSelectedAdvancedFilterFields((prev) =>
+      prev.includes(fieldId) ? prev.filter((item) => item !== fieldId) : [...prev, fieldId]
+    );
+    setSelectedAdvancedFilterValues((prev) => {
+      if (!(fieldId in prev)) return prev;
+
+      const nextValues = { ...prev };
+      delete nextValues[fieldId];
+      return nextValues;
+    });
+  };
+
+  const handleAdvancedFilterValueChange = (fieldId: InterviewAdvancedFieldKey, value: string) => {
+    setSelectedAdvancedFilterValues((prev) => ({
+      ...prev,
+      [fieldId]: value
+    }));
   };
 
   const openCreateModal = () => {
@@ -292,39 +541,69 @@ const StudyAbroadInterviews: React.FC = () => {
                   placeholder="Tìm học viên, địa điểm, kênh nhắc..."
                   chips={activeSearchChips}
                   onRemoveChip={removeSearchChip}
-                  onClearAll={clearAllSearchFilters}
+                  onClearAll={clearAllFilters}
                   clearAllAriaLabel="Xóa tất cả bộ lọc lịch phỏng vấn"
                   inputClassName="text-sm h-7"
                 />
               </div>
 
-              <div className="inline-flex items-center gap-2 rounded-lg border border-[#cfdbe7] bg-white px-3 py-2">
-                <Filter size={15} className="text-gray-400" />
-                <select
-                  value={statusFilter}
-                  onChange={(event) => setStatusFilter(event.target.value as 'ALL' | StudyAbroadInterviewStatus)}
-                  className="bg-transparent text-sm font-medium text-slate-700 outline-none"
-                >
-                  <option value="ALL">Trạng thái: Tất cả</option>
-                  <option value="Scheduled">Đã lên lịch</option>
-                  <option value="Pending">Chờ xác nhận</option>
-                  <option value="Completed">Hoàn thành</option>
-                  <option value="Cancelled">Đã hủy</option>
-                </select>
-              </div>
+              <ToolbarTimeFilter
+                isOpen={showTimePicker}
+                fieldOptions={INTERVIEW_TIME_FIELD_OPTIONS}
+                selectedField={timeFilterField}
+                selectedRangeType={timeRangeType}
+                customRange={customRange}
+                presets={STUDY_ABROAD_TIME_PRESETS}
+                showFieldSelector={false}
+                onOpenChange={handleTimeFilterOpenChange}
+                onFieldChange={handleTimeFilterFieldChange}
+                onPresetSelect={handleTimePresetSelect}
+                onCustomRangeChange={setCustomRange}
+                onReset={() => {
+                  setTimeRangeType('all');
+                  setCustomRange(null);
+                  setShowTimePicker(false);
+                }}
+                onCancel={() => setShowTimePicker(false)}
+                onApplyCustomRange={handleApplyCustomTimeRange}
+                controlClassName="min-h-[36px] rounded-xl border-[#cfdbe7] shadow-none"
+                rangeButtonClassName="px-3 text-[13px]"
+                className="shrink-0"
+              />
 
-              <div className="inline-flex items-center gap-2 rounded-lg border border-[#cfdbe7] bg-white px-3 py-2">
-                <Search size={15} className="text-gray-400" />
-                <select
-                  value={typeFilter}
-                  onChange={(event) => setTypeFilter(event.target.value as 'ALL' | StudyAbroadInterviewType)}
-                  className="bg-transparent text-sm font-medium text-slate-700 outline-none"
-                >
-                  <option value="ALL">Loại lịch: Tất cả</option>
-                  <option value="Visa">Phỏng vấn Visa</option>
-                  <option value="Entrance Exam">Thi đầu vào</option>
-                </select>
-              </div>
+              <AdvancedFilterDropdown
+                isOpen={showFilterDropdown}
+                activeCount={advancedToolbarActiveCount}
+                hasActiveFilters={hasAdvancedToolbarFilters}
+                filterOptions={INTERVIEW_ADVANCED_FILTER_OPTIONS}
+                groupOptions={[]}
+                selectedFilterFieldIds={selectedAdvancedFilterFields}
+                selectedGroupFieldIds={[]}
+                activeFilterField={activeAdvancedFilterField}
+                selectableValues={advancedFilterSelectableValues}
+                selectedFilterValue={
+                  activeAdvancedFilterField
+                    ? selectedAdvancedFilterValues[activeAdvancedFilterField.id as InterviewAdvancedFieldKey] || ''
+                    : ''
+                }
+                selectedFilterValuesByField={selectedAdvancedFilterValues}
+                selectableValuesByField={advancedFilterSelectableValuesByField}
+                onOpenChange={handleAdvancedFilterOpenChange}
+                onToggleFilterField={(fieldId) => toggleAdvancedFilterField(fieldId as InterviewAdvancedFieldKey)}
+                onToggleGroupField={() => undefined}
+                onFilterValueChange={() => undefined}
+                onFilterValueChangeForField={(fieldId, value) =>
+                  handleAdvancedFilterValueChange(fieldId as InterviewAdvancedFieldKey, value)
+                }
+                onClearAll={() => {
+                  setSelectedAdvancedFilterFields([]);
+                  setSelectedAdvancedFilterValues({});
+                }}
+                triggerLabel="B\u1ED9 l\u1ECDc"
+                filterDescription="Ch\u1ECDn th\u1ecb tr\u01b0\u1eddng, ch\u01b0\u01a1ng tr\xECnh v\xE0 tr\u1ea1ng th\xE1i \u0111\u1ec3 l\u1ecdc nhanh l\u1ecbch ph\u1ecfng v\u1ea5n du h\u1ecdc."
+                triggerClassName="min-h-[36px] rounded-xl px-3 py-1.5 text-[13px] font-medium shadow-none"
+                className="shrink-0"
+              />
             </div>
 
             <div className="flex shrink-0 items-center gap-2">

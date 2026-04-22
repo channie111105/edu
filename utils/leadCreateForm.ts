@@ -71,6 +71,29 @@ export const LEAD_TARGET_COUNTRY_OPTIONS = [
   'Khác',
 ] as const;
 
+export const LEAD_SOURCE_OPTIONS = [
+  { value: 'facebook', label: 'Facebook' },
+  { value: 'tiktok', label: 'TikTok' },
+  { value: 'google', label: 'Google Search' },
+  { value: 'hotline', label: 'Hotline' },
+  { value: 'referral', label: 'Giới thiệu' },
+] as const;
+
+export const LEAD_POTENTIAL_OPTIONS = [
+  { value: 'Nóng', label: 'Nóng' },
+  { value: 'Tiềm năng', label: 'Tiềm năng' },
+  { value: 'Tham khảo', label: 'Tham khảo' },
+] as const;
+
+export const LEAD_PRODUCT_OPTIONS = [
+  { value: 'Tiếng Đức', label: 'Tiếng Đức' },
+  { value: 'Tiếng Trung', label: 'Tiếng Trung' },
+  { value: 'Du học Đức', label: 'Du học Đức' },
+  { value: 'Du học Trung', label: 'Du học Trung' },
+  { value: 'Du học Nghề', label: 'Du học Nghề' },
+  { value: 'XKLĐ', label: 'XKLĐ' },
+] as const;
+
 export const STUDENT_EDUCATION_LEVEL_OPTIONS = [
   'THCS',
   'THPT',

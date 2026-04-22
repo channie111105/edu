@@ -1,7 +1,7 @@
 ﻿import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { getDeals, getLeads, saveDeals, saveLeads, getClosedLeadReasons, getTags, saveTags } from '../utils/storage';
+import { getDeals, getLeads, saveLead, saveDeals, saveLeads, getClosedLeadReasons, getTags, saveTags } from '../utils/storage';
 import { LeadStatus, ILead, DealStage, UserRole, type Activity } from '../types';
 import ConvertLeadModal, { ConvertLeadModalSubmitData } from '../components/ConvertLeadModal';
 import LeadCareScheduleModal, {
@@ -15,9 +15,27 @@ import LeadStudentInfoTab from '../components/LeadStudentInfoTab';
 import LeadTagManager from '../components/LeadTagManager';
 import SLABadge from '../components/SLABadge';
 import OdooSearchBar, { SearchFilter, SearchFieldConfig } from '../components/OdooSearchBar';
+import { AdvancedFilterDropdown, ToolbarTimeFilter } from '../components/filters';
 import SLAWarningBanner from '../components/SLAWarningBanner';
 import SalesRoleTestSwitcher from '../components/SalesRoleTestSwitcher';
 import { buildDomainFromFilters, applyDomainFilter } from '../utils/filterDomain';
+import { doesDateMatchTimeRange, getTimeRangeSummaryLabel } from '../utils/filterToolbar';
+import {
+   DEFAULT_LEAD_ACTION_FILTER_FIELD,
+   getLeadToolbarFieldValue,
+   getLeadToolbarFieldValues,
+   getLeadToolbarSelectableOptions,
+   getLeadToolbarTimeFieldLabel,
+   getLeadToolbarTimeValue,
+   LEAD_TOOLBAR_FIELD_LABELS,
+   LEAD_TOOLBAR_FILTER_OPTIONS,
+   LEAD_TOOLBAR_GROUP_OPTIONS,
+   LEAD_TOOLBAR_TIME_FIELD_OPTIONS,
+   LEAD_TOOLBAR_TIME_PRESETS,
+   type LeadActionFilterSelection,
+   type LeadToolbarFilterFieldKey,
+   type LeadToolbarGroupFieldKey,
+} from '../utils/leadToolbarConfig';
 import { calculateSLAWarnings, getUrgentWarningCount } from '../utils/slaUtils';
 import { LEAD_CHANNEL_OPTIONS } from '../constants';
 import {
@@ -48,17 +66,16 @@ import { getLeadPhoneValidationMessage, normalizeLeadPhone } from '../utils/phon
 import { clearLeadReclaimTracking } from '../utils/leadSla';
 import { convertLeadToOpportunity } from '../utils/leadConversion';
 import {
-   Inbox, Search, Phone, Filter, CheckCircle2, Clock,
-   ListFilter, Star, Grid, List as ListIcon, ChevronLeft, ChevronRight,
-   ChevronDown, ChevronRight as ChevronRightIcon,
-   Layout, LayoutGrid, Cog, Download, Archive, Mail, MessageSquare, Trash2,
-   UserPlus, Shuffle, XCircle, X, Save, Settings, Calendar, Users, MapPin
+   Inbox, Phone, Clock, CheckCircle2, X,
+   List as ListIcon,
+   ChevronDown,
+   Layout, LayoutGrid, Cog, Download, Archive, MessageSquare, Trash2,
+   UserPlus, Shuffle, XCircle, Save, Settings
 } from 'lucide-react';
 
-type MyLeadsGroupBy = 'ownerId' | 'source' | 'status' | 'program' | 'city';
-type MyLeadsAdvancedFieldKey = 'ownerId' | 'source' | 'program' | 'city';
+type MyLeadsGroupBy = LeadToolbarGroupFieldKey;
+type MyLeadsAdvancedFieldKey = LeadToolbarFilterFieldKey;
 type MyLeadsAdvancedFilters = Record<MyLeadsAdvancedFieldKey, string[]>;
-type MyLeadsAdvancedQueries = Record<MyLeadsAdvancedFieldKey, string>;
 type AdvancedFieldOption = { value: string; label: string };
 type PostConvertScheduleState = {
    dealId: string;
@@ -68,17 +85,14 @@ type PostConvertScheduleState = {
 };
 
 const DEFAULT_ADVANCED_FIELD_FILTERS: MyLeadsAdvancedFilters = {
-   ownerId: [],
+   status: [],
+   salesperson: [],
    source: [],
-   program: [],
-   city: [],
-};
-
-const DEFAULT_ADVANCED_FIELD_QUERIES: MyLeadsAdvancedQueries = {
-   ownerId: '',
-   source: '',
-   program: '',
-   city: '',
+   campaign: [],
+   product: [],
+   targetCountry: [],
+   potential: [],
+   company: [],
 };
 
 const getPostConvertScheduleLabel = (action: PostConvertScheduleAction) =>
@@ -89,150 +103,6 @@ const getDefaultPostConvertScheduleDateTime = (action: PostConvertScheduleAction
    const nextDate = new Date();
    nextDate.setHours(nextDate.getHours() + (matchedOption?.defaultDelayHours || 2));
    return new Date(nextDate.getTime() - (nextDate.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
-};
-
-type SearchableMultiSelectFieldProps = {
-   title: string;
-   placeholder: string;
-   helperText?: string;
-   icon: React.ComponentType<{ size?: number; className?: string }>;
-   options: AdvancedFieldOption[];
-   selectedValues: string[];
-   query: string;
-   summary: string;
-   isOpen: boolean;
-   onOpen: () => void;
-   onClose: () => void;
-   onQueryChange: (value: string) => void;
-   onToggleValue: (value: string) => void;
-   onClear: () => void;
-   normalize: (value?: string) => string;
-};
-
-const SearchableMultiSelectField: React.FC<SearchableMultiSelectFieldProps> = ({
-   title,
-   placeholder,
-   helperText,
-   icon: Icon,
-   options,
-   selectedValues,
-   query,
-   summary,
-   isOpen,
-   onOpen,
-   onClose,
-   onQueryChange,
-   onToggleValue,
-   onClear,
-   normalize,
-}) => {
-   const optionLabelMap = useMemo(() => {
-      return new Map(options.map((option) => [option.value, option.label]));
-   }, [options]);
-
-   const visibleOptions = useMemo(() => {
-      const normalizedQuery = normalize(query);
-      const matchedOptions = normalizedQuery
-         ? options.filter((option) => normalize(option.label).includes(normalizedQuery))
-         : options;
-
-      return matchedOptions.slice(0, normalizedQuery ? 8 : 6);
-   }, [normalize, options, query]);
-
-   return (
-      <div className="rounded-md border border-slate-200 bg-white p-2">
-         <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
-               <div className="flex items-center gap-1.5 text-[12px] font-semibold text-slate-800">
-                  <Icon size={14} className="text-slate-500" />
-                  <span>{title}</span>
-               </div>
-               <div className="mt-0.5 text-[11px] text-slate-500">{summary}</div>
-            </div>
-            {selectedValues.length > 0 ? (
-               <button
-                  type="button"
-                  onClick={onClear}
-                  className="rounded-md px-2 py-1 text-[11px] font-medium text-slate-500 transition-colors hover:bg-white hover:text-slate-700"
-               >
-                  Xóa
-               </button>
-            ) : null}
-         </div>
-
-         <div className="mt-1.5 rounded-md border border-slate-200 bg-slate-50">
-            <div className="flex items-center gap-2 px-2.5 py-1.5">
-               <Search size={14} className="text-slate-400" />
-               <input
-                  value={query}
-                  onFocus={onOpen}
-                  onBlur={() => window.setTimeout(onClose, 120)}
-                  onChange={(event) => onQueryChange(event.target.value)}
-                  placeholder={placeholder}
-                  className="w-full bg-transparent text-[12px] text-slate-700 outline-none placeholder:text-slate-400"
-               />
-            </div>
-
-            {selectedValues.length > 0 ? (
-               <div className="flex flex-wrap gap-1 border-t border-slate-100 px-2 py-1.5">
-                  {selectedValues.map((value) => (
-                     <button
-                        key={value}
-                        type="button"
-                        onClick={() => onToggleValue(value)}
-                        className="inline-flex items-center gap-1 rounded-md bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 transition-colors hover:bg-blue-100"
-                     >
-                        <span className="max-w-[132px] truncate">{optionLabelMap.get(value) || value}</span>
-                        <X size={11} />
-                     </button>
-                  ))}
-               </div>
-               ) : helperText ? (
-                  <div className="border-t border-slate-100 px-2.5 py-1.5 text-[11px] text-slate-400">
-                     {helperText}
-                  </div>
-               ) : null}
-         </div>
-
-         {(isOpen || query.trim().length > 0) ? (
-            <div className="mt-1.5 rounded-md border border-slate-200 bg-white">
-               {visibleOptions.length === 0 ? (
-                  <div className="px-2.5 py-2 text-[11px] text-slate-400">
-                     Không tìm thấy dữ liệu phù hợp.
-                  </div>
-               ) : (
-                  <div className="max-h-32 overflow-y-auto p-1">
-                     {visibleOptions.map((option) => {
-                        const isSelected = selectedValues.includes(option.value);
-                        return (
-                           <button
-                              key={option.value}
-                              type="button"
-                              onMouseDown={(event) => event.preventDefault()}
-                              onClick={() => onToggleValue(option.value)}
-                              className={`flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-[12px] transition-colors ${
-                                 isSelected
-                                    ? 'bg-blue-50 text-blue-700'
-                                    : 'text-slate-600 hover:bg-slate-50'
-                              }`}
-                           >
-                              <span className="truncate">{option.label}</span>
-                              {isSelected ? <CheckCircle2 size={13} className="shrink-0" /> : null}
-                           </button>
-                        );
-                     })}
-                  </div>
-               )}
-
-               {!query.trim() && options.length > visibleOptions.length ? (
-                  <div className="border-t border-slate-100 px-2.5 py-1 text-[10px] text-slate-400">
-                     Gõ để tìm thêm dữ liệu.
-                  </div>
-               ) : null}
-            </div>
-         ) : null}
-      </div>
-   );
 };
 
 const MyLeads: React.FC = () => {
@@ -375,7 +245,7 @@ const MyLeads: React.FC = () => {
 
    // Pivot/Group State
    const [groupBy, setGroupBy] = useState<MyLeadsGroupBy[]>([]);
-   const [viewMode, setViewMode] = useState<'list' | 'pivot' | 'kanban'>('kanban');
+   const [viewMode, setViewMode] = useState<'list' | 'pivot' | 'kanban'>('list');
    const [filterType, setFilterType] = useState('all');
    const [statusFilterSource, setStatusFilterSource] = useState<'tabs' | 'advanced' | null>(null);
 
@@ -420,44 +290,22 @@ const MyLeads: React.FC = () => {
 
    // --- TIME RANGE FILTER STATE ---
    const [showTimePicker, setShowTimePicker] = useState(false);
-   const [timeFilterField, setTimeFilterField] = useState<'createdAt' | 'lastInteraction' | 'expectedClosingDate' | 'pickUpDate'>('createdAt');
+   const [timeFilterField, setTimeFilterField] = useState<LeadActionFilterSelection>('action');
    const [timeRangeType, setTimeRangeType] = useState<string>('all');
    const [customRange, setCustomRange] = useState<{ start: string; end: string } | null>(null);
    const [advancedFieldFilters, setAdvancedFieldFilters] = useState<MyLeadsAdvancedFilters>(DEFAULT_ADVANCED_FIELD_FILTERS);
-   const [advancedFieldQueries, setAdvancedFieldQueries] = useState<MyLeadsAdvancedQueries>(DEFAULT_ADVANCED_FIELD_QUERIES);
-   const [activeAdvancedFieldMenu, setActiveAdvancedFieldMenu] = useState<MyLeadsAdvancedFieldKey | null>(null);
+   const [selectedAdvancedFilterFields, setSelectedAdvancedFilterFields] = useState<string[]>([]);
+   const [selectedAdvancedFilterValue, setSelectedAdvancedFilterValue] = useState('');
 
-   const timeFieldOptions = [
-      { id: 'createdAt', label: 'NgÃ y táº¡o' },
-      { id: 'lastInteraction', label: 'Láº§n tÆ°Æ¡ng tÃ¡c cuá»‘i' },
-      { id: 'expectedClosingDate', label: 'NgÃ y dá»± kiáº¿n chá»‘t' },
-      { id: 'pickUpDate', label: 'NgÃ y tiáº¿p nháº­n' },
-   ] as const;
-
-   const timePresets = [
-      { id: 'all', label: 'Táº¥t cáº£ thá»i gian' },
-      { id: 'today', label: 'HÃ´m nay' },
-      { id: 'yesterday', label: 'HÃ´m qua' },
-      { id: 'thisWeek', label: 'Tuáº§n nÃ y' },
-      { id: 'last7Days', label: '7 ngÃ y qua' },
-      { id: 'last30Days', label: '30 ngÃ y qua' },
-      { id: 'thisMonth', label: 'ThÃ¡ng nÃ y' },
-      { id: 'lastMonth', label: 'ThÃ¡ng trÆ°á»›c' },
-      { id: 'custom', label: 'TÃ¹y chá»‰nh khoáº£ng...' },
-   ];
+   const timeFieldOptions = LEAD_TOOLBAR_TIME_FIELD_OPTIONS;
+   const timePresets = LEAD_TOOLBAR_TIME_PRESETS;
 
    const filterTypeLabels: Record<string, string> = {
       'no-activity': 'ChÆ°a cÃ³ hoáº¡t Ä‘á»™ng',
       'high-value': 'CÆ¡ há»™i giÃ¡ trá»‹ cao',
    };
 
-   const groupByLabels: Record<string, string> = {
-      ownerId: 'ChuyÃªn viÃªn sales',
-      status: 'Giai Ä‘oáº¡n',
-      city: 'ThÃ nh phá»‘',
-      program: 'ChÆ°Æ¡ng trÃ¬nh',
-      source: 'Nguá»“n',
-   };
+   const groupByLabels = LEAD_TOOLBAR_FIELD_LABELS;
 
    const statusFilterLabels: Record<string, string> = {
       overdue: 'DS qua han',
@@ -479,18 +327,16 @@ const MyLeads: React.FC = () => {
    }, [user]);
 
    const getLeadAdvancedFilterValue = useCallback((lead: ILead, field: MyLeadsAdvancedFieldKey) => {
-      if (field === 'ownerId') return lead.ownerId || '';
-      if (field === 'source') return lead.source || '';
-      if (field === 'program') return lead.program || '';
-      return String((lead as any).city || '').trim();
-   }, []);
+      return getLeadToolbarFieldValue(lead, field, {
+         getSalespersonLabel: getLeadOwnerName,
+         emptyLabel: ''
+      });
+   }, [getLeadOwnerName]);
 
    const getLeadGroupByValue = useCallback((lead: ILead, field: MyLeadsGroupBy) => {
-      if (field === 'ownerId') return getLeadOwnerName(lead);
-      if (field === 'source') return lead.source || 'Chưa xác định';
-      if (field === 'status') return getLeadStatusLabel(String(lead.status || ''));
-      if (field === 'program') return lead.program || 'Chưa có chương trình';
-      return String((lead as any).city || '').trim() || 'Chưa cập nhật TP';
+      return getLeadToolbarFieldValue(lead, field, {
+         getSalespersonLabel: getLeadOwnerName
+      });
    }, [getLeadOwnerName]);
 
    const getLeadSearchFieldValue = useCallback((lead: ILead, field: string) => {
@@ -507,43 +353,18 @@ const MyLeads: React.FC = () => {
       return String((lead as any)[field] || '');
    }, [getLeadOwnerName]);
 
-   const buildDistinctOptions = useCallback((values: Array<string | null | undefined>) => {
-      const map = new Map<string, string>();
-
-      values.forEach((value) => {
-         const raw = String(value || '').trim();
-         const normalized = normalizeFilterToken(raw);
-         if (!normalized || map.has(normalized)) return;
-         map.set(normalized, raw);
-      });
-
-      return Array.from(map.entries())
-         .map(([, label]) => ({ value: label, label }))
-         .sort((left, right) => left.label.localeCompare(right.label, 'vi'));
-   }, [normalizeFilterToken]);
-
    const advancedFieldOptions = useMemo(() => {
-      const ownerMap = new Map<string, string>();
-
-      SALES_REPS.forEach((rep) => ownerMap.set(rep.id, rep.name));
-      if (user?.id && user?.name) {
-         ownerMap.set(user.id, user.name);
-      }
-      leads.forEach((lead) => {
-         if (lead.ownerId) {
-            ownerMap.set(lead.ownerId, getLeadOwnerName(lead));
-         }
-      });
-
-      return {
-         ownerId: Array.from(ownerMap.entries())
-            .map(([value, label]) => ({ value, label }))
-            .sort((left, right) => left.label.localeCompare(right.label, 'vi')),
-         source: buildDistinctOptions(leads.map((lead) => lead.source)),
-         program: buildDistinctOptions(leads.map((lead) => lead.program)),
-         city: buildDistinctOptions(leads.map((lead) => String((lead as any).city || '').trim())),
-      } satisfies Record<MyLeadsAdvancedFieldKey, Array<{ value: string; label: string }>>;
-   }, [buildDistinctOptions, getLeadOwnerName, leads, user]);
+      return LEAD_TOOLBAR_FILTER_OPTIONS.reduce((acc, field) => {
+         const dynamicValues = leads.flatMap((lead) =>
+            getLeadToolbarFieldValues(lead, field.id, { getSalespersonLabel: getLeadOwnerName })
+         );
+         acc[field.id] = getLeadToolbarSelectableOptions(field.id, {
+            salesOptions: leadSalesOptions,
+            dynamicValues
+         });
+         return acc;
+      }, {} as Record<MyLeadsAdvancedFieldKey, AdvancedFieldOption[]>);
+   }, [getLeadOwnerName, leadSalesOptions, leads]);
 
    const toggleColumn = (columnId: string) => {
       setVisibleColumns(prev =>
@@ -876,80 +697,6 @@ const MyLeads: React.FC = () => {
       return { start, end };
    };
 
-   const getLeadTimeValue = (
-      lead: ILead,
-      field: 'createdAt' | 'lastInteraction' | 'expectedClosingDate' | 'pickUpDate'
-   ) => {
-      if (field === 'createdAt') return lead.createdAt;
-      if (field === 'lastInteraction') return lead.lastInteraction;
-      if (field === 'expectedClosingDate') return lead.expectedClosingDate;
-      return lead.pickUpDate;
-   };
-
-   const getTimeRangeBounds = (rangeType: string) => {
-      const now = new Date();
-      const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      const endOfDay = new Date(startOfDay);
-      endOfDay.setHours(23, 59, 59, 999);
-
-      if (rangeType === 'today') {
-         return { start: startOfDay, end: endOfDay };
-      }
-
-      if (rangeType === 'yesterday') {
-         const start = new Date(startOfDay);
-         start.setDate(start.getDate() - 1);
-         const end = new Date(startOfDay);
-         end.setMilliseconds(-1);
-         return { start, end };
-      }
-
-      if (rangeType === 'thisWeek') {
-         const day = now.getDay() || 7;
-         const start = new Date(startOfDay);
-         start.setDate(start.getDate() - day + 1);
-         const end = new Date(start);
-         end.setDate(end.getDate() + 6);
-         end.setHours(23, 59, 59, 999);
-         return { start, end };
-      }
-
-      if (rangeType === 'last7Days') {
-         const start = new Date(startOfDay);
-         start.setDate(start.getDate() - 6);
-         return { start, end: endOfDay };
-      }
-
-      if (rangeType === 'last30Days') {
-         const start = new Date(startOfDay);
-         start.setDate(start.getDate() - 29);
-         return { start, end: endOfDay };
-      }
-
-      if (rangeType === 'thisMonth') {
-         const start = new Date(now.getFullYear(), now.getMonth(), 1);
-         const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-         end.setHours(23, 59, 59, 999);
-         return { start, end };
-      }
-
-      if (rangeType === 'lastMonth') {
-         const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-         const end = new Date(now.getFullYear(), now.getMonth(), 0);
-         end.setHours(23, 59, 59, 999);
-         return { start, end };
-      }
-
-      if (rangeType === 'custom' && customRange?.start && customRange?.end) {
-         const start = new Date(customRange.start);
-         const end = new Date(customRange.end);
-         end.setHours(23, 59, 59, 999);
-         return { start, end };
-      }
-
-      return null;
-   };
-
    const isOverdueLead = (lead: ILead) => {
       const dueDateRaw = (lead as any).deadline || lead.expectedClosingDate;
       if (!dueDateRaw) return false;
@@ -1011,6 +758,9 @@ const MyLeads: React.FC = () => {
       { id: 'today_care', label: 'ChÄƒm sÃ³c hÃ´m nay', count: todayCareLeadsCount },
    ]), [assignedLeadsCount, leads.length, overdueLeadsCount, todayCareLeadsCount]);
 
+   const resolvedTimeFilterField =
+      timeFilterField === 'action' ? DEFAULT_LEAD_ACTION_FILTER_FIELD : timeFilterField;
+
    const filteredLeads = useMemo(() => {
       let result = leads;
 
@@ -1058,16 +808,9 @@ const MyLeads: React.FC = () => {
 
       // --- TIME RANGE FILTERING ---
       if (timeRangeType !== 'all') {
-         const bounds = getTimeRangeBounds(timeRangeType);
-         if (bounds) {
-            result = result.filter(lead => {
-               const dateStr = getLeadTimeValue(lead, timeFilterField);
-               if (!dateStr) return false;
-               const itemDate = new Date(dateStr);
-               if (Number.isNaN(itemDate.getTime())) return false;
-               return itemDate >= bounds.start && itemDate <= bounds.end;
-            });
-         }
+         result = result.filter((lead) =>
+            doesDateMatchTimeRange(getLeadToolbarTimeValue(lead, resolvedTimeFilterField), timeRangeType, customRange)
+         );
       }
 
       // Advanced Filters
@@ -1089,7 +832,8 @@ const MyLeads: React.FC = () => {
       searchFilters,
       statusFilter,
       timeFilterField,
-      timeRangeType
+      timeRangeType,
+      resolvedTimeFilterField
    ]);
 
    // Calculate SLA Warnings
@@ -1770,18 +1514,12 @@ const MyLeads: React.FC = () => {
       }
 
       (Object.entries(advancedFieldFilters) as Array<[MyLeadsAdvancedFieldKey, string[]]>).forEach(([field, values]) => {
-         const fieldLabel =
-            field === 'ownerId' ? 'Sale' :
-               field === 'source' ? 'Nguon' :
-                  field === 'program' ? 'Chuong trinh' :
-                     'Thanh pho';
-
          values.forEach((value) => {
             const optionLabel = advancedFieldOptions[field].find((option) => option.value === value)?.label || value;
 
             chips.push({
                field: `advanced_${field}_${value}`,
-               label: fieldLabel,
+               label: LEAD_TOOLBAR_FIELD_LABELS[field],
                value: optionLabel,
                type: 'filter',
                origin: 'synthetic',
@@ -1803,17 +1541,13 @@ const MyLeads: React.FC = () => {
          });
       });
 
-      if (timeRangeType !== 'all') {
-         const timeFieldLabel = timeFieldOptions.find((option) => option.id === timeFilterField)?.label || 'NgÃ y táº¡o';
-         const timePresetLabel = timePresets.find((preset) => preset.id === timeRangeType)?.label || timeRangeType;
-         const customLabel = customRange?.start && customRange?.end
-            ? `${customRange.start} - ${customRange.end}`
-            : 'TÃ¹y chá»‰nh khoáº£ng thá»i gian';
+      if (timeFilterField !== 'action' || timeRangeType !== 'all') {
+         const timeFieldLabel = getLeadToolbarTimeFieldLabel(timeFilterField);
 
          chips.push({
             field: 'advanced_time',
             label: 'Thá»i gian',
-            value: `${timeFieldLabel}: ${timeRangeType === 'custom' ? customLabel : timePresetLabel}`,
+            value: `${timeFieldLabel}: ${getTimeRangeSummaryLabel(timePresets, timeRangeType, customRange)}`,
             type: 'filter',
             origin: 'synthetic',
             syntheticKey: 'time',
@@ -1831,55 +1565,11 @@ const MyLeads: React.FC = () => {
       advancedFieldFilters,
       advancedFieldOptions,
       timeFilterField,
-      timeFieldOptions,
       timePresets,
       timeRangeType,
       customRange,
       filterTypeLabels
    ]);
-
-   const advancedQuickFilters = [
-      {
-         value: 'all',
-         label: 'Tất cả',
-         description: 'Trả danh sách về toàn bộ lead trong phạm vi My Leads.',
-         icon: Inbox,
-      },
-      {
-         value: 'no-activity',
-         label: 'Chưa hoạt động',
-         description: 'Chỉ giữ lại lead chưa có lịch sử hoạt động nào.',
-         icon: Clock,
-      },
-      {
-         value: 'high-value',
-         label: 'Giá trị cao',
-         description: 'Lọc lead có doanh thu dự kiến lớn hơn 50 triệu.',
-         icon: Star,
-      }
-   ] as const;
-
-   const advancedStatusOptions = [
-      { value: 'all', label: 'Tất cả trạng thái' },
-      { value: 'overdue', label: statusFilterLabels.overdue },
-      { value: 'today_care', label: statusFilterLabels.today_care },
-      ...LEAD_STATUS_OPTIONS.map((status) => ({
-         value: status.value,
-         label: statusFilterLabels[status.value] || status.label
-      }))
-   ];
-
-   const advancedGroupOptions: Array<{
-      value: MyLeadsGroupBy;
-      label: string;
-      description: string;
-   }> = [
-      { value: 'ownerId', label: 'Chuyên viên sales', description: 'Nhóm theo sale đang phụ trách lead.' },
-      { value: 'status', label: 'Giai đoạn', description: 'Nhóm theo trạng thái xử lý lead.' },
-      { value: 'city', label: 'Thành phố', description: 'Nhóm theo địa chỉ/thành phố của lead.' },
-      { value: 'program', label: 'Chương trình', description: 'Nhóm theo chương trình khách quan tâm.' },
-      { value: 'source', label: 'Nguồn', description: 'Nhóm theo nguồn marketing hoặc kênh đổ lead.' }
-   ];
 
    const toggleGroupBy = useCallback((groupKey: MyLeadsGroupBy) => {
       setGroupBy((prev) => {
@@ -1888,174 +1578,41 @@ const MyLeads: React.FC = () => {
          }
 
          const next = new Set([...prev, groupKey]);
-         return advancedGroupOptions.map((option) => option.value).filter((value) => next.has(value));
+         return LEAD_TOOLBAR_GROUP_OPTIONS.map((option) => option.id).filter((value) => next.has(value));
       });
-   }, [advancedGroupOptions]);
+   }, []);
 
-   const advancedFieldLabels: Record<MyLeadsAdvancedFieldKey, string> = {
-      ownerId: 'Chuyên viên sales',
-      source: 'Nguồn',
-      program: 'Chương trình',
-      city: 'Thành phố',
-   };
+   const advancedDropdownFilterOptions = LEAD_TOOLBAR_FILTER_OPTIONS;
+   const advancedDropdownGroupOptions = LEAD_TOOLBAR_GROUP_OPTIONS;
 
-   const advancedFieldAllLabels: Record<MyLeadsAdvancedFieldKey, string> = {
-      ownerId: 'Tất cả',
-      source: 'Tất cả',
-      program: 'Tất cả',
-      city: 'Tất cả',
-   };
+   const selectedAdvancedFilterOptions = advancedDropdownFilterOptions.filter((option) =>
+      selectedAdvancedFilterFields.includes(option.id)
+   );
 
-   const advancedFieldConfigs: Array<{
-      field: MyLeadsAdvancedFieldKey;
-      title: string;
-      placeholder: string;
-      helperText: string;
-      icon: React.ComponentType<{ size?: number; className?: string }>;
-   }> = [
-      {
-         field: 'ownerId',
-         title: 'Chuyên viên',
-         placeholder: 'Tìm sale',
-         helperText: '',
-         icon: Users,
-      },
-      {
-         field: 'source',
-         title: 'Nguồn lead',
-         placeholder: 'Tìm nguồn',
-         helperText: '',
-         icon: Filter,
-      },
-      {
-         field: 'city',
-         title: 'Thành phố',
-         placeholder: 'Tìm thành phố',
-         helperText: '',
-         icon: MapPin,
-      },
-   ];
+   const activeAdvancedFilterField = selectedAdvancedFilterOptions[0] || null;
 
-   const getAdvancedFieldSelectedLabels = useCallback((field: MyLeadsAdvancedFieldKey) => {
-      return advancedFieldFilters[field]
-         .map((value) => advancedFieldOptions[field].find((option) => option.value === value)?.label || value);
-   }, [advancedFieldFilters, advancedFieldOptions]);
-
-   const activeAdvancedSelections = useMemo(() => {
-      const items: Array<{ key: string; label: string }> = [];
-
-      if (filterType !== 'all' && filterTypeLabels[filterType]) {
-         items.push({ key: `quick:${filterType}`, label: `Bộ lọc: ${filterTypeLabels[filterType]}` });
-      }
-      if (statusFilter !== 'all') {
-         items.push({ key: `status:${statusFilter}`, label: `Trạng thái: ${statusFilterLabels[statusFilter] || statusFilter}` });
-      }
-      (Object.entries(advancedFieldFilters) as Array<[MyLeadsAdvancedFieldKey, string[]]>).forEach(([field, values]) => {
-         values.forEach((value) => {
-            const optionLabel = advancedFieldOptions[field].find((option) => option.value === value)?.label || value;
-            items.push({ key: `${field}:${value}`, label: `${advancedFieldLabels[field]}: ${optionLabel}` });
-         });
-      });
-      groupBy.forEach((groupKey) => {
-         items.push({ key: `group:${groupKey}`, label: `Nhóm theo: ${groupByLabels[groupKey] || groupKey}` });
-      });
-      if (timeRangeType !== 'all') {
-         const timeFieldLabel = timeFieldOptions.find((option) => option.id === timeFilterField)?.label || 'Ngày tạo';
-         const timeRangeLabel = timeRangeType === 'custom'
-            ? (customRange?.start && customRange?.end ? `${customRange.start} - ${customRange.end}` : 'Khoảng tùy chỉnh')
-            : (timePresets.find((preset) => preset.id === timeRangeType)?.label || timeRangeType);
-         items.push({ key: `time:${timeFilterField}:${timeRangeType}`, label: `Thời gian: ${timeFieldLabel} / ${timeRangeLabel}` });
-      }
-
-      return items;
-   }, [
-      customRange,
-      filterType,
-      filterTypeLabels,
-      advancedFieldFilters,
-      advancedFieldLabels,
-      advancedFieldOptions,
-      groupByLabels,
-      groupBy,
-      statusFilter,
-      statusFilterLabels,
-      timeFilterField,
-      timeFieldOptions,
-      timePresets,
-      timeRangeType
-   ]);
+   const advancedFilterSelectableValues = useMemo(() => {
+      if (!activeAdvancedFilterField) return [];
+      return advancedFieldOptions[activeAdvancedFilterField.id as MyLeadsAdvancedFieldKey];
+   }, [activeAdvancedFilterField, advancedFieldOptions]);
 
    const activeAdvancedFilterCount = useMemo(() => {
-      return activeAdvancedSelections.length;
-   }, [activeAdvancedSelections]);
+      const advancedValueCount = Object.values(advancedFieldFilters).reduce((count, values) => count + values.length, 0);
+      const timeCount = timeFilterField !== 'action' || timeRangeType !== 'all' ? 1 : 0;
+      const quickFilterCount = filterType !== 'all' ? 1 : 0;
+      const statusCount = statusFilter !== 'all' ? 1 : 0;
+      return advancedValueCount + groupBy.length + timeCount + quickFilterCount + statusCount;
+   }, [advancedFieldFilters, filterType, groupBy.length, statusFilter, timeFilterField, timeRangeType]);
 
-   const getAdvancedFieldDisplay = useCallback((field: MyLeadsAdvancedFieldKey) => {
-      const labels = getAdvancedFieldSelectedLabels(field);
-      if (labels.length === 0) return advancedFieldAllLabels[field];
-      if (labels.length === 1) return labels[0];
-      return `${labels.length} mục đã chọn`;
-   }, [advancedFieldAllLabels, getAdvancedFieldSelectedLabels]);
+   const advancedToolbarActiveCount = activeAdvancedFilterCount + searchFilters.length;
 
-   const updateAdvancedFieldQuery = useCallback((field: MyLeadsAdvancedFieldKey, value: string) => {
-      setActiveAdvancedFieldMenu(field);
-      setAdvancedFieldQueries((prev) => ({
-         ...prev,
-         [field]: value,
-      }));
-   }, []);
-
-   const toggleAdvancedFieldValue = useCallback((field: MyLeadsAdvancedFieldKey, value: string) => {
-      setAdvancedFieldFilters((prev) => {
-         const isSelected = prev[field].includes(value);
-         return {
-            ...prev,
-            [field]: isSelected
-               ? prev[field].filter((item) => item !== value)
-               : [...prev[field], value],
-         };
-      });
-      setAdvancedFieldQueries((prev) => ({
-         ...prev,
-         [field]: '',
-      }));
-      setActiveAdvancedFieldMenu(field);
-   }, []);
-
-   const clearAdvancedFieldValues = useCallback((field: MyLeadsAdvancedFieldKey) => {
-      setAdvancedFieldFilters((prev) => ({
-         ...prev,
-         [field]: [],
-      }));
-      setAdvancedFieldQueries((prev) => ({
-         ...prev,
-         [field]: '',
-      }));
-   }, []);
+   const hasAdvancedToolbarFilters = toolbarFilterChips.length > 0;
 
    const closeAdvancedFilterMenu = () => {
       setShowAdvancedFilter(false);
       setShowTimePicker(false);
-      setActiveAdvancedFieldMenu(null);
-      setAdvancedFieldQueries({ ...DEFAULT_ADVANCED_FIELD_QUERIES });
-   };
-
-   const resetAdvancedFilters = () => {
-      setFilterType('all');
-      setStatusFilter('all');
-      setStatusFilterSource(null);
-      setGroupBy([]);
-      setTimeFilterField('createdAt');
-      setTimeRangeType('all');
-      setCustomRange(null);
-      setShowTimePicker(false);
-      setAdvancedFieldFilters({
-         ownerId: [],
-         source: [],
-         program: [],
-         city: [],
-      });
-      setAdvancedFieldQueries({ ...DEFAULT_ADVANCED_FIELD_QUERIES });
-      setActiveAdvancedFieldMenu(null);
+      setSelectedAdvancedFilterFields([]);
+      setSelectedAdvancedFilterValue('');
    };
 
    const handleToolbarFilterRemove = (index: number) => {
@@ -2096,7 +1653,7 @@ const MyLeads: React.FC = () => {
       }
 
       if (chip.syntheticKey === 'time') {
-         setTimeFilterField('createdAt');
+         setTimeFilterField('action');
          setTimeRangeType('all');
          setCustomRange(null);
          setShowTimePicker(false);
@@ -2107,255 +1664,86 @@ const MyLeads: React.FC = () => {
       setSearchFilters([]);
       setFilterType('all');
       setGroupBy([]);
-      setTimeFilterField('createdAt');
+      setTimeFilterField('action');
       setTimeRangeType('all');
       setCustomRange(null);
       setShowTimePicker(false);
       setStatusFilter('all');
       setStatusFilterSource(null);
-      setAdvancedFieldFilters({
-         ownerId: [],
-         source: [],
-         program: [],
-         city: [],
-      });
-      setAdvancedFieldQueries({ ...DEFAULT_ADVANCED_FIELD_QUERIES });
-      setActiveAdvancedFieldMenu(null);
+      setAdvancedFieldFilters({ ...DEFAULT_ADVANCED_FIELD_FILTERS });
+      setSelectedAdvancedFilterFields([]);
+      setSelectedAdvancedFilterValue('');
+      setShowAdvancedFilter(false);
+      setShowActionDropdown(false);
+      setShowColumnDropdown(false);
    };
 
-   const renderAdvancedFilterPopover = () => (
-      <>
-         <div className="fixed inset-0 z-30" onClick={closeAdvancedFilterMenu}></div>
-         <div className="absolute right-0 top-full z-40 mt-2 w-[700px] max-w-[calc(100vw-2rem)] max-h-[72vh] overflow-hidden rounded-md border border-slate-200 bg-white shadow-2xl animate-in fade-in zoom-in-95 font-sans text-[12px] xl:-right-20">
-            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
-               <div className="flex items-center gap-2 text-[13px] font-semibold text-slate-800">
-                  <Filter size={14} className="text-slate-600" />
-                  <span>Lọc nâng cao</span>
-               </div>
-               <button
-                  type="button"
-                  onClick={closeAdvancedFilterMenu}
-                  className="rounded-md p-1 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700"
-               >
-                  <X size={14} />
-               </button>
-            </div>
+   const toggleAdvancedDropdownSelection = useCallback((type: 'filter' | 'group', fieldId: string) => {
+      if (type === 'filter') {
+         setSelectedAdvancedFilterValue('');
+         setSelectedAdvancedFilterFields((prev) => (prev.includes(fieldId) ? [] : [fieldId]));
+         return;
+      }
 
-            <div className="grid md:grid-cols-2">
-               <div className="space-y-3 border-r border-slate-200 p-3 max-h-[calc(72vh-57px)] overflow-y-auto overscroll-contain">
-                  <div className="flex items-center gap-2 text-[13px] font-semibold text-slate-800">
-                     <Filter size={14} className="text-slate-500" />
-                     <span>Bộ lọc</span>
-                  </div>
+      toggleGroupBy(fieldId as MyLeadsGroupBy);
+   }, [toggleGroupBy]);
 
-                  <div className="grid grid-cols-3 gap-1.5">
-                     {advancedQuickFilters.map((item) => {
-                        const Icon = item.icon;
-                        const isActive = filterType === item.value;
+   const handleTimeFilterOpenChange = (nextOpen: boolean) => {
+      setShowAdvancedFilter(false);
+      setShowActionDropdown(false);
+      setShowColumnDropdown(false);
+      setShowTimePicker(nextOpen);
+   };
 
-                        return (
-                           <button
-                              key={item.value}
-                              type="button"
-                              onClick={() => setFilterType(item.value)}
-                              className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-[12px] font-medium transition-colors ${
-                                 isActive
-                                    ? 'border-blue-200 bg-blue-50 text-blue-700'
-                                    : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                              }`}
-                           >
-                              <Icon size={13} />
-                              <span className="truncate">{item.label}</span>
-                           </button>
-                        );
-                     })}
-                  </div>
+   const handleTimeFilterFieldChange = (nextFieldId: string) => {
+      setShowAdvancedFilter(false);
+      setShowActionDropdown(false);
+      setShowColumnDropdown(false);
+      setShowTimePicker(false);
+      setTimeFilterField(nextFieldId as LeadActionFilterSelection);
+   };
 
-                  <div className="space-y-2">
-                     {advancedFieldConfigs.map((config) => (
-                        <SearchableMultiSelectField
-                           key={config.field}
-                           title={config.title}
-                           placeholder={config.placeholder}
-                           helperText={config.helperText}
-                           icon={config.icon}
-                           options={advancedFieldOptions[config.field]}
-                           selectedValues={advancedFieldFilters[config.field]}
-                           query={advancedFieldQueries[config.field]}
-                           summary={getAdvancedFieldDisplay(config.field)}
-                           isOpen={activeAdvancedFieldMenu === config.field}
-                           onOpen={() => setActiveAdvancedFieldMenu(config.field)}
-                           onClose={() => setActiveAdvancedFieldMenu((prev) => (prev === config.field ? null : prev))}
-                           onQueryChange={(value) => updateAdvancedFieldQuery(config.field, value)}
-                           onToggleValue={(value) => toggleAdvancedFieldValue(config.field, value)}
-                           onClear={() => clearAdvancedFieldValues(config.field)}
-                           normalize={normalizeFilterToken}
-                        />
-                     ))}
-                  </div>
+   const handleTimePresetSelect = (presetId: string) => {
+      setTimeRangeType(presetId);
+      if (presetId !== 'custom') {
+         setShowTimePicker(false);
+      }
+   };
 
-                  <div className="rounded-md border border-slate-200 bg-white p-2.5">
-                     <div className="flex items-center gap-2 text-[12px] font-semibold text-slate-800">
-                        <Calendar size={13} className="text-slate-500" />
-                        <span>Thời gian</span>
-                     </div>
-                     <div className="mt-2 grid grid-cols-2 gap-2">
-                        <select
-                           value={timeFilterField}
-                           onChange={(event) => setTimeFilterField(event.target.value as typeof timeFieldOptions[number]['id'])}
-                           className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-[12px] text-slate-700 outline-none"
-                        >
-                           {timeFieldOptions.map((option) => (
-                              <option key={option.id} value={option.id}>
-                                 {option.label}
-                              </option>
-                           ))}
-                        </select>
+   const handleApplyCustomTimeRange = () => {
+      if (customRange?.start && customRange?.end) {
+         setTimeRangeType('custom');
+         setShowTimePicker(false);
+         return;
+      }
 
-                        <select
-                           value={timeRangeType}
-                           onChange={(event) => {
-                              const nextRange = event.target.value;
-                              setTimeRangeType(nextRange);
-                              setShowTimePicker(nextRange === 'custom');
-                              if (nextRange !== 'custom') {
-                                 setCustomRange(null);
-                              }
-                           }}
-                           className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-[12px] text-slate-700 outline-none"
-                        >
-                           {timePresets.map((preset) => (
-                              <option key={preset.id} value={preset.id}>
-                                 {preset.label}
-                              </option>
-                           ))}
-                        </select>
-                     </div>
+      alert('Vui lòng chọn khoảng ngày');
+   };
 
-                     {timeRangeType === 'custom' ? (
-                        <div className="mt-2 grid grid-cols-2 gap-2">
-                           <input
-                              type="date"
-                              value={customRange?.start || ''}
-                              onChange={(event) => setCustomRange((prev) => ({ start: event.target.value, end: prev?.end || '' }))}
-                              className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[12px] text-slate-700 outline-none focus:border-blue-300"
-                           />
-                           <input
-                              type="date"
-                              value={customRange?.end || ''}
-                              onChange={(event) => setCustomRange((prev) => ({ start: prev?.start || '', end: event.target.value }))}
-                              className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[12px] text-slate-700 outline-none focus:border-blue-300"
-                           />
-                        </div>
-                     ) : null}
-                  </div>
+   const handleAdvancedFilterOpenChange = (nextOpen: boolean) => {
+      setShowTimePicker(false);
+      setShowActionDropdown(false);
+      setShowColumnDropdown(false);
+      setShowAdvancedFilter(nextOpen);
+      if (!nextOpen) {
+         setSelectedAdvancedFilterFields([]);
+         setSelectedAdvancedFilterValue('');
+      }
+   };
 
-                  <div className="rounded-md border border-slate-200 bg-white p-2.5">
-                     <div className="flex items-center gap-2 text-[12px] font-semibold text-slate-800">
-                        <CheckCircle2 size={13} className="text-slate-500" />
-                        <span>Trạng thái</span>
-                     </div>
-                     <select
-                        value={statusFilter}
-                        onChange={(event) => {
-                           const value = event.target.value;
-                           setStatusFilter(value);
-                           setStatusFilterSource(value === 'all' ? null : 'advanced');
-                        }}
-                        className="mt-2 w-full rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-[12px] text-slate-700 outline-none"
-                     >
-                        {advancedStatusOptions.map((item) => (
-                           <option key={item.value} value={item.value}>
-                              {item.label}
-                           </option>
-                        ))}
-                     </select>
-                  </div>
-               </div>
+   const handleAdvancedFilterValueChange = (nextValue: string) => {
+      setSelectedAdvancedFilterValue(nextValue);
+      if (!nextValue || !activeAdvancedFilterField) return;
 
-               <div className="space-y-3 p-3 max-h-[calc(72vh-57px)] overflow-y-auto overscroll-contain">
-                  <div className="flex items-center gap-2 text-[13px] font-semibold text-slate-800">
-                     <Users size={14} className="text-slate-500" />
-                     <span>Group by</span>
-                  </div>
-
-                  <div className="space-y-1">
-                     <button
-                        type="button"
-                        onClick={() => setGroupBy([])}
-                        className={`flex w-full items-center justify-between rounded-md px-2.5 py-2 text-left text-[12px] transition-colors ${
-                           groupBy.length === 0
-                              ? 'bg-blue-50 text-blue-700'
-                              : 'text-slate-700 hover:bg-slate-50'
-                        }`}
-                     >
-                        <span>Không nhóm</span>
-                        {groupBy.length === 0 ? <CheckCircle2 size={13} /> : null}
-                     </button>
-
-                     {advancedGroupOptions.map((item) => {
-                        const isSelected = groupBy.includes(item.value);
-                        return (
-                           <button
-                              key={item.value}
-                              type="button"
-                              onClick={() => toggleGroupBy(item.value)}
-                              className={`flex w-full items-center justify-between rounded-md px-2.5 py-2 text-left text-[12px] transition-colors ${
-                                 isSelected
-                                    ? 'bg-blue-50 text-blue-700'
-                                    : 'text-slate-700 hover:bg-slate-50'
-                              }`}
-                           >
-                              <span>{item.label}</span>
-                              {isSelected ? <CheckCircle2 size={13} /> : null}
-                           </button>
-                        );
-                     })}
-                  </div>
-
-                  <div className="rounded-md border border-slate-200 bg-slate-50 p-2.5">
-                     <div className="flex items-center gap-2 text-[12px] font-semibold text-slate-800">
-                        <ListFilter size={13} className="text-slate-500" />
-                        <span>Đang áp dụng</span>
-                     </div>
-
-                     {activeAdvancedSelections.length === 0 ? (
-                        <div className="mt-2 text-[11px] text-slate-400">Chưa chọn</div>
-                     ) : (
-                        <div className="mt-2 flex flex-wrap gap-1">
-                           {activeAdvancedSelections.map((item) => (
-                              <div
-                                 key={item.key}
-                                 className="rounded-md bg-blue-50 px-2 py-1 text-[10px] font-medium text-blue-700"
-                              >
-                                 {item.label}
-                              </div>
-                           ))}
-                        </div>
-                     )}
-                  </div>
-
-                  <div className="flex gap-2 pt-1">
-                     <button
-                        type="button"
-                        onClick={resetAdvancedFilters}
-                        className="flex-1 rounded-md border border-slate-200 bg-white py-1.5 text-[12px] font-semibold text-slate-700 transition-colors hover:bg-slate-50"
-                     >
-                        Đặt lại
-                     </button>
-                     <button
-                        type="button"
-                        onClick={closeAdvancedFilterMenu}
-                        className="flex-1 rounded-md bg-blue-600 py-1.5 text-[12px] font-semibold text-white transition-colors hover:bg-blue-700"
-                     >
-                        Xong
-                     </button>
-                  </div>
-               </div>
-            </div>
-         </div>
-      </>
-   );
+      const field = activeAdvancedFilterField.id as MyLeadsAdvancedFieldKey;
+      setAdvancedFieldFilters((prev) => ({
+         ...prev,
+         [field]: prev[field].includes(nextValue) ? prev[field] : [...prev[field], nextValue]
+      }));
+      setSelectedAdvancedFilterFields([]);
+      setSelectedAdvancedFilterValue('');
+      setShowAdvancedFilter(false);
+   };
 
    const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
       if (e.target.checked) {
@@ -2734,7 +2122,7 @@ const MyLeads: React.FC = () => {
                       filters={toolbarFilterChips}
                       onAddFilter={(filter) => {
                          if (filter.type === 'groupby') {
-                            const nextGroupBy = ['ownerId', 'status', 'source', 'program', 'city'].includes(filter.field)
+                            const nextGroupBy = LEAD_TOOLBAR_GROUP_OPTIONS.some((option) => option.id === filter.field)
                                ? filter.field as MyLeadsGroupBy
                                : null;
                             if (nextGroupBy) {
@@ -2803,94 +2191,47 @@ const MyLeads: React.FC = () => {
                   <div className="w-full xl:w-[52%] xl:max-w-[700px] xl:flex-none flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between xl:flex-nowrap">
                      <div className="flex flex-col gap-2">
                         <div className="flex items-center gap-2 flex-wrap">
-                        <div className="relative shrink-0">
-                           <button
-                              onClick={() => {
-                                 setShowActionDropdown(false);
-                                 setShowColumnDropdown(false);
-                              if (showAdvancedFilter) {
-                                 closeAdvancedFilterMenu();
-                                 return;
-                              }
-                              setShowAdvancedFilter(true);
-                           }}
-                              className={`flex items-center gap-2 px-3 py-1.5 border rounded-lg text-xs font-bold whitespace-nowrap transition-all ${showAdvancedFilter || activeAdvancedFilterCount ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}
-                           >
-                              <Filter size={14} />
-                              <span>Lá»c nÃ¢ng cao</span>
-                              {activeAdvancedFilterCount > 0 ? (
-                                 <span className="inline-flex min-w-[18px] items-center justify-center rounded-full bg-blue-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
-                                    {activeAdvancedFilterCount}
-                                 </span>
-                              ) : null}
-                           </button>
-
-                           {showAdvancedFilter && (
-                              renderAdvancedFilterPopover()
-                           )}
-                        </div>
-
-                        <div className="hidden items-center gap-2 border border-slate-200 rounded-lg bg-white px-2 py-1.5 text-xs shrink-0">
-                           <select
-                              value={timeFilterField}
-                              onChange={(e) => {
-                                 setTimeFilterField(e.target.value as typeof timeFieldOptions[number]['id']);
+                           <ToolbarTimeFilter
+                              isOpen={showTimePicker}
+                              fieldOptions={timeFieldOptions}
+                              selectedField={timeFilterField}
+                              selectedRangeType={timeRangeType}
+                              customRange={customRange}
+                              presets={timePresets}
+                              onOpenChange={handleTimeFilterOpenChange}
+                              onFieldChange={handleTimeFilterFieldChange}
+                              onPresetSelect={handleTimePresetSelect}
+                              onCustomRangeChange={setCustomRange}
+                              onReset={() => {
+                                 setTimeFilterField('action');
+                                 setTimeRangeType('all');
+                                 setCustomRange(null);
+                                 setShowTimePicker(false);
                               }}
-                              className="outline-none bg-transparent font-semibold text-slate-600"
-                           >
-                              {timeFieldOptions.map((option) => (
-                                 <option key={option.id} value={option.id}>{option.label}</option>
-                              ))}
-                           </select>
-                        </div>
+                              onCancel={() => setShowTimePicker(false)}
+                              onApplyCustomRange={handleApplyCustomTimeRange}
+                              className="shrink-0"
+                           />
 
-                        <div className="hidden items-center gap-2 border border-slate-200 rounded-lg bg-white px-2 py-1.5 text-xs shrink-0">
-                           <select
-                              value={timeRangeType}
-                              onChange={(e) => {
-                                 const nextRange = e.target.value;
-                                 setTimeRangeType(nextRange);
-                                 setShowTimePicker(nextRange === 'custom');
-                                 if (nextRange !== 'custom') {
-                                    setCustomRange(null);
-                                 }
-                              }}
-                              className="outline-none bg-transparent font-semibold text-slate-600"
-                           >
-                              {timePresets.map((preset) => (
-                                 <option key={preset.id} value={preset.id}>{preset.label}</option>
-                              ))}
-                           </select>
+                           <AdvancedFilterDropdown
+                              isOpen={showAdvancedFilter}
+                              activeCount={advancedToolbarActiveCount}
+                              hasActiveFilters={hasAdvancedToolbarFilters}
+                              filterOptions={advancedDropdownFilterOptions}
+                              groupOptions={advancedDropdownGroupOptions}
+                              selectedFilterFieldIds={selectedAdvancedFilterFields}
+                              selectedGroupFieldIds={groupBy}
+                              activeFilterField={activeAdvancedFilterField}
+                              selectableValues={advancedFilterSelectableValues}
+                              selectedFilterValue={selectedAdvancedFilterValue}
+                              onOpenChange={handleAdvancedFilterOpenChange}
+                              onToggleFilterField={(fieldId) => toggleAdvancedDropdownSelection('filter', fieldId)}
+                              onToggleGroupField={(fieldId) => toggleAdvancedDropdownSelection('group', fieldId)}
+                              onFilterValueChange={handleAdvancedFilterValueChange}
+                              onClearAll={handleClearToolbarFilters}
+                              className="shrink-0"
+                           />
                         </div>
-                        </div>
-
-                        {false && showTimePicker && timeRangeType === 'custom' && (
-                           <div className="flex items-center gap-2 flex-wrap">
-                              <input
-                                 type="date"
-                                 value={customRange?.start || ''}
-                                 onChange={(e) => setCustomRange(prev => ({ start: e.target.value, end: prev?.end || '' }))}
-                                 className="border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-600 outline-none focus:border-blue-300"
-                              />
-                              <span className="text-xs font-semibold text-slate-500">Ä‘áº¿n</span>
-                              <input
-                                 type="date"
-                                 value={customRange?.end || ''}
-                                 onChange={(e) => setCustomRange(prev => ({ start: prev?.start || '', end: e.target.value }))}
-                                 className="border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-600 outline-none focus:border-blue-300"
-                              />
-                              <button
-                                 onClick={() => {
-                                    setCustomRange(null);
-                                    setTimeRangeType('all');
-                                    setShowTimePicker(false);
-                                 }}
-                                 className="px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-50"
-                              >
-                                 XÃ³a
-                              </button>
-                           </div>
-                        )}
                      </div>
 
                      <div className="flex items-center justify-end gap-2">

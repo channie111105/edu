@@ -1,7 +1,7 @@
 ﻿import React, { useEffect, useMemo, useState } from 'react';
-import { Calendar, FileSpreadsheet, NotebookPen, Plus, Save, Settings2, ChevronRight, Filter, Rows3 } from 'lucide-react';
+import { FileSpreadsheet, NotebookPen, Plus, Save, Search, Settings2 } from 'lucide-react';
 import LogAudienceFilterControl from '../components/LogAudienceFilter';
-import PinnedSearchInput, { PinnedSearchChip } from '../components/PinnedSearchInput';
+import { AdvancedFilterDropdown, ToolbarTimeFilter } from '../components/filters';
 import { decodeMojibakeReactNode, decodeMojibakeText } from '../utils/mojibake';
 import {
   AttendanceStatus,
@@ -40,6 +40,12 @@ import {
   upsertStudentScore,
   upsertStudyNote
 } from '../utils/storage';
+import {
+  CustomDateRange,
+  ToolbarOption,
+  ToolbarValueOption,
+  doesDateMatchTimeRange
+} from '../utils/filterToolbar';
 import { filterByLogAudience, getILogNoteAudience, LogAudienceFilter } from '../utils/logAudience';
 
 const STATUS = ['DRAFT', 'ACTIVE', 'DONE', 'CANCELED'] as const;
@@ -117,9 +123,11 @@ type PrimaryTabKey = 'students' | 'level' | 'logs';
 type LevelTabKey = 'attendance' | 'grades';
 type NoteModalState = { studentId: string; studentName: string; sessionId: string; note: string };
 type ClassListColumnKey = 'code' | 'level' | 'timeSlot' | 'studyDays' | 'teacher' | 'size' | 'language' | 'classType' | 'startDate' | 'endDate' | 'campus' | 'status';
-type QuickActionKey = 'startDate' | 'endDate' | ITrainingClass['status'];
 type TimeRangeType = 'all' | 'today' | 'yesterday' | 'thisWeek' | 'last7Days' | 'last30Days' | 'thisMonth' | 'lastMonth' | 'custom';
-type ClassGroupByKey = 'status' | 'campus' | 'teacher' | 'level' | 'classType' | 'language';
+type ClassToolbarFilterFieldKey = 'campus' | 'level' | 'timeSlot' | 'teacher' | 'language' | 'status';
+type ClassToolbarGroupFieldKey = ClassToolbarFilterFieldKey | 'startMonth' | 'endMonth';
+type ClassToolbarTimeField = 'startDate' | 'endDate';
+type ClassToolbarTimeFieldSelection = 'action' | ClassToolbarTimeField;
 type CreateClassFormState = {
   code: string;
   name: string;
@@ -171,22 +179,30 @@ const TIME_RANGE_PRESETS: Array<{ id: TimeRangeType; label: string }> = [
   { id: 'lastMonth', label: 'Tháng trước' },
   { id: 'custom', label: 'Tùy chỉnh khoảng...' }
 ];
-const QUICK_ACTION_OPTIONS: Array<{ key: QuickActionKey; label: string }> = [
-  { key: 'startDate', label: 'Ngày bắt đầu' },
-  { key: 'endDate', label: 'Ngày kết thúc' },
-  { key: 'DRAFT', label: 'Nháp' },
-  { key: 'ACTIVE', label: 'Đang học' },
-  { key: 'DONE', label: 'Đã kết thúc' },
-  { key: 'CANCELED', label: 'Đã hủy' }
-];
-const GROUP_BY_OPTIONS: Array<{ key: ClassGroupByKey; label: string }> = [
-  { key: 'status', label: 'Trạng thái' },
-  { key: 'campus', label: 'Cơ sở' },
-  { key: 'teacher', label: 'Giáo viên' },
-  { key: 'level', label: 'Trình độ' },
-  { key: 'classType', label: 'Hình thức' },
-  { key: 'language', label: 'Ngôn ngữ' }
-];
+const CLASS_TOOLBAR_FILTER_OPTIONS = [
+  { id: 'campus', label: 'Cơ sở' },
+  { id: 'level', label: 'Trình độ' },
+  { id: 'timeSlot', label: 'Ca' },
+  { id: 'teacher', label: 'Giáo viên' },
+  { id: 'language', label: 'Ngôn ngữ' },
+  { id: 'status', label: 'Trạng thái' }
+] as const satisfies ReadonlyArray<ToolbarOption>;
+const CLASS_TOOLBAR_GROUP_OPTIONS = [
+  { id: 'campus', label: 'Cơ sở' },
+  { id: 'level', label: 'Trình độ' },
+  { id: 'timeSlot', label: 'Ca' },
+  { id: 'teacher', label: 'Giáo viên' },
+  { id: 'language', label: 'Ngôn ngữ' },
+  { id: 'status', label: 'Trạng thái' },
+  { id: 'startMonth', label: 'Tháng bắt đầu' },
+  { id: 'endMonth', label: 'Tháng kết thúc' }
+] as const satisfies ReadonlyArray<ToolbarOption>;
+const CLASS_TOOLBAR_TIME_FIELD_OPTIONS = [
+  { id: 'startDate', label: 'Khai giảng' },
+  { id: 'endDate', label: 'Kết thúc' }
+] as const satisfies ReadonlyArray<ToolbarOption>;
+const CLASS_TOOLBAR_TIME_PLACEHOLDER = 'action';
+const DEFAULT_CLASS_TIME_FIELD: ClassToolbarTimeField = 'startDate';
 
 const attendanceKey = (studentId: string, sessionId: string) => `${studentId}__${sessionId}`;
 const getTodayDateOnly = () => {
@@ -229,6 +245,17 @@ const toDateInputValue = (value: Date) => {
   const month = `${value.getMonth() + 1}`.padStart(2, '0');
   const day = `${value.getDate()}`.padStart(2, '0');
   return `${year}-${month}-${day}`;
+};
+const getMonthBucket = (value?: string) => {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+};
+const formatMonthBucketLabel = (value: string) => {
+  if (!value) return '';
+  const [year, month] = value.split('-');
+  return year && month ? `${month}/${year}` : value;
 };
 const getDefaultVisibleClassColumns = () => CLASS_LIST_COLUMNS.filter((column) => column.defaultVisible).map((column) => column.key);
 const getInitialVisibleClassColumns = (): ClassListColumnKey[] => {
@@ -306,22 +333,14 @@ const TrainingClassList: React.FC = () => {
   const [primaryTab, setPrimaryTab] = useState<PrimaryTabKey>('students');
   const [levelTab, setLevelTab] = useState<LevelTabKey>('attendance');
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'ALL' | ITrainingClass['status']>('ALL');
-  const [levelFilter, setLevelFilter] = useState('ALL');
-  const [teacherFilter, setTeacherFilter] = useState('ALL');
-  const [campusFilter, setCampusFilter] = useState('ALL');
-  const [languageFilter, setLanguageFilter] = useState('ALL');
-  const [classTypeFilter, setClassTypeFilter] = useState<'ALL' | NonNullable<ITrainingClass['classType']>>('ALL');
-  const [roomFilter, setRoomFilter] = useState('ALL');
-  const [studyDayFilter, setStudyDayFilter] = useState<'ALL' | `${number}`>('ALL');
-  const [timeSlotFilter, setTimeSlotFilter] = useState('ALL');
-  const [quickAction, setQuickAction] = useState<QuickActionKey>('startDate');
+  const [timeFilterField, setTimeFilterField] = useState<ClassToolbarTimeFieldSelection>(CLASS_TOOLBAR_TIME_PLACEHOLDER);
   const [timeRangeType, setTimeRangeType] = useState<TimeRangeType>('all');
-  const [startDateFromFilter, setStartDateFromFilter] = useState('');
-  const [endDateToFilter, setEndDateToFilter] = useState('');
+  const [customRange, setCustomRange] = useState<CustomDateRange | null>(null);
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [groupBy, setGroupBy] = useState<ClassGroupByKey[]>([]);
+  const [selectedAdvancedFilterFields, setSelectedAdvancedFilterFields] = useState<ClassToolbarFilterFieldKey[]>([]);
+  const [selectedAdvancedFilterValue, setSelectedAdvancedFilterValue] = useState('');
+  const [selectedAdvancedGroupFields, setSelectedAdvancedGroupFields] = useState<ClassToolbarGroupFieldKey[]>([]);
   const [columnMenuOpen, setColumnMenuOpen] = useState(false);
   const [visibleColumns, setVisibleColumns] = useState<ClassListColumnKey[]>(getInitialVisibleClassColumns);
   const [toClass, setToClass] = useState('');
@@ -379,19 +398,28 @@ const TrainingClassList: React.FC = () => {
     window.localStorage.setItem(CLASS_LIST_VISIBLE_COLUMNS_KEY, JSON.stringify(visibleColumns));
   }, [visibleColumns]);
 
-  const campusOptions = useMemo(() => Array.from(new Set(classes.map((item) => item.campus).filter(Boolean))) as string[], [classes]);
-  const levelOptions = useMemo(() => Array.from(new Set(classes.map((item) => item.level).filter(Boolean))) as string[], [classes]);
-  const languageOptions = useMemo(() => Array.from(new Set(classes.map((item) => item.language).filter(Boolean))) as string[], [classes]);
-  const roomOptions = useMemo(() => Array.from(new Set(classes.map((item) => item.room).filter(Boolean))) as string[], [classes]);
+  const campusOptions = useMemo(
+    () => Array.from(new Set(classes.map((item) => item.campus).filter(Boolean))).sort((left, right) => left!.localeCompare(right!, 'vi')) as string[],
+    [classes]
+  );
+  const levelOptions = useMemo(
+    () => Array.from(new Set(classes.map((item) => item.level).filter(Boolean))).sort((left, right) => left!.localeCompare(right!, 'vi')) as string[],
+    [classes]
+  );
+  const languageOptions = useMemo(
+    () => Array.from(new Set(classes.map((item) => item.language).filter(Boolean))).sort((left, right) => left!.localeCompare(right!, 'vi')) as string[],
+    [classes]
+  );
   const timeSlotOptions = useMemo(
-    () => Array.from(new Set(classes.map((item) => item.timeSlot || getLegacyTimeSlot(item.schedule)).filter(Boolean))) as string[],
+    () => Array.from(new Set(classes.map((item) => item.timeSlot || getLegacyTimeSlot(item.schedule)).filter(Boolean))).sort((left, right) => left!.localeCompare(right!, 'vi')) as string[],
     [classes]
   );
   const teacherOptions = useMemo(
     () =>
       teachers
         .map((teacher) => ({ id: teacher.id, name: teacher.fullName }))
-        .filter((teacher) => classes.some((item) => item.teacherId === teacher.id)),
+        .filter((teacher) => classes.some((item) => item.teacherId === teacher.id))
+        .sort((left, right) => left.name.localeCompare(right.name, 'vi')),
     [classes, teachers]
   );
   const teacherNameMap = useMemo(() => new Map(teachers.map((teacher) => [teacher.id, teacher.fullName])), [teachers]);
@@ -402,177 +430,185 @@ const TrainingClassList: React.FC = () => {
   }, [members]);
   const visibleColumnSet = useMemo(() => new Set(visibleColumns), [visibleColumns]);
   const activeClassColumns = useMemo(() => CLASS_LIST_COLUMNS.filter((column) => visibleColumnSet.has(column.key)), [visibleColumnSet]);
-  const activeFilterCount = useMemo(
+  const selectedAdvancedFilterOptions = useMemo(
     () =>
-      [
-        statusFilter !== 'ALL',
-        levelFilter !== 'ALL',
-        teacherFilter !== 'ALL',
-        campusFilter !== 'ALL',
-        languageFilter !== 'ALL',
-        classTypeFilter !== 'ALL',
-        roomFilter !== 'ALL',
-        studyDayFilter !== 'ALL',
-        timeSlotFilter !== 'ALL',
-        groupBy.length > 0
-      ].filter(Boolean).length,
-    [
-      statusFilter,
-      levelFilter,
-      teacherFilter,
-      campusFilter,
-      languageFilter,
-      classTypeFilter,
-      roomFilter,
-      studyDayFilter,
-      timeSlotFilter,
-      groupBy.length
-    ]
+      selectedAdvancedFilterFields
+        .map((fieldId) => CLASS_TOOLBAR_FILTER_OPTIONS.find((option) => option.id === fieldId))
+        .filter((option): option is (typeof CLASS_TOOLBAR_FILTER_OPTIONS)[number] => Boolean(option)),
+    [selectedAdvancedFilterFields]
   );
-  const hasTimeFilter = timeRangeType !== 'all' && (!!startDateFromFilter || !!endDateToFilter);
-  const hasQuickActionFilter = quickAction !== 'startDate';
-  const hasAnyActiveTools = activeFilterCount > 0 || hasTimeFilter || hasQuickActionFilter;
-  const timeRangeLabel = useMemo(() => {
-    if (timeRangeType === 'custom' && startDateFromFilter && endDateToFilter) {
-      return `${fd(startDateFromFilter)} - ${fd(endDateToFilter)}`;
-    }
-    return TIME_RANGE_PRESETS.find((item) => item.id === timeRangeType)?.label || 'Tất cả thời gian';
-  }, [timeRangeType, startDateFromFilter, endDateToFilter]);
-  const activeSearchChips = useMemo<PinnedSearchChip[]>(() => {
-    const chips: PinnedSearchChip[] = [];
-    const quickActionLabel = QUICK_ACTION_OPTIONS.find((option) => option.key === quickAction)?.label || quickAction;
-
-    if (quickAction !== 'startDate') {
-      chips.push({ key: 'quickAction', label: `Bộ lọc: ${quickActionLabel}` });
-    }
-    if (timeRangeType !== 'all') {
-      chips.push({ key: 'timeRange', label: `Thời gian: ${timeRangeLabel}` });
-    }
-    if (statusFilter !== 'ALL') {
-      chips.push({ key: 'statusFilter', label: `Trạng thái: ${STATUS_LABEL[statusFilter]}` });
-    }
-    if (teacherFilter !== 'ALL') {
-      chips.push({ key: 'teacherFilter', label: `GV: ${teacherNameMap.get(teacherFilter) || teacherFilter}` });
-    }
-    if (campusFilter !== 'ALL') {
-      chips.push({ key: 'campusFilter', label: `Cơ sở: ${campusFilter}` });
-    }
-    if (levelFilter !== 'ALL') {
-      chips.push({ key: 'levelFilter', label: `Trình độ: ${levelFilter}` });
-    }
-    if (languageFilter !== 'ALL') {
-      chips.push({ key: 'languageFilter', label: `Ngôn ngữ: ${languageFilter}` });
-    }
-    if (classTypeFilter !== 'ALL') {
-      chips.push({ key: 'classTypeFilter', label: `Hình thức: ${CLASS_TYPE_LABEL[classTypeFilter]}` });
-    }
-    if (roomFilter !== 'ALL') {
-      chips.push({ key: 'roomFilter', label: `Phòng: ${roomFilter}` });
-    }
-    if (studyDayFilter !== 'ALL') {
-      const dayLabel = DAY_OPTIONS.find((option) => String(option.value) === studyDayFilter)?.label || studyDayFilter;
-      chips.push({ key: 'studyDayFilter', label: `Ngày học: ${dayLabel}` });
-    }
-    if (timeSlotFilter !== 'ALL') {
-      chips.push({ key: 'timeSlotFilter', label: `Khung giờ: ${timeSlotFilter}` });
-    }
-    if (groupBy.length > 0) {
-      const groupByLabel = groupBy
-        .map((key) => GROUP_BY_OPTIONS.find((option) => option.key === key)?.label || key)
-        .join(', ');
-      chips.push({ key: 'groupBy', label: `Nhóm theo: ${groupByLabel}` });
-    }
-
-    return chips;
-  }, [
-    quickAction,
-    timeRangeType,
-    timeRangeLabel,
-    statusFilter,
-    teacherFilter,
-    teacherNameMap,
-    campusFilter,
-    levelFilter,
-    languageFilter,
-    classTypeFilter,
-    roomFilter,
-    studyDayFilter,
-    timeSlotFilter,
-    groupBy
-  ]);
-  const classItems = classes.filter((c) => {
-    const normalizedSearch = search.trim().toLowerCase();
-    const teacherName = teacherNameMap.get(c.teacherId || '') || '';
-    const studyDays = getClassStudyDays(c);
-    const timeSlot = getClassTimeSlot(c);
-    const quickActionIsStatus = quickAction === 'DRAFT' || quickAction === 'ACTIVE' || quickAction === 'DONE' || quickAction === 'CANCELED';
-    const selectedDateValue =
-      quickAction === 'endDate' || quickAction === 'DONE' || quickAction === 'CANCELED'
-        ? c.endDate
-        : c.startDate;
-    const matchesSearch =
-      !normalizedSearch ||
-      [c.name, c.code, c.room, c.campus, c.language, c.level, c.schedule, teacherName]
-        .filter(Boolean)
-        .some((value) => value!.toLowerCase().includes(normalizedSearch));
-    const matchesQuickAction = !quickActionIsStatus || c.status === quickAction;
-    const matchesStatus = statusFilter === 'ALL' || c.status === statusFilter;
-    const matchesLevel = levelFilter === 'ALL' || (c.level || '') === levelFilter;
-    const matchesTeacher = teacherFilter === 'ALL' || (c.teacherId || '') === teacherFilter;
-    const matchesCampus = campusFilter === 'ALL' || (c.campus || '') === campusFilter;
-    const matchesLanguage = languageFilter === 'ALL' || (c.language || '') === languageFilter;
-    const matchesClassType = classTypeFilter === 'ALL' || (c.classType || '') === classTypeFilter;
-    const matchesRoom = roomFilter === 'ALL' || (c.room || '') === roomFilter;
-    const matchesStudyDay = studyDayFilter === 'ALL' || studyDays.includes(Number(studyDayFilter));
-    const matchesTimeSlot = timeSlotFilter === 'ALL' || timeSlot === timeSlotFilter;
-    const matchesStartDate = !startDateFromFilter || (!!selectedDateValue && selectedDateValue >= startDateFromFilter);
-    const matchesEndDate = !endDateToFilter || (!!selectedDateValue && selectedDateValue <= endDateToFilter);
-
-    return (
-      matchesSearch &&
-      matchesQuickAction &&
-      matchesStatus &&
-      matchesLevel &&
-      matchesTeacher &&
-      matchesCampus &&
-      matchesLanguage &&
-      matchesClassType &&
-      matchesRoom &&
-      matchesStudyDay &&
-      matchesTimeSlot &&
-      matchesStartDate &&
-      matchesEndDate
-    );
-  });
-  const getGroupByValue = (classItem: ITrainingClass, groupKey: ClassGroupByKey) => {
-    switch (groupKey) {
-      case 'status':
-        return STATUS_LABEL[classItem.status];
+  const activeAdvancedFilterField = selectedAdvancedFilterOptions[0] || null;
+  const resolvedTimeFilterField =
+    timeFilterField === CLASS_TOOLBAR_TIME_PLACEHOLDER ? DEFAULT_CLASS_TIME_FIELD : timeFilterField;
+  const getClassTimeFieldValue = (
+    classItem: ITrainingClass,
+    fieldId: ClassToolbarTimeField = resolvedTimeFilterField
+  ) => (fieldId === 'endDate' ? classItem.endDate : classItem.startDate);
+  const getClassToolbarFieldValues = (
+    classItem: ITrainingClass,
+    fieldId: ClassToolbarFilterFieldKey | ClassToolbarGroupFieldKey
+  ) => {
+    switch (fieldId) {
       case 'campus':
-        return classItem.campus || '-';
-      case 'teacher':
-        return teacherNameMap.get(classItem.teacherId || '') || 'Chưa phân giáo viên';
+        return classItem.campus ? [classItem.campus] : [];
       case 'level':
-        return classItem.level || '-';
-      case 'classType':
-        return classItem.classType ? CLASS_TYPE_LABEL[classItem.classType] : '-';
+        return classItem.level ? [classItem.level] : [];
+      case 'timeSlot': {
+        const timeSlot = getClassTimeSlot(classItem);
+        return timeSlot ? [timeSlot] : [];
+      }
+      case 'teacher': {
+        const teacherName = teacherNameMap.get(classItem.teacherId || '') || '';
+        return teacherName ? [teacherName] : [];
+      }
       case 'language':
-        return classItem.language || '-';
+        return classItem.language ? [classItem.language] : [];
+      case 'status':
+        return [STATUS_LABEL[classItem.status]];
+      case 'startMonth': {
+        const month = getMonthBucket(classItem.startDate);
+        return month ? [month] : [];
+      }
+      case 'endMonth': {
+        const month = getMonthBucket(classItem.endDate);
+        return month ? [month] : [];
+      }
       default:
-        return '-';
+        return [];
     }
   };
+  const getClassToolbarEmptyLabel = (
+    fieldId: ClassToolbarFilterFieldKey | ClassToolbarGroupFieldKey
+  ) => {
+    switch (fieldId) {
+      case 'campus':
+        return 'Chưa có cơ sở';
+      case 'level':
+        return 'Chưa có trình độ';
+      case 'timeSlot':
+        return 'Chưa có ca';
+      case 'teacher':
+        return 'Chưa phân giáo viên';
+      case 'language':
+        return 'Chưa có ngôn ngữ';
+      case 'startMonth':
+        return 'Chưa có tháng bắt đầu';
+      case 'endMonth':
+        return 'Chưa có tháng kết thúc';
+      default:
+        return 'Chưa có dữ liệu';
+    }
+  };
+  const formatClassToolbarFieldValue = (
+    fieldId: ClassToolbarFilterFieldKey | ClassToolbarGroupFieldKey,
+    value: string
+  ) => {
+    if (!value) return getClassToolbarEmptyLabel(fieldId);
+    if (fieldId === 'startMonth' || fieldId === 'endMonth') {
+      return formatMonthBucketLabel(value);
+    }
+    return value;
+  };
+  const getClassToolbarDisplayValue = (
+    classItem: ITrainingClass,
+    fieldId: ClassToolbarFilterFieldKey | ClassToolbarGroupFieldKey
+  ) => {
+    const values = getClassToolbarFieldValues(classItem, fieldId);
+    if (!values.length) return getClassToolbarEmptyLabel(fieldId);
+    return values.map((value) => formatClassToolbarFieldValue(fieldId, value)).join(' / ');
+  };
+  const sortSelectableValues = (fieldId: ClassToolbarFilterFieldKey, values: string[]) => {
+    if (fieldId === 'status') {
+      const statusOrder = new Map(STATUS.map((status, index) => [STATUS_LABEL[status], index]));
+      return [...values].sort((left, right) => {
+        const leftOrder = statusOrder.get(left) ?? Number.MAX_SAFE_INTEGER;
+        const rightOrder = statusOrder.get(right) ?? Number.MAX_SAFE_INTEGER;
+        if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+        return left.localeCompare(right, 'vi');
+      });
+    }
 
+    return [...values].sort((left, right) => left.localeCompare(right, 'vi'));
+  };
+  const advancedFilterSelectableValues = useMemo<ReadonlyArray<ToolbarValueOption>>(() => {
+    if (!activeAdvancedFilterField) return [];
+
+    const fieldId = activeAdvancedFilterField.id as ClassToolbarFilterFieldKey;
+    const derivedValues = classes.flatMap((classItem) => getClassToolbarFieldValues(classItem, fieldId));
+    const presetValues = fieldId === 'status' ? STATUS.map((status) => STATUS_LABEL[status]) : [];
+
+    return sortSelectableValues(
+      fieldId,
+      Array.from(new Set([...presetValues, ...derivedValues].filter(Boolean)))
+    ).map((value) => ({
+      value,
+      label: formatClassToolbarFieldValue(fieldId, value)
+    }));
+  }, [activeAdvancedFilterField, classes, teacherNameMap]);
+  const classItems = useMemo(() => {
+    const normalizedSearch = search.trim().toLowerCase();
+
+    return classes
+      .filter((classItem) => {
+        const teacherName = teacherNameMap.get(classItem.teacherId || '') || '';
+        const matchesSearch =
+          !normalizedSearch ||
+          [classItem.name, classItem.code, classItem.campus, classItem.language, classItem.level, classItem.schedule, getClassTimeSlot(classItem), teacherName]
+            .filter(Boolean)
+            .some((value) => value!.toLowerCase().includes(normalizedSearch));
+
+        if (!matchesSearch) {
+          return false;
+        }
+
+        if (timeRangeType !== 'all' && !doesDateMatchTimeRange(getClassTimeFieldValue(classItem), timeRangeType, customRange)) {
+          return false;
+        }
+
+        if (
+          activeAdvancedFilterField &&
+          selectedAdvancedFilterValue &&
+          !getClassToolbarFieldValues(classItem, activeAdvancedFilterField.id as ClassToolbarFilterFieldKey).includes(selectedAdvancedFilterValue)
+        ) {
+          return false;
+        }
+
+        return true;
+      })
+      .sort((left, right) => {
+        if (selectedAdvancedGroupFields.length > 0) {
+          const leftGroup = selectedAdvancedGroupFields
+            .map((fieldId) => getClassToolbarDisplayValue(left, fieldId))
+            .join('||');
+          const rightGroup = selectedAdvancedGroupFields
+            .map((fieldId) => getClassToolbarDisplayValue(right, fieldId))
+            .join('||');
+          const groupCompare = leftGroup.localeCompare(rightGroup, 'vi');
+          if (groupCompare !== 0) return groupCompare;
+        }
+
+        return left.code.localeCompare(right.code, 'vi');
+      });
+  }, [
+    activeAdvancedFilterField,
+    classes,
+    customRange,
+    search,
+    selectedAdvancedFilterValue,
+    selectedAdvancedGroupFields,
+    teacherNameMap,
+    timeRangeType
+  ]);
   const groupedClassItems = useMemo(() => {
-    if (groupBy.length === 0) return [];
+    if (selectedAdvancedGroupFields.length === 0) return [];
 
     const groups = new Map<string, ITrainingClass[]>();
 
     classItems.forEach((classItem) => {
-      const label = groupBy
-        .map((groupKey) => {
-          const groupLabel = GROUP_BY_OPTIONS.find((option) => option.key === groupKey)?.label || groupKey;
-          return `${groupLabel}: ${getGroupByValue(classItem, groupKey)}`;
+      const label = selectedAdvancedGroupFields
+        .map((fieldId) => {
+          const groupLabel = CLASS_TOOLBAR_GROUP_OPTIONS.find((option) => option.id === fieldId)?.label || fieldId;
+          return `${groupLabel}: ${getClassToolbarDisplayValue(classItem, fieldId)}`;
         })
         .join(' • ');
 
@@ -580,7 +616,12 @@ const TrainingClassList: React.FC = () => {
     });
 
     return Array.from(groups.entries()).map(([label, items]) => ({ label, items }));
-  }, [classItems, groupBy, teacherNameMap]);
+  }, [classItems, selectedAdvancedGroupFields]);
+  const advancedToolbarActiveCount =
+    selectedAdvancedGroupFields.length + (selectedAdvancedFilterValue ? 1 : 0);
+  const hasAdvancedToolbarFilters =
+    selectedAdvancedGroupFields.length > 0 || Boolean(selectedAdvancedFilterValue);
+  const hasAnyActiveTools = Boolean(search.trim()) || timeRangeType !== 'all' || hasAdvancedToolbarFilters;
   const selected = classItems.find((item) => item.id === selectedClassId);
   const locked = !!selected && (selected.status === 'DONE' || selected.status === 'CANCELED');
 
@@ -724,161 +765,73 @@ const TrainingClassList: React.FC = () => {
 
   const isSessionDateLocked = (session?: IClassSession) => !session?.date || session.date !== todayDateOnly;
 
-  const resetFilters = () => {
-    setStatusFilter('ALL');
-    setLevelFilter('ALL');
-    setTeacherFilter('ALL');
-    setCampusFilter('ALL');
-    setLanguageFilter('ALL');
-    setClassTypeFilter('ALL');
-    setRoomFilter('ALL');
-    setStudyDayFilter('ALL');
-    setTimeSlotFilter('ALL');
-    setQuickAction('startDate');
-    setTimeRangeType('all');
-    setStartDateFromFilter('');
-    setEndDateToFilter('');
-    setGroupBy([]);
-  };
-
-  const removeSearchChip = (chipKey: string) => {
-    switch (chipKey) {
-      case 'quickAction':
-        setQuickAction('startDate');
-        return;
-      case 'timeRange':
-        applyTimeRangePreset('all');
-        return;
-      case 'statusFilter':
-        setStatusFilter('ALL');
-        return;
-      case 'teacherFilter':
-        setTeacherFilter('ALL');
-        return;
-      case 'campusFilter':
-        setCampusFilter('ALL');
-        return;
-      case 'levelFilter':
-        setLevelFilter('ALL');
-        return;
-      case 'languageFilter':
-        setLanguageFilter('ALL');
-        return;
-      case 'classTypeFilter':
-        setClassTypeFilter('ALL');
-        return;
-      case 'roomFilter':
-        setRoomFilter('ALL');
-        return;
-      case 'studyDayFilter':
-        setStudyDayFilter('ALL');
-        return;
-      case 'timeSlotFilter':
-        setTimeSlotFilter('ALL');
-        return;
-      case 'groupBy':
-        setGroupBy([]);
-        return;
-      default:
-        return;
-    }
-  };
-
-  const clearAllSearchFilters = () => {
+  const clearAllFilters = () => {
     setSearch('');
-    resetFilters();
+    setTimeFilterField(CLASS_TOOLBAR_TIME_PLACEHOLDER);
+    setTimeRangeType('all');
+    setCustomRange(null);
     setShowTimePicker(false);
     setFiltersOpen(false);
     setColumnMenuOpen(false);
+    setSelectedAdvancedFilterFields([]);
+    setSelectedAdvancedFilterValue('');
+    setSelectedAdvancedGroupFields([]);
   };
 
-  const applyTimeRangePreset = (rangeType: TimeRangeType) => {
-    setTimeRangeType(rangeType);
-    if (rangeType === 'all') {
-      setStartDateFromFilter('');
-      setEndDateToFilter('');
+  const handleTimeFilterOpenChange = (nextOpen: boolean) => {
+    setFiltersOpen(false);
+    setColumnMenuOpen(false);
+    setShowTimePicker(nextOpen);
+  };
+
+  const handleTimeFilterFieldChange = (fieldId: string) => {
+    setFiltersOpen(false);
+    setShowTimePicker(false);
+    setTimeFilterField(fieldId as ClassToolbarTimeFieldSelection);
+  };
+
+  const handleTimePresetSelect = (presetId: string) => {
+    const nextRangeType = presetId as TimeRangeType;
+    setTimeRangeType(nextRangeType);
+    if (nextRangeType === 'custom') {
+      setCustomRange((prev) => prev || { start: toDateInputValue(new Date()), end: toDateInputValue(new Date()) });
+      return;
+    }
+    setShowTimePicker(false);
+  };
+
+  const handleApplyCustomTimeRange = () => {
+    if (customRange?.start && customRange?.end) {
+      setTimeRangeType('custom');
       setShowTimePicker(false);
       return;
     }
+    window.alert('Vui lòng chọn khoảng ngày');
+  };
 
-    if (rangeType === 'today') {
-      const today = new Date();
-      const value = toDateInputValue(today);
-      setStartDateFromFilter(value);
-      setEndDateToFilter(value);
-      setShowTimePicker(false);
+  const handleAdvancedFilterOpenChange = (nextOpen: boolean) => {
+    setShowTimePicker(false);
+    setColumnMenuOpen(false);
+    setFiltersOpen(nextOpen);
+  };
+
+  const toggleAdvancedFieldSelection = (
+    type: 'filter' | 'group',
+    fieldId: ClassToolbarFilterFieldKey | ClassToolbarGroupFieldKey
+  ) => {
+    if (type === 'filter') {
+      setSelectedAdvancedFilterValue('');
+      setSelectedAdvancedFilterFields((prev) =>
+        prev.includes(fieldId as ClassToolbarFilterFieldKey) ? [] : [fieldId as ClassToolbarFilterFieldKey]
+      );
       return;
     }
 
-    if (rangeType === 'yesterday') {
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
-      const value = toDateInputValue(yesterday);
-      setStartDateFromFilter(value);
-      setEndDateToFilter(value);
-      setShowTimePicker(false);
-      return;
-    }
-
-    if (rangeType === 'thisWeek') {
-      const end = new Date();
-      const start = new Date();
-      const day = start.getDay();
-      const diff = day === 0 ? 6 : day - 1;
-      start.setDate(start.getDate() - diff);
-      setStartDateFromFilter(toDateInputValue(start));
-      setEndDateToFilter(toDateInputValue(end));
-      setShowTimePicker(false);
-      return;
-    }
-
-    if (rangeType === 'last7Days') {
-      const end = new Date();
-      const start = new Date();
-      start.setDate(end.getDate() - 7);
-      setStartDateFromFilter(toDateInputValue(start));
-      setEndDateToFilter(toDateInputValue(end));
-      setShowTimePicker(false);
-      return;
-    }
-
-    if (rangeType === 'last30Days') {
-      const end = new Date();
-      const start = new Date();
-      start.setDate(end.getDate() - 30);
-      setStartDateFromFilter(toDateInputValue(start));
-      setEndDateToFilter(toDateInputValue(end));
-      setShowTimePicker(false);
-      return;
-    }
-
-    if (rangeType === 'thisMonth') {
-      const now = new Date();
-      const start = new Date(now.getFullYear(), now.getMonth(), 1);
-      const end = new Date();
-      setStartDateFromFilter(toDateInputValue(start));
-      setEndDateToFilter(toDateInputValue(end));
-      setShowTimePicker(false);
-      return;
-    }
-
-    if (rangeType === 'lastMonth') {
-      const now = new Date();
-      const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      const end = new Date(now.getFullYear(), now.getMonth(), 0);
-      setStartDateFromFilter(toDateInputValue(start));
-      setEndDateToFilter(toDateInputValue(end));
-      setShowTimePicker(false);
-      return;
-    }
-
-    if (rangeType === 'custom') {
-      const end = new Date();
-      const start = new Date();
-      setStartDateFromFilter(toDateInputValue(start));
-      setEndDateToFilter(toDateInputValue(end));
-      return;
-    }
+    setSelectedAdvancedGroupFields((prev) =>
+      prev.includes(fieldId as ClassToolbarGroupFieldKey)
+        ? prev.filter((item) => item !== fieldId)
+        : [...prev, fieldId as ClassToolbarGroupFieldKey]
+    );
   };
 
   const toggleClassColumn = (columnKey: ClassListColumnKey) => {
@@ -898,17 +851,6 @@ const TrainingClassList: React.FC = () => {
 
   const resetVisibleColumns = () => {
     setVisibleColumns(getDefaultVisibleClassColumns());
-  };
-
-  const toggleGroupBy = (groupKey: ClassGroupByKey) => {
-    setGroupBy((prev) => {
-      if (prev.includes(groupKey)) {
-        return prev.filter((item) => item !== groupKey);
-      }
-
-      const next = new Set([...prev, groupKey]);
-      return GROUP_BY_OPTIONS.map((option) => option.key).filter((key) => next.has(key));
-    });
   };
 
   const renderClassListCell = (classItem: ITrainingClass, columnKey: ClassListColumnKey) => {
@@ -1550,148 +1492,80 @@ const TrainingClassList: React.FC = () => {
             <div className="relative mt-4">
               <div className="flex flex-wrap items-center gap-3">
                 <div className="min-w-[320px] flex-1">
-                  <PinnedSearchInput
-                    value={search}
-                    onChange={setSearch}
-                    placeholder="Tìm lớp..."
-                    chips={activeSearchChips}
-                    onRemoveChip={removeSearchChip}
-                    onClearAll={clearAllSearchFilters}
-                    clearAllAriaLabel="Xóa tất cả bộ lọc lớp"
-                    className="min-h-[42px] rounded-xl border-slate-200 bg-slate-50 px-3 py-1.5 shadow-none"
-                    inputClassName="text-sm h-7"
-                  />
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                    <input
+                      type="text"
+                      value={search}
+                      onChange={(event) => setSearch(event.target.value)}
+                      placeholder="Tìm lớp..."
+                      className="h-9 w-full rounded-xl border border-slate-300 bg-white pl-10 pr-4 text-[13px] outline-none transition focus:border-slate-500"
+                    />
+                  </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="relative">
-                    <div className="flex items-center overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-                      <select
-                        value={quickAction}
-                        onChange={(e) => setQuickAction(e.target.value as QuickActionKey)}
-                        className="border-r border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700 outline-none"
-                      >
-                        {QUICK_ACTION_OPTIONS.map((option) => (
-                          <option key={option.key} value={option.key}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setFiltersOpen(false);
-                          setColumnMenuOpen(false);
-                          setShowTimePicker((prev) => !prev);
-                        }}
-                        className={`inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold ${hasTimeFilter ? 'bg-blue-50 text-blue-700' : 'text-slate-600'}`}
-                      >
-                        <Calendar size={16} />
-                        {timeRangeLabel}
-                        <ChevronRight size={14} className={`transition-transform ${showTimePicker ? 'rotate-90' : ''}`} />
-                      </button>
-                    </div>
-
-                    {showTimePicker && (
-                      <div className="absolute right-0 top-full z-20 mt-3 w-[560px] rounded-xl border border-slate-200 bg-white shadow-xl">
-                        <div className="flex overflow-hidden rounded-2xl">
-                          <div className="w-40 border-r border-slate-100 bg-slate-50 p-2.5">
-                            <div className="space-y-1">
-                              {TIME_RANGE_PRESETS.map((preset) => (
-                                <button
-                                  key={preset.id}
-                                  type="button"
-                                  onClick={() => applyTimeRangePreset(preset.id)}
-                                  className={`w-full rounded-lg px-3 py-1.5 text-left text-sm font-semibold ${
-                                    timeRangeType === preset.id ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-200'
-                                  }`}
-                                >
-                                  {preset.label}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                          <div className="flex min-h-[280px] flex-1 flex-col p-4">
-                            <div className="mb-4 text-base font-bold uppercase tracking-wide text-slate-300">Khoảng thời gian tùy chỉnh</div>
-                            <div className="grid grid-cols-2 gap-3">
-                              <label className="text-sm">
-                                <span className="mb-1.5 block text-xs font-semibold text-slate-400">Từ ngày</span>
-                                <input
-                                  type="date"
-                                  value={startDateFromFilter}
-                                  onChange={(e) => {
-                                    setTimeRangeType('custom');
-                                    setStartDateFromFilter(e.target.value);
-                                  }}
-                                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold"
-                                />
-                              </label>
-                              <label className="text-sm">
-                                <span className="mb-1.5 block text-xs font-semibold text-slate-400">Đến ngày</span>
-                                <input
-                                  type="date"
-                                  value={endDateToFilter}
-                                  onChange={(e) => {
-                                    setTimeRangeType('custom');
-                                    setEndDateToFilter(e.target.value);
-                                  }}
-                                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold"
-                                />
-                              </label>
-                            </div>
-                            <div className="mt-auto flex items-center justify-between pt-5">
-                              <button
-                                type="button"
-                                onClick={() => applyTimeRangePreset('all')}
-                                className="text-xs font-semibold text-slate-400 hover:text-slate-600"
-                              >
-                                Làm lại
-                              </button>
-                              <div className="flex items-center gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => setShowTimePicker(false)}
-                                  className="rounded-lg px-3 py-1.5 text-sm font-semibold text-slate-500 hover:bg-slate-50"
-                                >
-                                  Hủy
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setTimeRangeType('custom');
-                                    setShowTimePicker(false);
-                                  }}
-                                  className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white"
-                                >
-                                  Áp dụng
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowTimePicker(false);
-                          setColumnMenuOpen(false);
-                          setFiltersOpen((prev) => !prev);
-                        }}
-                    className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition-colors ${
-                      filtersOpen || activeFilterCount ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                    }`}
-                  >
-                    <Filter size={16} />
-                    Lọc nâng cao
-                    {activeFilterCount > 0 && <span className="rounded-full bg-blue-600 px-1.5 py-0.5 text-[11px] font-bold text-white">{activeFilterCount}</span>}
-                  </button>
+                  <ToolbarTimeFilter
+                    isOpen={showTimePicker}
+                    fieldOptions={CLASS_TOOLBAR_TIME_FIELD_OPTIONS}
+                    fieldPlaceholderValue={CLASS_TOOLBAR_TIME_PLACEHOLDER}
+                    fieldPlaceholderLabel="Hành động"
+                    selectedField={timeFilterField}
+                    selectedRangeType={timeRangeType}
+                    customRange={customRange}
+                    presets={TIME_RANGE_PRESETS}
+                    onOpenChange={handleTimeFilterOpenChange}
+                    onFieldChange={handleTimeFilterFieldChange}
+                    onPresetSelect={handleTimePresetSelect}
+                    onCustomRangeChange={setCustomRange}
+                    onReset={() => {
+                      setTimeFilterField(CLASS_TOOLBAR_TIME_PLACEHOLDER);
+                      setTimeRangeType('all');
+                      setCustomRange(null);
+                      setShowTimePicker(false);
+                    }}
+                    onCancel={() => setShowTimePicker(false)}
+                    onApplyCustomRange={handleApplyCustomTimeRange}
+                    controlClassName="min-h-[36px] rounded-xl border-slate-300 shadow-none"
+                    fieldSectionClassName="bg-white"
+                    fieldSelectClassName="text-[13px]"
+                    rangeButtonClassName="px-2.5 text-[13px]"
+                    className="shrink-0"
+                  />
+                  <AdvancedFilterDropdown
+                    isOpen={filtersOpen}
+                    activeCount={advancedToolbarActiveCount}
+                    hasActiveFilters={hasAdvancedToolbarFilters}
+                    filterOptions={CLASS_TOOLBAR_FILTER_OPTIONS}
+                    groupOptions={CLASS_TOOLBAR_GROUP_OPTIONS}
+                    selectedFilterFieldIds={selectedAdvancedFilterFields}
+                    selectedGroupFieldIds={selectedAdvancedGroupFields}
+                    activeFilterField={activeAdvancedFilterField}
+                    selectableValues={advancedFilterSelectableValues}
+                    selectedFilterValue={selectedAdvancedFilterValue}
+                    onOpenChange={handleAdvancedFilterOpenChange}
+                    onToggleFilterField={(fieldId) =>
+                      toggleAdvancedFieldSelection('filter', fieldId as ClassToolbarFilterFieldKey)
+                    }
+                    onToggleGroupField={(fieldId) =>
+                      toggleAdvancedFieldSelection('group', fieldId as ClassToolbarGroupFieldKey)
+                    }
+                    onFilterValueChange={setSelectedAdvancedFilterValue}
+                    onClearAll={() => {
+                      setSelectedAdvancedFilterFields([]);
+                      setSelectedAdvancedFilterValue('');
+                      setSelectedAdvancedGroupFields([]);
+                    }}
+                    triggerLabel="Lọc nâng cao"
+                    filterDescription="Chọn 1 trường rồi chọn giá trị tương ứng để lọc nhanh danh sách lớp."
+                    groupDescription="Có thể chọn nhiều trường. Thứ tự bấm sẽ là thứ tự ghép nhóm hiển thị trong bảng."
+                    triggerClassName="min-h-[36px] rounded-xl px-3 py-1.5 text-[13px] font-medium shadow-none"
+                    className="shrink-0"
+                  />
                   {hasAnyActiveTools && (
                     <button
                       type="button"
-                      onClick={resetFilters}
-                      className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-500 hover:bg-slate-50"
+                      onClick={clearAllFilters}
+                      className="rounded-xl border border-slate-200 px-3 py-1.5 text-[13px] font-semibold text-slate-500 transition-colors hover:bg-slate-50"
                     >
                       Xóa lọc
                     </button>
@@ -1703,7 +1577,7 @@ const TrainingClassList: React.FC = () => {
                       setFiltersOpen(false);
                       setColumnMenuOpen((prev) => !prev);
                     }}
-                    className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition-colors ${
+                    className={`inline-flex min-h-[36px] items-center gap-2 rounded-xl border px-3 py-1.5 text-[13px] font-semibold transition-colors ${
                       columnMenuOpen ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
                     }`}
                   >
@@ -1711,156 +1585,6 @@ const TrainingClassList: React.FC = () => {
                   </button>
                 </div>
               </div>
-
-              {filtersOpen && (
-                <div className="absolute right-0 top-full z-20 mt-3 w-full max-w-[640px] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
-                  <button
-                    type="button"
-                    onClick={() => setFiltersOpen(false)}
-                    className="absolute right-3 top-3 rounded-lg px-2 py-1 text-xs font-semibold text-slate-500 hover:bg-slate-50"
-                  >
-                    Đóng
-                  </button>
-                  <div className="grid items-start grid-cols-[1fr_0.9fr]">
-                    <div className="border-r border-slate-100 p-3">
-                      <div className="mb-2 flex items-center gap-2 text-base font-semibold text-slate-800">
-                        <Filter size={18} className="text-slate-700" />
-                        <span>Bộ lọc</span>
-                      </div>
-
-                      <div className="space-y-2">
-                        <div className="space-y-1">
-                          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as 'ALL' | ITrainingClass['status'])} className="w-full border-0 bg-transparent px-0 py-0 text-sm leading-5 font-medium text-slate-700 outline-none">
-                            <option value="ALL">Tất cả trạng thái</option>
-                            {STATUS.map((status) => (
-                              <option key={status} value={status}>
-                                {STATUS_LABEL[status]}
-                              </option>
-                            ))}
-                          </select>
-                          <select value={teacherFilter} onChange={(e) => setTeacherFilter(e.target.value)} className="w-full border-0 bg-transparent px-0 py-0 text-sm leading-5 font-medium text-slate-700 outline-none">
-                            <option value="ALL">Tất cả giáo viên</option>
-                            {teacherOptions.map((teacher) => (
-                              <option key={teacher.id} value={teacher.id}>
-                                {teacher.name}
-                              </option>
-                            ))}
-                          </select>
-                          <select value={campusFilter} onChange={(e) => setCampusFilter(e.target.value)} className="w-full border-0 bg-transparent px-0 py-0 text-sm leading-5 font-medium text-slate-700 outline-none">
-                            <option value="ALL">Tất cả cơ sở</option>
-                            {campusOptions.map((campus) => (
-                              <option key={campus} value={campus}>
-                                {campus}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-
-                        <div className="border-t border-slate-100 pt-2">
-                          <div className="space-y-1">
-                            <select value={levelFilter} onChange={(e) => setLevelFilter(e.target.value)} className="w-full border-0 bg-transparent px-0 py-0 text-sm leading-5 font-medium text-slate-700 outline-none">
-                              <option value="ALL">Tất cả trình độ</option>
-                              {levelOptions.map((level) => (
-                                <option key={level} value={level}>
-                                  {level}
-                                </option>
-                              ))}
-                            </select>
-                            <select value={languageFilter} onChange={(e) => setLanguageFilter(e.target.value)} className="w-full border-0 bg-transparent px-0 py-0 text-sm leading-5 font-medium text-slate-700 outline-none">
-                              <option value="ALL">Tất cả ngôn ngữ</option>
-                              {languageOptions.map((language) => (
-                                <option key={language} value={language}>
-                                  {language}
-                                </option>
-                              ))}
-                            </select>
-                              <select
-                              value={classTypeFilter}
-                              onChange={(e) => setClassTypeFilter(e.target.value as 'ALL' | NonNullable<ITrainingClass['classType']>)}
-                              className="w-full border-0 bg-transparent px-0 py-0 text-sm leading-5 font-medium text-slate-700 outline-none"
-                            >
-                              <option value="ALL">Tất cả hình thức</option>
-                              {Object.entries(CLASS_TYPE_LABEL).map(([value, label]) => (
-                                <option key={value} value={value}>
-                                  {label}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                        </div>
-
-                        <div className="border-t border-slate-100 pt-2">
-                          <div className="space-y-1">
-                            <select value={roomFilter} onChange={(e) => setRoomFilter(e.target.value)} className="w-full border-0 bg-transparent px-0 py-0 text-sm leading-5 font-medium text-slate-700 outline-none">
-                              <option value="ALL">Tất cả phòng</option>
-                              {roomOptions.map((room) => (
-                                <option key={room} value={room}>
-                                  {room}
-                                </option>
-                              ))}
-                            </select>
-                            <select value={studyDayFilter} onChange={(e) => setStudyDayFilter(e.target.value as 'ALL' | `${number}`)} className="w-full border-0 bg-transparent px-0 py-0 text-sm leading-5 font-medium text-slate-700 outline-none">
-                              <option value="ALL">Tất cả ngày học</option>
-                              {DAY_OPTIONS.map((day) => (
-                                <option key={day.value} value={String(day.value)}>
-                                  {day.label}
-                                </option>
-                              ))}
-                            </select>
-                            <select value={timeSlotFilter} onChange={(e) => setTimeSlotFilter(e.target.value)} className="w-full border-0 bg-transparent px-0 py-0 text-sm leading-5 font-medium text-slate-700 outline-none">
-                              <option value="ALL">Tất cả khung giờ</option>
-                              {timeSlotOptions.map((slot) => (
-                                <option key={slot} value={slot}>
-                                  {slot}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="p-3">
-                      <div className="mb-2">
-                        <div className="flex items-center gap-2 text-base font-semibold text-slate-800">
-                          <Rows3 size={18} className="text-slate-700" />
-                          <span>Nhóm theo</span>
-                        </div>
-                        {groupBy.length > 0 && (
-                          <div className="mt-2 flex justify-end">
-                            <button
-                              type="button"
-                              onClick={() => setGroupBy([])}
-                              className="shrink-0 whitespace-nowrap rounded-lg px-2 py-1 text-xs font-semibold text-slate-500 hover:bg-slate-50"
-                            >
-                              Bỏ nhóm
-                            </button>
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="space-y-1">
-                        {GROUP_BY_OPTIONS.map((option) => (
-                          <label
-                            key={option.key}
-                            className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm font-medium leading-5 transition-colors ${
-                              groupBy.includes(option.key) ? 'bg-blue-50 text-blue-700' : 'text-slate-700 hover:bg-slate-50'
-                            }`}
-                          >
-                            <span>{option.label}</span>
-                            <input
-                              type="checkbox"
-                              checked={groupBy.includes(option.key)}
-                              onChange={() => toggleGroupBy(option.key)}
-                              className="h-4 w-4 rounded border-slate-300 text-blue-600"
-                            />
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
 
               {columnMenuOpen && (
                 <div className="absolute right-0 top-full z-20 mt-3 w-72 rounded-2xl border border-slate-200 bg-white p-4 shadow-xl">
@@ -1924,9 +1648,9 @@ const TrainingClassList: React.FC = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      {groupBy.length === 0 &&
+                      {selectedAdvancedGroupFields.length === 0 &&
                         classItems.map((classItem, index) => renderClassListRow(classItem, index + 1))}
-                      {groupBy.length > 0 &&
+                      {selectedAdvancedGroupFields.length > 0 &&
                         (() => {
                           let currentIndex = 0;
                           return groupedClassItems.map((group) => {
