@@ -55,19 +55,11 @@ import {
   Inbox,         // For My Leads
   ArrowRightLeft // For Transactions
 } from 'lucide-react';
+import { LEAD_CHANNEL_OPTIONS } from './utils/systemConfig';
+
+export { LEAD_CHANNEL_OPTIONS } from './utils/systemConfig';
 
 export const APP_NAME = "EduCRM";
-
-export const LEAD_CHANNEL_OPTIONS = [
-  { value: 'fb', label: 'Facebook' },
-  { value: 'zl', label: 'Zalo' },
-  { value: 'tik', label: 'Tiktok' },
-  { value: 'gg', label: 'Google' },
-  { value: 'hotline', label: 'Hotline' },
-  { value: 'vang_lai', label: 'Vãng lai' },
-  { value: 'ca_nhan', label: 'Cá nhân' },
-  { value: 'thi_truong', label: 'Thị trường' },
-] as const;
 
 export const SLA_CONFIG = {
   WARNING_THRESHOLD_MINUTES: 5,

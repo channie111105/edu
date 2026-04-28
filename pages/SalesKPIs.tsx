@@ -1194,7 +1194,7 @@ const SalesKPIs: React.FC = () => {
           </div>
         ) : null}
 
-        <div className="grid gap-2.5 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start">
+        <div className="grid gap-2.5 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start 2xl:grid-cols-[820px_400px] 2xl:justify-between">
           <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
             <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
               <div className="flex items-center justify-between gap-3">
@@ -1249,7 +1249,7 @@ const SalesKPIs: React.FC = () => {
             </div>
           </div>
 
-          <div className="relative overflow-hidden rounded-lg border border-blue-400/40 bg-gradient-to-br from-blue-700 via-blue-600 to-indigo-700 p-3.5 text-white shadow-xl shadow-blue-700/30">
+          <div className="relative min-w-0 overflow-hidden rounded-lg border border-blue-400/40 bg-gradient-to-br from-blue-700 via-blue-600 to-indigo-700 p-3.5 text-white shadow-xl shadow-blue-700/30">
             <div className="pointer-events-none absolute inset-0">
               <div className="absolute -left-8 top-0 h-24 w-24 rounded-full bg-white/12 blur-3xl" />
               <div className="absolute right-3 top-2 h-20 w-20 rounded-full bg-amber-300/20 blur-2xl" />
@@ -1302,12 +1302,12 @@ const SalesKPIs: React.FC = () => {
 
             <div className="relative flex h-full flex-col justify-between gap-3">
               <div className="flex items-start justify-between gap-3">
-                <div>
+                <div className="min-w-0 flex-1">
                   <div className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-blue-50 backdrop-blur-sm">
                     <Sparkles size={12} className="text-amber-200" />
                     Top sale
                   </div>
-                  <h3 className="mt-2 text-[28px] font-black leading-none tracking-tight">
+                  <h3 className="mt-2 break-words text-[28px] font-black leading-none tracking-tight">
                     {topMember?.name || 'Chưa có dữ liệu'}
                   </h3>
                   <p className="mt-1 text-[12px] font-medium text-blue-100/90">
@@ -1315,19 +1315,19 @@ const SalesKPIs: React.FC = () => {
                   </p>
                 </div>
 
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/20 bg-white/10 text-amber-200 shadow-lg shadow-amber-300/20 backdrop-blur-sm">
-                  <Trophy size={24} />
+                <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-[22px] border border-white/15 bg-white/14 text-[18px] font-black tracking-[0.16em] text-white shadow-lg shadow-blue-950/20 backdrop-blur-sm sm:h-[72px] sm:w-[72px]">
+                  {topMemberAvatarUrl ? (
+                    <img src={topMemberAvatarUrl} alt={topMember?.name || 'Top sale'} className="h-full w-full object-cover" />
+                  ) : (
+                    topMemberInitials
+                  )}
                 </div>
               </div>
 
-              <div className="relative flex items-end justify-between gap-3">
+              <div className="relative flex flex-wrap items-end justify-between gap-3">
                 <div className="flex items-center gap-2.5">
-                  <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl border border-white/15 bg-white/14 text-[15px] font-black tracking-[0.16em] text-white backdrop-blur-sm">
-                    {topMemberAvatarUrl ? (
-                      <img src={topMemberAvatarUrl} alt={topMember?.name || 'Top sale'} className="h-full w-full object-cover" />
-                    ) : (
-                      topMemberInitials
-                    )}
+                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/20 bg-white/10 text-amber-200 shadow-lg shadow-amber-300/20 backdrop-blur-sm">
+                    <Trophy size={24} />
                   </div>
                   <div>
                     <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-amber-100/90">

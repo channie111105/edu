@@ -295,11 +295,11 @@ export const getLeadToolbarSelectableOptions = (
       case 'product':
         return mapLabelsToOptions(LEAD_PRODUCT_OPTIONS.map((option) => option.label));
       case 'targetCountry':
-        return mapLabelsToOptions([...LEAD_TARGET_COUNTRY_OPTIONS]);
+        return mapLabelsToOptions(LEAD_TARGET_COUNTRY_OPTIONS.map((option) => option.label));
       case 'potential':
         return mapLabelsToOptions(LEAD_POTENTIAL_OPTIONS.map((option) => option.label));
       case 'company':
-        return mapLabelsToOptions([...LEAD_CAMPUS_OPTIONS]);
+        return mapLabelsToOptions(LEAD_CAMPUS_OPTIONS.map((option) => option.label));
       default:
         return [];
     }

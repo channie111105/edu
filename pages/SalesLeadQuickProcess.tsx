@@ -367,10 +367,13 @@ const SalesLeadQuickProcess: React.FC = () => {
                                         className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
                                     >
                                         <option value="">-- Chọn chương trình --</option>
-                                        <option value="Tiếng Đức">Tiếng Đức</option>
-                                        <option value="Tiếng Trung">Tiếng Trung</option>
-                                        <option value="Du học Đức">Du học Đức</option>
-                                        <option value="Du học Trung">Du học Trung</option>
+                                        <option value="App Tiếng Đức">App Tiếng Đức</option>
+                                        <option value="App Tiếng Trung">App Tiếng Trung</option>
+                                        <option value="Tiếng Đức Off">Tiếng Đức Off</option>
+                                        <option value="Tiếng Trung Off">Tiếng Trung Off</option>
+                                        <option value="Du Học Nghề">Du Học Nghề</option>
+                                        <option value="Du Học Đức">Du Học Đức</option>
+                                        <option value="Du Học Trung">Du Học Trung</option>
                                     </select>
                                 </div>
 
@@ -387,9 +390,7 @@ const SalesLeadQuickProcess: React.FC = () => {
                                         >
                                             <option value="">-- Chọn --</option>
                                             <option value="Đức">🇩🇪 Đức</option>
-                                            <option value="Trung Quốc">🇨🇳 Trung</option>
-                                            <option value="Nhật Bản">🇯🇵 Nhật</option>
-                                            <option value="Hàn Quốc">🇰🇷 Hàn</option>
+                                            <option value="Trung">🇨🇳 Trung</option>
                                         </select>
                                     </div>
                                     <div>

@@ -11,7 +11,7 @@ import {
     ShieldCheck, FileSignature, Wallet, Lock, Activity as ActivityIcon, Ban, ArrowUpRight, Users, XOctagon, Tag, Handshake, ChevronRight,
     Printer, RotateCcw, Monitor, Pencil, Save
 } from 'lucide-react';
-import { FIXED_LEAD_TAGS, addContract, addQuotation, getClosedLeadReasons, getLeadById, getLostReasons, getQuotations, getTags, getTeachers, getTrainingClasses, saveTags, updateQuotation } from '../utils/storage';
+import { FIXED_LEAD_TAGS, addContract, addQuotation, getClosedLeadReasons, getCollaborators, getLeadById, getLostReasons, getQuotations, getTags, getTeachers, getTrainingClasses, saveTags, updateQuotation } from '../utils/storage';
 import CreateMeetingModal from './CreateMeetingModal';
 import { MeetingCustomerOption } from '../utils/meetingHelpers';
 import { LEAD_CHANNEL_OPTIONS } from '../constants';
@@ -48,6 +48,7 @@ import {
 } from '../utils/leadCreateForm';
 import { getLeadPhoneValidationMessage, normalizeLeadPhone } from '../utils/phone';
 import { clearLeadReclaimTracking } from '../utils/leadSla';
+import { getCampaignNameOptions } from '../utils/campaignCatalog';
 
 interface UnifiedLeadDrawerProps {
     lead: ILead;
@@ -61,6 +62,18 @@ interface UnifiedLeadDrawerProps {
 
 type CreatorMarket = 'Đức' | 'Trung Quốc';
 type CreatorServicePackage = 'Du học' | 'Combo' | 'Đào tạo';
+
+const normalizeCreatorMarket = (value?: string): CreatorMarket | '' => {
+    const normalized = String(value || '')
+        .trim()
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '');
+
+    if (normalized === 'duc') return 'Đức';
+    if (normalized === 'trung' || normalized === 'trung quoc') return 'Trung Quốc';
+    return '';
+};
 
 type OrderCatalogItem = {
     id: string;
@@ -329,7 +342,7 @@ const createOrderDraft = (
     studentDob: toInputDate(lineItem?.studentDob || base?.studentDob || leadData.dob),
     testerId: lineItem?.testerId || base?.testerId || '',
     courseName: lineItem?.courseName || base?.courseName || '',
-    targetMarket: (lineItem?.targetMarket as CreatorMarket) || base?.targetMarket || (leadData.targetCountry as CreatorMarket) || '',
+    targetMarket: (lineItem?.targetMarket as CreatorMarket) || base?.targetMarket || normalizeCreatorMarket(leadData.targetCountry) || '',
     servicePackage: (lineItem?.servicePackage as CreatorServicePackage) || base?.servicePackage || '',
     programs: Array.isArray(lineItem?.programs) ? lineItem.programs : base?.programs || [],
     classId: lineItem?.classId || base?.classId || '',
@@ -438,7 +451,7 @@ const mapLeadToFormData = (lead: ILead): LeadCreateFormData => {
         phone: lead.phone || '',
         email: lead.email || '',
         source: lead.source || 'hotline',
-        program: lead.program || 'Tiếng Đức',
+        program: lead.program || 'App Tiếng Đức',
         notes: lead.notes || '',
         title: (lead as any).title || '',
         company: lead.company || lead.marketingData?.region || '',
@@ -559,6 +572,19 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
     const [lossReason, setLossReason] = useState('');
     const [customLossReason, setCustomLossReason] = useState('');
     const lostReasonsList = useMemo(() => getLostReasons(), []);
+    const campaignOptions = useMemo(() => getCampaignNameOptions(), [isOpen]);
+    const referrerOptions = useMemo(
+        () => Array.from(
+            new Set(
+                getCollaborators()
+                    .map((item) => String(item?.name || '').trim())
+                    .filter(Boolean)
+            )
+        )
+            .sort((left, right) => left.localeCompare(right, 'vi'))
+            .map((name) => ({ value: name, label: name })),
+        [isOpen]
+    );
 
     // Activity Schedule State
     const [activityType, setActivityType] = useState('call');
@@ -1188,7 +1214,20 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
         const resolvedCloseReason = resolveCloseReason(leadFormData.lossReason, leadFormData.lossReasonCustom);
         const normalizedProgram =
             leadFormData.product &&
-            ['Tiếng Đức', 'Tiếng Trung', 'Du học Đức', 'Du học Trung', 'Du học nghề Úc'].includes(leadFormData.product)
+            [
+                'Tiếng Đức',
+                'Tiếng Trung',
+                'Du học Đức',
+                'Du học Trung',
+                'Du học nghề Úc',
+                'App Tiếng Đức',
+                'App Tiếng Trung',
+                'Tiếng Đức Off',
+                'Tiếng Trung Off',
+                'Du Học Nghề',
+                'Du Học Đức',
+                'Du Học Trung'
+            ].includes(leadFormData.product)
                 ? leadFormData.product as ILead['program']
                 : leadFormData.program as ILead['program'];
 
@@ -2341,6 +2380,8 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                             leadFormActiveTab={leadFormActiveTab}
                             closeReasonOptions={isClosedLeadFormStatus(leadFormData.status) ? leadFormCloseReasonOptions : []}
                             salesOptions={leadSalesOptions}
+                            campaignOptions={campaignOptions}
+                            referrerOptions={referrerOptions}
                             availableTags={allAvailableTags}
                             fixedTags={FIXED_LEAD_TAGS}
                             isAddingTag={isAddingTag}

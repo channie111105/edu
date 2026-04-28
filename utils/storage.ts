@@ -3728,12 +3728,28 @@ const normalizeLostReason = (value: string): string => {
   return CLOSED_REASON_TOKEN_MAP[token] || normalizedText;
 };
 
+const readStoredLostReasons = (): string[] | null => {
+  try {
+    const data = localStorage.getItem(KEYS.LOST_REASONS);
+    if (data === null) return null;
+    const parsed = JSON.parse(data);
+
+    return (Array.isArray(parsed) ? parsed : [])
+      .map((item) => normalizeLostReason(String(item)))
+      .filter(Boolean)
+      .filter((item, index, arr) => arr.indexOf(item) === index);
+  } catch {
+    return null;
+  }
+};
+
 export const getClosedLeadReasons = (status?: string): string[] => {
   const normalizedStatus = normalizeLostReasonToken(String(status || ''));
   if (normalizedStatus === 'unverified' || normalizedStatus === 'disqualified' || normalizedStatus === 'khongxacthuc') {
     return DEFAULT_CLOSED_REASON_MAP.unverified;
   }
-  return DEFAULT_CLOSED_REASON_MAP.lost;
+  const storedReasons = readStoredLostReasons();
+  return storedReasons === null ? DEFAULT_CLOSED_REASON_MAP.lost : storedReasons;
 };
 
 export const getLostReasons = (): string[] => getClosedLeadReasons('lost');
@@ -3744,7 +3760,7 @@ export const saveLostReasons = (reasons: string[]) => {
     .filter(Boolean)
     .filter((item, index, arr) => arr.indexOf(item) === index);
 
-  localStorage.setItem(KEYS.LOST_REASONS, JSON.stringify(normalized.length ? normalized : DEFAULT_LOST_REASONS));
+  localStorage.setItem(KEYS.LOST_REASONS, JSON.stringify(normalized));
   emitClientEvent('educrm:lost-reasons-changed');
 };
 
@@ -4108,6 +4124,7 @@ export const getCollaborators = (): any[] => {
 
 export const saveCollaborators = (data: any[]) => {
   localStorage.setItem(KEYS.COLLABORATORS, JSON.stringify(data));
+  emitClientEvent('educrm:collaborators-changed');
 };
 
 

@@ -131,7 +131,7 @@ const normalizeToolbarToken = (value: unknown) =>
     .replace(/[^a-z0-9]+/gi, '')
     .toLowerCase();
 const LEAD_CAMPUS_OPTION_TOKEN_SET = new Set(
-  LEAD_CAMPUS_OPTIONS.map((option) => normalizeToolbarToken(option))
+  LEAD_CAMPUS_OPTIONS.map((option) => normalizeToolbarToken(option.label))
 );
 
 const mapLabelsToValueOptions = (labels: ReadonlyArray<string>): ToolbarValueOption[] =>
@@ -729,11 +729,11 @@ const Pipeline: React.FC = () => {
         case 'product':
           return mapLabelsToValueOptions(LEAD_PRODUCT_OPTIONS.map((option) => option.label));
         case 'market':
-          return mapLabelsToValueOptions([...LEAD_TARGET_COUNTRY_OPTIONS]);
+          return mapLabelsToValueOptions(LEAD_TARGET_COUNTRY_OPTIONS.map((option) => option.label));
         case 'potential':
           return mapLabelsToValueOptions(LEAD_POTENTIAL_OPTIONS.map((option) => option.label));
         case 'company':
-          return mapLabelsToValueOptions([...LEAD_CAMPUS_OPTIONS]);
+          return mapLabelsToValueOptions(LEAD_CAMPUS_OPTIONS.map((option) => option.label));
         default:
           return [];
       }

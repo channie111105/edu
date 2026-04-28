@@ -57,6 +57,18 @@ type ContractDraftState = {
 type CreatorMarket = 'Đức' | 'Trung Quốc';
 type CreatorServicePackage = 'Du học' | 'Combo' | 'Đào tạo';
 
+const normalizeCreatorMarket = (value?: string): CreatorMarket | '' => {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+
+  if (normalized === 'duc') return 'Đức';
+  if (normalized === 'trung' || normalized === 'trung quoc') return 'Trung Quốc';
+  return '';
+};
+
 type OrderCatalogItem = {
   id: string;
   product: string;
@@ -360,7 +372,7 @@ const createOrderDraft = (
   const targetMarket =
     (lineItem?.targetMarket as CreatorMarket) ||
     base?.targetMarket ||
-    (formData.targetCountry as CreatorMarket) ||
+    normalizeCreatorMarket(formData.targetCountry) ||
     '';
   const servicePackage =
     (lineItem?.servicePackage as CreatorServicePackage) ||
@@ -713,7 +725,7 @@ const QuotationDetails: React.FC = () => {
                 ...item,
                 studentName: lead.name,
                 studentDob: lead.dob || item.studentDob,
-                targetMarket: (lead.targetCountry as CreatorMarket) || item.targetMarket
+                targetMarket: normalizeCreatorMarket(lead.targetCountry) || item.targetMarket
               }))
             );
             setCustomerQuery(lead.name);

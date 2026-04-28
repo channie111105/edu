@@ -42,6 +42,13 @@ import {
 import * as XLSX from 'xlsx';
 import { decodeMojibakeReactNode, decodeMojibakeText } from '../utils/mojibake';
 import { getLeadPhoneValidationMessage, isValidLeadPhone, normalizeLeadPhone } from '../utils/phone';
+import {
+    LEAD_CAMPUS_OPTIONS,
+    LEAD_PRODUCT_OPTIONS,
+    LEAD_SOURCE_OPTIONS,
+    LEAD_TARGET_COUNTRY_OPTIONS
+} from '../utils/leadCreateForm';
+import { LEAD_CHANNEL_OPTIONS } from '../constants';
 
 // --- MOCK DATA ---
 const CAMPAIGNS_METRICS = {
@@ -78,6 +85,17 @@ type LeadRecord = {
     status: string;
     verified: boolean;
     source: string;
+    targetCountry?: string;
+    market?: string;
+    company?: string;
+    address?: string;
+    product?: string;
+    owner?: string;
+    tags?: string;
+    campaign?: string;
+    channel?: string;
+    medium?: string;
+    referredBy?: string;
 };
 
 type DataViewMode = 'table' | 'kanban' | 'dashboard';
@@ -195,6 +213,78 @@ const LEFT_PANEL_CORE_FIELDS = QR_LEAD_FIELDS.filter(field => field.group === 'c
 const LEFT_PANEL_MARKETING_FIELDS = QR_LEAD_FIELDS.filter(field => field.group === 'marketing');
 const OPTIONAL_QR_FIELDS = QR_LEAD_FIELDS.filter(field => !field.fixed);
 const DEFAULT_SELECTED_OPTIONAL_QR_FIELDS = ['email'];
+const CAMPAIGN_QR_FIELDS_STORAGE_KEY = 'educrm_campaign_qr_optional_fields';
+
+type ManualLeadDraft = {
+    name: string;
+    phone: string;
+    targetCountry: string;
+    market: string;
+    company: string;
+    address: string;
+    product: string;
+    email: string;
+    owner: string;
+    status: string;
+    tags: string;
+    campaign: string;
+    source: string;
+    channel: string;
+    medium: string;
+    referredBy: string;
+    verified: boolean;
+};
+
+const createManualLeadDraft = (campaignName = ''): ManualLeadDraft => ({
+    name: '',
+    phone: '',
+    targetCountry: '',
+    market: '',
+    company: '',
+    address: '',
+    product: '',
+    email: '',
+    owner: '',
+    status: LEAD_STATUS_OPTIONS[0],
+    tags: '',
+    campaign: campaignName,
+    source: 'Nhập tay',
+    channel: '',
+    medium: '',
+    referredBy: '',
+    verified: false
+});
+
+const normalizeOptionalQrFieldIds = (fieldIds: unknown): string[] => {
+    const allowedFieldIds = new Set(OPTIONAL_QR_FIELDS.map((field) => field.id));
+    const fallback = [...DEFAULT_SELECTED_OPTIONAL_QR_FIELDS];
+
+    if (!Array.isArray(fieldIds)) return fallback;
+
+    const uniqueFieldIds: string[] = [];
+    fieldIds.forEach((fieldId) => {
+        const normalizedFieldId = String(fieldId || '').trim();
+        if (!normalizedFieldId || !allowedFieldIds.has(normalizedFieldId) || uniqueFieldIds.includes(normalizedFieldId)) {
+            return;
+        }
+        uniqueFieldIds.push(normalizedFieldId);
+    });
+
+    return uniqueFieldIds.length ? uniqueFieldIds : fallback;
+};
+
+const buildCampaignQrFieldsStorageKey = (campaignKey: string) => `${CAMPAIGN_QR_FIELDS_STORAGE_KEY}:${campaignKey}`;
+
+const readStoredOptionalQrFieldIds = (campaignKey: string): string[] => {
+    if (typeof window === 'undefined') return [...DEFAULT_SELECTED_OPTIONAL_QR_FIELDS];
+
+    try {
+        const storedValue = window.localStorage.getItem(buildCampaignQrFieldsStorageKey(campaignKey));
+        return normalizeOptionalQrFieldIds(storedValue ? JSON.parse(storedValue) : DEFAULT_SELECTED_OPTIONAL_QR_FIELDS);
+    } catch {
+        return [...DEFAULT_SELECTED_OPTIONAL_QR_FIELDS];
+    }
+};
 
 // Mock Leads
 const INITIAL_LEADS: LeadRecord[] = Array.from({ length: 20 }, (_, i) => ({
@@ -340,6 +430,10 @@ const CampaignDetails: React.FC = () => {
     const campaignStatusLabel = campaignStatusLabels[campaignMeta.status];
     const campaignChannelLabel = getCampaignChannelLabel(campaignMeta.channel);
     const campaignTypeLabel = campaignTypeLabels[campaignMeta.campaignType];
+    const qrFieldsStorageKey = useMemo(
+        () => buildCampaignQrFieldsStorageKey(String(id || campaignMeta.name || 'default')),
+        [campaignMeta.name, id]
+    );
 
     useEffect(() => {
         if (!isAutoCampaign && activeTab === 'api') {
@@ -364,20 +458,32 @@ const CampaignDetails: React.FC = () => {
     const [showManualModal, setShowManualModal] = useState(false);
     const [importing, setImporting] = useState(false);
     const [draggingQrFieldId, setDraggingQrFieldId] = useState<string | null>(null);
-    const [selectedOptionalQrFieldIds, setSelectedOptionalQrFieldIds] = useState<string[]>(DEFAULT_SELECTED_OPTIONAL_QR_FIELDS);
-    const [manualLead, setManualLead] = useState({
-        name: '',
-        phone: '',
-        email: '',
-        status: LEAD_STATUS_OPTIONS[0],
-        verified: false,
-        source: 'Nhập tay'
-    });
+    const [selectedOptionalQrFieldIds, setSelectedOptionalQrFieldIds] = useState<string[]>(
+        () => readStoredOptionalQrFieldIds(String(id || campaignMeta.name || 'default'))
+    );
+    const [manualLead, setManualLead] = useState<ManualLeadDraft>(() => createManualLeadDraft(campaignMeta.name));
     const importInputRef = useRef<HTMLInputElement>(null);
 
     const selectedOptionalQrFields = selectedOptionalQrFieldIds
         .map((fieldId) => OPTIONAL_QR_FIELDS.find(field => field.id === fieldId))
         .filter((field): field is QrLeadField => Boolean(field));
+    const manualLeadFields = useMemo(
+        () => [...FIXED_REQUIRED_QR_FIELDS, ...selectedOptionalQrFields],
+        [selectedOptionalQrFields]
+    );
+
+    useEffect(() => {
+        setSelectedOptionalQrFieldIds(readStoredOptionalQrFieldIds(String(id || campaignMeta.name || 'default')));
+    }, [campaignMeta.name, id]);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        window.localStorage.setItem(qrFieldsStorageKey, JSON.stringify(normalizeOptionalQrFieldIds(selectedOptionalQrFieldIds)));
+    }, [qrFieldsStorageKey, selectedOptionalQrFieldIds]);
+
+    useEffect(() => {
+        setManualLead(createManualLeadDraft(campaignMeta.name));
+    }, [campaignMeta.name]);
 
     const addOptionalQrField = (fieldId: string) => {
         const field = OPTIONAL_QR_FIELDS.find(item => item.id === fieldId);
@@ -592,23 +698,57 @@ const CampaignDetails: React.FC = () => {
     };
 
     const resetManualLead = () => {
-        setManualLead({
-            name: '',
-            phone: '',
-            email: '',
-            status: LEAD_STATUS_OPTIONS[0],
-            verified: false,
-            source: 'Nhập tay'
-        });
+        setManualLead(createManualLeadDraft(campaignMeta.name));
+    };
+
+    const getManualFieldOptions = (fieldId: QrLeadField['id']) => {
+        switch (fieldId) {
+            case 'targetCountry':
+                return LEAD_TARGET_COUNTRY_OPTIONS.map((option) => ({ value: option.value, label: option.label }));
+            case 'market':
+                return LEAD_CAMPUS_OPTIONS.map((option) => ({ value: option.value, label: option.label }));
+            case 'product':
+                return LEAD_PRODUCT_OPTIONS.map((option) => ({ value: option.value, label: option.label }));
+            case 'status':
+                return LEAD_STATUS_OPTIONS.map((option) => ({ value: option, label: option }));
+            case 'source':
+                return [
+                    { value: 'Nhập tay', label: 'Nhập tay' },
+                    ...LEAD_SOURCE_OPTIONS.map((option) => ({ value: option.label, label: option.label }))
+                ];
+            case 'channel':
+                return LEAD_CHANNEL_OPTIONS.map((option) => ({ value: option.label, label: option.label }));
+            default:
+                return [];
+        }
+    };
+
+    const getManualFieldLabel = (field: QrLeadField) => {
+        switch (field.id) {
+            case 'name':
+                return 'Họ tên';
+            case 'phone':
+                return 'Điện thoại';
+            case 'targetCountry':
+                return 'Quốc gia mục tiêu';
+            default:
+                return field.label;
+        }
+    };
+
+    const updateManualLeadField = (fieldId: QrLeadField['id'], value: string) => {
+        setManualLead((prev) => ({ ...prev, [fieldId]: value }));
     };
 
     const handleAddManualLead = () => {
-        if (!manualLead.name.trim()) {
-            alert('Vui l\u00f2ng nh\u1eadp h\u1ecd t\u00ean.');
-            return;
-        }
-        if (!manualLead.phone.trim()) {
-            alert('Vui l\u00f2ng nh\u1eadp s\u1ed1 \u0111i\u1ec7n tho\u1ea1i.');
+        const missingRequiredField = manualLeadFields.find((field) => {
+            if (!field.required) return false;
+            const value = String(manualLead[field.id as keyof ManualLeadDraft] || '').trim();
+            return !value;
+        });
+
+        if (missingRequiredField) {
+            alert(`Vui lòng nhập ${getManualFieldLabel(missingRequiredField).toLowerCase()}.`);
             return;
         }
 
@@ -625,7 +765,18 @@ const CampaignDetails: React.FC = () => {
             email: manualLead.email.trim(),
             status: manualLead.status,
             verified: manualLead.verified,
-            source: manualLead.source.trim() || 'Nhập tay'
+            source: manualLead.source.trim() || 'Nhập tay',
+            targetCountry: manualLead.targetCountry.trim(),
+            market: manualLead.market.trim(),
+            company: manualLead.company.trim(),
+            address: manualLead.address.trim(),
+            product: manualLead.product.trim(),
+            owner: manualLead.owner.trim(),
+            tags: manualLead.tags.trim(),
+            campaign: manualLead.campaign.trim(),
+            channel: manualLead.channel.trim(),
+            medium: manualLead.medium.trim(),
+            referredBy: manualLead.referredBy.trim()
         }]);
 
         setShowManualModal(false);
@@ -1496,67 +1647,65 @@ const CampaignDetails: React.FC = () => {
                             </button>
                         </div>
 
-                        <div className="p-5 space-y-4">
-                            <div>
-                                <label className="mb-1.5 block text-xs font-bold text-slate-600">Họ tên *</label>
-                                <input
-                                    className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-sky-500"
-                                    value={manualLead.name}
-                                    onChange={(e) => setManualLead(prev => ({ ...prev, name: e.target.value }))}
-                                />
+                        <div className="max-h-[70vh] overflow-y-auto p-5">
+                            <div className="mb-4 rounded-xl border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-sky-800">
+                                Form nhập tay đang lấy theo cấu hình của tab <span className="font-bold">Biểu mẫu & mã QR</span> cho campaign này.
                             </div>
 
-                            <div className="grid grid-cols-2 gap-3">
-                                <div>
-                                    <label className="mb-1.5 block text-xs font-bold text-slate-600">Điện thoại *</label>
-                                    <input
-                                        className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-sky-500"
-                                        value={manualLead.phone}
-                                        onChange={(e) => setManualLead(prev => ({ ...prev, phone: e.target.value }))}
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-bold text-slate-600 mb-1.5">Email</label>
-                                    <input
-                                        className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-sky-500"
-                                        value={manualLead.email}
-                                        onChange={(e) => setManualLead(prev => ({ ...prev, email: e.target.value }))}
-                                    />
-                                </div>
-                            </div>
+                            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                                {manualLeadFields.map((field) => {
+                                    const options = getManualFieldOptions(field.id);
+                                    const value = String(manualLead[field.id as keyof ManualLeadDraft] || '');
+                                    const isSelectField = options.length > 0;
+                                    const isWideField = ['address', 'tags', 'campaign', 'company', 'referredBy'].includes(field.id);
+                                    const inputType = field.id === 'email' ? 'email' : field.id === 'phone' ? 'tel' : 'text';
+                                    const placeholder = field.placeholder || field.label;
 
-                            <div className="grid grid-cols-2 gap-3">
-                                <div>
-                                    <label className="mb-1.5 block text-xs font-bold text-slate-600">Trạng thái</label>
-                                    <select
-                                        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-sky-500"
-                                        value={manualLead.status}
-                                        onChange={(e) => setManualLead(prev => ({ ...prev, status: normalizeLeadStatus(e.target.value) }))}
-                                    >
-                                        {LEAD_STATUS_OPTIONS.map(status => (
-                                            <option key={status} value={status}>{status}</option>
-                                        ))}
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="mb-1.5 block text-xs font-bold text-slate-600">Nguồn</label>
-                                    <input
-                                        className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-sky-500"
-                                        value={manualLead.source}
-                                        onChange={(e) => setManualLead(prev => ({ ...prev, source: e.target.value }))}
-                                    />
-                                </div>
-                            </div>
+                                    return (
+                                        <div key={field.id} className={isWideField ? 'md:col-span-2' : ''}>
+                                            <label className="mb-1.5 block text-xs font-bold text-slate-600">
+                                                {getManualFieldLabel(field)}
+                                                {field.required ? ' *' : ''}
+                                            </label>
+                                            {isSelectField ? (
+                                                <select
+                                                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-sky-500"
+                                                    value={field.id === 'status' ? normalizeLeadStatus(value) : value}
+                                                    onChange={(event) => updateManualLeadField(
+                                                        field.id,
+                                                        field.id === 'status' ? normalizeLeadStatus(event.target.value) : event.target.value
+                                                    )}
+                                                >
+                                                    <option value="">{placeholder}</option>
+                                                    {options.map((option) => (
+                                                        <option key={`${field.id}-${option.value}`} value={option.value}>
+                                                            {option.label}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            ) : (
+                                                <input
+                                                    type={inputType}
+                                                    className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-sky-500"
+                                                    placeholder={placeholder}
+                                                    value={value}
+                                                    onChange={(event) => updateManualLeadField(field.id, event.target.value)}
+                                                />
+                                            )}
+                                        </div>
+                                    );
+                                })}
 
-                            <label className="flex items-center gap-2 text-sm text-slate-700 font-medium cursor-pointer">
-                                <input
-                                    type="checkbox"
-                                    checked={manualLead.verified}
-                                    onChange={(e) => setManualLead(prev => ({ ...prev, verified: e.target.checked }))}
-                                    className="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
-                                />
-                                Xác thực khách tiềm năng
-                            </label>
+                                <label className="flex items-center gap-2 text-sm font-medium text-slate-700 md:col-span-2 cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={manualLead.verified}
+                                        onChange={(event) => setManualLead((prev) => ({ ...prev, verified: event.target.checked }))}
+                                        className="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                                    />
+                                    Xác thực khách tiềm năng
+                                </label>
+                            </div>
                         </div>
 
                         <div className="px-5 py-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-2">

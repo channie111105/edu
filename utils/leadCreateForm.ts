@@ -1,4 +1,20 @@
-import { IStudentInfo } from '../types';
+import { IStudentInfo, ISalesTeam } from '../types';
+import { decodeMojibakeText } from './mojibake';
+import {
+  LEAD_CAMPUS_OPTIONS,
+  LEAD_PRODUCT_OPTIONS,
+  LEAD_SOURCE_OPTIONS,
+  LEAD_TARGET_COUNTRY_OPTIONS,
+  STUDENT_EDUCATION_LEVEL_OPTIONS,
+} from './systemConfig';
+
+export {
+  LEAD_CAMPUS_OPTIONS,
+  LEAD_PRODUCT_OPTIONS,
+  LEAD_SOURCE_OPTIONS,
+  LEAD_TARGET_COUNTRY_OPTIONS,
+  STUDENT_EDUCATION_LEVEL_OPTIONS,
+} from './systemConfig';
 
 export type LeadCreateModalTab = 'notes' | 'student' | 'extra';
 
@@ -43,6 +59,21 @@ export interface LeadCreateFormData {
   assignedAtDisplay: string;
 }
 
+export interface LeadSalesRepOption {
+  id: string;
+  value: string;
+  label: string;
+  team?: string;
+  branch?: string;
+}
+
+interface LeadSalesRepFallback {
+  id: string;
+  name: string;
+  team?: string;
+  branch?: string;
+}
+
 export const LEAD_RELATION_OPTIONS = [
   { value: 'Học sinh', label: 'Học sinh' },
   { value: 'Bố', label: 'Bố' },
@@ -50,34 +81,22 @@ export const LEAD_RELATION_OPTIONS = [
   { value: 'Người thân', label: 'Người thân' },
 ] as const;
 
-export const LEAD_CAMPUS_OPTIONS = [
-  'Vinh',
-  'Hà Tĩnh',
-  'Hà Nội',
-  'TP. HCM',
-  'Đà Nẵng',
-  'Hải Phòng',
-  'Online',
-] as const;
+const normalizeCampusToken = (value?: string): string => {
+  const normalized = decodeMojibakeText(String(value || ''))
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9]/g, '')
+    .trim()
+    .toLowerCase();
 
-export const LEAD_TARGET_COUNTRY_OPTIONS = [
-  'Đức',
-  'Úc',
-  'Nhật Bản',
-  'Hàn Quốc',
-  'Trung Quốc',
-  'Canada',
-  'Mỹ',
-  'Khác',
-] as const;
-
-export const LEAD_SOURCE_OPTIONS = [
-  { value: 'facebook', label: 'Facebook' },
-  { value: 'tiktok', label: 'TikTok' },
-  { value: 'google', label: 'Google Search' },
-  { value: 'hotline', label: 'Hotline' },
-  { value: 'referral', label: 'Giới thiệu' },
-] as const;
+  if (!normalized) return '';
+  if (['hcm', 'tphcm', 'hochiminh', 'saigon'].includes(normalized)) return 'hcm';
+  if (['hanoi', 'hn'].includes(normalized)) return 'hanoi';
+  if (normalized === 'hatinh') return 'hatinh';
+  if (normalized === 'danang') return 'danang';
+  if (normalized === 'haiphong') return 'haiphong';
+  return normalized;
+};
 
 export const LEAD_POTENTIAL_OPTIONS = [
   { value: 'Nóng', label: 'Nóng' },
@@ -85,30 +104,12 @@ export const LEAD_POTENTIAL_OPTIONS = [
   { value: 'Tham khảo', label: 'Tham khảo' },
 ] as const;
 
-export const LEAD_PRODUCT_OPTIONS = [
-  { value: 'Tiếng Đức', label: 'Tiếng Đức' },
-  { value: 'Tiếng Trung', label: 'Tiếng Trung' },
-  { value: 'Du học Đức', label: 'Du học Đức' },
-  { value: 'Du học Trung', label: 'Du học Trung' },
-  { value: 'Du học Nghề', label: 'Du học Nghề' },
-  { value: 'XKLĐ', label: 'XKLĐ' },
-] as const;
-
-export const STUDENT_EDUCATION_LEVEL_OPTIONS = [
-  'THCS',
-  'THPT',
-  'Trung cấp',
-  'Cao đẳng',
-  'Đại học',
-  'Sau đại học',
-] as const;
-
 export const createLeadInitialState = (salesperson = ''): LeadCreateFormData => ({
   name: '',
   phone: '',
   email: '',
-  source: 'hotline',
-  program: 'Tiếng Đức',
+  source: LEAD_SOURCE_OPTIONS.find((option) => option.value === 'hotline')?.value || LEAD_SOURCE_OPTIONS[0]?.value || '',
+  program: LEAD_PRODUCT_OPTIONS[0]?.value || '',
   notes: '',
   title: '',
   company: '',
@@ -143,6 +144,64 @@ export const createLeadInitialState = (salesperson = ''): LeadCreateFormData => 
   createdAtDisplay: '',
   assignedAtDisplay: '',
 });
+
+export const buildLeadSalesRepOptions = (
+  salesTeams: ISalesTeam[],
+  fallbackReps: LeadSalesRepFallback[] = []
+): LeadSalesRepOption[] => {
+  const options = new Map<string, LeadSalesRepOption>();
+
+  salesTeams.forEach((team) => {
+    const teamName = decodeMojibakeText(team.name).trim();
+    const teamBranch = decodeMojibakeText(team.branch).trim();
+
+    team.members.forEach((member) => {
+      const id = String(member.userId || '').trim();
+      if (!id) return;
+
+      const label = decodeMojibakeText(member.name || id).trim() || id;
+      const branch = decodeMojibakeText(member.branch || teamBranch).trim();
+      const existing = options.get(id);
+
+      options.set(id, {
+        id,
+        value: id,
+        label: existing?.label || label,
+        team: existing?.team || teamName || undefined,
+        branch: existing?.branch || branch || undefined,
+      });
+    });
+  });
+
+  fallbackReps.forEach((rep) => {
+    const id = String(rep.id || '').trim();
+    if (!id) return;
+
+    const label = decodeMojibakeText(rep.name || id).trim() || id;
+    const team = decodeMojibakeText(rep.team || '').trim();
+    const branch = decodeMojibakeText(rep.branch || '').trim();
+    const existing = options.get(id);
+
+    options.set(id, {
+      id,
+      value: id,
+      label: existing?.label || label,
+      team: existing?.team || team || undefined,
+      branch: existing?.branch || branch || undefined,
+    });
+  });
+
+  return Array.from(options.values()).sort((left, right) => left.label.localeCompare(right.label, 'vi'));
+};
+
+export const filterLeadSalesRepOptionsByCampus = (
+  salesOptions: LeadSalesRepOption[],
+  campus?: string
+): LeadSalesRepOption[] => {
+  const normalizedCampus = normalizeCampusToken(campus);
+  if (!normalizedCampus) return [];
+  return salesOptions.filter((option) => normalizeCampusToken(option.branch) === normalizedCampus);
+};
 
 export const getLeadGuardianRelation = (title: string): string | undefined => {
   const normalized = title.trim();

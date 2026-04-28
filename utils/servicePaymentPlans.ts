@@ -23,6 +23,18 @@ export type ResolvedServicePaymentPlan = Omit<ServicePaymentPlanConfig, 'steps'>
   steps: ResolvedServicePaymentPlanStep[];
 };
 
+const normalizeServicePaymentPlanMarket = (market?: string): ServicePaymentPlanMarket | undefined => {
+  const normalized = String(market || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+
+  if (normalized === 'duc') return 'Đức';
+  if (normalized === 'trung' || normalized === 'trung quoc') return 'Trung Quốc';
+  return undefined;
+};
+
 export const SERVICE_PAYMENT_PLAN_CONFIGS: ServicePaymentPlanConfig[] = [
   {
     id: 'de-training',
@@ -87,9 +99,12 @@ export const SERVICE_PAYMENT_PLAN_CONFIGS: ServicePaymentPlanConfig[] = [
 export const getServicePaymentPlanConfig = (
   market?: string,
   servicePackage?: string
-) => SERVICE_PAYMENT_PLAN_CONFIGS.find(
-  (item) => item.market === market && item.servicePackage === servicePackage
-);
+) => {
+  const normalizedMarket = normalizeServicePaymentPlanMarket(market);
+  return SERVICE_PAYMENT_PLAN_CONFIGS.find(
+    (item) => item.market === normalizedMarket && item.servicePackage === servicePackage
+  );
+};
 
 export const resolveServicePaymentPlan = (
   market?: string,

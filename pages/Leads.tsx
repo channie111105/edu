@@ -13,13 +13,16 @@ import LeadTagManager from '../components/LeadTagManager';
 import SmartSearchBar from '../components/SmartSearchBar';
 import { AdvancedFilterDropdown, ToolbarTimeFilter } from '../components/filters';
 import { useAuth } from '../contexts/AuthContext';
-import { FIXED_LEAD_TAGS, KEYS, getLeads, saveLead, saveLeads, deleteLead, getTags, saveTags, getClosedLeadReasons, getSalesTeams } from '../utils/storage';
+import { FIXED_LEAD_TAGS, KEYS, getCollaborators, getLeads, saveLead, saveLeads, deleteLead, getTags, saveTags, getClosedLeadReasons, getSalesTeams } from '../utils/storage';
 import { LEAD_CHANNEL_OPTIONS } from '../constants';
 import {
+  buildLeadSalesRepOptions,
   buildLeadStudentInfo,
   createLeadInitialState,
+  filterLeadSalesRepOptionsByCampus,
   getLeadGuardianRelation,
   LEAD_CAMPUS_OPTIONS,
+  LEAD_PRODUCT_OPTIONS,
   LEAD_RELATION_OPTIONS,
   LEAD_TARGET_COUNTRY_OPTIONS,
   LeadCreateFormData,
@@ -40,6 +43,7 @@ import { appendLeadLogs, buildLeadActivityLog, buildLeadAuditChange, buildLeadAu
 import { decodeMojibakeReactNode, decodeMojibakeText } from '../utils/mojibake';
 import { getLeadPhoneValidationMessage, isValidLeadPhone, normalizeLeadPhone } from '../utils/phone';
 import { convertLeadToOpportunity } from '../utils/leadConversion';
+import { getCampaignNameOptions } from '../utils/campaignCatalog';
 import {
   SearchFilter,
   ToolbarFilterChip,
@@ -440,12 +444,41 @@ const Leads: React.FC = () => {
   const [isAddingTag, setIsAddingTag] = useState(false);
   const [isAddingEditTag, setIsAddingEditTag] = useState(false);
   const leadSalesOptions = useMemo(
-    () => SALES_REPS.map((rep) => ({ id: rep.id, value: rep.id, label: rep.name })),
+    () => {
+      const allowedIds = new Set(SALES_REPS.map((rep) => rep.id));
+      return buildLeadSalesRepOptions(
+        getSalesTeams(),
+        SALES_REPS.map((rep) => ({ id: rep.id, name: rep.name, team: rep.team }))
+      ).filter((option) => allowedIds.has(option.id));
+    },
     []
+  );
+  const createLeadCampus = useMemo(() => resolveLeadCampus(newLeadData), [newLeadData.company, newLeadData.market]);
+  const createLeadSalesOptions = useMemo(
+    () => filterLeadSalesRepOptionsByCampus(leadSalesOptions, createLeadCampus),
+    [createLeadCampus, leadSalesOptions]
+  );
+  const campaignSelectOptions = useMemo(() => getCampaignNameOptions(), [showCreateModal]);
+  const referrerSelectOptions = useMemo(
+    () => Array.from(
+      new Set(
+        getCollaborators()
+          .map((item) => String(item?.name || '').trim())
+          .filter(Boolean)
+      )
+    )
+      .sort((left, right) => left.localeCompare(right, 'vi'))
+      .map((name) => ({ value: name, label: name })),
+    [showCreateModal]
   );
   const patchNewLeadData = (patch: Partial<LeadCreateFormData>) => {
     setNewLeadData((prev) => ({ ...prev, ...patch }));
   };
+  useEffect(() => {
+    if (!newLeadData.salesperson) return;
+    if (createLeadSalesOptions.some((option) => option.value === newLeadData.salesperson)) return;
+    setNewLeadData((prev) => ({ ...prev, salesperson: '' }));
+  }, [createLeadSalesOptions, newLeadData.salesperson]);
   const addTagCatalogEntry = (tag: string) => {
     const value = tag.trim();
     if (!value) return;
@@ -551,7 +584,7 @@ const Leads: React.FC = () => {
         phone: selectedLead.phone,
         email: selectedLead.email || '',
         source: selectedLead.source || 'hotline',
-        program: selectedLead.program || 'TiÃ¡ÂºÂ¿ng Ã„ÂÃ¡Â»Â©c',
+        program: selectedLead.program || 'App Tiếng Đức',
         notes: selectedLead.notes || '',
         title: (selectedLead as any).title || '',
         company: selectedLead.company || selectedLead.marketingData?.region || '',
@@ -742,7 +775,7 @@ const Leads: React.FC = () => {
     const resolvedCloseReason = resolveCloseReason(editLeadData.lossReason, editLeadData.lossReasonCustom);
     const normalizedProgram =
       editLeadData.product &&
-      ['Ti?ng ??c', 'Ti?ng Trung', 'Du h?c ??c', 'Du h?c Trung', 'Du h?c ngh? ?c'].includes(editLeadData.product)
+      LEAD_PRODUCT_OPTIONS.some((option) => option.value === editLeadData.product)
         ? editLeadData.product as ILead['program']
         : editLeadData.program as ILead['program'];
 
@@ -985,7 +1018,7 @@ const Leads: React.FC = () => {
           source: row['NguÃ¡Â»â€œn'] || 'Import',
           campaign: row['ChiÃ¡ÂºÂ¿n dÃ¡Â»â€¹ch'] || '',
           notes: row['Ghi chÃƒÂº'] || '',
-          program: row['ChÃ†Â°Ã†Â¡ng trÃƒÂ¬nh'] || 'TiÃ¡ÂºÂ¿ng Ã„ÂÃ¡Â»Â©c'
+          program: row['ChÃ†Â°Ã†Â¡ng trÃƒÂ¬nh'] || 'App Tiếng Đức'
         });
       }
     });
@@ -1116,7 +1149,7 @@ const Leads: React.FC = () => {
   };
 
   const getLeadFilterMatchValues = (lead: ILead, field: string) => {
-    const salespersonLabel = SALES_REPS.find((rep) => rep.id === lead.ownerId)?.name || lead.ownerId || '';
+    const salespersonLabel = leadSalesOptions.find((rep) => rep.value === lead.ownerId)?.label || lead.ownerId || '';
     const deadlineValue = (lead as any).expectedClosingDate || '';
     const nextActivity = ((lead as any).activities || []).find((activity: any) => activity.type === 'activity');
 
@@ -1865,8 +1898,22 @@ const Leads: React.FC = () => {
       alert(phoneError);
       return;
     }
-    if (!newLeadData.company) {
-      alert("Vui lÃƒÂ²ng chÃ¡Â»Ân CÃ†Â¡ sÃ¡Â»Å¸ / Company Base");
+    const campus = resolveLeadCampus(newLeadData);
+    if (!campus) {
+      alert('Vui lòng chọn cơ sở.');
+      return;
+    }
+    const campusSalesOptions = filterLeadSalesRepOptionsByCampus(leadSalesOptions, campus);
+    if (!campusSalesOptions.length) {
+      alert(`Cơ sở ${campus} hiện chưa có sale phụ trách.`);
+      return;
+    }
+    if (!newLeadData.salesperson) {
+      alert('Vui lòng chọn phụ trách.');
+      return;
+    }
+    if (!campusSalesOptions.some((option) => option.value === newLeadData.salesperson)) {
+      alert('Phụ trách không thuộc cơ sở đã chọn.');
       return;
     }
 
@@ -1881,7 +1928,8 @@ const Leads: React.FC = () => {
         tags: newLeadData.tags,
         campaign: newLeadData.campaign,
         channel: newLeadData.channel,
-        market: newLeadData.market
+        market: campus || undefined,
+        region: campus || undefined
       },
       status: toLeadStatusValue(newLeadData.status as string) as any,
       createdAt: new Date().toISOString(),
@@ -1945,6 +1993,24 @@ const Leads: React.FC = () => {
       alert('Vui l\u00f2ng ch\u1ecdn qu\u1ed1c gia m\u1ee5c ti\u00eau.');
       return;
     }
+    const campus = resolveLeadCampus(newLeadData);
+    if (!campus) {
+      alert('Vui lòng chọn cơ sở.');
+      return;
+    }
+    const campusSalesOptions = filterLeadSalesRepOptionsByCampus(leadSalesOptions, campus);
+    if (!campusSalesOptions.length) {
+      alert(`Cơ sở ${campus} hiện chưa có sale phụ trách.`);
+      return;
+    }
+    if (!newLeadData.salesperson) {
+      alert('Vui lòng chọn phụ trách.');
+      return;
+    }
+    if (!campusSalesOptions.some((option) => option.value === newLeadData.salesperson)) {
+      alert('Phụ trách không thuộc cơ sở đã chọn.');
+      return;
+    }
 
     const closeReasonError = validateCloseReason(newLeadData.status, newLeadData.lossReason, newLeadData.lossReasonCustom);
     if (closeReasonError) {
@@ -1953,13 +2019,12 @@ const Leads: React.FC = () => {
     }
 
     const nowIso = new Date().toISOString();
-    const campus = resolveLeadCampus(newLeadData);
     const guardianRelation = getLeadGuardianRelation(newLeadData.title);
     const studentInfo = buildLeadStudentInfo(newLeadData);
     const resolvedCloseReason = resolveCloseReason(newLeadData.lossReason, newLeadData.lossReasonCustom);
     const program = (
       newLeadData.product &&
-      ['Ti?ng ??c', 'Ti?ng Trung', 'Du h?c ??c', 'Du h?c Trung', 'Du h?c ngh? ?c'].includes(newLeadData.product)
+      LEAD_PRODUCT_OPTIONS.some((option) => option.value === newLeadData.product)
     )
       ? newLeadData.product as ILead['program']
       : newLeadData.program as ILead['program'];
@@ -3273,7 +3338,7 @@ const Leads: React.FC = () => {
                       >
                         <option value="">-- Chọn quốc gia mục tiêu --</option>
                         {LEAD_TARGET_COUNTRY_OPTIONS.map((option) => (
-                          <option key={option} value={option}>{option}</option>
+                          <option key={option.value} value={option.value}>{option.label}</option>
                         ))}
                       </select>
                     </div>
@@ -3347,7 +3412,7 @@ const Leads: React.FC = () => {
                       >
                         <option value="">-- Chọn cơ sở --</option>
                         {LEAD_CAMPUS_OPTIONS.map((option) => (
-                          <option key={option} value={option}>{option}</option>
+                          <option key={option.value} value={option.value}>{option.label}</option>
                         ))}
                       </select>
                     </div>
@@ -3511,6 +3576,8 @@ const Leads: React.FC = () => {
                   leadFormActiveTab={createModalActiveTab}
                   closeReasonOptions={isClosedLeadStatus(newLeadData.status) ? newCloseReasonOptions : []}
                   salesOptions={leadSalesOptions}
+                  campaignOptions={campaignSelectOptions}
+                  referrerOptions={referrerSelectOptions}
                   availableTags={availableTags}
                   fixedTags={FIXED_LEAD_TAGS}
                   isAddingTag={isAddingTag}
@@ -3612,8 +3679,8 @@ const Leads: React.FC = () => {
                       >
                         <option value="">-- ChÃ¡Â»Ân quÃ¡Â»â€˜c gia mÃ¡Â»Â¥c tiÃƒÂªu --</option>
                         {LEAD_TARGET_COUNTRY_OPTIONS.map((option) => (
-                          <option key={option} value={option}>
-                            {option}
+                          <option key={option.value} value={option.value}>
+                            {option.label}
                           </option>
                         ))}
                       </select>
@@ -3681,11 +3748,12 @@ const Leads: React.FC = () => {
                         value={newLeadData.product}
                         onChange={e => setNewLeadData({ ...newLeadData, product: e.target.value })}
                       >
-                        <option value="">-- ChÃ¡Â»Ân sÃ¡ÂºÂ£n phÃ¡ÂºÂ©m --</option>
-                        <option value="TiÃ¡ÂºÂ¿ng Ã„ÂÃ¡Â»Â©c">TiÃ¡ÂºÂ¿ng Ã„ÂÃ¡Â»Â©c</option>
-                        <option value="Du hÃ¡Â»Âc Ã„ÂÃ¡Â»Â©c">Du hÃ¡Â»Âc Ã„ÂÃ¡Â»Â©c</option>
-                        <option value="Du hÃ¡Â»Âc NghÃ¡Â»Â">Du hÃ¡Â»Âc NghÃ¡Â»Â</option>
-                        <option value="XKLÃ„Â">XuÃ¡ÂºÂ¥t khÃ¡ÂºÂ©u lao Ã„â€˜Ã¡Â»â„¢ng</option>
+                        <option value="">-- Chọn sản phẩm --</option>
+                        {LEAD_PRODUCT_OPTIONS.map((option) => (
+                          <option key={`lead-create-product-${option.value}`} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
                       </select>
                     </div>
 
@@ -3694,12 +3762,12 @@ const Leads: React.FC = () => {
                       <select
                         className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
                         value={newLeadData.market}
-                        onChange={e => setNewLeadData({ ...newLeadData, market: e.target.value })}
+                        onChange={e => setNewLeadData({ ...newLeadData, market: e.target.value, salesperson: '' })}
                       >
                         <option value="">-- ChÃ¡Â»Ân cÃ†Â¡ sÃ¡Â»Å¸ --</option>
                         {LEAD_CAMPUS_OPTIONS.map((option) => (
-                          <option key={option} value={option}>
-                            {option}
+                          <option key={option.value} value={option.value}>
+                            {option.label}
                           </option>
                         ))}
                       </select>
@@ -3755,13 +3823,20 @@ const Leads: React.FC = () => {
                     <div className="flex items-center gap-4">
                       <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">PhÃ¡Â»Â¥ trÃƒÂ¡ch</label>
                       <select
-                        className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
+                        className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700 disabled:bg-slate-100 disabled:text-slate-400"
+                        disabled={!createLeadCampus || createLeadSalesOptions.length === 0}
                         value={newLeadData.salesperson}
                         onChange={e => setNewLeadData({ ...newLeadData, salesperson: e.target.value })}
                       >
-                        <option value="">-- Sale phÃ¡Â»Â¥ trÃƒÂ¡ch --</option>
-                        {SALES_REPS.map(rep => (
-                          <option key={rep.id} value={rep.id}>{rep.name}</option>
+                        <option value="">
+                          {!createLeadCampus
+                            ? 'ChÃ¡Â»Ân cÃ†Â¡ sÃ¡Â»Å¸ trÃ†Â°Ã¡Â»â€ºc'
+                            : !createLeadSalesOptions.length
+                              ? 'ChÃ†Â°a cÃƒÂ³ phÃ¡Â»Â¥ trÃƒÂ¡ch cho cÃ†Â¡ sÃ¡Â»Å¸ nÃƒÂ y'
+                              : 'ChÃ¡Â»Ân sale phÃ¡Â»Â¥ trÃƒÂ¡ch'}
+                        </option>
+                        {createLeadSalesOptions.map(rep => (
+                          <option key={rep.id} value={rep.value}>{rep.label}</option>
                         ))}
                       </select>
                     </div>
@@ -3879,11 +3954,16 @@ const Leads: React.FC = () => {
                       <div className="grid grid-cols-2 gap-x-12 gap-y-4 animate-in fade-in duration-200">
                         <div className="flex items-center gap-4">
                           <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">ChiÃ¡ÂºÂ¿n dÃ¡Â»â€¹ch</label>
-                          <input
-                            className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none text-slate-700"
+                          <select
+                            className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
                             value={newLeadData.campaign}
                             onChange={e => setNewLeadData({ ...newLeadData, campaign: e.target.value })}
-                          />
+                          >
+                            <option value="">-- Chọn chiến dịch --</option>
+                            {campaignSelectOptions.map(option => (
+                              <option key={option.value} value={option.value}>{option.label}</option>
+                            ))}
+                          </select>
                         </div>
                         <div className="flex items-center gap-4">
                           <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">NguÃ¡Â»â€œn</label>
@@ -3913,11 +3993,16 @@ const Leads: React.FC = () => {
                         </div>
                         <div className="flex items-center gap-4">
                           <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">NgÃ†Â°Ã¡Â»Âi GT</label>
-                          <input
-                            className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none text-slate-700"
+                          <select
+                            className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
                             value={newLeadData.referredBy}
                             onChange={e => setNewLeadData({ ...newLeadData, referredBy: e.target.value })}
-                          />
+                          >
+                            <option value="">-- Chọn người giới thiệu --</option>
+                            {referrerSelectOptions.map(option => (
+                              <option key={option.value} value={option.value}>{option.label}</option>
+                            ))}
+                          </select>
                         </div>
                       </div>
                     )}

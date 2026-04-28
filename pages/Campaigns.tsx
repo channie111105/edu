@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -19,6 +19,7 @@ import {
   UserPlus,
   Pencil
 } from 'lucide-react';
+import { getCampaignCatalog, saveCampaignCatalog } from '../utils/campaignCatalog';
 
 type CampaignType = 'manual' | 'auto';
 type CampaignStatus = 'Running' | 'Paused' | 'Planned' | 'Completed';
@@ -212,8 +213,12 @@ const Campaigns: React.FC = () => {
   };
 
   // State for Campaigns to support Drag & Drop updates
-  const [campaigns, setCampaigns] = useState(CAMPAIGNS);
+  const [campaigns, setCampaigns] = useState(() => getCampaignCatalog());
   const [draggedItem, setDraggedItem] = useState<string | null>(null);
+
+  useEffect(() => {
+    saveCampaignCatalog(campaigns);
+  }, [campaigns]);
 
   // --- CREATE MODAL STATE ---
   const [showCreateModal, setShowCreateModal] = useState(false);

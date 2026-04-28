@@ -20,6 +20,8 @@ interface LeadDrawerProfileFormProps {
   leadFormActiveTab: LeadCreateModalTab;
   closeReasonOptions: string[];
   salesOptions: Array<{ id: string; value: string; label: string }>;
+  campaignOptions?: Array<{ value: string; label: string }>;
+  referrerOptions?: Array<{ value: string; label: string }>;
   availableTags: string[];
   fixedTags: readonly string[];
   isAddingTag: boolean;
@@ -144,6 +146,8 @@ const LeadDrawerProfileForm: React.FC<LeadDrawerProfileFormProps> = ({
   leadFormActiveTab,
   closeReasonOptions,
   salesOptions,
+  campaignOptions = [],
+  referrerOptions = [],
   availableTags,
   fixedTags,
   isAddingTag,
@@ -425,7 +429,7 @@ const LeadDrawerProfileForm: React.FC<LeadDrawerProfileFormProps> = ({
           <FieldBlock label="Cơ sở">
             {selectField(
               leadFormData.market,
-              LEAD_CAMPUS_OPTIONS.map((option) => ({ value: option, label: option })),
+              LEAD_CAMPUS_OPTIONS,
               '-- Chọn --',
               (value) => onPatch({ market: value }),
             )}
@@ -450,11 +454,18 @@ const LeadDrawerProfileForm: React.FC<LeadDrawerProfileFormProps> = ({
           </FieldBlock>
 
           <FieldBlock label="Chiến dịch">
-            {textField(
-              leadFormData.campaign,
-              'VD: Summer 2026',
-              (value) => onPatch({ campaign: value }),
-            )}
+            {campaignOptions.length > 0
+              ? selectField(
+                  leadFormData.campaign,
+                  campaignOptions,
+                  '-- Chọn chiến dịch --',
+                  (value) => onPatch({ campaign: value }),
+                )
+              : textField(
+                  leadFormData.campaign,
+                  'VD: Summer 2026',
+                  (value) => onPatch({ campaign: value }),
+                )}
           </FieldBlock>
 
           <FieldBlock label="Kênh">
@@ -467,11 +478,18 @@ const LeadDrawerProfileForm: React.FC<LeadDrawerProfileFormProps> = ({
           </FieldBlock>
 
           <FieldBlock label="Người giới thiệu" className="xl:col-span-2">
-            {textField(
-              leadFormData.referredBy,
-              'VD: CTV A',
-              (value) => onPatch({ referredBy: value }),
-            )}
+            {referrerOptions.length > 0
+              ? selectField(
+                  leadFormData.referredBy,
+                  referrerOptions,
+                  '-- Chọn người giới thiệu --',
+                  (value) => onPatch({ referredBy: value }),
+                )
+              : textField(
+                  leadFormData.referredBy,
+                  'VD: CTV A',
+                  (value) => onPatch({ referredBy: value }),
+                )}
           </FieldBlock>
         </div>
       </SectionShell>
@@ -481,7 +499,7 @@ const LeadDrawerProfileForm: React.FC<LeadDrawerProfileFormProps> = ({
           <FieldBlock label="Thị trường mục tiêu">
             {selectField(
               leadFormData.targetCountry,
-              LEAD_TARGET_COUNTRY_OPTIONS.map((option) => ({ value: option, label: option })),
+              LEAD_TARGET_COUNTRY_OPTIONS,
               '-- Chọn --',
               (value) => onPatch({ targetCountry: value }),
             )}
@@ -490,7 +508,7 @@ const LeadDrawerProfileForm: React.FC<LeadDrawerProfileFormProps> = ({
           <FieldBlock label="Trình độ học vấn" required>
             {selectField(
               leadFormData.studentEducationLevel,
-              STUDENT_EDUCATION_LEVEL_OPTIONS.map((option) => ({ value: option, label: option })),
+              STUDENT_EDUCATION_LEVEL_OPTIONS,
               '-- Chọn --',
               (value) => onPatch({ studentEducationLevel: value }),
             )}

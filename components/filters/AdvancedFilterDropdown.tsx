@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronDown, Filter, Users, X } from 'lucide-react';
 import { ToolbarOption, ToolbarValueOption } from '../../utils/filterToolbar';
 
@@ -45,6 +46,11 @@ const defaultSelectPlaceholder = (
     : `Không có dữ liệu cho ${field.label.toLowerCase()}`
 );
 
+const hiddenPanelStyle: React.CSSProperties = {
+  position: 'fixed',
+  visibility: 'hidden'
+};
+
 const AdvancedFilterDropdown: React.FC<AdvancedFilterDropdownProps> = ({
   isOpen,
   activeCount,
@@ -78,8 +84,19 @@ const AdvancedFilterDropdown: React.FC<AdvancedFilterDropdownProps> = ({
   panelClassName = '',
   panelAlign = 'right'
 }) => {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const [panelPlacement, setPanelPlacement] = useState<'top' | 'bottom'>('bottom');
+  const [panelStyle, setPanelStyle] = useState<React.CSSProperties>(hiddenPanelStyle);
   const hasGroupSection = groupOptions.length > 0;
-  const panelPositionClass = panelAlign === 'left' ? 'left-0' : 'right-0';
+  const panelOriginClass =
+    panelPlacement === 'top'
+      ? panelAlign === 'left'
+        ? 'origin-bottom-left'
+        : 'origin-bottom-right'
+      : panelAlign === 'left'
+        ? 'origin-top-left'
+        : 'origin-top-right';
   const selectedFilterFields = selectedFilterFieldIds
     .map((fieldId) => filterOptions.find((option) => option.id === fieldId))
     .filter((option): option is ToolbarOption => Boolean(option));
@@ -94,8 +111,215 @@ const AdvancedFilterDropdown: React.FC<AdvancedFilterDropdownProps> = ({
       ? (resolvedSelectableValuesByField[selectedFilterFields[0].id] || []).length
       : 0;
 
+  useLayoutEffect(() => {
+    if (!isOpen) {
+      setPanelPlacement('bottom');
+      setPanelStyle(hiddenPanelStyle);
+      return;
+    }
+
+    const updatePanelViewportMetrics = () => {
+      const containerRect = containerRef.current?.getBoundingClientRect();
+      if (!containerRect) return;
+
+      const viewportPadding = 16;
+      const panelGap = 8;
+      const preferredMaxHeight = Math.round(window.innerHeight * 0.7);
+      const availableBelow = Math.max(0, window.innerHeight - containerRect.bottom - viewportPadding - panelGap);
+      const availableAbove = Math.max(0, containerRect.top - viewportPadding - panelGap);
+      const openUpward = availableBelow < 320 && availableAbove > availableBelow;
+      const availableHeight = openUpward ? availableAbove : availableBelow;
+      const maxHeight = Math.max(0, Math.min(preferredMaxHeight, availableHeight));
+
+      setPanelPlacement(openUpward ? 'top' : 'bottom');
+      setPanelStyle({
+        position: 'fixed',
+        visibility: 'visible',
+        maxHeight: `${maxHeight}px`,
+        left: panelAlign === 'left' ? Math.max(viewportPadding, containerRect.left) : undefined,
+        right: panelAlign === 'right' ? Math.max(viewportPadding, window.innerWidth - containerRect.right) : undefined,
+        top: openUpward ? undefined : Math.max(viewportPadding, containerRect.bottom + panelGap),
+        bottom: openUpward ? Math.max(viewportPadding, window.innerHeight - containerRect.top + panelGap) : undefined
+      });
+    };
+
+    updatePanelViewportMetrics();
+    window.addEventListener('resize', updatePanelViewportMetrics);
+    window.addEventListener('scroll', updatePanelViewportMetrics, true);
+
+    return () => {
+      window.removeEventListener('resize', updatePanelViewportMetrics);
+      window.removeEventListener('scroll', updatePanelViewportMetrics, true);
+    };
+  }, [isOpen, panelAlign]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handlePointerDownOutside = (event: MouseEvent | TouchEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+
+      if (containerRef.current?.contains(target) || panelRef.current?.contains(target)) {
+        return;
+      }
+
+      onOpenChange(false);
+    };
+
+    document.addEventListener('mousedown', handlePointerDownOutside);
+    document.addEventListener('touchstart', handlePointerDownOutside, { passive: true });
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDownOutside);
+      document.removeEventListener('touchstart', handlePointerDownOutside);
+    };
+  }, [isOpen, onOpenChange]);
+
+  const handlePanelWheelCapture = (event: React.WheelEvent<HTMLDivElement>) => {
+    const panelElement = panelRef.current;
+    if (!panelElement) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    panelElement.scrollTop += event.deltaY;
+  };
+
+  const dropdownLayer = isOpen && typeof document !== 'undefined'
+    ? createPortal(
+        <div
+          ref={panelRef}
+          className={`custom-scrollbar fixed z-40 max-w-[calc(100vw-2rem)] animate-in overflow-y-auto overscroll-y-contain rounded-lg border border-slate-200 bg-white p-4 shadow-xl fade-in zoom-in-95 ${panelOriginClass} ${hasGroupSection ? 'w-[720px]' : 'w-[360px]'} ${panelClassName}`.trim()}
+          onWheelCapture={handlePanelWheelCapture}
+          style={{
+            WebkitOverflowScrolling: 'touch',
+            ...panelStyle
+          }}
+        >
+          <div className={`grid gap-4 text-sm ${hasGroupSection ? 'grid-cols-2' : 'grid-cols-1'}`}>
+            <div className={hasGroupSection ? 'border-r border-slate-100 pr-2' : ''}>
+              <div className="mb-3 flex items-center gap-2 font-bold text-slate-800">
+                <Filter size={14} /> {filterSectionLabel}
+              </div>
+              <p className="mb-3 text-xs text-slate-500">
+                {filterDescription}
+              </p>
+              <div
+                className="custom-scrollbar max-h-[360px] space-y-1 overflow-y-auto overscroll-y-contain"
+                style={{ WebkitOverflowScrolling: 'touch' }}
+              >
+                {filterOptions.map((option) => (
+                  <button
+                    key={`filter-${option.id}`}
+                    onClick={() => onToggleFilterField(option.id)}
+                    className={`w-full rounded-lg border px-3 py-2 text-left transition-colors ${selectedFilterFieldIds.includes(option.id) ? 'border-emerald-200 bg-emerald-50 font-semibold text-emerald-700' : 'border-transparent text-slate-700 hover:bg-slate-50'}`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+              <div className="mt-4 rounded-xl border border-emerald-100 bg-emerald-50/60 p-3">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-emerald-700">
+                    {filterValueTitle}
+                  </div>
+                  {selectedFilterFields.length > 0 ? (
+                    <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-emerald-700">
+                      {selectedFilterFields.length > 1 ? `${selectedFilterFields.length} trường` : `${singleFieldSelectableCount} giá trị`}
+                    </span>
+                  ) : null}
+                </div>
+
+                {selectedFilterFields.length > 0 ? (
+                  <>
+                    <div className="space-y-3">
+                      {selectedFilterFields.map((field) => {
+                        const fieldSelectableValues = resolvedSelectableValuesByField[field.id] || [];
+                        const fieldValue = resolvedSelectedFilterValuesByField[field.id] || '';
+
+                        return (
+                          <div key={`filter-value-${field.id}`}>
+                            <div className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-emerald-700">
+                              {field.label}
+                            </div>
+                            <div className="relative">
+                              <select
+                                value={fieldValue}
+                                onChange={(event) => {
+                                  if (onFilterValueChangeForField) {
+                                    onFilterValueChangeForField(field.id, event.target.value);
+                                    return;
+                                  }
+
+                                  onFilterValueChange(event.target.value);
+                                }}
+                                className="w-full appearance-none rounded-lg border border-emerald-200 bg-white px-3 py-2.5 pr-9 text-sm text-slate-700 outline-none transition focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
+                                disabled={fieldSelectableValues.length === 0}
+                              >
+                                <option value="">
+                                  {getSelectPlaceholder(field, fieldSelectableValues)}
+                                </option>
+                                {fieldSelectableValues.map((option) => (
+                                  <option key={`${field.id}-${option.value}`} value={option.value}>
+                                    {option.label}
+                                  </option>
+                                ))}
+                              </select>
+                              <ChevronDown size={16} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-emerald-600" />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <p className="mt-2 text-xs text-slate-500">
+                      {filterValueHint}
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-xs text-slate-500">
+                    {filterFieldHint}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {hasGroupSection ? (
+              <div className="pl-2">
+                <div className="mb-3 flex items-center gap-2 font-bold text-slate-800">
+                  <Users size={14} /> {groupSectionLabel}
+                </div>
+                <p className="mb-3 text-xs text-slate-500">
+                  {groupDescription}
+                </p>
+                <div
+                  className="custom-scrollbar max-h-[360px] space-y-1 overflow-y-auto overscroll-y-contain"
+                  style={{ WebkitOverflowScrolling: 'touch' }}
+                >
+                  {groupOptions.map((option) => (
+                    <button
+                      key={`group-${option.id}`}
+                      onClick={() => onToggleGroupField(option.id)}
+                      className={`flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left transition-colors ${selectedGroupFieldIds.includes(option.id) ? 'border-blue-200 bg-blue-50 font-semibold text-blue-700' : 'border-transparent text-slate-700 hover:bg-slate-50'}`}
+                    >
+                      <span className="flex-1">{option.label}</span>
+                      {selectedGroupFieldIds.includes(option.id) ? (
+                        <span className="rounded-full border border-blue-100 bg-white px-2 py-0.5 text-[10px] font-bold text-blue-700">
+                          {selectedGroupFieldIds.indexOf(option.id) + 1}
+                        </span>
+                      ) : null}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>,
+        document.body
+      )
+    : null;
+
   return (
-    <div className={`relative ${className}`.trim()}>
+    <div ref={containerRef} className={`relative ${className}`.trim()}>
       <button
         onClick={() => onOpenChange(!isOpen)}
         className={`inline-flex items-center gap-1 rounded-sm border px-2 py-1 text-[11px] font-semibold transition-colors ${isOpen ? 'border-slate-300 bg-slate-100 text-slate-900' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900'} ${triggerClassName}`.trim()}
@@ -108,133 +332,7 @@ const AdvancedFilterDropdown: React.FC<AdvancedFilterDropdownProps> = ({
         ) : null}
       </button>
 
-      {isOpen ? (
-        <>
-          <div className="fixed inset-0 z-30" onClick={() => onOpenChange(false)}></div>
-          <div
-            className={`custom-scrollbar absolute top-full z-40 mt-2 max-h-[70vh] max-w-[calc(100vw-2rem)] animate-in overflow-y-auto overscroll-y-contain rounded-lg border border-slate-200 bg-white p-4 shadow-xl fade-in zoom-in-95 ${panelPositionClass} ${hasGroupSection ? 'w-[720px]' : 'w-[360px]'} ${panelClassName}`.trim()}
-            style={{ WebkitOverflowScrolling: 'touch' }}
-          >
-            <div className={`grid gap-4 text-sm ${hasGroupSection ? 'grid-cols-2' : 'grid-cols-1'}`}>
-              <div className={hasGroupSection ? 'border-r border-slate-100 pr-2' : ''}>
-                <div className="mb-3 flex items-center gap-2 font-bold text-slate-800">
-                  <Filter size={14} /> {filterSectionLabel}
-                </div>
-                <p className="mb-3 text-xs text-slate-500">
-                  {filterDescription}
-                </p>
-                <div
-                  className="custom-scrollbar max-h-[360px] space-y-1 overflow-y-auto overscroll-y-contain"
-                  style={{ WebkitOverflowScrolling: 'touch' }}
-                >
-                  {filterOptions.map((option) => (
-                    <button
-                      key={`filter-${option.id}`}
-                      onClick={() => onToggleFilterField(option.id)}
-                      className={`w-full rounded-lg border px-3 py-2 text-left transition-colors ${selectedFilterFieldIds.includes(option.id) ? 'border-emerald-200 bg-emerald-50 font-semibold text-emerald-700' : 'border-transparent text-slate-700 hover:bg-slate-50'}`}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-                <div className="mt-4 rounded-xl border border-emerald-100 bg-emerald-50/60 p-3">
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-emerald-700">
-                      {filterValueTitle}
-                    </div>
-                    {selectedFilterFields.length > 0 ? (
-                      <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-emerald-700">
-                        {selectedFilterFields.length > 1 ? `${selectedFilterFields.length} trường` : `${singleFieldSelectableCount} giá trị`}
-                      </span>
-                    ) : null}
-                  </div>
-
-                  {selectedFilterFields.length > 0 ? (
-                    <>
-                      <div className="space-y-3">
-                        {selectedFilterFields.map((field) => {
-                          const fieldSelectableValues = resolvedSelectableValuesByField[field.id] || [];
-                          const fieldValue = resolvedSelectedFilterValuesByField[field.id] || '';
-
-                          return (
-                            <div key={`filter-value-${field.id}`}>
-                              <div className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-emerald-700">
-                                {field.label}
-                              </div>
-                              <div className="relative">
-                                <select
-                                  value={fieldValue}
-                                  onChange={(event) => {
-                                    if (onFilterValueChangeForField) {
-                                      onFilterValueChangeForField(field.id, event.target.value);
-                                      return;
-                                    }
-
-                                    onFilterValueChange(event.target.value);
-                                  }}
-                                  className="w-full appearance-none rounded-lg border border-emerald-200 bg-white px-3 py-2.5 pr-9 text-sm text-slate-700 outline-none transition focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
-                                  disabled={fieldSelectableValues.length === 0}
-                                >
-                                  <option value="">
-                                    {getSelectPlaceholder(field, fieldSelectableValues)}
-                                  </option>
-                                  {fieldSelectableValues.map((option) => (
-                                    <option key={`${field.id}-${option.value}`} value={option.value}>
-                                      {option.label}
-                                    </option>
-                                  ))}
-                                </select>
-                                <ChevronDown size={16} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-emerald-600" />
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                      <p className="mt-2 text-xs text-slate-500">
-                        {filterValueHint}
-                      </p>
-                    </>
-                  ) : (
-                    <p className="text-xs text-slate-500">
-                      {filterFieldHint}
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              {hasGroupSection ? (
-                <div className="pl-2">
-                  <div className="mb-3 flex items-center gap-2 font-bold text-slate-800">
-                    <Users size={14} /> {groupSectionLabel}
-                  </div>
-                  <p className="mb-3 text-xs text-slate-500">
-                    {groupDescription}
-                  </p>
-                  <div
-                    className="custom-scrollbar max-h-[360px] space-y-1 overflow-y-auto overscroll-y-contain"
-                    style={{ WebkitOverflowScrolling: 'touch' }}
-                  >
-                    {groupOptions.map((option) => (
-                      <button
-                        key={`group-${option.id}`}
-                        onClick={() => onToggleGroupField(option.id)}
-                        className={`flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left transition-colors ${selectedGroupFieldIds.includes(option.id) ? 'border-blue-200 bg-blue-50 font-semibold text-blue-700' : 'border-transparent text-slate-700 hover:bg-slate-50'}`}
-                      >
-                        <span className="flex-1">{option.label}</span>
-                        {selectedGroupFieldIds.includes(option.id) ? (
-                          <span className="rounded-full border border-blue-100 bg-white px-2 py-0.5 text-[10px] font-bold text-blue-700">
-                            {selectedGroupFieldIds.indexOf(option.id) + 1}
-                          </span>
-                        ) : null}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-            </div>
-          </div>
-        </>
-      ) : null}
+      {dropdownLayer}
 
       {hasActiveFilters && onClearAll ? (
         <button

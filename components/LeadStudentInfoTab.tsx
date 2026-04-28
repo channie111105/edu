@@ -74,8 +74,8 @@ const LeadStudentInfoTab: React.FC<LeadStudentInfoTabProps> = ({ data, onPatch }
         >
           <option value="">-- Chọn trình độ học vấn --</option>
           {STUDENT_EDUCATION_LEVEL_OPTIONS.map((option) => (
-            <option key={option} value={option}>
-              {option}
+            <option key={option.value} value={option.value}>
+              {option.label}
             </option>
           ))}
         </select>

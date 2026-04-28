@@ -25,7 +25,7 @@ export const LEAD_STATUS_LABELS: Record<LeadStatusKey, string> = {
   [LEAD_STATUS_KEYS.CONTACTED]: 'Đang chăm sóc',
   [LEAD_STATUS_KEYS.CONVERTED]: 'Đã chuyển đổi',
   [LEAD_STATUS_KEYS.NURTURING]: 'Nuôi dưỡng',
-  [LEAD_STATUS_KEYS.UNVERIFIED]: 'Không xác thực',
+  [LEAD_STATUS_KEYS.UNVERIFIED]: 'K xác thực',
   [LEAD_STATUS_KEYS.LOST]: 'Mất',
 };
 
@@ -83,6 +83,7 @@ const STATUS_NORMALIZATION_MAP: Record<string, LeadStatusKey> = {
   unverified: LEAD_STATUS_KEYS.UNVERIFIED,
   notverified: LEAD_STATUS_KEYS.UNVERIFIED,
   khongxacthuc: LEAD_STATUS_KEYS.UNVERIFIED,
+  kxacthuc: LEAD_STATUS_KEYS.UNVERIFIED,
   unreachable: LEAD_STATUS_KEYS.UNVERIFIED,
   khongnghemay: LEAD_STATUS_KEYS.UNVERIFIED,
   disqualified: LEAD_STATUS_KEYS.UNVERIFIED,
