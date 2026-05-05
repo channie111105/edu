@@ -1904,15 +1904,8 @@ const Leads: React.FC = () => {
       return;
     }
     const campusSalesOptions = filterLeadSalesRepOptionsByCampus(leadSalesOptions, campus);
-    if (!campusSalesOptions.length) {
-      alert(`Cơ sở ${campus} hiện chưa có sale phụ trách.`);
-      return;
-    }
-    if (!newLeadData.salesperson) {
-      alert('Vui lòng chọn phụ trách.');
-      return;
-    }
-    if (!campusSalesOptions.some((option) => option.value === newLeadData.salesperson)) {
+    const selectedSalesperson = newLeadData.salesperson.trim();
+    if (selectedSalesperson && !campusSalesOptions.some((option) => option.value === selectedSalesperson)) {
       alert('Phụ trách không thuộc cơ sở đã chọn.');
       return;
     }
@@ -1923,7 +1916,7 @@ const Leads: React.FC = () => {
       ...newLeadData,
       phone: normalizedPhone,
       program: newLeadData.program as any,
-      ownerId: newLeadData.salesperson,
+      ownerId: selectedSalesperson,
       marketingData: {
         tags: newLeadData.tags,
         campaign: newLeadData.campaign,
@@ -1957,7 +1950,7 @@ const Leads: React.FC = () => {
           changes: [
             buildLeadAuditChange('name', '', newLeadBase.name, 'TÃªn lead'),
             buildLeadAuditChange('phone', '', newLeadBase.phone, 'Sá»‘ Ä‘iá»‡n thoáº¡i'),
-            buildLeadAuditChange('ownerId', '', newLeadBase.ownerId, 'Sale phá»¥ trÃ¡ch'),
+            ...(newLeadBase.ownerId ? [buildLeadAuditChange('ownerId', '', newLeadBase.ownerId, 'Sale phá»¥ trÃ¡ch')] : []),
             buildLeadAuditChange('status', '', newLeadBase.status, 'Tráº¡ng thÃ¡i')
           ]
         })
@@ -1999,15 +1992,8 @@ const Leads: React.FC = () => {
       return;
     }
     const campusSalesOptions = filterLeadSalesRepOptionsByCampus(leadSalesOptions, campus);
-    if (!campusSalesOptions.length) {
-      alert(`Cơ sở ${campus} hiện chưa có sale phụ trách.`);
-      return;
-    }
-    if (!newLeadData.salesperson) {
-      alert('Vui lòng chọn phụ trách.');
-      return;
-    }
-    if (!campusSalesOptions.some((option) => option.value === newLeadData.salesperson)) {
+    const selectedSalesperson = newLeadData.salesperson.trim();
+    if (selectedSalesperson && !campusSalesOptions.some((option) => option.value === selectedSalesperson)) {
       alert('Phụ trách không thuộc cơ sở đã chọn.');
       return;
     }
@@ -2034,7 +2020,7 @@ const Leads: React.FC = () => {
       ...newLeadData,
       phone: normalizedPhone,
       program,
-      ownerId: newLeadData.salesperson,
+      ownerId: selectedSalesperson,
       company: campus || undefined,
       targetCountry: newLeadData.targetCountry,
       educationLevel: newLeadData.studentEducationLevel || undefined,
@@ -2091,7 +2077,7 @@ const Leads: React.FC = () => {
           changes: [
             buildLeadAuditChange('name', '', newLeadBase.name, 'TÃªn lead'),
             buildLeadAuditChange('phone', '', newLeadBase.phone, 'Sá»‘ Ä‘iá»‡n thoáº¡i'),
-            buildLeadAuditChange('ownerId', '', newLeadBase.ownerId, 'Sale phá»¥ trÃ¡ch'),
+            ...(newLeadBase.ownerId ? [buildLeadAuditChange('ownerId', '', newLeadBase.ownerId, 'Sale phá»¥ trÃ¡ch')] : []),
             buildLeadAuditChange('status', '', newLeadBase.status, 'Tráº¡ng thÃ¡i')
           ]
         })
