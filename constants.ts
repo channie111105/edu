@@ -97,21 +97,13 @@ export const NAV_ITEMS = [
   { label: 'Cấu hình Dữ liệu', path: '/admin/system-config', icon: Database, roles: [UserRole.ADMIN] },
 
   // Advanced Tools (New Phase 2)
-  { label: 'Trường Tùy chỉnh', path: '/admin/custom-fields', icon: PenTool, roles: [UserRole.ADMIN] },
-  { label: 'Trình tạo Form', path: '/admin/form-builder', icon: FormInput, roles: [UserRole.ADMIN] },
-  { label: 'Workflow (Visual)', path: '/admin/workflow-builder', icon: GitGraph, roles: [UserRole.ADMIN] },
 
   { label: 'Tự động hóa (Rule)', path: '/admin/automation', icon: SlidersHorizontal, roles: [UserRole.ADMIN] },
 
   // Existing Admin Features
-  { label: 'Mẫu Thông báo', path: '/admin/templates', icon: Mail, roles: [UserRole.ADMIN] },
-  { label: 'Luật Chống trùng', path: '/admin/dedup-rules', icon: Merge, roles: [UserRole.ADMIN] },
-  { label: 'Chính sách Giá', path: '/admin/pricing', icon: Tag, roles: [UserRole.ADMIN] },
-  { label: 'Mẫu Lộ trình Phí', path: '/admin/payment-templates', icon: CreditCard, roles: [UserRole.ADMIN] },
-  { label: 'Mapping Dịch vụ', path: '/finance/rules', icon: Lock, roles: [UserRole.ADMIN] },
+  { label: 'Chính sách & Lộ trình Phí', path: '/admin/financial-config', icon: CreditCard, roles: [UserRole.ADMIN] },
 
   { label: 'Nhật ký Hệ thống', path: '/admin/audit-logs', icon: ScrollText, roles: [UserRole.ADMIN] },
-  { label: 'Tích hợp & API', path: '/admin/integrations', icon: Link, roles: [UserRole.ADMIN] },
   { label: 'Phân quyền (RBAC)', path: '/admin/permissions', icon: Shield, roles: [UserRole.ADMIN] },
 
   // --- THƯ VIỆN TÀI LIỆU (Mới) ---
@@ -128,7 +120,7 @@ export const NAV_ITEMS = [
   { label: 'Hợp đồng', path: '/contracts/contracts-list', icon: FileText, roles: [UserRole.SALES_LEADER] },
 
   // NEW ENROLLMENT FLOW
-  { label: 'Học viên (Students)', path: '/enrollment/students', icon: GraduationCap, roles: [UserRole.ADMIN, UserRole.FOUNDER] },
+  { label: 'Học viên (Students)', path: '/enrollment/students', icon: GraduationCap, roles: [UserRole.FOUNDER] },
 
   { label: 'Học viên', path: '/contracts', icon: FileSignature, roles: [UserRole.SALES_LEADER] },
   // { label: 'Thư viện Mẫu', path: '/contracts/templates', icon: Files, roles: [UserRole.SALES_LEADER] }, // Removed per request
@@ -137,7 +129,7 @@ export const NAV_ITEMS = [
   { label: 'Cơ hội (Leads)', path: '/leads', icon: Users, roles: [UserRole.MARKETING, UserRole.FOUNDER] },
   { label: 'Chiến dịch', path: '/campaigns', icon: Megaphone, roles: [UserRole.MARKETING] },
   { label: 'Cộng tác viên', path: '/marketing/collaborators', icon: Contact2, roles: [UserRole.MARKETING] },
-  { label: 'Danh sách Lead (SLA)', path: '/marketing/sla-leads', icon: ListTodo, roles: [UserRole.MARKETING, UserRole.ADMIN] },
+  { label: 'Danh sách Lead (SLA)', path: '/marketing/sla-leads', icon: ListTodo, roles: [UserRole.MARKETING] },
 
   // --- ROLE SALES REP (Updated) ---
   { label: 'My Leads', path: '/sales/my-leads', icon: Inbox, roles: [UserRole.SALES_REP, UserRole.SALES_LEADER] }, // NEW
@@ -145,7 +137,7 @@ export const NAV_ITEMS = [
   { label: 'Pipeline', path: '/pipeline', icon: KanbanSquare, roles: [UserRole.SALES_REP, UserRole.SALES_LEADER] },
 
   { label: 'KPIs & Mục tiêu', path: '/sales/kpis', icon: Target, roles: [UserRole.SALES_REP] }, // NEW KPI PAGE
-  { label: 'Lịch hẹn (Test/Visit)', path: '/sales/meetings', icon: CalendarClock, roles: [UserRole.SALES_REP, UserRole.FOUNDER, UserRole.ADMIN] }, // Removed SALES_LEADER and TEACHER
+  { label: 'Lịch hẹn (Test/Visit)', path: '/sales/meetings', icon: CalendarClock, roles: [UserRole.SALES_REP, UserRole.FOUNDER] }, // Removed SALES_LEADER and TEACHER
 
   // --- ROLE ĐÀO TẠO --- (Removed ADMIN)
 

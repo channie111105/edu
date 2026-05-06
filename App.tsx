@@ -134,20 +134,12 @@ const AppRoutes = () => {
 
           {/* Admin Routes */}
           <Route path="admin/users" element={renderLazyRoute('./pages/AdminUserManagement.tsx')} />
-          <Route path="admin/integrations" element={renderLazyRoute('./pages/AdminIntegration.tsx')} />
           <Route path="admin/permissions" element={renderLazyRoute('./pages/AdminPermissions.tsx')} />
           <Route path="admin/system-config" element={renderLazyRoute('./pages/AdminSystemConfig.tsx')} />
           <Route path="admin/automation" element={renderLazyRoute('./pages/AdminAutomationRules.tsx')} />
           <Route path="admin/audit-logs" element={renderLazyRoute('./pages/AdminAuditLogs.tsx')} />
-          <Route path="admin/templates" element={renderLazyRoute('./pages/AdminTemplates.tsx')} />
-          <Route path="admin/dedup-rules" element={renderLazyRoute('./pages/AdminDedupRules.tsx')} />
-          <Route path="admin/pricing" element={renderLazyRoute('./pages/AdminPricingStrategy.tsx')} />
-          <Route path="admin/payment-templates" element={renderLazyRoute('./pages/AdminPaymentTemplates.tsx')} />
-
+          <Route path="admin/financial-config" element={renderLazyRoute('./pages/AdminFinancialConfig.tsx')} />
           {/* Advanced Admin Features (Phase 2) */}
-          <Route path="admin/custom-fields" element={renderLazyRoute('./pages/AdminCustomFields.tsx')} />
-          <Route path="admin/form-builder" element={renderLazyRoute('./pages/AdminFormBuilder.tsx')} />
-          <Route path="admin/workflow-builder" element={renderLazyRoute('./pages/AdminWorkflowBuilder.tsx')} />
 
           <Route path="marketing" element={renderLazyRoute('./pages/MarketingDashboard.tsx')} />
           <Route path="marketing/collaborators" element={renderLazyRoute('./pages/Collaborators.tsx')} />
@@ -181,7 +173,6 @@ const AppRoutes = () => {
           <Route path="contracts/quotations/:id" element={renderLazyRoute('./pages/QuotationDetails.tsx')} />
           <Route path="/enrollment/students" element={renderLazyRoute('./pages/Students.tsx')} />
           <Route path="contracts/new" element={renderLazyRoute('./pages/Contracts.tsx')} />
-          <Route path="contracts/templates" element={renderLazyRoute('./pages/ContractTemplates.tsx')} />
           <Route path="contracts/approvals" element={renderLazyRoute('./pages/ContractApprovalQueue.tsx')} />
           <Route path="contracts/:id" element={renderLazyRoute('./pages/ContractDetails.tsx')} />
 
@@ -217,7 +208,6 @@ const AppRoutes = () => {
           <Route path="refunds/:id" element={renderLazyRoute('./pages/FinanceRefundDetail.tsx')} />
           <Route path="finance/transactions" element={renderLazyRoute('./pages/FinanceTransactions.tsx')} />
           <Route path="finance/invoices" element={renderLazyRoute('./pages/FinanceInvoices.tsx')} />
-          <Route path="finance/rules" element={renderLazyRoute('./pages/FinanceServiceRules.tsx')} />
           <Route path="finance/gateway-logs" element={renderLazyRoute('./pages/FinanceGatewayLogs.tsx')} />
           <Route path="finance/money-out" element={renderLazyRoute('./pages/FinanceMoneyOut.tsx')} />
           <Route path="finance/debts" element={renderLazyRoute('./pages/FinanceDebtList.tsx')} />

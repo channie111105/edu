@@ -37,7 +37,7 @@ interface AuditLog {
     color: string;
   };
   module: string;
-  ip: string;
+
   details: {
     actionId: string;
     requestId: string;
@@ -55,9 +55,8 @@ const MOCK_LOGS: AuditLog[] = [
     id: 'LOG-001',
     timestamp: '24/10/2023 14:22:10',
     user: { name: 'Trần Văn Quản Trị', role: 'Quản trị viên', avatar: 'QT', color: 'bg-blue-100 text-blue-700' },
-    action: { name: 'Sửa Phân quyền', type: 'update', color: 'bg-blue-50 text-blue-700 border-blue-200' },
+    action: { name: 'Cập nhật Phân quyền', type: 'update', color: 'bg-blue-50 text-blue-700 border-blue-200' },
     module: 'Phân quyền (RBAC)',
-    ip: '192.168.1.45',
     details: {
       actionId: 'ACT_9921',
       requestId: 'req_a1b2c3',
@@ -74,7 +73,6 @@ const MOCK_LOGS: AuditLog[] = [
     user: { name: 'Nguyễn Thị Marketing', role: 'Trưởng phòng MKT', avatar: 'NM', color: 'bg-orange-100 text-orange-700' },
     action: { name: 'Xuất Excel Lead', type: 'export', color: 'bg-orange-50 text-orange-700 border-orange-200' },
     module: 'Quản lý Lead',
-    ip: '172.16.254.1',
     details: {
       actionId: 'ACT_9920',
       requestId: 'req_x9y8z7',
@@ -87,7 +85,6 @@ const MOCK_LOGS: AuditLog[] = [
     user: { name: 'Lê Văn Sales', role: 'Nhân viên Sale', avatar: 'LS', color: 'bg-purple-100 text-purple-700' },
     action: { name: 'Đăng nhập', type: 'login', color: 'bg-green-50 text-green-700 border-green-200' },
     module: 'Hệ thống',
-    ip: '10.0.0.12',
     details: {
       actionId: 'ACT_9919',
       requestId: 'req_login_123',
@@ -100,7 +97,6 @@ const MOCK_LOGS: AuditLog[] = [
     user: { name: 'Trần Văn Quản Trị', role: 'Quản trị viên', avatar: 'QT', color: 'bg-blue-100 text-blue-700' },
     action: { name: 'Xóa Lead Rác', type: 'delete', color: 'bg-red-50 text-red-700 border-red-200' },
     module: 'Quản lý Lead',
-    ip: '192.168.1.45',
     details: {
       actionId: 'ACT_9918',
       requestId: 'req_del_456',
@@ -114,9 +110,8 @@ const MOCK_LOGS: AuditLog[] = [
     id: 'LOG-005',
     timestamp: '24/10/2023 10:00:23',
     user: { name: 'Phạm Kế Toán', role: 'Kế toán trưởng', avatar: 'PK', color: 'bg-pink-100 text-pink-700' },
-    action: { name: 'Duyệt Giao dịch', type: 'update', color: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+    action: { name: 'Cập nhật Giao dịch (Duyệt)', type: 'update', color: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
     module: 'Tài chính',
-    ip: '192.168.1.100',
     details: {
       actionId: 'ACT_9917',
       requestId: 'req_fin_789',
@@ -124,6 +119,22 @@ const MOCK_LOGS: AuditLog[] = [
       changes: [
         { field: 'Transaction Status', before: 'Pending', after: 'Approved' },
         { field: 'Approved By', before: 'null', after: 'USR_ACC_01' }
+      ]
+    }
+  },
+  {
+    id: 'LOG-006',
+    timestamp: '24/10/2023 09:15:00',
+    user: { name: 'Lê Văn Sales', role: 'Nhân viên Sale', avatar: 'LS', color: 'bg-purple-100 text-purple-700' },
+    action: { name: 'Thêm mới Lead', type: 'create', color: 'bg-blue-50 text-blue-700 border-blue-200' },
+    module: 'Quản lý Lead',
+    details: {
+      actionId: 'ACT_9916',
+      requestId: 'req_new_777',
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+      changes: [
+        { field: 'Họ và tên', before: 'null', after: 'Nguyễn Văn Test' },
+        { field: 'Số điện thoại', before: 'null', after: '0987654321' }
       ]
     }
   }
@@ -228,7 +239,7 @@ const AdminAuditLogs: React.FC = () => {
                        <th className="px-6 py-4 text-xs font-bold text-[#617589] uppercase tracking-wider min-w-[240px]">Người dùng</th>
                        <th className="px-6 py-4 text-xs font-bold text-[#617589] uppercase tracking-wider w-44 text-center">Loại hành động</th>
                        <th className="px-6 py-4 text-xs font-bold text-[#617589] uppercase tracking-wider w-48">Phân hệ</th>
-                       <th className="px-6 py-4 text-xs font-bold text-[#617589] uppercase tracking-wider w-40">Địa chỉ IP</th>
+                       
                        <th className="px-6 py-4 text-xs font-bold text-[#617589] uppercase tracking-wider w-32 text-right">Chi tiết</th>
                     </tr>
                  </thead>
@@ -256,7 +267,7 @@ const AdminAuditLogs: React.FC = () => {
                           <td className="px-6 py-4">
                              <span className="text-[#111418] text-sm font-medium">{log.module}</span>
                           </td>
-                          <td className="px-6 py-4 font-mono text-xs text-[#617589]">{log.ip}</td>
+                          
                           <td className="px-6 py-4 text-right">
                              <button 
                                 onClick={() => handleViewDetails(log)}
@@ -311,27 +322,7 @@ const AdminAuditLogs: React.FC = () => {
                <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
                   {/* General Info */}
                   <div className="grid grid-cols-2 gap-6 mb-8">
-                     <div className="space-y-1">
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-[#617589]">Loại hành động</p>
-                        <p className="text-sm font-bold text-[#1380ec]">{selectedLog.action.name}</p>
-                     </div>
-                     <div className="space-y-1">
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-[#617589]">Phân hệ</p>
-                        <p className="text-sm font-bold text-[#111418]">{selectedLog.module}</p>
-                     </div>
-                     <div className="space-y-1">
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-[#617589]">Thực hiện bởi</p>
-                        <div className="flex items-center gap-2">
-                           <div className={`size-5 rounded-full flex items-center justify-center font-bold text-[8px] ${selectedLog.user.color}`}>
-                              {selectedLog.user.avatar}
-                           </div>
-                           <p className="text-sm font-medium text-[#111418]">{selectedLog.user.name}</p>
-                        </div>
-                     </div>
-                     <div className="space-y-1">
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-[#617589]">Địa chỉ IP</p>
-                        <p className="text-xs font-mono text-[#111418] bg-slate-100 px-2 py-1 rounded w-fit">{selectedLog.ip}</p>
-                     </div>
+                     
                   </div>
 
                   {/* Changes Diff */}
@@ -392,8 +383,7 @@ const AdminAuditLogs: React.FC = () => {
   "timestamp": "${selectedLog.timestamp}",
   "actor": {
     "name": "${selectedLog.user.name}",
-    "role": "${selectedLog.user.role}",
-    "ip": "${selectedLog.ip}"
+    "role": "${selectedLog.user.role}"
   },
   "environment": {
     "user_agent": "${selectedLog.details.userAgent}"
