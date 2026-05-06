@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import * as XLSX from 'xlsx';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { UserRole } from '../types';
@@ -17,6 +18,47 @@ import {
   Link as LinkIcon,
   Info
 } from 'lucide-react';
+
+// All columns mirroring the lead creation form fields exactly
+const TEMPLATE_COLUMNS: { header: string; example: string; crm: string; required: boolean }[] = [
+  // === Thông tin liên hệ ===
+  { header: 'Danh xưng / quan hệ', example: 'Học sinh', crm: 'title', required: false },
+  { header: 'Họ và tên', example: 'Nguyễn Văn An', crm: 'name', required: true },
+  { header: 'Số điện thoại', example: '0912345678', crm: 'phone', required: true },
+  { header: 'Nguồn data', example: 'Facebook', crm: 'source', required: false },
+  { header: 'Email', example: 'nguyenvana@example.com', crm: 'email', required: false },
+  
+  // === Thông tin kinh doanh ===
+  { header: 'Sản phẩm', example: 'Tiếng Đức', crm: 'product', required: false },
+  { header: 'Cơ sở', example: 'HCM', crm: 'market', required: false },
+  { header: 'Sale phụ trách', example: 'Trần Thị Hương', crm: 'salesperson', required: false },
+  { header: 'Trạng thái', example: 'new', crm: 'status', required: false },
+  { header: 'Chiến dịch', example: 'Summer 2026', crm: 'campaign', required: false },
+  { header: 'Kênh', example: 'Facebook Ads', crm: 'channel', required: false },
+  { header: 'Người giới thiệu', example: 'CTV Minh', crm: 'referredBy', required: false },
+
+  // === Hồ sơ năng lực ===
+  { header: 'Thị trường mục tiêu', example: 'Đức', crm: 'targetCountry', required: false },
+  { header: 'Trình độ học vấn', example: 'THPT', crm: 'studentEducationLevel', required: true },
+  { header: 'Ngày sinh', example: '2005-08-15', crm: 'studentDob', required: false },
+  { header: 'GPA / Điểm ngoại ngữ', example: 'GPA 7.5 - IELTS 5.5', crm: 'studentLanguageLevel', required: false },
+
+  // === Ghi chú nội bộ ===
+  { header: 'Mức độ tiềm năng', example: 'Nóng', crm: 'potential', required: false },
+  { header: 'Thời gian dự kiến tham gia', example: '06/2026', crm: 'expectedStart', required: false },
+  { header: 'Tài chính', example: 'Đủ', crm: 'financial', required: false },
+  { header: 'Ý kiến bố mẹ', example: 'Đồng ý', crm: 'parentOpinion', required: false },
+  { header: 'Ghi chú khác', example: 'Đã liên hệ 2 lần', crm: 'notes', required: false },
+
+  // === Thông tin pháp lý ===
+  { header: 'Số CCCD / Hộ chiếu', example: '079205012345', crm: 'studentIdentityCard', required: true },
+  { header: 'Ngày cấp', example: '2020-01-15', crm: 'identityDate', required: true },
+  { header: 'Nơi cấp', example: 'Cục CS QLHC về TTXH - Bộ Công An', crm: 'identityPlace', required: true },
+  { header: 'Địa chỉ thường trú (Full)', example: '123 Đường Lê Lợi, Phường Bến Nghé, Quận 1, TP.HCM', crm: 'street', required: true },
+
+  // === Hệ thống ===
+  { header: 'Tags (phân loại)', example: 'hot_lead,gọi lần 1', crm: 'tags', required: false },
+];
 
 const LeadImport: React.FC = () => {
   const navigate = useNavigate();
@@ -54,6 +96,54 @@ const LeadImport: React.FC = () => {
     setTimeout(() => {
         navigate('/leads');
     }, 1000);
+  };
+
+  /** Generate and download an XLSX template with all lead form fields */
+  const handleDownloadTemplate = () => {
+    try {
+      const headers = TEMPLATE_COLUMNS.map((col) => col.header);
+      const notes = TEMPLATE_COLUMNS.map((col) =>
+        col.required ? '(Bắt buộc)' : '(Tùy chọn)'
+      );
+      const examples = TEMPLATE_COLUMNS.map((col) => col.example);
+
+      const wsData = [headers, notes, examples];
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+      // Auto-fit column widths
+      ws['!cols'] = headers.map((_h: string, i: number) => {
+        const maxLen = Math.max(
+          headers[i].length,
+          examples[i].length,
+          notes[i].length
+        );
+        return { wch: Math.min(Math.max(maxLen + 4, 14), 50) };
+      });
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Template_Leads');
+      XLSX.writeFile(wb, 'Template_Leads.xlsx');
+    } catch (err) {
+      console.error('XLSX export failed, falling back to CSV:', err);
+      // Fallback: tab-separated CSV (Excel always opens TSV correctly)
+      const BOM = '\uFEFF';
+      const rows = [
+        TEMPLATE_COLUMNS.map((c) => c.header).join('\t'),
+        TEMPLATE_COLUMNS.map((c) =>
+          c.required ? '(Bắt buộc)' : '(Tùy chọn)'
+        ).join('\t'),
+        TEMPLATE_COLUMNS.map((c) => c.example).join('\t'),
+      ];
+      const blob = new Blob([BOM + rows.join('\r\n')], {
+        type: 'text/tab-separated-values;charset=utf-8;',
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'Template_Leads.tsv';
+      a.click();
+      URL.revokeObjectURL(url);
+    }
   };
 
   // --- PROGRESS BAR COMPONENT ---
@@ -119,9 +209,13 @@ const LeadImport: React.FC = () => {
           </label>
 
           <div className="mt-8 pt-8 border-t border-slate-100 dark:border-slate-800">
-            <button className="text-sm text-blue-600 hover:underline flex items-center justify-center gap-1 mx-auto font-medium">
-              <Download size={14} /> Tải tệp mẫu chuẩn (Template_Leads.xlsx)
+            <button
+              onClick={handleDownloadTemplate}
+              className="text-sm text-blue-600 hover:underline flex items-center justify-center gap-1 mx-auto font-medium"
+            >
+              <Download size={14} /> Tải tệp mẫu chuẩn (Template_Leads.xlsx) — {TEMPLATE_COLUMNS.length} cột
             </button>
+            <p className="text-xs text-slate-400 mt-2 text-center">Chứa đầy đủ các cột tương ứng với form tạo lead. Cột có (*) là bắt buộc khi Qualified.</p>
           </div>
         </div>
       </div>
@@ -146,64 +240,95 @@ const LeadImport: React.FC = () => {
                             <table className="w-full text-left">
                                 <thead className="bg-slate-50 dark:bg-slate-800/50 text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400">
                                     <tr>
-                                        <th className="px-6 py-3 font-medium">Tên cột trong CSV</th>
-                                        <th className="px-6 py-3 font-medium">Dữ liệu mẫu</th>
-                                        <th className="px-6 py-3 font-medium">Trường đích trên CRM</th>
+                                        <th className="px-4 py-3 font-medium">Cột trong file CSV</th>
+                                        <th className="px-4 py-3 font-medium">Dữ liệu mẫu</th>
+                                        <th className="px-4 py-3 font-medium">Trường đích trên CRM</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-sm text-slate-700 dark:text-slate-300">
-                                    <tr>
-                                        <td className="px-6 py-4 font-medium">Họ và tên</td>
-                                        <td className="px-6 py-4 text-slate-500 italic">Nguyễn Văn A</td>
-                                        <td className="px-6 py-4">
-                                            <select className="block w-full rounded-md border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm focus:border-blue-600 focus:ring-blue-600">
-                                                <option>Tên Lead (Full Name)</option>
-                                                <option>Họ (Last Name)</option>
-                                                <option>Tên (First Name)</option>
-                                            </select>
-                                        </td>
+                                    {/* === Thông tin liên hệ === */}
+                                    <tr className="bg-slate-50 dark:bg-slate-800/40">
+                                        <td colSpan={3} className="px-4 py-2 text-xs font-bold uppercase tracking-wider text-slate-400">📋 Thông tin liên hệ</td>
                                     </tr>
-                                    <tr>
-                                        <td className="px-6 py-4 font-medium">Địa chỉ Email</td>
-                                        <td className="px-6 py-4 text-slate-500 italic">nguyenvana@example.com</td>
-                                        <td className="px-6 py-4">
-                                            <select className="block w-full rounded-md border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm focus:border-blue-600 focus:ring-blue-600">
-                                                <option>Email (Chính)</option>
-                                                <option>Email phụ</option>
-                                            </select>
+                                    {TEMPLATE_COLUMNS.slice(0, 5).map(({ header, example, crm, required }) => (
+                                      <tr key={crm}>
+                                        <td className="px-4 py-3 font-medium whitespace-nowrap">
+                                          {header} {required && <span className="text-red-500">*</span>}
                                         </td>
+                                        <td className="px-4 py-3 text-slate-500 dark:text-slate-400 italic">{example}</td>
+                                        <td className="px-4 py-3"><span className="font-mono text-xs bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded">{crm}</span></td>
+                                      </tr>
+                                    ))}
+
+                                    {/* === Thông tin kinh doanh === */}
+                                    <tr className="bg-slate-50 dark:bg-slate-800/40">
+                                        <td colSpan={3} className="px-4 py-2 text-xs font-bold uppercase tracking-wider text-slate-400">💼 Thông tin kinh doanh</td>
                                     </tr>
-                                    <tr>
-                                        <td className="px-6 py-4 font-medium">Số điện thoại</td>
-                                        <td className="px-6 py-4 text-slate-500 italic">0912345678</td>
-                                        <td className="px-6 py-4">
-                                            <select className="block w-full rounded-md border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm focus:border-blue-600 focus:ring-blue-600">
-                                                <option>SĐT (Di động)</option>
-                                                <option>SĐT (Bàn)</option>
-                                                <option>Zalo ID</option>
-                                            </select>
+                                    {TEMPLATE_COLUMNS.slice(5, 12).map(({ header, example, crm, required }) => (
+                                      <tr key={crm}>
+                                        <td className="px-4 py-3 font-medium whitespace-nowrap">
+                                          {header} {required && <span className="text-red-500">*</span>}
                                         </td>
+                                        <td className="px-4 py-3 text-slate-500 dark:text-slate-400 italic">{example}</td>
+                                        <td className="px-4 py-3"><span className="font-mono text-xs bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded">{crm}</span></td>
+                                      </tr>
+                                    ))}
+
+                                    {/* === Hồ sơ năng lực === */}
+                                    <tr className="bg-slate-50 dark:bg-slate-800/40">
+                                        <td colSpan={3} className="px-4 py-2 text-xs font-bold uppercase tracking-wider text-slate-400">🎓 Hồ sơ năng lực</td>
                                     </tr>
-                                    <tr>
-                                        <td className="px-6 py-4 font-medium">Nhu cầu học</td>
-                                        <td className="px-6 py-4 text-slate-500 italic">Tiếng Đức - A1</td>
-                                        <td className="px-6 py-4">
-                                            <select className="block w-full rounded-md border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm focus:border-blue-600 focus:ring-blue-600">
-                                                <option>Chương trình quan tâm</option>
-                                                <option>Mức độ quan tâm</option>
-                                            </select>
+                                    {TEMPLATE_COLUMNS.slice(12, 16).map(({ header, example, crm, required }) => (
+                                      <tr key={crm}>
+                                        <td className="px-4 py-3 font-medium whitespace-nowrap">
+                                          {header} {required && <span className="text-red-500">*</span>}
                                         </td>
+                                        <td className="px-4 py-3 text-slate-500 dark:text-slate-400 italic">{example}</td>
+                                        <td className="px-4 py-3"><span className="font-mono text-xs bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded">{crm}</span></td>
+                                      </tr>
+                                    ))}
+
+                                    {/* === Ghi chú nội bộ === */}
+                                    <tr className="bg-slate-50 dark:bg-slate-800/40">
+                                        <td colSpan={3} className="px-4 py-2 text-xs font-bold uppercase tracking-wider text-slate-400">📝 Ghi chú nội bộ</td>
                                     </tr>
-                                    <tr>
-                                        <td className="px-6 py-4 font-medium">Nguồn dữ liệu</td>
-                                        <td className="px-6 py-4 text-slate-500 italic">Facebook Ads</td>
-                                        <td className="px-6 py-4">
-                                            <select className="block w-full rounded-md border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm focus:border-blue-600 focus:ring-blue-600">
-                                                <option>Nguồn Lead (Source)</option>
-                                                <option>Tên chiến dịch</option>
-                                            </select>
+                                    {TEMPLATE_COLUMNS.slice(16, 21).map(({ header, example, crm, required }) => (
+                                      <tr key={crm}>
+                                        <td className="px-4 py-3 font-medium whitespace-nowrap">
+                                          {header} {required && <span className="text-red-500">*</span>}
                                         </td>
+                                        <td className="px-4 py-3 text-slate-500 dark:text-slate-400 italic">{example}</td>
+                                        <td className="px-4 py-3"><span className="font-mono text-xs bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded">{crm}</span></td>
+                                      </tr>
+                                    ))}
+
+                                    {/* === Thông tin pháp lý === */}
+                                    <tr className="bg-slate-50 dark:bg-slate-800/40">
+                                        <td colSpan={3} className="px-4 py-2 text-xs font-bold uppercase tracking-wider text-red-400">🛡️ Thông tin pháp lý (bắt buộc khi Qualified)</td>
                                     </tr>
+                                    {TEMPLATE_COLUMNS.slice(21, 25).map(({ header, example, crm, required }) => (
+                                      <tr key={crm}>
+                                        <td className="px-4 py-3 font-medium whitespace-nowrap text-red-700 dark:text-red-400">
+                                          {header} {required && <span className="text-red-500">*</span>}
+                                        </td>
+                                        <td className="px-4 py-3 text-slate-500 dark:text-slate-400 italic">{example}</td>
+                                        <td className="px-4 py-3"><span className="font-mono text-xs bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 px-2 py-0.5 rounded">{crm}</span></td>
+                                      </tr>
+                                    ))}
+
+                                    {/* === Tags === */}
+                                    <tr className="bg-slate-50 dark:bg-slate-800/40">
+                                        <td colSpan={3} className="px-4 py-2 text-xs font-bold uppercase tracking-wider text-slate-400">🏷️ Tags</td>
+                                    </tr>
+                                    {TEMPLATE_COLUMNS.slice(25).map(({ header, example, crm, required }) => (
+                                      <tr key={crm}>
+                                        <td className="px-4 py-3 font-medium whitespace-nowrap">
+                                          {header} {required && <span className="text-red-500">*</span>}
+                                        </td>
+                                        <td className="px-4 py-3 text-slate-500 dark:text-slate-400 italic">{example}</td>
+                                        <td className="px-4 py-3"><span className="font-mono text-xs bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded">{crm}</span></td>
+                                      </tr>
+                                    ))}
                                 </tbody>
                             </table>
                         </div>

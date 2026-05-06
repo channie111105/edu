@@ -1,4 +1,4 @@
-﻿
+
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -887,35 +887,52 @@ const Leads: React.FC = () => {
     {
       id: 'd1', name: 'Data_THPT_NguyenDu_K12', source: 'HÃ¡Â»Â£p tÃƒÂ¡c TrÃ†Â°Ã¡Â»Âng THPT', code: '#D-2410-01', date: '24/10/2023', importer: 'Admin',
       total: 500, match: '96.0%', valid: 480, interested: '30.0%', interestedCount: 150, enrolled: '30.0%', enrolledCount: 45,
-      eval: 'good', evalText: 'Ã†Â¯U TIÃƒÅ N NHÃ¡ÂºÂ¬P', note: 'TÃ¡Â»Â· lÃ¡Â»â€¡ nhÃ¡ÂºÂ­p hÃ¡Â»Âc cao'
+      eval: 'good', evalText: 'ƯU TIÊN NHẬP', note: 'TÃ¡Â»Â· lÃ¡Â»â€¡ nhÃ¡ÂºÂ­p hÃ¡Â»Âc cao'
     },
     {
-      id: 'd2', name: 'Mua_Data_Ngoai_T10', source: 'Mua ngoÃƒÂ i (Agency A)', code: '#D-2010-02', date: '20/10/2023', importer: 'Marketing Lead',
+      id: 'd2', name: 'Mua_Data_Ngoai_T10', source: 'Mua ngoài (Agency A)', code: '#D-2010-02', date: '20/10/2023', importer: 'Marketing Lead',
       total: 1000, match: '35.0%', valid: 350, interested: '2.0%', interestedCount: 20, enrolled: '10.0%', enrolledCount: 2,
       eval: 'bad', evalText: 'DÃ¡Â»ÂªNG HÃ¡Â»Â¢P TÃƒÂC', note: 'SÃ„ÂT Ã¡ÂºÂ£o quÃƒÂ¡ nhiÃ¡Â»Âu'
     },
     {
-      id: 'd3', name: 'Hoi_Thao_Du_Hoc_Duc_HaNoi', source: 'SÃ¡Â»Â± kiÃ¡Â»â€¡n Offline', code: '#D-1510-01', date: '15/10/2023', importer: 'Sales Leader',
+      id: 'd3', name: 'Hoi_Thao_Du_Hoc_Duc_HaNoi', source: 'Sự kiện Offline', code: '#D-1510-01', date: '15/10/2023', importer: 'Sales Leader',
       total: 200, match: '99.0%', valid: 198, interested: '60.0%', interestedCount: 120, enrolled: '50.0%', enrolledCount: 60,
-      eval: 'good', evalText: 'Ã†Â¯U TIÃƒÅ N NHÃ¡ÂºÂ¬P', note: 'TÃ¡Â»Â· lÃ¡Â»â€¡ nhÃ¡ÂºÂ­p hÃ¡Â»Âc cao'
+      eval: 'good', evalText: 'ƯU TIÊN NHẬP', note: 'TÃ¡Â»Â· lÃ¡Â»â€¡ nhÃ¡ÂºÂ­p hÃ¡Â»Âc cao'
     },
     {
-      id: 'd4', name: 'Import_Excel_Cu_2022', source: 'HÃ¡Â»â€¡ thÃ¡Â»â€˜ng cÃ…Â©', code: '#D-0110-03', date: '01/10/2023', importer: 'Admin',
+      id: 'd4', name: 'Import_Excel_Cu_2022', source: 'Hệ thống cũ', code: '#D-0110-03', date: '01/10/2023', importer: 'Admin',
       total: 1500, match: '93.3%', valid: 1400, interested: '3.3%', interestedCount: 50, enrolled: '10.0%', enrolledCount: 5,
-      eval: 'warning', evalText: 'CÃƒâ€šN NHÃ¡ÂºÂ®C LÃ¡ÂºÂ I', note: 'ÃƒÂt nhu cÃ¡ÂºÂ§u hÃ¡Â»Âc'
+      eval: 'warning', evalText: 'CÂN NHẮC LẠI', note: 'ÃƒÂt nhu cÃ¡ÂºÂ§u hÃ¡Â»Âc'
     }
   ];
 
   const CRM_FIELDS = [
-    { id: 'name', label: 'TÃƒÂªn Lead', excelHeader: 'HÃ¡Â»Â vÃƒÂ  tÃƒÂªn', required: true },
-    { id: 'phone', label: 'SÃ„ÂT', excelHeader: 'SÃ¡Â»â€˜ Ã„â€˜iÃ¡Â»â€¡n thoÃ¡ÂºÂ¡i', required: true }, // Format: 10 digits, start with 0
-    { id: 'email', label: 'Email', excelHeader: 'Email', required: false },      // Format: contains @
-    { id: 'targetCountry', label: 'QuÃ¡Â»â€˜c gia mÃ¡Â»Â¥c tiÃƒÂªu', excelHeader: 'QuÃ¡Â»â€˜c gia mÃ¡Â»Â¥c tiÃƒÂªu', required: true },
-    { id: 'company', label: 'CÃ†Â¡ sÃ¡Â»Å¸', excelHeader: 'CÃ†Â¡ sÃ¡Â»Å¸', required: false },
-    { id: 'source', label: 'NguÃ¡Â»â€œn', excelHeader: 'NguÃ¡Â»â€œn', required: false },
-    { id: 'campaign', label: 'ChiÃ¡ÂºÂ¿n dÃ¡Â»â€¹ch', excelHeader: 'ChiÃ¡ÂºÂ¿n dÃ¡Â»â€¹ch', required: false },
-    { id: 'notes', label: 'Ghi chÃƒÂº', excelHeader: 'Ghi chÃƒÂº', required: false },
-    { id: 'program', label: 'ChÃ†Â°Ã†Â¡ng trÃƒÂ¬nh', excelHeader: 'ChÃ†Â°Ã†Â¡ng trÃƒÂ¬nh', required: false },
+    { id: 'title', label: 'Danh xưng / quan hệ', excelHeader: 'Danh xưng / quan hệ', required: false },
+    { id: 'name', label: 'Họ và tên', excelHeader: 'Họ và tên', required: true },
+    { id: 'phone', label: 'Số điện thoại', excelHeader: 'Số điện thoại', required: true },
+    { id: 'source', label: 'Nguồn data', excelHeader: 'Nguồn data', required: false },
+    { id: 'email', label: 'Email', excelHeader: 'Email', required: false },
+    { id: 'product', label: 'Sản phẩm', excelHeader: 'Sản phẩm', required: false },
+    { id: 'market', label: 'Cơ sở', excelHeader: 'Cơ sở', required: false },
+    { id: 'salesperson', label: 'Sale phụ trách', excelHeader: 'Sale phụ trách', required: false },
+    { id: 'status', label: 'Trạng thái', excelHeader: 'Trạng thái', required: false },
+    { id: 'campaign', label: 'Chiến dịch', excelHeader: 'Chiến dịch', required: false },
+    { id: 'channel', label: 'Kênh', excelHeader: 'Kênh', required: false },
+    { id: 'referredBy', label: 'Người giới thiệu', excelHeader: 'Người giới thiệu', required: false },
+    { id: 'targetCountry', label: 'Thị trường mục tiêu', excelHeader: 'Thị trường mục tiêu', required: false },
+    { id: 'studentEducationLevel', label: 'Trình độ học vấn', excelHeader: 'Trình độ học vấn', required: true },
+    { id: 'studentDob', label: 'Ngày sinh', excelHeader: 'Ngày sinh', required: false },
+    { id: 'studentLanguageLevel', label: 'GPA / Điểm ngoại ngữ', excelHeader: 'GPA / Điểm ngoại ngữ', required: false },
+    { id: 'potential', label: 'Mức độ tiềm năng', excelHeader: 'Mức độ tiềm năng', required: false },
+    { id: 'expectedStart', label: 'Thời gian dự kiến tham gia', excelHeader: 'Thời gian dự kiến tham gia', required: false },
+    { id: 'financial', label: 'Tài chính', excelHeader: 'Tài chính', required: false },
+    { id: 'parentOpinion', label: 'Ý kiến bố mẹ', excelHeader: 'Ý kiến bố mẹ', required: false },
+    { id: 'notes', label: 'Ghi chú khác', excelHeader: 'Ghi chú khác', required: false },
+    { id: 'studentIdentityCard', label: 'Số CCCD / Hộ chiếu', excelHeader: 'Số CCCD / Hộ chiếu', required: true },
+    { id: 'identityDate', label: 'Ngày cấp', excelHeader: 'Ngày cấp', required: true },
+    { id: 'identityPlace', label: 'Nơi cấp', excelHeader: 'Nơi cấp', required: true },
+    { id: 'street', label: 'Địa chỉ thường trú (Full)', excelHeader: 'Địa chỉ thường trú (Full)', required: true },
+    { id: 'tags', label: 'Tags (phân loại)', excelHeader: 'Tags (phân loại)', required: false },
   ];
 
   // IMPORT MODAL STATE
@@ -951,7 +968,12 @@ const Leads: React.FC = () => {
       const ws = wb.Sheets[wsname];
 
       // Get JSON with header mapping directly
-      const jsonData = utils.sheet_to_json(ws); // Array of Objects
+      const rawJsonData = utils.sheet_to_json(ws);
+      // Skip the instruction row which contains '(Bắt buộc)' or '(Tùy chọn)' in the name field
+      const jsonData = rawJsonData.filter((row: any) => {
+        const nameVal = row['Họ và tên'];
+        return nameVal !== '(Bắt buộc)' && nameVal !== '(Tùy chọn)';
+      }); // Array of Objects
 
       setRawImportData(jsonData);
       validateData(jsonData);
@@ -968,7 +990,7 @@ const Leads: React.FC = () => {
 
     data.forEach((row, index) => {
       const rowErrors: string[] = [];
-      const rowNumber = index + 2; // +1 header, +1 for 0-index
+      const rowNumber = index + 3; // +1 header, +1 instruction row, +1 for 0-index
 
       // 1. Check Required Headers & Values
       CRM_FIELDS.forEach(field => {
@@ -977,7 +999,7 @@ const Leads: React.FC = () => {
 
         if (field.required) {
           if (val === undefined || val === null || String(val).trim() === '') {
-            rowErrors.push(`ThiÃ¡ÂºÂ¿u ${field.label}`);
+            rowErrors.push(`Thiếu ${field.label}`);
           }
         }
 
@@ -988,7 +1010,7 @@ const Leads: React.FC = () => {
           // Email check
           if (field.id === 'email') {
             if (!strVal.includes('@')) {
-              rowErrors.push(`Email khÃƒÂ´ng hÃ¡Â»Â£p lÃ¡Â»â€¡ (thiÃ¡ÂºÂ¿u @)`);
+              rowErrors.push(`Email không hợp lệ (thiếu @)`);
             }
           }
 
@@ -1004,21 +1026,40 @@ const Leads: React.FC = () => {
       if (rowErrors.length > 0) {
         errorList.push({
           row: rowNumber,
-          name: row['HÃ¡Â»Â vÃƒÂ  tÃƒÂªn'] || 'N/A',
+          name: row['Họ và tên'] || 'N/A',
           errors: rowErrors
         });
       } else {
         // Normalize Data for CRM Import
         validRows.push({
-          name: row['HÃ¡Â»Â vÃƒÂ  tÃƒÂªn'],
-          phone: String(row['SÃ¡Â»â€˜ Ã„â€˜iÃ¡Â»â€¡n thoÃ¡ÂºÂ¡i']).replace(/[\s\.\-]/g, ''),
+          title: row['Danh xưng / quan hệ'] || '',
+          name: row['Họ và tên'],
+          phone: String(row['Số điện thoại']).replace(/[\s\.\-]/g, ''),
           email: row['Email'] || '',
-          targetCountry: row['QuÃ¡Â»â€˜c gia mÃ¡Â»Â¥c tiÃƒÂªu'],
-          company: row['CÃ†Â¡ sÃ¡Â»Å¸'] || '',
-          source: row['NguÃ¡Â»â€œn'] || 'Import',
-          campaign: row['ChiÃ¡ÂºÂ¿n dÃ¡Â»â€¹ch'] || '',
-          notes: row['Ghi chÃƒÂº'] || '',
-          program: row['ChÃ†Â°Ã†Â¡ng trÃƒÂ¬nh'] || 'App Tiếng Đức'
+          source: row['Nguồn data'] || 'Import',
+          product: row['Sản phẩm'] || '',
+          program: row['Sản phẩm'] || 'App Tiếng Đức',
+          company: row['Cơ sở'] || '',
+          market: row['Cơ sở'] || '',
+          salesperson: row['Sale phụ trách'] || '',
+          status: row['Trạng thái'] || 'new',
+          campaign: row['Chiến dịch'] || '',
+          channel: row['Kênh'] || '',
+          referredBy: row['Người giới thiệu'] || '',
+          targetCountry: row['Thị trường mục tiêu'] || '',
+          educationLevel: row['Trình độ học vấn'] || '',
+          dob: row['Ngày sinh'] || '',
+          languageLevel: row['GPA / Điểm ngoại ngữ'] || '',
+          potential: row['Mức độ tiềm năng'] || '',
+          expectedStart: row['Thời gian dự kiến tham gia'] || '',
+          financial: row['Tài chính'] || '',
+          parentOpinion: row['Ý kiến bố mẹ'] || '',
+          notes: row['Ghi chú khác'] || '',
+          identityCard: row['Số CCCD / Hộ chiếu'] || '',
+          identityDate: row['Ngày cấp'] || '',
+          identityPlace: row['Nơi cấp'] || '',
+          address: row['Địa chỉ thường trú (Full)'] || '',
+          tags: row['Tags (phân loại)'] ? String(row['Tags (phân loại)']).split(',').map((t: string) => t.trim()) : []
         });
       }
     });
@@ -1029,15 +1070,59 @@ const Leads: React.FC = () => {
 
   // Download Template
   const handleDownloadTemplate = () => {
-    const ws = utils.json_to_sheet([
-      { 'HÃ¡Â»Â vÃƒÂ  tÃƒÂªn': 'NguyÃ¡Â»â€¦n VÃ„Æ’n A', 'SÃ¡Â»â€˜ Ã„â€˜iÃ¡Â»â€¡n thoÃ¡ÂºÂ¡i': '0901234567', 'Email': 'a@example.com', 'QuÃ¡Â»â€˜c gia mÃ¡Â»Â¥c tiÃƒÂªu': 'Ã„ÂÃ¡Â»Â©c', 'CÃ†Â¡ sÃ¡Â»Å¸': 'Hanoi', 'NguÃ¡Â»â€œn': 'Facebook', 'ChiÃ¡ÂºÂ¿n dÃ¡Â»â€¹ch': 'Summer 2024', 'Ghi chÃƒÂº': 'Quan tÃƒÂ¢m du hÃ¡Â»Âc' }
-    ]);
-    const wb = utils.book_new();
-    utils.book_append_sheet(wb, ws, "Template");
-    const today = new Date().toISOString().slice(0, 10);
+    const TEMPLATE_COLUMNS = [
+      { header: 'Danh xưng / quan hệ', example: 'Học sinh', required: false },
+      { header: 'Họ và tên', example: 'Nguyễn Văn An', required: true },
+      { header: 'Số điện thoại', example: '0912345678', required: true },
+      { header: 'Nguồn data', example: 'Facebook', required: false },
+      { header: 'Email', example: 'nguyenvana@example.com', required: false },
+      { header: 'Sản phẩm', example: 'Tiếng Đức', required: false },
+      { header: 'Cơ sở', example: 'HCM', required: false },
+      { header: 'Sale phụ trách', example: 'Trần Thị Hương', required: false },
+      { header: 'Trạng thái', example: 'new', required: false },
+      { header: 'Chiến dịch', example: 'Summer 2026', required: false },
+      { header: 'Kênh', example: 'Facebook Ads', required: false },
+      { header: 'Người giới thiệu', example: 'CTV Minh', required: false },
+      { header: 'Thị trường mục tiêu', example: 'Đức', required: false },
+      { header: 'Trình độ học vấn', example: 'THPT', required: true },
+      { header: 'Ngày sinh', example: '2005-08-15', required: false },
+      { header: 'GPA / Điểm ngoại ngữ', example: 'GPA 7.5 - IELTS 5.5', required: false },
+      { header: 'Mức độ tiềm năng', example: 'Nóng', required: false },
+      { header: 'Thời gian dự kiến tham gia', example: '06/2026', required: false },
+      { header: 'Tài chính', example: 'Đủ', required: false },
+      { header: 'Ý kiến bố mẹ', example: 'Đồng ý', required: false },
+      { header: 'Ghi chú khác', example: 'Đã liên hệ 2 lần', required: false },
+      { header: 'Số CCCD / Hộ chiếu', example: '079205012345', required: true },
+      { header: 'Ngày cấp', example: '2020-01-15', required: true },
+      { header: 'Nơi cấp', example: 'Cục CS QLHC về TTXH - Bộ Công An', required: true },
+      { header: 'Địa chỉ thường trú (Full)', example: '123 Đường Lê Lợi, Phường Bến Nghé, Quận 1, TP.HCM', required: true },
+      { header: 'Tags (phân loại)', example: 'hot_lead,gọi lần 1', required: false },
+    ];
 
     try {
-      // Write to XLSX buffer instead of CSV to avoid encoding issues
+      const headers = TEMPLATE_COLUMNS.map((col) => col.header);
+      const notes = TEMPLATE_COLUMNS.map((col) =>
+        col.required ? '(Bắt buộc)' : '(Tùy chọn)'
+      );
+      const examples = TEMPLATE_COLUMNS.map((col) => col.example);
+
+      const wsData = [headers, notes, examples];
+      const ws = utils.aoa_to_sheet(wsData);
+
+      // Auto-fit column widths
+      ws['!cols'] = headers.map((_h, i) => {
+        const maxLen = Math.max(
+          headers[i].length,
+          examples[i].length,
+          notes[i].length
+        );
+        return { wch: Math.min(Math.max(maxLen + 4, 14), 50) };
+      });
+
+      const wb = utils.book_new();
+      utils.book_append_sheet(wb, ws, 'Template_Leads');
+      const today = new Date().toISOString().slice(0, 10);
+      
       const wbout = write(wb, { bookType: 'xlsx', type: 'array' });
       const blob = new Blob([wbout], { type: 'application/octet-stream' });
       const url = URL.createObjectURL(blob);
@@ -1049,7 +1134,7 @@ const Leads: React.FC = () => {
       document.body.removeChild(link);
     } catch (e) {
       console.error("Download failed", e);
-      alert("LÃ¡Â»â€”i tÃ¡ÂºÂ£i xuÃ¡Â»â€˜ng template");
+      alert("Lỗi tải xuống template");
     }
   };
 
@@ -2318,7 +2403,7 @@ const Leads: React.FC = () => {
     }
 
     return {
-      label: 'Äang xá»­ lÃ½',
+      label: 'Đang xử lý',
       className: 'border-[#d9e7df] bg-[#edf6f1] text-[#55756a]'
     };
   };
@@ -2620,48 +2705,48 @@ const Leads: React.FC = () => {
                   onClick={handleBulkExport}
                   className={flatRibbonButtonClass}
                 >
-                  <Download size={13} /> XuÃ¡ÂºÂ¥t Excel
+                  <Download size={13} /> Xuất Excel
                 </button>
                 <div className="mx-1 h-4 w-px bg-[#d8dee8]"></div>
                 <button
                   onClick={handleBulkMarkLost}
                   disabled={selectedLeadIds.length === 0}
                   className={`${flatRibbonButtonClass} ${selectedLeadIds.length === 0 ? 'cursor-not-allowed hover:border-transparent hover:bg-transparent hover:text-slate-700' : ''}`}
-                  title="Ã„ÂÃƒÂ¡nh dÃ¡ÂºÂ¥u thÃ¡ÂºÂ¥t bÃ¡ÂºÂ¡i"
+                  title="Đánh dấu thất bại"
                 >
-                  <XCircle size={13} /> Ã„ÂÃƒÂ¡nh dÃ¡ÂºÂ¥u thÃ¡ÂºÂ¥t bÃ¡ÂºÂ¡i
+                  <XCircle size={13} /> Đánh dấu thất bại
                 </button>
 
                 <button
                   onClick={handleBulkDelete}
                   disabled={selectedLeadIds.length === 0}
                   className={`${flatRibbonButtonClass} ${selectedLeadIds.length === 0 ? 'cursor-not-allowed hover:border-transparent hover:bg-transparent hover:text-slate-700' : ''}`}
-                  title="XÃƒÂ³a"
+                  title="Xóa"
                 >
-                  <Trash2 size={13} /> XÃƒÂ³a
+                  <Trash2 size={13} /> Xóa
                 </button>
               </div>
               <div className="hidden items-center gap-2 p-3 bg-red-50 text-red-700 rounded-lg border border-red-100 text-xs italic">
                 <AlertTriangle size={14} className="shrink-0" />
-                <span>Lead sáº½ Ä‘Æ°á»£c chuyá»ƒn sang <strong>{getLeadStatusLabel(lossStatus).toUpperCase()}</strong> vÃ  báº¯t buá»™c lÆ°u lÃ½ do.</span>
+                <span>Lead sẽ được chuyển sang <strong>{getLeadStatusLabel(lossStatus).toUpperCase()}</strong> và bắt buộc lưu lý do.</span>
               </div>
             </div>
 
             <div className="ml-auto grid gap-x-6 gap-y-2 md:grid-cols-4 xl:max-w-[520px]">
               <button onClick={() => setActiveTab('all')} className="text-left">
-                <div className="text-[11px] font-medium text-[#7b8794]">TÃ¡Â»â€¢ng lead</div>
+                <div className="text-[11px] font-medium text-[#7b8794]">Tổng lead</div>
                 <div className="mt-0.5 text-[15px] font-bold text-slate-900">{stats.total.toLocaleString()}</div>
               </button>
               <button onClick={() => setActiveTab('new')} className="text-left">
-                <div className="text-[11px] font-medium text-[#7b8794]">ChÆ°a phÃ¢n bá»•</div>
+                <div className="text-[11px] font-medium text-[#7b8794]">Chưa phân bổ</div>
                 <div className="mt-0.5 text-[15px] font-bold text-amber-600">{stats.unassigned.toLocaleString()}</div>
               </button>
               <div className="text-left">
-                <div className="text-[11px] font-medium text-[#7b8794]">ÄÃ£ phÃ¢n bá»•</div>
+                <div className="text-[11px] font-medium text-[#7b8794]">Đã phân bổ</div>
                 <div className="mt-0.5 text-[15px] font-bold text-emerald-600">{stats.assigned.toLocaleString()}</div>
               </div>
               <div className="text-left">
-                <div className="text-[11px] font-medium text-[#7b8794]">Ã„Âang xÃ¡Â»Â­ lÃƒÂ½</div>
+                <div className="text-[11px] font-medium text-[#7b8794]">Đang xử lý</div>
                 <div className="mt-0.5 text-[15px] font-bold text-blue-700">{stats.processing.toLocaleString()}</div>
               </div>
             </div>
@@ -2677,8 +2762,8 @@ const Leads: React.FC = () => {
                 onClick={() => setActiveTab(tab)}
                 className={`rounded-t-xl border-b-2 px-4 pb-3 text-[14px] font-semibold transition-colors ${activeTab === tab ? 'border-[#2f5bd3] text-[#2f5bd3]' : 'border-transparent text-slate-500 hover:text-slate-900'}`}
               >
-                {tab === 'all' && 'TÃƒÂ¡Ã‚ÂºÃ‚Â¥t cÃƒÂ¡Ã‚ÂºÃ‚Â£'}
-                {tab === 'new' && 'Lead Má»›i'}
+                {tab === 'all' && 'Tất cả'}
+                {tab === 'new' && 'Lead Mới'}
               </button>
             ))}
           </div>
@@ -2686,10 +2771,10 @@ const Leads: React.FC = () => {
             {false && selectedLeadIds.length > 0 && (
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-[12px] font-semibold text-slate-500">{selectedLeadIds.length} lead Ãƒâ€žÃ¢â‚¬Ëœang Ãƒâ€žÃ¢â‚¬ËœÃƒâ€ Ã‚Â°ÃƒÂ¡Ã‚Â»Ã‚Â£c chÃƒÂ¡Ã‚Â»Ã‚Ân</span>
-                <button onClick={openQuickAssignModal} className={compactToolbarButtonClass}><UserPlus size={14} /> PhÃƒÆ’Ã‚Â¢n bÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¢ nhanh</button>
-                <button onClick={handleBulkExport} className={compactToolbarButtonClass}><Download size={14} /> XuÃƒÂ¡Ã‚ÂºÃ‚Â¥t Excel</button>
+                <button onClick={openQuickAssignModal} className={compactToolbarButtonClass}><UserPlus size={14} /> Phân bổ nhanh</button>
+                <button onClick={handleBulkExport} className={compactToolbarButtonClass}><Download size={14} /> Xuất Excel</button>
                 <button onClick={handleBulkMarkLost} className={compactToolbarButtonClass}><XCircle size={14} /> Ãƒâ€žÃ‚ÂÃƒÆ’Ã‚Â¡nh dÃƒÂ¡Ã‚ÂºÃ‚Â¥u thÃƒÂ¡Ã‚ÂºÃ‚Â¥t bÃƒÂ¡Ã‚ÂºÃ‚Â¡i</button>
-                <button onClick={handleBulkDelete} className={compactToolbarButtonClass}><Trash2 size={14} /> XÃƒÆ’Ã‚Â³a</button>
+                <button onClick={handleBulkDelete} className={compactToolbarButtonClass}><Trash2 size={14} /> Xóa</button>
               </div>
             )}
             <div className="flex flex-wrap items-center gap-1.5 lg:flex-nowrap">
@@ -3083,7 +3168,7 @@ const Leads: React.FC = () => {
                 onClick={() => setActiveTab(tab)}
                 className={`rounded-t-xl border-b-2 px-4 pb-3 text-[14px] font-semibold transition-colors ${activeTab === tab ? 'border-[#2f5bd3] text-[#2f5bd3]' : 'border-transparent text-slate-500 hover:text-slate-900'}`}
               >
-                {tab === 'all' && 'TÃ¡ÂºÂ¥t cÃ¡ÂºÂ£'}
+                {tab === 'all' && 'Tất cả'}
                 {tab === 'new' && 'Lead Má»›i'}
               </button>
             ))}
@@ -4221,6 +4306,19 @@ const Leads: React.FC = () => {
                     <div
                       className="w-full h-64 border-2 border-dashed border-slate-300 rounded-2xl flex flex-col items-center justify-center bg-white hover:bg-blue-50 hover:border-blue-400 transition-all cursor-pointer relative group select-none"
                       onClick={openImportFilePicker}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const file = e.dataTransfer.files?.[0];
+                        if (file) {
+                          const fakeEvent = { target: { files: [file], value: '' } } as any;
+                          handleFileSelect(fakeEvent);
+                        }
+                      }}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' || e.key === ' ') {
                           e.preventDefault();
@@ -4232,11 +4330,24 @@ const Leads: React.FC = () => {
                     >
                       <input id="lead-import-file-input" ref={importFileInputRef} type="file" accept=".csv, .xlsx, .xls" onChange={handleFileSelect} className="sr-only" />
                       <label htmlFor="lead-import-file-input" className="absolute inset-0 z-10 cursor-pointer" aria-label="Chọn tệp import lead" />
-                      <div className="pointer-events-none w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                        <UploadCloud size={32} />
-                      </div>
-                      <p className="text-lg font-bold text-slate-700">Kéo thả hoặc chọn tệp tin</p>
-                      <p className="text-sm text-slate-500 mt-2">Hỗ trợ .CSV, .XLSX (tối đa 5MB)</p>
+                      
+                      {importFile ? (
+                        <>
+                          <div className="pointer-events-none w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                            <CheckCircle size={32} />
+                          </div>
+                          <p className="text-lg font-bold text-slate-700 text-center px-4 truncate w-full">{importFile.name}</p>
+                          <p className="text-sm text-green-600 mt-2 font-medium">Tệp đã sẵn sàng để kiểm tra</p>
+                        </>
+                      ) : (
+                        <>
+                          <div className="pointer-events-none w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                            <UploadCloud size={32} />
+                          </div>
+                          <p className="text-lg font-bold text-slate-700">Kéo thả hoặc chọn tệp tin</p>
+                          <p className="text-sm text-slate-500 mt-2">Hỗ trợ .CSV, .XLSX (tối đa 5MB)</p>
+                        </>
+                      )}
                     </div>
 
                     <div className="flex gap-4">
