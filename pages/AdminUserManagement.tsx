@@ -13,24 +13,38 @@ import {
   MapPin,
   Network,
   Columns3,
+  Shield,
+  Sparkles,
 } from 'lucide-react';
+import PermissionScopeSelect from '../components/admin-permissions/PermissionScopeSelect';
 import { AdvancedFilterDropdown } from '../components/filters';
 import { useAuth } from '../contexts/AuthContext';
 import { getLeads, saveLeads } from '../utils/storage';
 import { type ToolbarOption, type ToolbarValueOption } from '../utils/filterToolbar';
 import {
+  PERMISSION_GROUPS,
+  SCOPE_OPTIONS,
+  buildRolePermissionSummary,
+  createEmptyPermissionStateForRole,
+  getPermissionKey,
+  getScopeOption,
+  loadAdminPermissionSettings,
+  saveAdminPermissionSettings,
+  USER_PERMISSION_ROLE_OPTIONS,
+  type GroupPermissionState,
+  type PermissionGroupId,
+  type PermissionScope,
+} from '../utils/adminPermissions';
+import {
   ADMIN_USERS_CHANGED_EVENT,
   ADMIN_USER_ACCOUNT_STATUS_OPTIONS,
   ADMIN_USER_CONTRACT_TYPE_OPTIONS,
-  ADMIN_USER_EMPLOYMENT_STATUS_OPTIONS,
   ADMIN_USER_ROLE_OPTIONS,
   buildAdminUserFormData,
   buildAdminUserRecord,
   createEmptyAdminUserForm,
   DEFAULT_ADMIN_BRANCHES,
   DEFAULT_ADMIN_DEPARTMENTS,
-  DEFAULT_ADMIN_TEAMS,
-  DEFAULT_ADMIN_TITLES,
   getAdminUsers,
   saveAdminUsers,
   type AdminUserFormData,
@@ -295,6 +309,11 @@ const renderSelectedColumnValue = (
   }
 };
 
+const clonePermissionState = (permissions: GroupPermissionState): GroupPermissionState =>
+  Object.fromEntries(
+    Object.entries(permissions || {}).map(([groupId, groupValue]) => [groupId, { ...(groupValue || {}) }]),
+  ) as GroupPermissionState;
+
 const AdminUserManagement: React.FC = () => {
   const { user: currentUser } = useAuth();
   const [users, setUsers] = useState<AdminUserRecord[]>([]);
@@ -310,6 +329,8 @@ const AdminUserManagement: React.FC = () => {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<AdminUserRecord | null>(null);
   const [formData, setFormData] = useState<AdminUserFormData>(createEmptyAdminUserForm());
+  const [permissionDraft, setPermissionDraft] = useState<GroupPermissionState>(() => createEmptyPermissionStateForRole());
+  const [activePermissionGroupId, setActivePermissionGroupId] = useState<PermissionGroupId>(PERMISSION_GROUPS[0].id);
   const [formError, setFormError] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<AdminUserRecord | null>(null);
   const [deleteError, setDeleteError] = useState('');
@@ -429,15 +450,11 @@ const AdminUserManagement: React.FC = () => {
         item.branch,
         item.team,
         item.title,
+        item.permissionRoleLabel || '',
         managerNameById.get(item.managerId || '') || '',
       ].some((value) => normalizeToken(value).includes(normalizedSearch));
     });
   }, [managerNameById, searchTerm, selectedAdvancedFilterEntries, users]);
-
-  const formManagerOptions = useMemo(
-    () => users.filter((item) => item.id !== editingUser?.id),
-    [editingUser?.id, users]
-  );
 
   const replacementUserOptions = useMemo(
     () => users.filter((item) => item.id !== deleteTarget?.id),
@@ -478,6 +495,8 @@ const AdminUserManagement: React.FC = () => {
   const resetForm = () => {
     setEditingUser(null);
     setFormData(createEmptyAdminUserForm());
+    setPermissionDraft(createEmptyPermissionStateForRole());
+    setActivePermissionGroupId(PERMISSION_GROUPS[0].id);
     setFormError('');
     setIsFormOpen(false);
   };
@@ -485,13 +504,32 @@ const AdminUserManagement: React.FC = () => {
   const openCreateModal = () => {
     setEditingUser(null);
     setFormData(createEmptyAdminUserForm());
+    setPermissionDraft(createEmptyPermissionStateForRole());
+    setActivePermissionGroupId(PERMISSION_GROUPS[0].id);
     setFormError('');
     setIsFormOpen(true);
   };
 
   const openEditModal = (userRecord: AdminUserRecord) => {
+    const permissionSettings = loadAdminPermissionSettings();
+    const linkedPermissionRole = userRecord.permissionRoleId
+      ? permissionSettings.roles.find((role) => role.id === userRecord.permissionRoleId) || null
+      : null;
+
     setEditingUser(userRecord);
-    setFormData(buildAdminUserFormData(userRecord));
+    setFormData({
+      ...buildAdminUserFormData(userRecord),
+      permissionRoleId: userRecord.permissionRoleId || linkedPermissionRole?.id || '',
+      permissionRoleLabel: userRecord.permissionRoleLabel || linkedPermissionRole?.label || '',
+    });
+    setPermissionDraft(
+      clonePermissionState(
+        linkedPermissionRole
+          ? permissionSettings.permissions[linkedPermissionRole.id] || createEmptyPermissionStateForRole()
+          : createEmptyPermissionStateForRole(),
+      ),
+    );
+    setActivePermissionGroupId(PERMISSION_GROUPS[0].id);
     setFormError('');
     setIsFormOpen(true);
   };
@@ -562,13 +600,78 @@ const AdminUserManagement: React.FC = () => {
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
-  const toggleRole = (role: UserRole) => {
+  const handlePermissionRoleLabelChange = (nextLabel: string) => {
+    const permissionSettings = loadAdminPermissionSettings();
+    const linkedPermissionRole = permissionSettings.roles.find((role) => role.label === nextLabel) || null;
+
     setFormData((prev) => ({
       ...prev,
-      roles: prev.roles.includes(role)
-        ? prev.roles.filter((item) => item !== role)
-        : [...prev.roles, role],
+      permissionRoleId: linkedPermissionRole?.id || '',
+      permissionRoleLabel: nextLabel,
     }));
+    setPermissionDraft(
+      clonePermissionState(
+        linkedPermissionRole
+          ? permissionSettings.permissions[linkedPermissionRole.id] || createEmptyPermissionStateForRole()
+          : createEmptyPermissionStateForRole(),
+      ),
+    );
+    setActivePermissionGroupId(PERMISSION_GROUPS[0].id);
+  };
+
+  const activePermissionGroup = useMemo(
+    () => PERMISSION_GROUPS.find((group) => group.id === activePermissionGroupId) || PERMISSION_GROUPS[0],
+    [activePermissionGroupId],
+  );
+
+  const permissionSummary = useMemo(() => buildRolePermissionSummary(permissionDraft), [permissionDraft]);
+
+  const activePermissionGroupSummary = useMemo(
+    () =>
+      buildRolePermissionSummary({
+        [activePermissionGroup.id]: permissionDraft[activePermissionGroup.id] || {},
+      }),
+    [activePermissionGroup.id, permissionDraft],
+  );
+
+  const getPermissionScopeValue = (groupId: PermissionGroupId, permissionKey: string): PermissionScope =>
+    permissionDraft[groupId]?.[permissionKey] || 'none';
+
+  const setPermissionScopeValue = (groupId: PermissionGroupId, permissionKey: string, nextScope: PermissionScope) => {
+    setPermissionDraft((prev) => ({
+      ...prev,
+      [groupId]: {
+        ...(prev[groupId] || {}),
+        [permissionKey]: nextScope,
+      },
+    }));
+  };
+
+  const handleTogglePermission = (groupId: PermissionGroupId, permissionKey: string, checked: boolean) => {
+    if (!checked) {
+      setPermissionScopeValue(groupId, permissionKey, 'none');
+      return;
+    }
+
+    const currentScope = getPermissionScopeValue(groupId, permissionKey);
+    setPermissionScopeValue(groupId, permissionKey, currentScope !== 'none' ? currentScope : 'personal');
+  };
+
+  const handleApplyScopeToGroup = (groupId: PermissionGroupId, nextScope: PermissionScope) => {
+    setPermissionDraft((prev) => {
+      const nextGroupPermissions = { ...(prev[groupId] || {}) };
+
+      PERMISSION_GROUPS.find((group) => group.id === groupId)?.sections.forEach((section) => {
+        section.permissions.forEach((permission) => {
+          nextGroupPermissions[getPermissionKey(section.id, permission.id)] = nextScope;
+        });
+      });
+
+      return {
+        ...prev,
+        [groupId]: nextGroupPermissions,
+      };
+    });
   };
 
   const handleSaveUser = () => {
@@ -579,11 +682,8 @@ const AdminUserManagement: React.FC = () => {
     const trimmedBranch = formData.branch.trim();
     const trimmedTeam = formData.team.trim();
     const trimmedTitle = formData.title.trim();
-
-    if (!trimmedName) {
-      setFormError('Vui lòng nhập họ và tên.');
-      return;
-    }
+    const trimmedPermissionRoleLabel = formData.permissionRoleLabel.trim();
+    const draftPermissionSummary = buildRolePermissionSummary(permissionDraft);
 
     if (!trimmedEmail) {
       setFormError('Vui lòng nhập email.');
@@ -595,18 +695,15 @@ const AdminUserManagement: React.FC = () => {
       return;
     }
 
-    if (!formData.roles.length) {
-      setFormError('Vui lòng chọn ít nhất 1 vai trò.');
+    if (!editingUser && !formData.password.trim()) {
+      setFormError('Vui lòng nhập mật khẩu.');
       return;
     }
 
-    if (!trimmedDepartment || !trimmedBranch || !trimmedTeam || !trimmedTitle) {
-      setFormError('Vui lòng điền đủ phòng ban, chi nhánh, team và chức danh.');
-      return;
-    }
+    const displayName = trimmedName || trimmedUsername || trimmedEmail;
 
-    if (!formData.startDate) {
-      setFormError('Vui lòng chọn ngày làm.');
+    if (draftPermissionSummary.activePermissionCount > 0 && !trimmedPermissionRoleLabel) {
+      setFormError('Vui lòng nhập Role cho khối phân quyền trước khi bật quyền.');
       return;
     }
 
@@ -626,16 +723,50 @@ const AdminUserManagement: React.FC = () => {
       return;
     }
 
+    const permissionSettings = loadAdminPermissionSettings();
+    const linkedPermissionRole = formData.permissionRoleId
+      ? permissionSettings.roles.find((role) => role.id === formData.permissionRoleId) || null
+      : null;
+    const selectedPermissionRole =
+      linkedPermissionRole || permissionSettings.roles.find((role) => role.label === trimmedPermissionRoleLabel) || null;
+
+    let nextPermissionRoleId = '';
+    let nextPermissionRoleLabel = '';
+
+    if (trimmedPermissionRoleLabel) {
+      if (!selectedPermissionRole) {
+        setFormError('Vui lòng chọn Role hợp lệ.');
+        return;
+      }
+
+      const nextRoleId = selectedPermissionRole.id;
+
+      if (draftPermissionSummary.activePermissionCount > 0) {
+        saveAdminPermissionSettings({
+          roles: permissionSettings.roles,
+          permissions: {
+            ...permissionSettings.permissions,
+            [nextRoleId]: clonePermissionState(permissionDraft),
+          },
+        });
+      }
+
+      nextPermissionRoleId = nextRoleId;
+      nextPermissionRoleLabel = selectedPermissionRole.label;
+    }
+
     const nextUser = buildAdminUserRecord(
       {
         ...formData,
-        name: trimmedName,
+        name: displayName,
         email: trimmedEmail,
         username: trimmedUsername,
         department: trimmedDepartment,
         branch: trimmedBranch,
         team: trimmedTeam,
         title: trimmedTitle,
+        permissionRoleId: nextPermissionRoleId,
+        permissionRoleLabel: nextPermissionRoleLabel,
       },
       editingUser || undefined
     );
@@ -973,6 +1104,11 @@ const AdminUserManagement: React.FC = () => {
                       </td>
                       <td className="px-4 py-4">
                         <div className="flex max-w-xs flex-wrap gap-2">
+                          {userRecord.permissionRoleLabel ? (
+                            <span className="rounded-full border border-slate-300 bg-slate-900 px-2.5 py-1 text-xs font-semibold text-white">
+                              {userRecord.permissionRoleLabel}
+                            </span>
+                          ) : null}
                           {formatRoles(userRecord.roles).map((role) => (
                             <span
                               key={`${userRecord.id}-${role}`}
@@ -1078,196 +1214,266 @@ const AdminUserManagement: React.FC = () => {
               className="flex min-h-0 flex-1 flex-col"
             >
               <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-6 py-6">
-                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                  <div>
-                    <label className={labelClass}>Họ và tên</label>
-                    <input
-                      value={formData.name}
-                      onChange={(event) => handleFormFieldChange('name', event.target.value)}
-                      className={inputClass}
-                      placeholder="Nhập họ và tên"
-                    />
-                  </div>
-                  <div>
-                    <label className={labelClass}>Email</label>
-                    <input
-                      type="email"
-                      value={formData.email}
-                      onChange={(event) => handleFormFieldChange('email', event.target.value)}
-                      className={inputClass}
-                      placeholder="email@educrm.com"
-                    />
-                  </div>
-                  <div>
-                    <label className={labelClass}>Username</label>
-                    <input
-                      value={formData.username}
-                      onChange={(event) => handleFormFieldChange('username', event.target.value)}
-                      className={inputClass}
-                      placeholder="username"
-                    />
-                  </div>
-                  <div>
-                    <label className={labelClass}>Phòng ban</label>
-                    <input
-                      list="admin-user-department-options"
-                      value={formData.department}
-                      onChange={(event) => handleFormFieldChange('department', event.target.value)}
-                      className={inputClass}
-                      placeholder="Chọn hoặc nhập phòng ban"
-                    />
-                  </div>
-                  <div>
-                    <label className={labelClass}>Chi nhánh</label>
-                    <input
-                      list="admin-user-branch-options"
-                      value={formData.branch}
-                      onChange={(event) => handleFormFieldChange('branch', event.target.value)}
-                      className={inputClass}
-                      placeholder="Chọn hoặc nhập chi nhánh"
-                    />
-                  </div>
-                  <div>
-                    <label className={labelClass}>Team</label>
-                    <input
-                      list="admin-user-team-options"
-                      value={formData.team}
-                      onChange={(event) => handleFormFieldChange('team', event.target.value)}
-                      className={inputClass}
-                      placeholder="Tên team"
-                    />
-                  </div>
-                  <div>
-                    <label className={labelClass}>Người quản lý trực tiếp</label>
-                    <select
-                      value={formData.managerId}
-                      onChange={(event) => handleFormFieldChange('managerId', event.target.value)}
-                      className={inputClass}
-                    >
-                      <option value="">Không có quản lý trực tiếp</option>
-                      {formManagerOptions.map((item) => (
-                        <option key={`manager-${item.id}`} value={item.id}>
-                          {item.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className={labelClass}>Chức danh</label>
-                    <input
-                      list="admin-user-title-options"
-                      value={formData.title}
-                      onChange={(event) => handleFormFieldChange('title', event.target.value)}
-                      className={inputClass}
-                      placeholder="Chức danh"
-                    />
-                  </div>
-                  <div>
-                    <label className={labelClass}>Loại hợp đồng</label>
-                    <select
-                      value={formData.contractType}
-                      onChange={(event) => handleFormFieldChange('contractType', event.target.value as AdminUserFormData['contractType'])}
-                      className={inputClass}
-                    >
-                      {ADMIN_USER_CONTRACT_TYPE_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className={labelClass}>Trạng thái tài khoản</label>
-                    <select
-                      value={formData.accountStatus}
-                      onChange={(event) => handleFormFieldChange('accountStatus', event.target.value as AdminUserFormData['accountStatus'])}
-                      className={inputClass}
-                    >
-                      {ADMIN_USER_ACCOUNT_STATUS_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className={labelClass}>Trạng thái nhân sự</label>
-                    <select
-                      value={formData.employmentStatus}
-                      onChange={(event) => handleFormFieldChange('employmentStatus', event.target.value as AdminUserFormData['employmentStatus'])}
-                      className={inputClass}
-                    >
-                      {ADMIN_USER_EMPLOYMENT_STATUS_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className={labelClass}>Lần đăng nhập cuối</label>
-                    <input
-                      type="datetime-local"
-                      value={formData.lastLoginAt}
-                      onChange={(event) => handleFormFieldChange('lastLoginAt', event.target.value)}
-                      className={inputClass}
-                    />
-                  </div>
-                  <div>
-                    <label className={labelClass}>Ngày làm</label>
-                    <input
-                      type="date"
-                      value={formData.startDate}
-                      onChange={(event) => handleFormFieldChange('startDate', event.target.value)}
-                      className={inputClass}
-                    />
-                  </div>
-                  <div>
-                    <label className={labelClass}>Ngày nghỉ</label>
-                    <input
-                      type="date"
-                      value={formData.endDate}
-                      onChange={(event) => handleFormFieldChange('endDate', event.target.value)}
-                      className={inputClass}
-                    />
-                  </div>
-                </div>
-
-                <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
-                  <div className="mb-3 flex items-center justify-between gap-3">
+                <section className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                     <div>
-                      <h3 className="text-sm font-semibold text-slate-900">Vai trò truy cập</h3>
-                      <p className="mt-1 text-sm text-slate-500">Cho phép gán nhiều role bằng checkbox khi tạo hoặc cập nhật user.</p>
+                      <div className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+                        <UserPlus size={14} />
+                        Tài khoản user
+                      </div>
+                      <h3 className="mt-3 text-base font-semibold text-slate-900">Thông tin tài khoản</h3>
+                      <p className="mt-1 text-sm text-slate-500">
+                        Khối nhập tài khoản này được cắt từ màn tạo vai trò sang để thêm user đúng chỗ.
+                      </p>
                     </div>
-                    <span className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700">
-                      Đã chọn {formData.roles.length}
-                    </span>
+
+                    <div className="flex flex-wrap gap-2">
+                      <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600">
+                        {editingUser ? 'Đang cập nhật' : 'Tạo mới'}
+                      </span>
+                    </div>
                   </div>
 
-                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                    {ADMIN_USER_ROLE_OPTIONS.map((role) => {
-                      const isSelected = formData.roles.includes(role);
-                      return (
-                        <label
-                          key={role}
-                          className={`flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 text-sm transition ${
-                            isSelected
-                              ? 'border-blue-200 bg-blue-50 text-blue-700'
-                              : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={() => toggleRole(role)}
-                            className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                          />
-                          <span className="font-medium">{role}</span>
-                        </label>
-                      );
-                    })}
+                  <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-12">
+                    <div className="lg:col-span-4">
+                      <label className={labelClass}>Username</label>
+                      <input
+                        value={formData.username}
+                        onChange={(event) => handleFormFieldChange('username', event.target.value)}
+                        className={inputClass}
+                        placeholder="username"
+                      />
+                    </div>
+
+                    <div className="lg:col-span-5">
+                      <label className={labelClass}>Email</label>
+                      <input
+                        type="email"
+                        value={formData.email}
+                        onChange={(event) => handleFormFieldChange('email', event.target.value)}
+                        className={inputClass}
+                        placeholder="email@educrm.com"
+                      />
+                    </div>
+
+                    <div className="lg:col-span-3">
+                      <label className={labelClass}>Mật khẩu</label>
+                      <input
+                        type="password"
+                        autoComplete="new-password"
+                        value={formData.password}
+                        onChange={(event) => handleFormFieldChange('password', event.target.value)}
+                        className={inputClass}
+                        placeholder={editingUser ? 'Để trống nếu không đổi' : 'Nhập mật khẩu...'}
+                      />
+                    </div>
+
+                    <div className="lg:col-span-7">
+                      <label className={labelClass}>Role</label>
+                      <select
+                        value={formData.permissionRoleLabel}
+                        onChange={(event) => handlePermissionRoleLabelChange(event.target.value)}
+                        className={inputClass}
+                      >
+                        <option value="">Chọn vai trò</option>
+                        {USER_PERMISSION_ROLE_OPTIONS.map((role) => (
+                          <option key={role} value={role}>
+                            {role}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="lg:col-span-5">
+                      <label className={labelClass}>Trạng thái</label>
+                      <select
+                        value={formData.accountStatus}
+                        onChange={(event) => handleFormFieldChange('accountStatus', event.target.value as AdminUserFormData['accountStatus'])}
+                        className={inputClass}
+                      >
+                        {ADMIN_USER_ACCOUNT_STATUS_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
-                </div>
+                </section>
+
+                <section className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <div className="space-y-4">
+                    <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+                      <div>
+                        <div className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+                          <Shield size={14} />
+                          List-Detail RBAC
+                        </div>
+                        <h3 className="mt-3 text-base font-semibold tracking-tight text-slate-900">Tạo vai trò phân quyền</h3>
+                        <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500">
+                          Toàn bộ form tạo role đã được cắt sang đây. Màn phân quyền chỉ còn danh sách và chỉnh sửa role đã có.
+                        </p>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2">
+                        <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600">
+                          {permissionSummary.activePermissionCount} quyền bật
+                        </span>
+                        <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600">
+                          {permissionSummary.activeGroupCount} nhóm có quyền
+                        </span>
+                      </div>
+                    </div>
+
+                    {permissionSummary.scopeBreakdown.length ? (
+                      <div className="flex flex-wrap gap-2">
+                        {permissionSummary.scopeBreakdown.slice(0, 4).map((item) => (
+                          <span
+                            key={`permission-scope-${item.scope}`}
+                            className={`rounded-full px-2.5 py-1 text-xs font-semibold ${getScopeOption(item.scope).badgeClass}`}
+                          >
+                            {getScopeOption(item.scope).label}: {item.count}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                      <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+                        <div>
+                          <div className="inline-flex items-center gap-2 rounded-full bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700">
+                            <Sparkles size={14} />
+                            {activePermissionGroup.label}
+                          </div>
+                          <h4 className="mt-3 text-base font-semibold tracking-tight text-slate-900">Quyền bổ sung</h4>
+                          <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500">{activePermissionGroup.description}</p>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2">
+                          <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600">
+                            {activePermissionGroupSummary.activePermissionCount} quyền trong nhóm
+                          </span>
+                          <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600">
+                            {activePermissionGroupSummary.activeSectionCount} phân hệ bật
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        {PERMISSION_GROUPS.map((group) => {
+                          const groupSummary = buildRolePermissionSummary({
+                            [group.id]: permissionDraft[group.id] || {},
+                          });
+                          const isActive = activePermissionGroupId === group.id;
+
+                          return (
+                            <button
+                              key={group.id}
+                              type="button"
+                              onClick={() => setActivePermissionGroupId(group.id)}
+                              className={`rounded-full border px-3 py-1.5 text-sm font-semibold transition ${
+                                isActive
+                                  ? 'border-slate-900 bg-slate-900 text-white'
+                                  : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                              }`}
+                            >
+                              {group.label} · {groupSummary.activePermissionCount}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        {SCOPE_OPTIONS.filter((option) => option.id !== 'personal').map((option) => (
+                          <button
+                            key={`bulk-user-role-${option.id}`}
+                            type="button"
+                            onClick={() => handleApplyScopeToGroup(activePermissionGroup.id, option.id)}
+                            className={`rounded-full px-2.5 py-1.5 text-xs font-semibold transition ${option.badgeClass}`}
+                          >
+                            Áp dụng {option.label}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="mt-4 max-h-[42vh] space-y-3 overflow-y-auto pr-1">
+                        {activePermissionGroup.sections.map((section) => (
+                          <div
+                            key={`${activePermissionGroup.id}-${section.id}`}
+                            className="overflow-hidden rounded-2xl border border-slate-200 bg-white"
+                          >
+                            <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
+                              <div>
+                                <h4 className="text-sm font-semibold text-slate-900">{section.title}</h4>
+                                <p className="mt-0.5 text-xs text-slate-500">{section.permissions.length} quyền chi tiết</p>
+                              </div>
+                              <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600">
+                                {
+                                  section.permissions.filter(
+                                    (permission) =>
+                                      getPermissionScopeValue(
+                                        activePermissionGroup.id,
+                                        getPermissionKey(section.id, permission.id),
+                                      ) !== 'none',
+                                  ).length
+                                }
+                                /{section.permissions.length} bật
+                              </span>
+                            </div>
+
+                            <div className="hidden gap-3 bg-slate-50 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 md:grid md:grid-cols-[minmax(0,1fr)_220px]">
+                              <div>Quyền</div>
+                              <div>Cấp độ quyền</div>
+                            </div>
+
+                            {section.permissions.map((permission, index) => {
+                              const permissionKey = getPermissionKey(section.id, permission.id);
+                              const scope = getPermissionScopeValue(activePermissionGroup.id, permissionKey);
+                              const enabled = scope !== 'none';
+
+                              return (
+                                <div
+                                  key={`${activePermissionGroup.id}-${permissionKey}`}
+                                  className={`grid gap-3 px-4 py-3 md:grid-cols-[minmax(0,1fr)_220px] md:items-center ${
+                                    index > 0 ? 'border-t border-slate-100' : ''
+                                  }`}
+                                >
+                                  <label className="flex items-start gap-3">
+                                    <input
+                                      type="checkbox"
+                                      checked={enabled}
+                                      onChange={(event) =>
+                                        handleTogglePermission(activePermissionGroup.id, permissionKey, event.target.checked)
+                                      }
+                                      className="mt-0.5 h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-500"
+                                    />
+                                    <div className="min-w-0">
+                                      <div className="font-medium text-slate-900">{permission.label}</div>
+                                      <div className="mt-0.5 text-xs text-slate-500">
+                                        Bỏ chọn để trả quyền về mức <strong>Không</strong>.
+                                      </div>
+                                    </div>
+                                  </label>
+
+                                  <div className="md:max-w-[220px]">
+                                    <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 md:hidden">
+                                      Cấp độ quyền
+                                    </div>
+                                    <PermissionScopeSelect
+                                      value={scope}
+                                      disabled={!enabled}
+                                      onChange={(nextScope) => setPermissionScopeValue(activePermissionGroup.id, permissionKey, nextScope)}
+                                    />
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </section>
 
                 {formError ? (
                   <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{formError}</div>
@@ -1292,26 +1498,6 @@ const AdminUserManagement: React.FC = () => {
               </div>
             </form>
 
-            <datalist id="admin-user-department-options">
-              {departmentOptions.map((option) => (
-                <option key={option.value} value={option.value} />
-              ))}
-            </datalist>
-            <datalist id="admin-user-branch-options">
-              {branchOptions.map((option) => (
-                <option key={option.value} value={option.value} />
-              ))}
-            </datalist>
-            <datalist id="admin-user-team-options">
-              {Array.from(new Set([...DEFAULT_ADMIN_TEAMS, ...users.map((item) => item.team).filter(Boolean)])).map((team) => (
-                <option key={team} value={team} />
-              ))}
-            </datalist>
-            <datalist id="admin-user-title-options">
-              {Array.from(new Set([...DEFAULT_ADMIN_TITLES, ...users.map((item) => item.title).filter(Boolean)])).map((title) => (
-                <option key={title} value={title} />
-              ))}
-            </datalist>
           </div>
         </div>
       ) : null}

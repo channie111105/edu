@@ -45,7 +45,6 @@ const RolePermissionModal: React.FC<RolePermissionModalProps> = ({
   onSave,
 }) => {
   const [draftRole, setDraftRole] = useState<PermissionRoleRecord>(role);
-  const [draftPassword, setDraftPassword] = useState('');
   const [draftPermissions, setDraftPermissions] = useState<GroupPermissionState>(permissions);
   const [activeGroupId, setActiveGroupId] = useState<PermissionGroupId>(PERMISSION_GROUPS[0].id);
   const [errorMessage, setErrorMessage] = useState('');
@@ -53,7 +52,6 @@ const RolePermissionModal: React.FC<RolePermissionModalProps> = ({
   useEffect(() => {
     if (!isOpen) return;
     setDraftRole(role);
-    setDraftPassword('');
     setDraftPermissions(clonePermissions(permissions));
     setActiveGroupId(PERMISSION_GROUPS[0].id);
     setErrorMessage('');
@@ -121,26 +119,20 @@ const RolePermissionModal: React.FC<RolePermissionModalProps> = ({
 
   const handleSubmit = () => {
     const nextLabel = draftRole.label.trim();
-    const nextUsername = draftRole.username.trim();
 
     if (!nextLabel) {
       setErrorMessage('Role không được để trống.');
       return;
     }
 
-    if (!nextUsername) {
-      setErrorMessage('Tên đăng nhập không được để trống.');
-      return;
-    }
-
-    const candidateRoleId = buildRoleIdCandidate(nextUsername, nextLabel);
+    const candidateRoleId = buildRoleIdCandidate(nextLabel, nextLabel);
     const nextRoleId = mode === 'create' ? ensureUniqueRoleId(candidateRoleId, existingRoleIds) : role.id;
 
     const nextRole: PermissionRoleRecord = {
       ...draftRole,
       id: nextRoleId,
       label: nextLabel,
-      username: nextUsername,
+      username: draftRole.username.trim() || nextRoleId,
       email: draftRole.email.trim() || `${candidateRoleId}@educrm.local`,
       description:
         draftRole.description.trim() ||
@@ -170,7 +162,7 @@ const RolePermissionModal: React.FC<RolePermissionModalProps> = ({
                 {mode === 'create' ? 'Tạo vai trò phân quyền' : `Chi tiết vai trò ${role.label}`}
               </h2>
               <p className="mt-1 text-sm text-slate-500">
-                Form được gom theo kiểu modal tạo user, giữ phần checkbox và cấp độ quyền ở bên dưới.
+                Phần nhập tài khoản user đã chuyển sang màn Quản lý người dùng, ở đây chỉ giữ thông tin role và ma trận quyền.
               </p>
             </div>
           </div>
@@ -203,7 +195,7 @@ const RolePermissionModal: React.FC<RolePermissionModalProps> = ({
                     </div>
                     <h3 className="mt-3 text-base font-semibold text-[#122033]">Thông tin vai trò</h3>
                     <p className="mt-1 text-sm text-slate-500">
-                      Gồm username, email, mật khẩu, role và trạng thái như modal mẫu.
+                      Giữ lại phần role sau khi đã cắt khối tài khoản người dùng sang modal thêm user.
                     </p>
                   </div>
 
@@ -218,40 +210,7 @@ const RolePermissionModal: React.FC<RolePermissionModalProps> = ({
                 </div>
 
                 <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-12">
-                  <div className="lg:col-span-4">
-                    <label className={labelClass}>Tên đăng nhập</label>
-                    <input
-                      value={draftRole.username}
-                      onChange={(event) => setDraftRole((prev) => ({ ...prev, username: event.target.value }))}
-                      className={inputClass}
-                      placeholder="super_admin"
-                    />
-                  </div>
-
-                  <div className="lg:col-span-5">
-                    <label className={labelClass}>Email</label>
-                    <input
-                      type="email"
-                      value={draftRole.email}
-                      onChange={(event) => setDraftRole((prev) => ({ ...prev, email: event.target.value }))}
-                      className={inputClass}
-                      placeholder="role@educrm.local"
-                    />
-                  </div>
-
-                  <div className="lg:col-span-3">
-                    <label className={labelClass}>Mật khẩu</label>
-                    <input
-                      type="password"
-                      autoComplete="new-password"
-                      value={draftPassword}
-                      onChange={(event) => setDraftPassword(event.target.value)}
-                      className={inputClass}
-                      placeholder="Nhập mật khẩu..."
-                    />
-                  </div>
-
-                  <div className="lg:col-span-7">
+                  <div className="lg:col-span-12">
                     <label className={labelClass}>Role</label>
                     <input
                       value={draftRole.label}
@@ -259,23 +218,6 @@ const RolePermissionModal: React.FC<RolePermissionModalProps> = ({
                       className={inputClass}
                       placeholder="Tên vai trò"
                     />
-                  </div>
-
-                  <div className="lg:col-span-5">
-                    <label className={labelClass}>Trạng thái</label>
-                    <select
-                      value={draftRole.status}
-                      onChange={(event) =>
-                        setDraftRole((prev) => ({
-                          ...prev,
-                          status: event.target.value === 'locked' ? 'locked' : 'active',
-                        }))
-                      }
-                      className={inputClass}
-                    >
-                      <option value="active">Hoạt động</option>
-                      <option value="locked">Tạm khóa</option>
-                    </select>
                   </div>
                 </div>
 

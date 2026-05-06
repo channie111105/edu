@@ -19,6 +19,8 @@ export interface AdminUserRecord {
   accountStatus: AdminUserAccountStatus;
   contractType: AdminUserContractType;
   employmentStatus: AdminUserEmploymentStatus;
+  permissionRoleId?: string;
+  permissionRoleLabel?: string;
   lastLoginAt?: string;
   startDate?: string;
   endDate?: string;
@@ -31,6 +33,7 @@ export interface AdminUserFormData {
   name: string;
   email: string;
   username: string;
+  password: string;
   roles: UserRole[];
   department: string;
   branch: string;
@@ -40,6 +43,8 @@ export interface AdminUserFormData {
   accountStatus: AdminUserAccountStatus;
   contractType: AdminUserContractType;
   employmentStatus: AdminUserEmploymentStatus;
+  permissionRoleId: string;
+  permissionRoleLabel: string;
   lastLoginAt: string;
   startDate: string;
   endDate: string;
@@ -344,6 +349,8 @@ const normalizeAdminUser = (user: Partial<AdminUserRecord> & Pick<AdminUserRecor
     accountStatus: normalizeAccountStatus(user.accountStatus),
     contractType: normalizeContractType(user.contractType),
     employmentStatus: normalizeEmploymentStatus(user.employmentStatus),
+    permissionRoleId: String(user.permissionRoleId || '').trim() || undefined,
+    permissionRoleLabel: String(user.permissionRoleLabel || '').trim() || undefined,
     lastLoginAt: String(user.lastLoginAt || '').trim() || undefined,
     startDate: String(user.startDate || '').trim() || undefined,
     endDate: String(user.endDate || '').trim() || undefined,
@@ -357,6 +364,7 @@ export const createEmptyAdminUserForm = (): AdminUserFormData => ({
   name: '',
   email: '',
   username: '',
+  password: '',
   roles: [],
   department: '',
   branch: '',
@@ -366,6 +374,8 @@ export const createEmptyAdminUserForm = (): AdminUserFormData => ({
   accountStatus: 'active',
   contractType: 'official',
   employmentStatus: 'working',
+  permissionRoleId: '',
+  permissionRoleLabel: '',
   lastLoginAt: '',
   startDate: '',
   endDate: '',
@@ -377,6 +387,7 @@ export const buildAdminUserFormData = (user?: AdminUserRecord): AdminUserFormDat
         name: user.name || '',
         email: user.email || '',
         username: user.username || '',
+        password: '',
         roles: normalizeRoleList(user.roles, user.role),
         department: user.department || '',
         branch: user.branch || '',
@@ -386,6 +397,8 @@ export const buildAdminUserFormData = (user?: AdminUserRecord): AdminUserFormDat
         accountStatus: normalizeAccountStatus(user.accountStatus),
         contractType: normalizeContractType(user.contractType),
         employmentStatus: normalizeEmploymentStatus(user.employmentStatus),
+        permissionRoleId: user.permissionRoleId || '',
+        permissionRoleLabel: user.permissionRoleLabel || '',
         lastLoginAt: user.lastLoginAt || '',
         startDate: user.startDate || '',
         endDate: user.endDate || '',
@@ -413,6 +426,8 @@ export const buildAdminUserRecord = (
     accountStatus: formData.accountStatus,
     contractType: formData.contractType,
     employmentStatus: formData.employmentStatus,
+    permissionRoleId: formData.permissionRoleId,
+    permissionRoleLabel: formData.permissionRoleLabel,
     lastLoginAt: formData.lastLoginAt,
     startDate: formData.startDate,
     endDate: formData.endDate,

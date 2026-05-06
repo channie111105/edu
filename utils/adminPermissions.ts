@@ -17,18 +17,17 @@ export type PermissionGroupId =
   | 'library'
   | 'admin';
 export type SystemRoleId =
-  | 'superAdmin'
-  | 'ceo'
-  | 'branchDirector'
-  | 'salesLeader'
   | 'sales'
-  | 'marketingLeader'
+  | 'salesLeader'
+  | 'branchDirector'
   | 'marketing'
+  | 'marketingLeader'
   | 'customerCare'
   | 'trainingManager'
-  | 'teacher'
+  | 'studyAbroadManager'
   | 'accountant'
-  | 'studyAbroadManager';
+  | 'ceo'
+  | 'admin';
 export type PermissionRoleTone = 'slate' | 'indigo' | 'sky' | 'amber' | 'rose' | 'emerald' | 'cyan' | 'violet';
 
 export interface PermissionAction {
@@ -483,34 +482,6 @@ const SYSTEM_ROLE_DEFINITIONS: Array<{
   matches: UserRole[];
 }> = [
   {
-    id: 'superAdmin',
-    label: 'Super Admin',
-    description: 'Toàn quyền hệ thống, workflow và override cấu hình gốc.',
-    tone: 'slate',
-    matches: [UserRole.ADMIN, UserRole.FOUNDER],
-  },
-  {
-    id: 'ceo',
-    label: 'CEO',
-    description: 'Theo dõi và phê duyệt liên phòng ban ở cấp điều hành.',
-    tone: 'indigo',
-    matches: [UserRole.FOUNDER],
-  },
-  {
-    id: 'branchDirector',
-    label: 'Giám đốc cơ sở',
-    description: 'Quản trị theo cơ sở, ưu tiên sale, ghi danh và vận hành.',
-    tone: 'sky',
-    matches: [UserRole.ADMIN],
-  },
-  {
-    id: 'salesLeader',
-    label: 'Sale Leader',
-    description: 'Quản lý đội sale, pipeline và hiệu suất đội nhóm.',
-    tone: 'amber',
-    matches: [UserRole.SALES_LEADER],
-  },
-  {
     id: 'sales',
     label: 'Sale',
     description: 'Thực thi khai thác lead, chăm sóc contact và xử lý pipeline cá nhân.',
@@ -518,39 +489,53 @@ const SYSTEM_ROLE_DEFINITIONS: Array<{
     matches: [UserRole.SALES_REP],
   },
   {
-    id: 'marketingLeader',
-    label: 'Trưởng phòng MKT',
-    description: 'Chịu trách nhiệm vận hành chiến dịch, cộng tác viên và SLA.',
-    tone: 'rose',
-    matches: [UserRole.MARKETING],
+    id: 'salesLeader',
+    label: 'Sale leader',
+    description: 'Quản lý đội sale, pipeline và hiệu suất đội nhóm.',
+    tone: 'amber',
+    matches: [UserRole.SALES_LEADER],
+  },
+  {
+    id: 'branchDirector',
+    label: 'GĐCN',
+    description: 'Quản trị theo cơ sở, ưu tiên sale, ghi danh và vận hành.',
+    tone: 'sky',
+    matches: [UserRole.ADMIN],
   },
   {
     id: 'marketing',
-    label: 'MKT',
+    label: 'MKTer',
     description: 'Vận hành lead đầu vào và phối hợp campaign theo cá nhân.',
     tone: 'violet',
     matches: [UserRole.MARKETING],
   },
   {
+    id: 'marketingLeader',
+    label: 'MKT leader',
+    description: 'Chịu trách nhiệm vận hành chiến dịch, cộng tác viên và SLA.',
+    tone: 'rose',
+    matches: [UserRole.MARKETING],
+  },
+  {
     id: 'customerCare',
-    label: 'Chăm sóc khách hàng',
+    label: 'CSKH',
     description: 'Theo dõi trải nghiệm lead, hỗ trợ sale và ghi danh.',
     tone: 'cyan',
     matches: [],
   },
   {
     id: 'trainingManager',
-    label: 'Quản lý đào tạo',
+    label: 'QLĐT',
     description: 'Điều phối lớp, lịch học và giáo viên theo cơ sở.',
     tone: 'sky',
     matches: [UserRole.TRAINING],
   },
   {
-    id: 'teacher',
-    label: 'Giáo viên',
-    description: 'Tác nghiệp giảng dạy, điểm danh và cập nhật tiến độ học tập.',
-    tone: 'emerald',
-    matches: [UserRole.TEACHER],
+    id: 'studyAbroadManager',
+    label: 'QLHS',
+    description: 'Quản lý hồ sơ, tiến độ và lịch phỏng vấn du học.',
+    tone: 'indigo',
+    matches: [UserRole.STUDY_ABROAD],
   },
   {
     id: 'accountant',
@@ -560,13 +545,22 @@ const SYSTEM_ROLE_DEFINITIONS: Array<{
     matches: [UserRole.ACCOUNTANT],
   },
   {
-    id: 'studyAbroadManager',
-    label: 'Quản lý hồ sơ du học',
-    description: 'Quản lý hồ sơ, tiến độ và lịch phỏng vấn du học.',
+    id: 'ceo',
+    label: 'CEO',
+    description: 'Theo dõi và phê duyệt liên phòng ban ở cấp điều hành.',
     tone: 'indigo',
-    matches: [UserRole.STUDY_ABROAD],
+    matches: [UserRole.FOUNDER],
+  },
+  {
+    id: 'admin',
+    label: 'Admin',
+    description: 'Toàn quyền hệ thống, workflow và override cấu hình gốc.',
+    tone: 'slate',
+    matches: [UserRole.ADMIN],
   },
 ];
+
+export const USER_PERMISSION_ROLE_OPTIONS = SYSTEM_ROLE_DEFINITIONS.map((role) => role.label);
 
 const SCOPE_WEIGHT: Record<PermissionScope, number> = {
   none: 0,
@@ -629,7 +623,7 @@ export const ensureUniqueRoleId = (candidate: string, existingRoleIds: string[],
 };
 
 export const getDefaultScope = (groupId: PermissionGroupId, roleId: string): PermissionScope => {
-  if (roleId === 'superAdmin' || roleId === 'ceo') return 'global';
+  if (roleId === 'admin' || roleId === 'ceo') return 'global';
 
   if (groupId === 'admin') {
     return roleId === 'branchDirector' ? 'branch' : 'none';
@@ -650,8 +644,6 @@ export const getDefaultScope = (groupId: PermissionGroupId, roleId: string): Per
       return ['marketing', 'sales', 'enrollment'].includes(groupId) ? 'personal' : 'none';
     case 'trainingManager':
       return ['training', 'enrollment', 'library'].includes(groupId) ? 'branch' : 'none';
-    case 'teacher':
-      return ['training', 'library'].includes(groupId) ? 'team' : 'none';
     case 'accountant':
       return ['finance', 'enrollment', 'library'].includes(groupId) ? 'branch' : 'none';
     case 'studyAbroadManager':
@@ -699,7 +691,7 @@ const buildSystemRoleRecord = (
 
   return {
     id: definition.id,
-    label: normalizeText(overrides?.label) || definition.label,
+    label: definition.label,
     username:
       normalizeText(overrides?.username) ||
       representativeUser?.username ||
@@ -709,43 +701,14 @@ const buildSystemRoleRecord = (
       representativeUser?.email ||
       `${definition.id}@educrm.local`,
     status: overrides?.status || representativeUser?.accountStatus || 'active',
-    description: normalizeText(overrides?.description) || definition.description,
-    tone: overrides?.tone || definition.tone,
+    description: definition.description,
+    tone: definition.tone,
     isSystem: true,
   };
 };
 
 const buildDefaultRoleCatalog = (): PermissionRoleRecord[] =>
   SYSTEM_ROLE_DEFINITIONS.map((definition) => buildSystemRoleRecord(definition));
-
-const normalizeCustomRole = (input: Partial<PermissionRoleRecord>): PermissionRoleRecord | null => {
-  const id = normalizeToken(input.id || input.username || input.label);
-  const label = normalizeText(input.label);
-  const username = normalizeText(input.username);
-
-  if (!id || !label || !username) return null;
-
-  return {
-    id,
-    label,
-    username,
-    email: normalizeText(input.email) || `${id}@educrm.local`,
-    status: input.status === 'locked' ? 'locked' : 'active',
-    description: normalizeText(input.description) || 'Vai trò tùy chỉnh dùng cho cấu hình RBAC mới.',
-    tone:
-      input.tone === 'slate' ||
-      input.tone === 'indigo' ||
-      input.tone === 'sky' ||
-      input.tone === 'amber' ||
-      input.tone === 'rose' ||
-      input.tone === 'emerald' ||
-      input.tone === 'cyan' ||
-      input.tone === 'violet'
-        ? input.tone
-        : 'violet',
-    isSystem: false,
-  };
-};
 
 const readStoredSnapshot = (): unknown => {
   if (typeof window === 'undefined') return null;
@@ -787,11 +750,7 @@ export const normalizePermissionSettings = (input: unknown): PermissionSettingsS
     return buildSystemRoleRecord(definition, storedRole || undefined);
   });
 
-  const customRoles = sourceRoles
-    .map((role) => normalizeCustomRole((role || {}) as Partial<PermissionRoleRecord>))
-    .filter((role): role is PermissionRoleRecord => Boolean(role && !SYSTEM_ROLE_DEFINITIONS.some((item) => item.id === role.id)));
-
-  const roles = [...systemRoles, ...customRoles];
+  const roles = systemRoles;
   const permissions = roles.reduce<PermissionState>((accumulator, role) => {
     const baseRolePermissions = buildBasePermissionsForRole(role.id, role.isSystem);
     const rawRolePermissions = sourcePermissions[role.id];

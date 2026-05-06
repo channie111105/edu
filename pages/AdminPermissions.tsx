@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Plus, Save, Search, Shield } from 'lucide-react';
+import { Save, Shield } from 'lucide-react';
 import RolePermissionListItem from '../components/admin-permissions/RolePermissionListItem';
 import RolePermissionModal from '../components/admin-permissions/RolePermissionModal';
+import { getAdminUsers, saveAdminUsers } from '../utils/adminUsers';
 import {
   ADMIN_PERMISSIONS_EVENT,
   buildRolePermissionSummary,
@@ -15,26 +16,15 @@ import {
   type PermissionSettingsSnapshot,
 } from '../utils/adminPermissions';
 
-type StatusFilter = 'all' | 'active' | 'locked';
-type ModalMode = 'create' | 'edit';
 type ModalState =
   | {
-      mode: ModalMode;
       role: PermissionRoleRecord;
       permissions: GroupPermissionState;
     }
   | null;
 
-const makeSearchableText = (value: string) =>
-  value
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '');
-
 const AdminPermissions: React.FC = () => {
   const [settings, setSettings] = useState<PermissionSettingsSnapshot>(() => loadAdminPermissionSettings());
-  const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [modalState, setModalState] = useState<ModalState>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
@@ -69,39 +59,8 @@ const AdminPermissions: React.FC = () => {
     [settings.permissions, settings.roles],
   );
 
-  const filteredRoles = useMemo(() => {
-    const keyword = makeSearchableText(searchTerm.trim());
-
-    return settings.roles.filter((role) => {
-      if (statusFilter !== 'all' && role.status !== statusFilter) return false;
-      if (!keyword) return true;
-
-      const summary = roleSummaries[role.id];
-      const haystack = makeSearchableText(
-        [
-          role.label,
-          role.username,
-          role.email,
-          role.description,
-          ...(summary?.highlights.map((item) => `${item.groupLabel} ${item.label}`) || []),
-        ].join(' '),
-      );
-
-      return haystack.includes(keyword);
-    });
-  }, [roleSummaries, searchTerm, settings.roles, statusFilter]);
-
-  const openCreateModal = () => {
-    setModalState({
-      mode: 'create',
-      role: createEmptyPermissionRole(),
-      permissions: createEmptyPermissionStateForRole(),
-    });
-  };
-
   const openEditModal = (role: PermissionRoleRecord) => {
     setModalState({
-      mode: 'edit',
       role,
       permissions: settings.permissions[role.id] || createEmptyPermissionStateForRole(),
     });
@@ -121,11 +80,22 @@ const AdminPermissions: React.FC = () => {
 
     setHasUnsavedChanges(true);
     setModalState(null);
-    setFeedbackMessage(modeLabel(nextRole, modalState?.mode));
+    setFeedbackMessage(`Đã cập nhật nháp cho ${nextRole.label}.`);
   };
 
   const handleSaveAll = () => {
     const saved = saveAdminPermissionSettings(settings);
+    const roleLabelById = new Map(saved.roles.map((role) => [role.id, role.label]));
+    const nextUsers = getAdminUsers().map((user) =>
+      user.permissionRoleId
+        ? {
+            ...user,
+            permissionRoleLabel: roleLabelById.get(user.permissionRoleId) || user.permissionRoleLabel,
+          }
+        : user,
+    );
+
+    saveAdminUsers(nextUsers);
     setSettings(saved);
     setHasUnsavedChanges(false);
     setFeedbackMessage('Đã lưu cấu hình phân quyền mới.');
@@ -144,7 +114,7 @@ const AdminPermissions: React.FC = () => {
               <div>
                 <h1 className="text-3xl font-black tracking-tight text-[#122033]">Quản lý phân quyền</h1>
                 <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500">
-                  Hiển thị danh sách role theo dạng bảng để dễ quét nhanh và đi vào chi tiết khi cần chỉnh sửa.
+                  Tạo role mới đã chuyển sang modal Thêm người dùng. Màn này chỉ còn danh sách role và phần chỉnh sửa quyền.
                 </p>
               </div>
             </div>
@@ -162,15 +132,6 @@ const AdminPermissions: React.FC = () => {
 
               <button
                 type="button"
-                onClick={openCreateModal}
-                className="inline-flex h-11 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-              >
-                <Plus size={16} />
-                Tạo mới
-              </button>
-
-              <button
-                type="button"
                 onClick={handleSaveAll}
                 disabled={!hasUnsavedChanges}
                 className="inline-flex h-11 items-center gap-2 rounded-2xl bg-slate-900 px-5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
@@ -184,46 +145,11 @@ const AdminPermissions: React.FC = () => {
       </div>
 
       <div className="mx-auto flex max-w-7xl flex-col gap-6 px-5 py-6 lg:px-8 lg:py-8">
-        <section className="rounded-[32px] border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="relative w-full max-w-xl">
-              <Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-              <input
-                value={searchTerm}
-                onChange={(event) => setSearchTerm(event.target.value)}
-                placeholder="Tìm theo vai trò, email, username hoặc nhóm quyền..."
-                className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 pl-11 pr-4 text-sm outline-none transition focus:border-slate-900 focus:bg-white focus:ring-4 focus:ring-slate-100"
-              />
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              {([
-                { id: 'all', label: 'Tất cả' },
-                { id: 'active', label: 'Hoạt động' },
-                { id: 'locked', label: 'Tạm khóa' },
-              ] as Array<{ id: StatusFilter; label: string }>).map((option) => (
-                <button
-                  key={option.id}
-                  type="button"
-                  onClick={() => setStatusFilter(option.id)}
-                  className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
-                    statusFilter === option.id
-                      ? 'bg-slate-900 text-white shadow-sm'
-                      : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                  }`}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        </section>
-
         <section className="space-y-4">
           <div className="flex items-center justify-between px-1">
             <h2 className="text-lg font-bold text-[#122033]">Danh sách vai trò</h2>
             <div className="text-sm text-slate-500">
-              {filteredRoles.length} / {settings.roles.length} vai trò
+              {settings.roles.length} vai trò
             </div>
           </div>
 
@@ -234,31 +160,22 @@ const AdminPermissions: React.FC = () => {
               <div className="text-right text-sm font-bold uppercase tracking-[0.08em] text-slate-700">Hành động</div>
             </div>
 
-            {filteredRoles.length ? (
-              filteredRoles.map((role, index) => (
-                <div key={role.id} className={index > 0 ? 'border-t border-slate-200' : ''}>
-                  <RolePermissionListItem
-                    role={role}
-                    summary={roleSummaries[role.id]}
-                    onOpen={() => openEditModal(role)}
-                  />
-                </div>
-              ))
-            ) : (
-              <div className="px-6 py-16 text-center">
-                <h3 className="text-lg font-bold text-[#122033]">Không tìm thấy vai trò phù hợp</h3>
-                <p className="mt-2 text-sm text-slate-500">
-                  Hãy thử đổi từ khóa tìm kiếm hoặc chuyển lại bộ lọc trạng thái.
-                </p>
+            {settings.roles.map((role, index) => (
+              <div key={role.id} className={index > 0 ? 'border-t border-slate-200' : ''}>
+                <RolePermissionListItem
+                  role={role}
+                  summary={roleSummaries[role.id]}
+                  onOpen={() => openEditModal(role)}
+                />
               </div>
-            )}
+            ))}
           </div>
         </section>
       </div>
 
       <RolePermissionModal
         isOpen={Boolean(modalState)}
-        mode={modalState?.mode || 'edit'}
+        mode="edit"
         role={modalState?.role || createEmptyPermissionRole()}
         permissions={modalState?.permissions || createEmptyPermissionStateForRole()}
         existingRoleIds={settings.roles.map((role) => role.id)}
@@ -268,8 +185,5 @@ const AdminPermissions: React.FC = () => {
     </div>
   );
 };
-
-const modeLabel = (role: PermissionRoleRecord, mode?: ModalMode) =>
-  mode === 'create' ? `Đã tạo nháp vai trò ${role.label}.` : `Đã cập nhật nháp cho ${role.label}.`;
 
 export default AdminPermissions;
