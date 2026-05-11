@@ -1,0 +1,1 @@
+const i=n=>String(n||"").replace(/\D/g,""),t=n=>/^0\d{9}$/.test(i(n)),o=n=>{const e=i(n);return e?t(e)?null:"Số điện thoại không đúng định dạng, vui lòng nhập lại.":"Vui lòng nhập số điện thoại."};export{o as g,t as i,i as n};
