@@ -6,6 +6,7 @@ import {
   ChevronDown,
   LayoutGrid,
   List,
+  Pencil,
   Plus,
   RotateCcw,
   Star,
@@ -287,6 +288,9 @@ const hasOverdueExpectedPayment = (quotation: IQuotation, transactions: ITransac
 
 const canDeleteQuotation = (quotation: IQuotation) =>
   quotation.status === QuotationStatus.DRAFT || quotation.status === QuotationStatus.SENT;
+
+const canEditQuotation = (quotation: IQuotation) =>
+  quotation.status !== QuotationStatus.LOCKED;
 
 const getPaymentStateConfig = (quotation: IQuotation) => {
   if (quotation.status === QuotationStatus.LOCKED) {
@@ -867,16 +871,28 @@ const Quotations: React.FC = () => {
               {item.saleTypeLabel}
             </div>
           </td>
-          <td className="w-[56px] px-2 py-3 text-right" onClick={(event) => event.stopPropagation()}>
-            <button
-              type="button"
-              onClick={() => handleDeleteQuotation(item.quotation)}
-              disabled={!isDeletable}
-              title={isDeletable ? 'Xóa báo giá' : 'Chỉ xóa khi báo giá chưa confirm'}
-              className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-rose-200 text-rose-600 transition-colors hover:bg-rose-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300 disabled:hover:bg-transparent"
-            >
-              <Trash2 size={14} />
-            </button>
+          <td className="w-[84px] px-2 py-3 text-right" onClick={(event) => event.stopPropagation()}>
+            <div className="inline-flex items-center justify-end gap-1">
+              {canEditQuotation(item.quotation) && (
+                <button
+                  type="button"
+                  onClick={() => navigate(`/contracts/quotations/${item.quotation.id}`)}
+                  title="Sửa báo giá"
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-blue-200 text-blue-600 transition-colors hover:bg-blue-50"
+                >
+                  <Pencil size={13} />
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => handleDeleteQuotation(item.quotation)}
+                disabled={!isDeletable}
+                title={isDeletable ? 'Xóa báo giá' : 'Chỉ xóa khi báo giá chưa confirm'}
+                className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-rose-200 text-rose-600 transition-colors hover:bg-rose-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300 disabled:hover:bg-transparent"
+              >
+                <Trash2 size={14} />
+              </button>
+            </div>
           </td>
         </tr>
       );
@@ -1093,7 +1109,7 @@ const Quotations: React.FC = () => {
                   <th className="w-[108px] px-2.5 py-2.5 whitespace-nowrap">Thanh toán</th>
                   <th className="w-[96px] px-2.5 py-2.5 whitespace-nowrap">Trạng thái</th>
                   <th className="w-[78px] px-2.5 py-2.5 whitespace-nowrap">Loại đơn</th>
-                  <th className="w-[56px] px-2.5 py-2.5 whitespace-nowrap text-right">Xóa</th>
+                  <th className="w-[84px] px-2.5 py-2.5 whitespace-nowrap text-right">Hành động</th>
                 </tr>
               </thead>
 

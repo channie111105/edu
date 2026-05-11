@@ -1,4 +1,5 @@
-﻿import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { FileSpreadsheet, NotebookPen, Plus, Save, Search, Settings2 } from 'lucide-react';
 import LogAudienceFilterControl from '../components/LogAudienceFilter';
 import { AdvancedFilterDropdown, ToolbarTimeFilter } from '../components/filters';
@@ -325,11 +326,19 @@ const getSessionShortTitle = (session: IClassSession) => {
 };
 
 const TrainingClassList: React.FC = () => {
+  const { id } = useParams();
+  const navigate = useNavigate();
+
   const [classes, setClasses] = useState<ITrainingClass[]>([]);
   const [teachers, setTeachers] = useState<ITeacher[]>([]);
   const [students, setStudents] = useState<IStudent[]>([]);
   const [members, setMembers] = useState<IClassStudent[]>([]);
-  const [selectedClassId, setSelectedClassId] = useState('');
+  const [selectedClassId, setSelectedClassId] = useState(id || '');
+
+  useEffect(() => {
+    setSelectedClassId(id || '');
+  }, [id]);
+
   const [primaryTab, setPrimaryTab] = useState<PrimaryTabKey>('students');
   const [levelTab, setLevelTab] = useState<LevelTabKey>('attendance');
   const [search, setSearch] = useState('');
@@ -901,7 +910,7 @@ const TrainingClassList: React.FC = () => {
       <tr
         key={classItem.id}
         onClick={() => {
-          setSelectedClassId(classItem.id);
+          navigate(`/training/classes/${classItem.id}`);
           setFiltersOpen(false);
           setColumnMenuOpen(false);
           setShowTimePicker(false);

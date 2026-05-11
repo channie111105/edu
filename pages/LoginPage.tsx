@@ -1,15 +1,18 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CircleHelp, Lock, School, UserRound } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 
 const LoginPage: React.FC = () => {
   const navigate = useNavigate();
+  const { loginWithCredentials } = useAuth();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
     if (!username.trim() || !password.trim()) {
@@ -18,8 +21,25 @@ const LoginPage: React.FC = () => {
     }
 
     setError('');
+    setIsLoading(true);
     void rememberMe;
-    navigate('/module-selection');
+
+    // Thử đăng nhập với tài khoản thật trong adminUsers
+    const result = loginWithCredentials(username.trim(), password.trim());
+
+    setIsLoading(false);
+
+    if (!result.success) {
+      // Nếu không tìm thấy trong adminUsers → cho phép chọn module (demo mode)
+      if (result.error === 'Tài khoản không tồn tại.') {
+        navigate('/module-selection');
+        return;
+      }
+      setError(result.error || 'Đăng nhập thất bại.');
+      return;
+    }
+
+    navigate('/');
   };
 
   return (
@@ -103,9 +123,10 @@ const LoginPage: React.FC = () => {
 
             <button
               type="submit"
-              className="w-full rounded-lg bg-blue-600 py-3 font-semibold text-white shadow-lg shadow-blue-600/30 transition-all hover:bg-blue-500 active:scale-[0.98]"
+              disabled={isLoading}
+              className="w-full rounded-lg bg-blue-600 py-3 font-semibold text-white shadow-lg shadow-blue-600/30 transition-all hover:bg-blue-500 active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              Đăng nhập
+              {isLoading ? 'Đang đăng nhập...' : 'Đăng nhập'}
             </button>
           </form>
 

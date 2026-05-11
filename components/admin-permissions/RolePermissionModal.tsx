@@ -162,7 +162,7 @@ const RolePermissionModal: React.FC<RolePermissionModalProps> = ({
                 {mode === 'create' ? 'Tạo vai trò phân quyền' : `Chi tiết vai trò ${role.label}`}
               </h2>
               <p className="mt-1 text-sm text-slate-500">
-                Phần nhập tài khoản user đã chuyển sang màn Quản lý người dùng, ở đây chỉ giữ thông tin role và ma trận quyền.
+                Khai báo tên vai trò, sau đó tick từng quyền chi tiết theo nhóm và cấp độ truy cập.
               </p>
             </div>
           </div>
@@ -195,7 +195,7 @@ const RolePermissionModal: React.FC<RolePermissionModalProps> = ({
                     </div>
                     <h3 className="mt-3 text-base font-semibold text-[#122033]">Thông tin vai trò</h3>
                     <p className="mt-1 text-sm text-slate-500">
-                      Giữ lại phần role sau khi đã cắt khối tài khoản người dùng sang modal thêm user.
+                      Ví dụ: Trợ lý giám đốc có thể chỉ bật các quyền theo dõi, phê duyệt hoặc báo cáo cần thiết.
                     </p>
                   </div>
 
@@ -216,7 +216,7 @@ const RolePermissionModal: React.FC<RolePermissionModalProps> = ({
                       value={draftRole.label}
                       onChange={(event) => setDraftRole((prev) => ({ ...prev, label: event.target.value }))}
                       className={inputClass}
-                      placeholder="Tên vai trò"
+                      placeholder="VD: Trợ lý giám đốc"
                     />
                   </div>
                 </div>

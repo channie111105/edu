@@ -22,6 +22,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { getLeads, saveLeads } from '../utils/storage';
 import { type ToolbarOption, type ToolbarValueOption } from '../utils/filterToolbar';
 import {
+  ADMIN_PERMISSIONS_EVENT,
   PERMISSION_GROUPS,
   SCOPE_OPTIONS,
   buildRolePermissionSummary,
@@ -30,9 +31,9 @@ import {
   getScopeOption,
   loadAdminPermissionSettings,
   saveAdminPermissionSettings,
-  USER_PERMISSION_ROLE_OPTIONS,
   type GroupPermissionState,
   type PermissionGroupId,
+  type PermissionRoleRecord,
   type PermissionScope,
 } from '../utils/adminPermissions';
 import {
@@ -330,6 +331,7 @@ const AdminUserManagement: React.FC = () => {
   const [editingUser, setEditingUser] = useState<AdminUserRecord | null>(null);
   const [formData, setFormData] = useState<AdminUserFormData>(createEmptyAdminUserForm());
   const [permissionDraft, setPermissionDraft] = useState<GroupPermissionState>(() => createEmptyPermissionStateForRole());
+  const [permissionRoles, setPermissionRoles] = useState<PermissionRoleRecord[]>(() => loadAdminPermissionSettings().roles);
   const [activePermissionGroupId, setActivePermissionGroupId] = useState<PermissionGroupId>(PERMISSION_GROUPS[0].id);
   const [formError, setFormError] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<AdminUserRecord | null>(null);
@@ -340,15 +342,18 @@ const AdminUserManagement: React.FC = () => {
     const syncData = () => {
       setUsers(getAdminUsers());
       setLeadList(getLeads());
+      setPermissionRoles(loadAdminPermissionSettings().roles);
     };
 
     syncData();
     window.addEventListener(ADMIN_USERS_CHANGED_EVENT, syncData as EventListener);
+    window.addEventListener(ADMIN_PERMISSIONS_EVENT, syncData as EventListener);
     window.addEventListener('educrm:leads-changed', syncData as EventListener);
     window.addEventListener('storage', syncData);
 
     return () => {
       window.removeEventListener(ADMIN_USERS_CHANGED_EVENT, syncData as EventListener);
+      window.removeEventListener(ADMIN_PERMISSIONS_EVENT, syncData as EventListener);
       window.removeEventListener('educrm:leads-changed', syncData as EventListener);
       window.removeEventListener('storage', syncData);
     };
@@ -1276,9 +1281,9 @@ const AdminUserManagement: React.FC = () => {
                         className={inputClass}
                       >
                         <option value="">Chọn vai trò</option>
-                        {USER_PERMISSION_ROLE_OPTIONS.map((role) => (
-                          <option key={role} value={role}>
-                            {role}
+                        {permissionRoles.map((role) => (
+                          <option key={role.id} value={role.label}>
+                            {role.label}
                           </option>
                         ))}
                       </select>
@@ -1309,9 +1314,9 @@ const AdminUserManagement: React.FC = () => {
                           <Shield size={14} />
                           List-Detail RBAC
                         </div>
-                        <h3 className="mt-3 text-base font-semibold tracking-tight text-slate-900">Tạo vai trò phân quyền</h3>
+                        <h3 className="mt-3 text-base font-semibold tracking-tight text-slate-900">Phân quyền theo vai trò</h3>
                         <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500">
-                          Toàn bộ form tạo role đã được cắt sang đây. Màn phân quyền chỉ còn danh sách và chỉnh sửa role đã có.
+                          Chọn vai trò đã tạo ở màn Phân quyền (RBAC), rồi kiểm tra hoặc tinh chỉnh các quyền chi tiết khi cần.
                         </p>
                       </div>
 

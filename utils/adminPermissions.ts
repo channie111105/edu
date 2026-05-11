@@ -586,6 +586,19 @@ const normalizeToken = (value: unknown) =>
 const isPermissionScope = (value: unknown): value is PermissionScope =>
   value === 'none' || value === 'personal' || value === 'team' || value === 'branch' || value === 'global';
 
+const isPermissionRoleTone = (value: unknown): value is PermissionRoleTone =>
+  value === 'slate' ||
+  value === 'indigo' ||
+  value === 'sky' ||
+  value === 'amber' ||
+  value === 'rose' ||
+  value === 'emerald' ||
+  value === 'cyan' ||
+  value === 'violet';
+
+const isAdminUserAccountStatus = (value: unknown): value is AdminUserAccountStatus =>
+  value === 'active' || value === 'locked';
+
 const isPermissionGroupId = (value: unknown): value is PermissionGroupId =>
   value === 'marketing' ||
   value === 'sales' ||
@@ -611,7 +624,12 @@ export const buildRoleIdCandidate = (username: string, label: string) =>
 
 export const ensureUniqueRoleId = (candidate: string, existingRoleIds: string[], currentRoleId?: string) => {
   const normalizedCandidate = normalizeToken(candidate) || 'custom-role';
-  const occupied = new Set(existingRoleIds.filter((roleId) => roleId !== currentRoleId));
+  const normalizedCurrentRoleId = normalizeToken(currentRoleId);
+  const occupied = new Set(
+    existingRoleIds
+      .map((roleId) => normalizeToken(roleId))
+      .filter((roleId) => roleId && roleId !== normalizedCurrentRoleId),
+  );
 
   if (!occupied.has(normalizedCandidate)) return normalizedCandidate;
 
@@ -707,6 +725,32 @@ const buildSystemRoleRecord = (
   };
 };
 
+const isSameRoleId = (left: unknown, right: unknown) => normalizeToken(left) === normalizeToken(right);
+
+const buildCustomRoleRecord = (
+  sourceRole: Partial<PermissionRoleRecord>,
+  existingRoleIds: string[],
+): PermissionRoleRecord | null => {
+  const label = normalizeText(sourceRole.label);
+  const username = normalizeText(sourceRole.username);
+  const id = ensureUniqueRoleId(normalizeText(sourceRole.id) || username || label, existingRoleIds);
+
+  if (!label && !username) return null;
+
+  return {
+    id,
+    label: label || id,
+    username: username || id,
+    email: normalizeText(sourceRole.email) || `${id}@educrm.local`,
+    status: isAdminUserAccountStatus(sourceRole.status) ? sourceRole.status : 'active',
+    description:
+      normalizeText(sourceRole.description) ||
+      'Vai trò tùy chỉnh dùng để gom quyền theo đúng cơ cấu vận hành.',
+    tone: isPermissionRoleTone(sourceRole.tone) ? sourceRole.tone : 'violet',
+    isSystem: false,
+  };
+};
+
 const buildDefaultRoleCatalog = (): PermissionRoleRecord[] =>
   SYSTEM_ROLE_DEFINITIONS.map((definition) => buildSystemRoleRecord(definition));
 
@@ -746,11 +790,29 @@ export const normalizePermissionSettings = (input: unknown): PermissionSettingsS
       : {};
 
   const systemRoles = SYSTEM_ROLE_DEFINITIONS.map((definition) => {
-    const storedRole = sourceRoles.find((role) => normalizeToken(role?.id) === definition.id);
+    const storedRole = sourceRoles.find((role) => isSameRoleId(role?.id, definition.id));
     return buildSystemRoleRecord(definition, storedRole || undefined);
   });
 
-  const roles = systemRoles;
+  const occupiedRoleIds = systemRoles.map((role) => role.id);
+  const customRoles = sourceRoles.reduce<PermissionRoleRecord[]>((accumulator, sourceRole) => {
+    if (!sourceRole || typeof sourceRole !== 'object' || Array.isArray(sourceRole)) {
+      return accumulator;
+    }
+
+    if (SYSTEM_ROLE_DEFINITIONS.some((definition) => isSameRoleId(sourceRole.id, definition.id))) {
+      return accumulator;
+    }
+
+    const customRole = buildCustomRoleRecord(sourceRole, occupiedRoleIds);
+    if (!customRole) return accumulator;
+
+    occupiedRoleIds.push(customRole.id);
+    accumulator.push(customRole);
+    return accumulator;
+  }, []);
+
+  const roles = [...systemRoles, ...customRoles];
   const permissions = roles.reduce<PermissionState>((accumulator, role) => {
     const baseRolePermissions = buildBasePermissionsForRole(role.id, role.isSystem);
     const rawRolePermissions = sourcePermissions[role.id];

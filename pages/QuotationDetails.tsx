@@ -1,6 +1,6 @@
-﻿import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Save, Printer, ChevronRight, ChevronDown, FileText, Lock, Plus } from 'lucide-react';
+import { Save, Printer, ChevronRight, ChevronDown, FileText, Lock, Plus, Pencil } from 'lucide-react';
 import { useRef } from 'react';
 import { Paperclip, Send, X } from 'lucide-react';
 import { ContractStatus, IContract, IQuotation, IQuotationLineItem, IQuotationLogNote, IQuotationPaymentScheduleTerm, ITeacher, ITrainingClass, QuotationStatus, UserRole } from '../types';
@@ -22,6 +22,72 @@ import ClassCodeLookupInput from '../components/ClassCodeLookupInput';
 import { buildTrainingClassLookupOptions } from '../utils/trainingClassLookup';
 import LogAudienceFilterControl from '../components/LogAudienceFilter';
 import { filterByLogAudience, getQuotationLogAudience, LogAudienceFilter } from '../utils/logAudience';
+
+export interface ServicePackage {
+  id: string;
+  name: string;
+  price: number;
+  country: string;
+  productPackage: string;
+  programs: string[];
+  type: string;
+  currency: string;
+  startDate: string;
+  endDate: string;
+  status: string;
+  roadmap: {
+    name: string;
+    steps: {
+      name: string;
+      percent: number;
+      due: string;
+    }[];
+  };
+}
+
+const DEFAULT_SERVICE_PACKAGES: ServicePackage[] = [
+  {
+    id: 'DE-A1',
+    name: 'Tiếng Đức A1 (Offline)',
+    price: 8000000,
+    country: 'Đức',
+    productPackage: 'Gói cơ bản',
+    programs: ['du học', 'A1'],
+    type: 'off',
+    currency: 'VNĐ',
+    startDate: new Date().toISOString().split('T')[0],
+    endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+    status: 'Đang áp dụng',
+    roadmap: {
+      name: 'Lộ trình Tiếng Đức A1',
+      steps: [
+        { name: 'Thanh toán giữ lớp', percent: 40, due: 'Khi xác nhận lịch học' },
+        { name: 'Hoàn tất học phí', percent: 60, due: 'Trước buổi học đầu tiên' },
+      ],
+    },
+  },
+  {
+    id: 'COMBO-GER',
+    name: 'Combo Du học Đức (A1-B1)',
+    price: 45000000,
+    country: 'Đức',
+    productPackage: 'Gói VIP',
+    programs: ['du học', 'A1', 'A2', 'B1', 'Dv hồ sơ'],
+    type: 'Blended',
+    currency: 'VNĐ',
+    startDate: new Date().toISOString().split('T')[0],
+    endDate: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+    status: 'Đang áp dụng',
+    roadmap: {
+      name: 'Lộ trình Combo Du học Đức A1-B1',
+      steps: [
+        { name: 'Đợt 1 (Khởi động hồ sơ)', percent: 30, due: 'Ngay khi ký HĐ' },
+        { name: 'Đợt 2 (Hoàn tất học phần)', percent: 40, due: 'Khi hoàn thành A2' },
+        { name: 'Đợt 3 (Hồ sơ visa)', percent: 30, due: 'Trước lịch nộp hồ sơ' },
+      ],
+    },
+  },
+];
 
 const SERVICES = [
   { id: 'StudyAbroad', name: 'Du học' },
@@ -529,6 +595,24 @@ const QuotationDetails: React.FC = () => {
   const initialTab = searchParams.get('tab');
 
   const [activeTab, setActiveTab] = useState<QuotationTab>('order_lines');
+  const [servicePackages, setServicePackages] = useState<ServicePackage[]>([]);
+
+  useEffect(() => {
+    const raw = window.localStorage.getItem('educrm_admin_financial_course_packages_v1');
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          setServicePackages(parsed);
+          return;
+        }
+      } catch (e) {
+        console.error('Failed to load service packages', e);
+      }
+    }
+    setServicePackages(DEFAULT_SERVICE_PACKAGES);
+  }, []);
+
   const [quotationCreatorWorkflowStatus, setQuotationCreatorWorkflowStatus] = useState<'draft' | 'sent' | 'sale_order' | 'cancelled'>('draft');
   const [creatorLineItems, setCreatorLineItems] = useState<IQuotationLineItem[]>([]);
   const [showOrderLineModal, setShowOrderLineModal] = useState(false);
@@ -1444,6 +1528,24 @@ const QuotationDetails: React.FC = () => {
 
   const handleOrderDraftServiceChange = (servicePackage: CreatorServicePackage | '') => {
     setProgramDropdownOpen(false);
+    
+    // Check if the service package matches admin custom config
+    const custom = servicePackages.find(p => p.country === orderLineDraft.targetMarket && p.name === servicePackage);
+    if (custom) {
+      setOrderLineDraft((prev) => ({
+        ...prev,
+        servicePackage,
+        productId: custom.id,
+        productName: custom.name,
+        courseName: '',
+        programs: custom.programs,
+        classId: '',
+        unitPrice: custom.price,
+        paymentSchedule: [] // clear schedule so the effect will rebuild it
+      }));
+      return;
+    }
+
     const catalog = getPrimaryCatalogByServicePackage(orderLineDraft.targetMarket, servicePackage);
     setOrderLineDraft((prev) => ({
       ...prev,
@@ -1453,7 +1555,8 @@ const QuotationDetails: React.FC = () => {
       courseName: '',
       programs: [],
       classId: '',
-      unitPrice: catalog?.defaultPrice || 0
+      unitPrice: catalog?.defaultPrice || 0,
+      paymentSchedule: []
     }));
   };
 
@@ -1644,22 +1747,55 @@ const QuotationDetails: React.FC = () => {
       return true;
     });
   }, []);
+  // Danh sách thị trường lấy động từ admin config, fallback về hardcode nếu chưa có
+  const availableMarkets = useMemo<string[]>(() => {
+    const fromAdmin = Array.from(new Set(
+      servicePackages
+        .filter(p => p.status === 'Đang áp dụng' || p.status === 'active')
+        .map(p => p.country)
+        .filter(Boolean)
+    ));
+    if (fromAdmin.length > 0) return fromAdmin;
+    return CREATOR_MARKETS as unknown as string[];
+  }, [servicePackages]);
 
   const availableServicePackages = useMemo(() => {
     if (!orderLineDraft.targetMarket) return [];
+    
+    const custom = servicePackages
+      .filter(p => p.country === orderLineDraft.targetMarket && (p.status === 'Đang áp dụng' || p.status === 'active'))
+      .map(p => p.name);
+    
+    if (custom.length > 0) return Array.from(new Set(custom));
+
     return Array.from(
       new Set(
         ORDER_LINE_CATALOG.filter((item) => item.market === orderLineDraft.targetMarket).map((item) => item.servicePackage)
       )
     );
-  }, [orderLineDraft.targetMarket]);
+  }, [orderLineDraft.targetMarket, servicePackages]);
 
   const availableProducts = useMemo(() => {
     if (!orderLineDraft.targetMarket || !orderLineDraft.servicePackage) return [];
+    
+    const custom = servicePackages.find(p => p.country === orderLineDraft.targetMarket && p.name === orderLineDraft.servicePackage);
+    if (custom) {
+      return [{
+        id: custom.id,
+        product: custom.name,
+        market: custom.country as CreatorMarket,
+        servicePackage: custom.name as any,
+        serviceType: (custom.type === 'Du học' ? 'StudyAbroad' : custom.type === 'Combo' ? 'Combo' : 'Training') as any,
+        courseOptions: [],
+        programOptions: custom.programs,
+        defaultPrice: custom.price
+      }];
+    }
+
     return ORDER_LINE_CATALOG.filter(
       (item) => item.market === orderLineDraft.targetMarket && item.servicePackage === orderLineDraft.servicePackage
     );
-  }, [orderLineDraft.servicePackage, orderLineDraft.targetMarket]);
+  }, [orderLineDraft.servicePackage, orderLineDraft.targetMarket, servicePackages]);
 
   const availableProgramOptions = useMemo(() => {
     return Array.from(new Set(availableProducts.flatMap((item) => item.programOptions)));
@@ -1687,15 +1823,42 @@ const QuotationDetails: React.FC = () => {
   );
 
   const creatorGrandTotal = creatorSubtotal;
-  const resolvedOrderPaymentPlan = useMemo(
-    () =>
-      resolveServicePaymentPlan(
-        orderLineDraft.targetMarket,
-        orderLineDraft.servicePackage,
-        calculateOrderDraftLineTotal(orderLineDraft.unitPrice, orderLineDraft.discountPercent)
-      ),
-    [orderLineDraft.discountPercent, orderLineDraft.servicePackage, orderLineDraft.targetMarket, orderLineDraft.unitPrice]
-  );
+  const resolvedOrderPaymentPlan = useMemo(() => {
+    const totalAmount = calculateOrderDraftLineTotal(orderLineDraft.unitPrice, orderLineDraft.discountPercent);
+
+    const custom = servicePackages.find(p => p.country === orderLineDraft.targetMarket && p.name === orderLineDraft.servicePackage);
+    if (custom && custom.roadmap && custom.roadmap.steps && custom.roadmap.steps.length > 0) {
+      let allocated = 0;
+      const normalizedTotal = Math.max(0, Math.round(Number(totalAmount) || 0));
+      const steps = custom.roadmap.steps.map((step, index) => {
+        const isLastStep = index === custom.roadmap.steps.length - 1;
+        const amount = isLastStep
+          ? Math.max(0, normalizedTotal - allocated)
+          : Math.round(normalizedTotal * (step.percent / 100));
+        allocated += amount;
+        return {
+          installmentLabel: step.name,
+          condition: `Đến hạn ngày ${step.due}`,
+          ratio: step.percent / 100,
+          amount
+        };
+      });
+
+      return {
+        id: custom.id,
+        market: custom.country as any,
+        servicePackage: custom.name as any,
+        totalAmount: normalizedTotal,
+        steps
+      };
+    }
+
+    return resolveServicePaymentPlan(
+      orderLineDraft.targetMarket,
+      orderLineDraft.servicePackage,
+      totalAmount
+    );
+  }, [orderLineDraft.discountPercent, orderLineDraft.servicePackage, orderLineDraft.targetMarket, orderLineDraft.unitPrice, servicePackages]);
   const quotationServicePackageSummary = useMemo(() => {
     const packageNames = Array.from(
       new Set(
@@ -2511,7 +2674,7 @@ const QuotationDetails: React.FC = () => {
                               className="h-10 w-full rounded border border-slate-300 bg-white px-3 text-sm outline-none focus:border-blue-500"
                             >
                               <option value="">-- Chọn thị trường --</option>
-                              {CREATOR_MARKETS.map((market) => (
+                              {availableMarkets.map((market) => (
                                 <option key={market} value={market}>{market}</option>
                               ))}
                             </select>

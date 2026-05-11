@@ -1,158 +1,142 @@
 import React, { useState } from 'react';
-import { Save, ChevronDown } from 'lucide-react';
-import { saveLeadDistributionConfig } from '../utils/storage';
+import { Bell, CheckCircle2, Clock3, Save } from 'lucide-react';
+
+const STORAGE_KEY = 'educrm_admin_automation_time_config_v1';
+
+const loadTimeConfig = () => {
+  if (typeof window === 'undefined') {
+    return { saleAlert: '15', leaderAlert: '60' };
+  }
+
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) return { saleAlert: '15', leaderAlert: '60' };
+
+    const parsed = JSON.parse(raw) as Partial<{ saleAlert: string; leaderAlert: string }>;
+    return {
+      saleAlert: parsed.saleAlert || '15',
+      leaderAlert: parsed.leaderAlert || '60',
+    };
+  } catch {
+    return { saleAlert: '15', leaderAlert: '60' };
+  }
+};
 
 const AdminAutomationRules: React.FC = () => {
-  const [slaConfig, setSlaConfig] = useState({
-    saleAlert: '15',
-    leaderAlert: '60',
-  });
+  const [slaConfig, setSlaConfig] = useState(() => loadTimeConfig());
+  const [feedbackMessage, setFeedbackMessage] = useState('');
 
-  const [financeReminders, setFinanceReminders] = useState({
-    beforeDue: '3',
-    afterOverdue1: '1',
-  });
-
-  const fieldWidthClass = 'w-full max-w-[640px]';
+  const handleSave = () => {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(slaConfig));
+    setFeedbackMessage('Đã lưu cấu hình thời gian.');
+  };
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-[#f8fafc] font-sans text-[#0d141b]">
-      <div className="flex flex-1 justify-center overflow-y-auto py-5">
-        <div className="flex max-w-[960px] flex-1 flex-col px-4 pb-10 md:px-8">
-          <div className="flex flex-wrap justify-between gap-3 p-4">
-            <div className="flex min-w-72 flex-col gap-3">
-              <p className="text-[32px] font-bold leading-tight tracking-light text-[#0d141b]">Quy tắc tự động hóa</p>
-              <p className="text-sm font-normal leading-normal text-[#4c739a]">
-                Cấu hình các quy tắc quản lý Lead như SLA, phân bổ và nhắc nhở tài chính.
-              </p>
+    <div className="min-h-full overflow-y-auto bg-[#f3f6fa] font-sans text-[#0d141b]">
+      <div className="mx-auto flex max-w-6xl flex-col gap-6 px-5 py-8 lg:px-8">
+        <header className="flex flex-col gap-4">
+          <div className="inline-flex w-fit items-center gap-2 rounded-full border border-blue-100 bg-white px-3 py-1 text-xs font-bold uppercase tracking-wide text-blue-700 shadow-sm">
+            <Clock3 size={14} />
+            Cấu hình thời gian
+          </div>
+          <div>
+            <h1 className="text-3xl font-black tracking-tight text-[#0d141b] md:text-4xl">Quy tắc tự động hóa</h1>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-[#4c739a]">
+              Thiết lập mốc phản hồi lead và thời điểm leo thang cho quản lý. Các giá trị được tính bằng phút.
+            </p>
+          </div>
+        </header>
+
+        <section className="grid gap-4 md:grid-cols-2">
+          <div className="rounded-2xl border border-blue-100 bg-white p-5 shadow-sm">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-bold text-slate-900">Sale phản hồi</p>
+                <p className="mt-1 text-sm text-slate-500">Thời gian tối đa cho lead mới</p>
+              </div>
+              <div className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
+                <Clock3 size={20} />
+              </div>
+            </div>
+            <div className="mt-5 flex items-end gap-2">
+              <span className="text-4xl font-black text-blue-700">{slaConfig.saleAlert || 0}</span>
+              <span className="pb-1 text-sm font-bold text-slate-500">phút</span>
             </div>
           </div>
 
-          <h2 className="px-4 pb-3 pt-5 text-[22px] font-bold leading-tight tracking-[-0.015em] text-[#0d141b]">
-            SLA & Quy trình leo thang
-          </h2>
-
-          <div className={`mx-4 flex ${fieldWidthClass} flex-wrap items-end gap-4 py-3`}>
-            <label className="flex min-w-40 flex-1 flex-col">
-              <p className="pb-2 text-base font-medium leading-normal text-[#0d141b]">Cảnh báo Sale (phút)</p>
-              <input
-                type="number"
-                className="flex h-14 w-full min-w-0 flex-1 resize-none overflow-hidden rounded-lg border border-[#cfdbe7] bg-slate-50 p-[15px] text-base font-normal leading-normal text-[#0d141b] placeholder:text-[#4c739a] focus:outline-0 focus:ring-2 focus:ring-blue-500"
-                value={slaConfig.saleAlert}
-                onChange={(e) => setSlaConfig({ ...slaConfig, saleAlert: e.target.value })}
-              />
-              <p className="mt-1 text-xs text-[#4c739a]">Thời gian tối đa để Sale phản hồi lead mới.</p>
-            </label>
-          </div>
-
-          <div className={`mx-4 flex ${fieldWidthClass} flex-wrap items-end gap-4 py-3`}>
-            <label className="flex min-w-40 flex-1 flex-col">
-              <p className="pb-2 text-base font-medium leading-normal text-[#0d141b]">Cảnh báo Quản lý (phút)</p>
-              <input
-                type="number"
-                className="flex h-14 w-full min-w-0 flex-1 resize-none overflow-hidden rounded-lg border border-[#cfdbe7] bg-slate-50 p-[15px] text-base font-normal leading-normal text-[#0d141b] placeholder:text-[#4c739a] focus:outline-0 focus:ring-2 focus:ring-blue-500"
-                value={slaConfig.leaderAlert}
-                onChange={(e) => setSlaConfig({ ...slaConfig, leaderAlert: e.target.value })}
-              />
-              <p className="mt-1 text-xs text-[#4c739a]">Thông báo cho Leader nếu lead chưa được xử lý sau mốc này.</p>
-            </label>
-          </div>
-
-          <h2 className="px-4 pb-3 pt-5 text-[22px] font-bold leading-tight tracking-[-0.015em] text-[#0d141b]">
-            Phân bổ Lead (Distribution)
-          </h2>
-
-          <div className={`mx-4 ${fieldWidthClass} overflow-visible rounded-xl border border-[#cfdbe7]`}>
-            <div className="flex min-h-[88px] items-center justify-between gap-4 bg-slate-50 px-4 py-3">
-              <div className="flex flex-col justify-center">
-                <p className="text-base font-medium leading-normal text-[#0d141b]">Phân bổ thủ công</p>
-                <p className="text-sm font-normal leading-normal text-[#4c739a]">
-                  Đã xoá cơ chế tự động giao lead. Lead mới sẽ chờ Admin/Leader phân công bằng tay.
-                </p>
+          <div className="rounded-2xl border border-indigo-100 bg-white p-5 shadow-sm">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-bold text-slate-900">Leo thang quản lý</p>
+                <p className="mt-1 text-sm text-slate-500">Thông báo khi lead chưa xử lý</p>
               </div>
-              <span className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-bold uppercase tracking-[0.08em] text-amber-700">
-                Manual Only
-              </span>
+              <div className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-indigo-50 text-indigo-700">
+                <Bell size={20} />
+              </div>
+            </div>
+            <div className="mt-5 flex items-end gap-2">
+              <span className="text-4xl font-black text-indigo-700">{slaConfig.leaderAlert || 0}</span>
+              <span className="pb-1 text-sm font-bold text-slate-500">phút</span>
             </div>
           </div>
+        </section>
 
-          <div className={`mx-4 flex ${fieldWidthClass} flex-wrap items-end gap-4 py-3`}>
-            <label className="flex min-w-40 flex-1 flex-col">
-              <p className="pb-2 text-base font-medium leading-normal text-[#0d141b]">Định tuyến theo khu vực</p>
+        <section className="rounded-2xl border border-[#cfdbe7] bg-white shadow-sm">
+          <div className="border-b border-slate-200 px-6 py-5">
+            <h2 className="text-lg font-black text-[#0d141b]">Thiết lập SLA</h2>
+            <p className="mt-1 text-sm text-[#4c739a]">Nhập số phút cho từng mốc cảnh báo.</p>
+          </div>
+
+          <div className="grid gap-5 px-6 py-5 md:grid-cols-2">
+            <label className="block">
+              <span className="mb-2 block text-sm font-bold text-slate-900">Cảnh báo Sale</span>
               <div className="relative">
-                <select
-                  className="flex h-14 w-full min-w-0 flex-1 resize-none appearance-none overflow-hidden rounded-lg border border-[#cfdbe7] bg-slate-50 px-4 text-base font-normal leading-normal text-[#0d141b] placeholder:text-[#4c739a] focus:outline-0 focus:ring-2 focus:ring-blue-500"
-                  defaultValue=""
-                >
-                  <option value="" disabled>Chọn quy tắc khu vực...</option>
-                  <option value="north">Miền Bắc → Team A</option>
-                  <option value="south">Miền Nam → Team B</option>
-                  <option value="central">Miền Trung → Team C</option>
-                </select>
-                <ChevronDown className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-[#4c739a]" size={20} />
+                <input
+                  type="number"
+                  min={0}
+                  className="h-12 w-full rounded-xl border border-[#cfdbe7] bg-slate-50 px-4 pr-14 text-base font-semibold text-[#0d141b] outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-50"
+                  value={slaConfig.saleAlert}
+                  onChange={(e) => setSlaConfig({ ...slaConfig, saleAlert: e.target.value })}
+                />
+                <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-sm font-bold text-slate-400">phút</span>
               </div>
+              <span className="mt-2 block text-xs leading-5 text-[#4c739a]">Thời gian tối đa để Sale phản hồi lead mới.</span>
             </label>
-          </div>
 
-          <div className={`mx-4 flex ${fieldWidthClass} flex-wrap items-end gap-4 py-3`}>
-            <label className="flex min-w-40 flex-1 flex-col">
-              <p className="pb-2 text-base font-medium leading-normal text-[#0d141b]">Định tuyến theo chương trình</p>
+            <label className="block">
+              <span className="mb-2 block text-sm font-bold text-slate-900">Cảnh báo Quản lý</span>
               <div className="relative">
-                <select
-                  className="flex h-14 w-full min-w-0 flex-1 resize-none appearance-none overflow-hidden rounded-lg border border-[#cfdbe7] bg-slate-50 px-4 text-base font-normal leading-normal text-[#0d141b] placeholder:text-[#4c739a] focus:outline-0 focus:ring-2 focus:ring-blue-500"
-                  defaultValue=""
-                >
-                  <option value="" disabled>Chọn quy tắc chương trình...</option>
-                  <option value="german">Tiếng Đức → Team Đức</option>
-                  <option value="chinese">Tiếng Trung → Team Trung</option>
-                  <option value="abroad">Du học → Team Du học</option>
-                </select>
-                <ChevronDown className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-[#4c739a]" size={20} />
+                <input
+                  type="number"
+                  min={0}
+                  className="h-12 w-full rounded-xl border border-[#cfdbe7] bg-slate-50 px-4 pr-14 text-base font-semibold text-[#0d141b] outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-50"
+                  value={slaConfig.leaderAlert}
+                  onChange={(e) => setSlaConfig({ ...slaConfig, leaderAlert: e.target.value })}
+                />
+                <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-sm font-bold text-slate-400">phút</span>
               </div>
+              <span className="mt-2 block text-xs leading-5 text-[#4c739a]">Thông báo cho Leader nếu lead chưa được xử lý sau mốc này.</span>
             </label>
           </div>
 
-          <h2 className="px-4 pb-3 pt-5 text-[22px] font-bold leading-tight tracking-[-0.015em] text-[#0d141b]">
-            Nhắc nhở tài chính
-          </h2>
-
-          <div className={`mx-4 flex ${fieldWidthClass} flex-wrap items-end gap-4 py-3`}>
-            <label className="flex min-w-40 flex-1 flex-col">
-              <p className="pb-2 text-base font-medium leading-normal text-[#0d141b]">Nhắc trước hạn đóng phí (ngày)</p>
-              <input
-                type="number"
-                className="flex h-14 w-full min-w-0 flex-1 resize-none overflow-hidden rounded-lg border border-[#cfdbe7] bg-slate-50 p-[15px] text-base font-normal leading-normal text-[#0d141b] placeholder:text-[#4c739a] focus:outline-0 focus:ring-2 focus:ring-blue-500"
-                value={financeReminders.beforeDue}
-                onChange={(e) => setFinanceReminders({ ...financeReminders, beforeDue: e.target.value })}
-              />
-            </label>
-          </div>
-
-          <div className={`mx-4 flex ${fieldWidthClass} flex-wrap items-end gap-4 py-3`}>
-            <label className="flex min-w-40 flex-1 flex-col">
-              <p className="pb-2 text-base font-medium leading-normal text-[#0d141b]">Nhắc sau quá hạn lần 1 (ngày)</p>
-              <input
-                type="number"
-                className="flex h-14 w-full min-w-0 flex-1 resize-none overflow-hidden rounded-lg border border-[#cfdbe7] bg-slate-50 p-[15px] text-base font-normal leading-normal text-[#0d141b] placeholder:text-[#4c739a] focus:outline-0 focus:ring-2 focus:ring-blue-500"
-                value={financeReminders.afterOverdue1}
-                onChange={(e) => setFinanceReminders({ ...financeReminders, afterOverdue1: e.target.value })}
-              />
-            </label>
-          </div>
-
-          <div className="flex justify-end px-4 py-6">
+          <div className="flex flex-col gap-3 border-t border-slate-200 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-h-6 text-sm font-semibold text-emerald-700">
+              {feedbackMessage ? (
+                <span className="inline-flex items-center gap-2">
+                  <CheckCircle2 size={16} />
+                  {feedbackMessage}
+                </span>
+              ) : null}
+            </div>
             <button
-              onClick={() => {
-                saveLeadDistributionConfig({ mode: 'manual' });
-                alert('Đã lưu cấu hình. Hệ thống chỉ dùng phân bổ thủ công.');
-              }}
-              className="flex h-12 min-w-[84px] items-center justify-center gap-2 overflow-hidden rounded-lg bg-[#1380ec] px-6 text-base font-bold leading-normal tracking-[0.015em] text-slate-50 shadow-sm transition-colors hover:bg-blue-700"
+              onClick={handleSave}
+              className="inline-flex h-11 min-w-[160px] items-center justify-center gap-2 rounded-xl bg-[#1380ec] px-5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-blue-700"
             >
-              <Save size={20} />
+              <Save size={18} />
               <span className="truncate">Lưu thay đổi</span>
             </button>
           </div>
-        </div>
+        </section>
       </div>
     </div>
   );

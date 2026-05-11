@@ -181,7 +181,7 @@ const AppRoutes = () => {
           <Route path="students/:id" element={renderLazyRoute('./pages/StudentProfile.tsx')} />
 
           {/* Training Routes (New & Enhanced) */}
-          <Route path="training/classes" element={renderLazyRoute('./pages/TrainingClassList.tsx')} />
+          <Route path="training/classes/:id?" element={renderLazyRoute('./pages/TrainingClassList.tsx')} />
           <Route path="training/classes/:id/attendance" element={renderLazyRoute('./pages/TrainingAttendance.tsx')} />
           <Route path="training/classes/:id/grades" element={renderLazyRoute('./pages/TrainingGradebook.tsx')} />
           <Route path="training/classes/:id/resources" element={renderLazyRoute('./pages/TrainingResources.tsx')} />

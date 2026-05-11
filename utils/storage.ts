@@ -1,4 +1,4 @@
-﻿import { ILead, IDeal, IContact, IContract, LeadStatus, DealStage, ContractStatus, IMeeting, MeetingStatus, MeetingType, IQuotation, IQuotationLineItem, QuotationStatus, IAdmission, IStudent, StudentStatus, ITransaction, IClassStudent, ITeacher, ILogNote, ITrainingClass, IStudentScore, IDebtTerm, IClassSession, IAttendanceRecord, IStudyNote, AttendanceStatus, IActualTransaction, IActualTransactionLog, IRefundRequest, IRefundLog, ISalesKpiTarget, ISalesTeam } from '../types';
+import { ILead, IDeal, IContact, IContract, LeadStatus, DealStage, ContractStatus, IMeeting, MeetingStatus, MeetingType, IQuotation, IQuotationLineItem, QuotationStatus, IAdmission, IStudent, StudentStatus, ITransaction, IClassStudent, ITeacher, ILogNote, ITrainingClass, IStudentScore, IDebtTerm, IClassSession, IAttendanceRecord, IStudyNote, AttendanceStatus, IActualTransaction, IActualTransactionLog, IRefundRequest, IRefundLog, ISalesKpiTarget, ISalesTeam } from '../types';
 import type { IStudentClaim } from '../types';
 
 import { decodeMojibakeText } from './mojibake';
@@ -9,7 +9,7 @@ export const KEYS = {
   DEALS: 'educrm_deals',
   CONTACTS: 'educrm_contacts',
   CONTRACTS: 'educrm_contracts_cleaned',
-  QUOTATIONS: 'educrm_quotations',
+  QUOTATIONS: 'educrm_quotations_v2',
   TRANSACTIONS: 'educrm_transactions',
   STUDENTS: 'educrm_students',
   STUDENT_CLAIMS: 'educrm_student_claims',
@@ -2413,7 +2413,41 @@ const INITIAL_QUOTATIONS: IQuotation[] = [
     paymentMethod: 'CASH',
     paymentProof: 'PT-005',
     contractStatus: 'sale_confirmed',
-    createdBy: 'u1'
+    createdBy: 'u1',
+    lineItems: [
+      {
+        id: 'Q-005-line-1',
+        name: 'Khóa tiếng Đức B1-B2',
+        quantity: 1,
+        unitPrice: 25000000,
+        discount: 0,
+        total: 25000000,
+        studentName: 'Hoàng Văn E',
+        targetMarket: 'Đức',
+        servicePackage: 'Đào tạo',
+        programs: ['B1', 'B2'],
+        paymentSchedule: [
+          {
+            id: 'Q-005-term-1',
+            termNo: 1,
+            installmentLabel: 'Lần 1',
+            condition: 'Khi xác nhận lịch học',
+            amount: 12500000,
+            expectedDate: '',
+            dueDate: ''
+          },
+          {
+            id: 'Q-005-term-2',
+            termNo: 2,
+            installmentLabel: 'Lần 2',
+            condition: 'Trước buổi học đầu tiên',
+            amount: 12500000,
+            expectedDate: '',
+            dueDate: ''
+          }
+        ]
+      }
+    ]
   },
   {
     id: 'Q-006',
@@ -2433,7 +2467,41 @@ const INITIAL_QUOTATIONS: IQuotation[] = [
     paymentMethod: 'CK',
     paymentProof: 'UNC-006',
     contractStatus: 'sale_confirmed',
-    createdBy: 'u2'
+    createdBy: 'u2',
+    lineItems: [
+      {
+        id: 'Q-006-line-1',
+        name: 'Khóa tiếng Đức A2',
+        quantity: 1,
+        unitPrice: 30000000,
+        discount: 0,
+        total: 30000000,
+        studentName: 'Nguyễn Thị F',
+        targetMarket: 'Đức',
+        servicePackage: 'Đào tạo',
+        programs: ['A2'],
+        paymentSchedule: [
+          {
+            id: 'Q-006-term-1',
+            termNo: 1,
+            installmentLabel: 'Lần 1',
+            condition: 'Khi xác nhận lịch học',
+            amount: 15000000,
+            expectedDate: '',
+            dueDate: ''
+          },
+          {
+            id: 'Q-006-term-2',
+            termNo: 2,
+            installmentLabel: 'Lần 2',
+            condition: 'Trước buổi học đầu tiên',
+            amount: 15000000,
+            expectedDate: '',
+            dueDate: ''
+          }
+        ]
+      }
+    ]
   },
   {
     id: 'Q-007',
@@ -2453,7 +2521,50 @@ const INITIAL_QUOTATIONS: IQuotation[] = [
     paymentMethod: 'CK',
     paymentProof: 'UNC-007',
     contractStatus: 'sale_confirmed',
-    createdBy: 'u1'
+    createdBy: 'u1',
+    lineItems: [
+      {
+        id: 'Q-007-line-1',
+        name: 'Combo Du học Đức (A1-B1)',
+        quantity: 1,
+        unitPrice: 120000000,
+        discount: 0,
+        total: 120000000,
+        studentName: 'Đỗ Văn G',
+        targetMarket: 'Đức',
+        servicePackage: 'Combo',
+        programs: ['A1', 'A2', 'B1'],
+        paymentSchedule: [
+          {
+            id: 'Q-007-term-1',
+            termNo: 1,
+            installmentLabel: 'Lần 1 (Khởi động hồ sơ)',
+            condition: 'Ngay khi ký HĐ',
+            amount: 36000000,
+            expectedDate: '',
+            dueDate: ''
+          },
+          {
+            id: 'Q-007-term-2',
+            termNo: 2,
+            installmentLabel: 'Lần 2 (Hoàn tất học phần)',
+            condition: 'Khi hoàn thành A2',
+            amount: 48000000,
+            expectedDate: '',
+            dueDate: ''
+          },
+          {
+            id: 'Q-007-term-3',
+            termNo: 3,
+            installmentLabel: 'Lần 3 (Hồ sơ visa)',
+            condition: 'Trước lịch nộp hồ sơ',
+            amount: 36000000,
+            expectedDate: '',
+            dueDate: ''
+          }
+        ]
+      }
+    ]
   }
 ];
 

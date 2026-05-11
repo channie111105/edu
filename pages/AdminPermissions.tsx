@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Save, Shield } from 'lucide-react';
+import { Plus, Shield } from 'lucide-react';
 import RolePermissionListItem from '../components/admin-permissions/RolePermissionListItem';
 import RolePermissionModal from '../components/admin-permissions/RolePermissionModal';
 import { getAdminUsers, saveAdminUsers } from '../utils/adminUsers';
@@ -18,6 +18,7 @@ import {
 
 type ModalState =
   | {
+      mode: 'create' | 'edit';
       role: PermissionRoleRecord;
       permissions: GroupPermissionState;
     }
@@ -26,13 +27,11 @@ type ModalState =
 const AdminPermissions: React.FC = () => {
   const [settings, setSettings] = useState<PermissionSettingsSnapshot>(() => loadAdminPermissionSettings());
   const [modalState, setModalState] = useState<ModalState>(null);
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
 
   useEffect(() => {
     const syncSettings = () => {
       setSettings(loadAdminPermissionSettings());
-      setHasUnsavedChanges(false);
     };
 
     window.addEventListener(ADMIN_PERMISSIONS_EVENT, syncSettings as EventListener);
@@ -61,30 +60,32 @@ const AdminPermissions: React.FC = () => {
 
   const openEditModal = (role: PermissionRoleRecord) => {
     setModalState({
+      mode: 'edit',
       role,
       permissions: settings.permissions[role.id] || createEmptyPermissionStateForRole(),
     });
   };
 
-  const handleModalSave = (nextRole: PermissionRoleRecord, nextPermissions: GroupPermissionState) => {
-    setSettings((prev) => {
-      const roleExists = prev.roles.some((role) => role.id === nextRole.id);
-      return normalizePermissionSettings({
-        roles: roleExists ? prev.roles.map((role) => (role.id === nextRole.id ? nextRole : role)) : [...prev.roles, nextRole],
-        permissions: {
-          ...prev.permissions,
-          [nextRole.id]: nextPermissions,
-        },
-      });
+  const openCreateModal = () => {
+    setModalState({
+      mode: 'create',
+      role: createEmptyPermissionRole(),
+      permissions: createEmptyPermissionStateForRole(),
     });
-
-    setHasUnsavedChanges(true);
-    setModalState(null);
-    setFeedbackMessage(`Đã cập nhật nháp cho ${nextRole.label}.`);
   };
 
-  const handleSaveAll = () => {
-    const saved = saveAdminPermissionSettings(settings);
+  const handleModalSave = (nextRole: PermissionRoleRecord, nextPermissions: GroupPermissionState) => {
+    const wasCreate = modalState?.mode === 'create';
+    const roleExists = settings.roles.some((role) => role.id === nextRole.id);
+    const nextSettings = normalizePermissionSettings({
+      roles: roleExists ? settings.roles.map((role) => (role.id === nextRole.id ? nextRole : role)) : [...settings.roles, nextRole],
+      permissions: {
+        ...settings.permissions,
+        [nextRole.id]: nextPermissions,
+      },
+    });
+
+    const saved = saveAdminPermissionSettings(nextSettings);
     const roleLabelById = new Map(saved.roles.map((role) => [role.id, role.label]));
     const nextUsers = getAdminUsers().map((user) =>
       user.permissionRoleId
@@ -97,8 +98,8 @@ const AdminPermissions: React.FC = () => {
 
     saveAdminUsers(nextUsers);
     setSettings(saved);
-    setHasUnsavedChanges(false);
-    setFeedbackMessage('Đã lưu cấu hình phân quyền mới.');
+    setModalState(null);
+    setFeedbackMessage(wasCreate ? `Đã tạo vai trò ${nextRole.label}.` : `Đã lưu vai trò ${nextRole.label}.`);
   };
 
   return (
@@ -114,7 +115,7 @@ const AdminPermissions: React.FC = () => {
               <div>
                 <h1 className="text-3xl font-black tracking-tight text-[#122033]">Quản lý phân quyền</h1>
                 <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500">
-                  Tạo role mới đã chuyển sang modal Thêm người dùng. Màn này chỉ còn danh sách role và phần chỉnh sửa quyền.
+                  Tạo vai trò mới và tick từng quyền nhỏ bên trong theo đúng phạm vi vận hành.
                 </p>
               </div>
             </div>
@@ -124,20 +125,15 @@ const AdminPermissions: React.FC = () => {
                 <div className="rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700">
                   {feedbackMessage}
                 </div>
-              ) : hasUnsavedChanges ? (
-                <div className="rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-700">
-                  Có thay đổi chưa lưu
-                </div>
               ) : null}
 
               <button
                 type="button"
-                onClick={handleSaveAll}
-                disabled={!hasUnsavedChanges}
-                className="inline-flex h-11 items-center gap-2 rounded-2xl bg-slate-900 px-5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                onClick={openCreateModal}
+                className="inline-flex h-11 items-center gap-2 rounded-2xl bg-slate-900 px-5 text-sm font-semibold text-white transition hover:bg-slate-800"
               >
-                <Save size={16} />
-                Lưu cấu hình
+                <Plus size={16} />
+                Tạo vai trò
               </button>
             </div>
           </div>
@@ -175,7 +171,7 @@ const AdminPermissions: React.FC = () => {
 
       <RolePermissionModal
         isOpen={Boolean(modalState)}
-        mode="edit"
+        mode={modalState?.mode || 'create'}
         role={modalState?.role || createEmptyPermissionRole()}
         permissions={modalState?.permissions || createEmptyPermissionStateForRole()}
         existingRoleIds={settings.roles.map((role) => role.id)}

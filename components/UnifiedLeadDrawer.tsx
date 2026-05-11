@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useRef } from 'react';
 import { ILead, LeadStatus, UserRole, Activity, DealStage, IContract, ContractStatus, IQuotation, IQuotationLineItem, IQuotationLogNote, ITeacher, ITrainingClass, QuotationStatus } from '../types';
 import { useAuth } from '../contexts/AuthContext';
@@ -59,6 +59,72 @@ interface UnifiedLeadDrawerProps {
     statusBarMode?: 'lead' | 'pipeline';
     statusBarStage?: DealStage;
 }
+
+export interface ServicePackage {
+  id: string;
+  name: string;
+  price: number;
+  country: string;
+  productPackage: string;
+  programs: string[];
+  type: string;
+  currency: string;
+  startDate: string;
+  endDate: string;
+  status: string;
+  roadmap: {
+    name: string;
+    steps: {
+      name: string;
+      percent: number;
+      due: string;
+    }[];
+  };
+}
+
+const DEFAULT_SERVICE_PACKAGES: ServicePackage[] = [
+  {
+    id: 'DE-A1',
+    name: 'Tiếng Đức A1 (Offline)',
+    price: 8000000,
+    country: 'Đức',
+    productPackage: 'Gói cơ bản',
+    programs: ['du học', 'A1'],
+    type: 'off',
+    currency: 'VNĐ',
+    startDate: new Date().toISOString().split('T')[0],
+    endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+    status: 'Đang áp dụng',
+    roadmap: {
+      name: 'Lộ trình Tiếng Đức A1',
+      steps: [
+        { name: 'Thanh toán giữ lớp', percent: 40, due: 'Khi xác nhận lịch học' },
+        { name: 'Hoàn tất học phí', percent: 60, due: 'Trước buổi học đầu tiên' },
+      ],
+    },
+  },
+  {
+    id: 'COMBO-GER',
+    name: 'Combo Du học Đức (A1-B1)',
+    price: 45000000,
+    country: 'Đức',
+    productPackage: 'Gói VIP',
+    programs: ['du học', 'A1', 'A2', 'B1', 'Dv hồ sơ'],
+    type: 'Blended',
+    currency: 'VNĐ',
+    startDate: new Date().toISOString().split('T')[0],
+    endDate: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+    status: 'Đang áp dụng',
+    roadmap: {
+      name: 'Lộ trình Combo Du học Đức A1-B1',
+      steps: [
+        { name: 'Đợt 1 (Khởi động hồ sơ)', percent: 30, due: 'Ngay khi ký HĐ' },
+        { name: 'Đợt 2 (Hoàn tất học phần)', percent: 40, due: 'Khi hoàn thành A2' },
+        { name: 'Đợt 3 (Hồ sơ visa)', percent: 30, due: 'Trước lịch nộp hồ sơ' },
+      ],
+    },
+  },
+];
 
 type CreatorMarket = 'Đức' | 'Trung Quốc';
 type CreatorServicePackage = 'Du học' | 'Combo' | 'Đào tạo';
@@ -602,6 +668,24 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
     const [quotationCreatorTab, setQuotationCreatorTab] = useState<'order_lines' | 'other_info'>('order_lines');
     const [quotationWorkflowStatus, setQuotationWorkflowStatus] = useState<'draft' | 'sent' | 'sale_order' | 'cancelled'>('draft');
     const [activeQuotationId, setActiveQuotationId] = useState<string | null>(null);
+    const [servicePackages, setServicePackages] = useState<ServicePackage[]>([]);
+
+    useEffect(() => {
+        const raw = window.localStorage.getItem('educrm_admin_financial_course_packages_v1');
+        if (raw) {
+            try {
+                const parsed = JSON.parse(raw);
+                if (Array.isArray(parsed)) {
+                    setServicePackages(parsed);
+                    return;
+                }
+            } catch (e) {
+                console.error('Failed to load service packages in LeadDrawer', e);
+            }
+        }
+        setServicePackages(DEFAULT_SERVICE_PACKAGES);
+    }, [isOpen]);
+
     const [isSaving, setIsSaving] = useState(false); // Global saving indicator state
     const lastLoggedValues = useRef<Record<string, any>>({}); // To prevent duplicate logs in rapid succession
     const previousInitialLeadIdRef = useRef(initialLead?.id || '');
@@ -2039,19 +2123,41 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
 
     const availableServicePackages = useMemo(() => {
         if (!orderLineDraft.targetMarket) return [];
+
+        const custom = servicePackages
+            .filter(p => p.country === orderLineDraft.targetMarket && (p.status === 'Đang áp dụng' || p.status === 'active'))
+            .map(p => p.name);
+
+        if (custom.length > 0) return Array.from(new Set(custom));
+
         return Array.from(
             new Set(
                 ORDER_LINE_CATALOG.filter((item) => item.market === orderLineDraft.targetMarket).map((item) => item.servicePackage)
             )
         );
-    }, [orderLineDraft.targetMarket]);
+    }, [orderLineDraft.targetMarket, servicePackages]);
 
     const availableProducts = useMemo(() => {
         if (!orderLineDraft.targetMarket || !orderLineDraft.servicePackage) return [];
+
+        const custom = servicePackages.find(p => p.country === orderLineDraft.targetMarket && p.name === orderLineDraft.servicePackage);
+        if (custom) {
+            return [{
+                id: custom.id,
+                product: custom.name,
+                market: custom.country as CreatorMarket,
+                servicePackage: custom.name as any,
+                serviceType: (custom.type === 'Du học' ? 'StudyAbroad' : custom.type === 'Combo' ? 'Combo' : 'Training') as any,
+                courseOptions: [],
+                programOptions: custom.programs,
+                defaultPrice: custom.price
+            }];
+        }
+
         return ORDER_LINE_CATALOG.filter(
             (item) => item.market === orderLineDraft.targetMarket && item.servicePackage === orderLineDraft.servicePackage
         );
-    }, [orderLineDraft.servicePackage, orderLineDraft.targetMarket]);
+    }, [orderLineDraft.servicePackage, orderLineDraft.targetMarket, servicePackages]);
 
     const availableProgramOptions = useMemo(() => {
         return Array.from(new Set(availableProducts.flatMap((item) => item.programOptions)));
@@ -2075,8 +2181,37 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
     }, [creatorClasses, orderLineDraft.programs, orderLineDraft.targetMarket]);
 
     const resolvedOrderPaymentPlan = useMemo(
-        () => resolveServicePaymentPlan(orderLineDraft.targetMarket, orderLineDraft.servicePackage, orderLineDraft.unitPrice),
-        [orderLineDraft.servicePackage, orderLineDraft.targetMarket, orderLineDraft.unitPrice]
+        () => {
+            const custom = servicePackages.find(p => p.country === orderLineDraft.targetMarket && p.name === orderLineDraft.servicePackage);
+            if (custom && custom.roadmap && custom.roadmap.steps.length > 0) {
+                let allocated = 0;
+                const total = Math.max(0, Math.round(Number(orderLineDraft.unitPrice) || 0));
+                const steps = custom.roadmap.steps.map((step, index) => {
+                    const isLast = index === custom.roadmap.steps.length - 1;
+                    const amount = isLast 
+                        ? Math.max(0, total - allocated)
+                        : Math.round(total * (step.percent / 100));
+                    allocated += amount;
+                    return {
+                        installmentLabel: step.name,
+                        condition: step.due,
+                        ratio: step.percent / 100,
+                        amount
+                    };
+                });
+
+                return {
+                    id: custom.id,
+                    market: custom.country as any,
+                    servicePackage: custom.name as any,
+                    totalAmount: total,
+                    steps
+                };
+            }
+
+            return resolveServicePaymentPlan(orderLineDraft.targetMarket, orderLineDraft.servicePackage, orderLineDraft.unitPrice);
+        },
+        [orderLineDraft.servicePackage, orderLineDraft.targetMarket, orderLineDraft.unitPrice, servicePackages]
     );
 
     const openNewOrderLineModal = () => {
@@ -2117,12 +2252,30 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
         }));
     };
 
-    const handleOrderDraftServiceChange = (servicePackage: CreatorServicePackage | '') => {
+    const handleOrderDraftServiceChange = (servicePackage: string) => {
         setProgramDropdownOpen(false);
-        const catalog = getPrimaryCatalogByServicePackage(orderLineDraft.targetMarket, servicePackage);
+        const adminPkg = servicePackages.find(p => p.country === orderLineDraft.targetMarket && p.name === servicePackage);
+        
+        if (adminPkg) {
+            setOrderLineDraft((prev) => ({
+                ...prev,
+                servicePackage: servicePackage as any,
+                productId: adminPkg.id,
+                productName: adminPkg.name,
+                courseName: '',
+                programs: adminPkg.programs || [],
+                classId: '',
+                unitPrice: adminPkg.price
+            }));
+            const derivedType = (adminPkg.type === 'Du học' ? 'StudyAbroad' : adminPkg.type === 'Combo' ? 'Combo' : 'Training') as any;
+            setQuotationData((prev) => ({ ...prev, serviceType: derivedType }));
+            return;
+        }
+
+        const catalog = getPrimaryCatalogByServicePackage(orderLineDraft.targetMarket, servicePackage as any);
         setOrderLineDraft((prev) => ({
             ...prev,
-            servicePackage,
+            servicePackage: servicePackage as any,
             productId: catalog?.id,
             productName: catalog?.product || servicePackage,
             courseName: '',

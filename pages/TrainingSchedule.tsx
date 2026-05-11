@@ -9,7 +9,8 @@ import {
    Globe,
    BookOpen,
    User,
-   Info
+   Info,
+   Home
 } from 'lucide-react';
 
 // Interfaces for Schedule
@@ -45,6 +46,7 @@ const TrainingSchedule: React.FC = () => {
    const [currentWeek, setCurrentWeek] = useState('Tuần 43 (23/10 - 29/10)');
    const [filters, setFilters] = useState({
       branch: 'ALL',
+      room: 'ALL',
       language: 'ALL',
       level: 'ALL',
       teacher: 'ALL',
@@ -74,6 +76,7 @@ const TrainingSchedule: React.FC = () => {
       return INITIAL_SCHEDULE.filter(item => {
          if (item.type !== viewMode) return false;
          if (filters.branch !== 'ALL' && item.branch !== filters.branch) return false;
+         if (filters.room !== 'ALL' && item.room !== filters.room) return false;
          if (filters.language !== 'ALL' && item.language !== filters.language) return false;
          if (filters.level !== 'ALL' && item.level !== filters.level) return false;
          if (filters.teacher !== 'ALL' && item.teacher !== filters.teacher) return false;
@@ -134,13 +137,10 @@ const TrainingSchedule: React.FC = () => {
                </div>
 
                {/* --- FILTER BAR --- */}
-               <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-wrap gap-4 items-center">
-                  <div className="flex items-center gap-2 text-slate-500 font-bold text-sm mr-2">
-                     <Filter size={18} /> Bộ lọc:
-                  </div>
+                <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm flex items-center gap-3 flex-nowrap">
 
                   {/* Branch Filter */}
-                  <div className="relative group">
+                  <div className="relative group shrink-0">
                      <MapPin className="absolute left-3 top-2.5 text-slate-400" size={16} />
                      <select
                         className="pl-9 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 hover:border-slate-300"
@@ -154,11 +154,27 @@ const TrainingSchedule: React.FC = () => {
                      </select>
                   </div>
 
+                  {/* Room Filter */}
+                  <div className="relative group flex-1">
+                     <Home className="absolute left-3 top-2.5 text-slate-400" size={16} />
+                     <select
+                        className="w-full pl-9 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 hover:border-slate-300"
+                        value={filters.room}
+                        onChange={(e) => setFilters({ ...filters, room: e.target.value })}
+                     >
+                        <option value="ALL">Tất cả Phòng học</option>
+                        <option value="P.101">P.101</option>
+                        <option value="P.102">P.102</option>
+                        <option value="P.201">P.201</option>
+                        <option value="P.302">P.302</option>
+                     </select>
+                  </div>
+
                   {/* Language Filter */}
-                  <div className="relative">
+                  <div className="relative group flex-1">
                      <Globe className="absolute left-3 top-2.5 text-slate-400" size={16} />
                      <select
-                        className="pl-9 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 hover:border-slate-300"
+                        className="w-full pl-9 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 hover:border-slate-300"
                         value={filters.language}
                         onChange={(e) => setFilters({ ...filters, language: e.target.value })}
                      >
@@ -171,10 +187,10 @@ const TrainingSchedule: React.FC = () => {
                   </div>
 
                   {/* Level Filter */}
-                  <div className="relative">
+                  <div className="relative group flex-1">
                      <BookOpen className="absolute left-3 top-2.5 text-slate-400" size={16} />
                      <select
-                        className="pl-9 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 hover:border-slate-300"
+                        className="w-full pl-9 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 hover:border-slate-300"
                         value={filters.level}
                         onChange={(e) => setFilters({ ...filters, level: e.target.value })}
                      >
@@ -188,10 +204,10 @@ const TrainingSchedule: React.FC = () => {
                   </div>
 
                   {/* Teacher Filter */}
-                  <div className="relative">
+                  <div className="relative group flex-1">
                      <User className="absolute left-3 top-2.5 text-slate-400" size={16} />
                      <select
-                        className="pl-9 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 hover:border-slate-300"
+                        className="w-full pl-9 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 hover:border-slate-300"
                         value={filters.teacher}
                         onChange={(e) => setFilters({ ...filters, teacher: e.target.value })}
                      >
@@ -204,11 +220,11 @@ const TrainingSchedule: React.FC = () => {
                   </div>
 
                   {/* Navigation Controls */}
-                  <div className="ml-auto flex items-center gap-3 border-l border-slate-200 pl-4">
-                     <button className="p-1.5 hover:bg-slate-100 rounded-md text-slate-500 transition-colors"><ChevronLeft size={20} /></button>
-                     <span className="font-bold text-slate-700 text-sm whitespace-nowrap min-w-[150px] text-center">{currentWeek}</span>
-                     <button className="p-1.5 hover:bg-slate-100 rounded-md text-slate-500 transition-colors"><ChevronRight size={20} /></button>
-                     <button className="bg-slate-800 text-white px-3 py-1.5 rounded-md text-xs font-bold hover:bg-slate-700 transition-colors">Hôm nay</button>
+                  <div className="flex items-center gap-2 border-l border-slate-200 pl-3 shrink-0">
+                     <button className="p-1.5 hover:bg-slate-100 rounded-md text-slate-500 transition-colors"><ChevronLeft size={18} /></button>
+                     <span className="font-bold text-slate-700 text-[13px] whitespace-nowrap min-w-[140px] text-center">{currentWeek}</span>
+                     <button className="p-1.5 hover:bg-slate-100 rounded-md text-slate-500 transition-colors"><ChevronRight size={18} /></button>
+                     <button className="bg-slate-800 text-white px-2.5 py-1.5 rounded-lg text-[11px] font-bold hover:bg-slate-700 transition-colors">Hôm nay</button>
                   </div>
                </div>
             </div>
