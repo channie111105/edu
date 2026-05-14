@@ -300,7 +300,6 @@ const toEditForm = (row: StudyAbroadCaseRecord): EditFormState => ({
   demographicInfo: row.demographicInfo,
   country: row.country,
   program: row.program,
-  productPackage: row.productPackage,
   major: row.major,
   salesperson: row.salesperson,
   branch: row.branch,
@@ -359,7 +358,7 @@ const buildProgressSteps = (form: EditFormState): ProgressStep[] => [
     title: 'Program selected',
     subtitle:
       form.programSelectionStatus === 'SELECTED'
-        ? form.schoolProgramName || form.productPackage || text('ÄÃ£ chá»n chÆ°Æ¡ng trÃ¬nh')
+        ? form.schoolProgramName || text('ÄÃ£ chá»n chÆ°Æ¡ng trÃ¬nh')
         : text('ChÆ°a chá»n chÆ°Æ¡ng trÃ¬nh'),
     state: form.programSelectionStatus === 'SELECTED' ? 'done' : 'pending'
   },
@@ -865,7 +864,6 @@ const StudyAbroadCaseDetail: React.FC = () => {
     { label: 'CCCD', value: getDisplayText(editForm.identityCard), icon: CreditCard },
     { label: 'Passport', value: getDisplayText(editForm.passport), icon: FileText },
     { label: 'Chương trình', value: getDisplayText(editForm.program), icon: GraduationCap },
-    { label: 'Gói sản phẩm', value: getDisplayText(editForm.productPackage), icon: Package },
     { label: 'Salesperson', value: getDisplayText(editForm.salesperson), icon: Briefcase },
     { label: 'Chi nhánh', value: getDisplayText(editForm.branch), icon: Building2 },
     { label: 'Người xử lý hồ sơ', value: getDisplayText(editForm.processorName), icon: User }
@@ -1320,25 +1318,7 @@ const StudyAbroadCaseDetail: React.FC = () => {
                           <ReadOnlyValue value={getDisplayText(editForm.program)} icon={GraduationCap} />
                         )}
                       </FieldShell>
-                      <FieldShell label="GÃ³i sáº£n pháº©m">
-                        {isEditing ? (
-                          <select
-                            value={editForm.productPackage}
-                            onChange={(event) => updateEditForm('productPackage', event.target.value)}
-                            className={selectClassName}
-                          >
-                            <option value="">Chá»n gÃ³i sáº£n pháº©m</option>
-                            {PRODUCT_PACKAGE_OPTIONS.map((option) => (
-                              <option key={option.value} value={option.value}>
-                                {option.label}
-                              </option>
-                            ))}
-                          </select>
-                        ) : (
-                          <ReadOnlyValue value={getDisplayText(editForm.productPackage)} icon={Package} />
-                        )}
-                      </FieldShell>
-                      <FieldShell label="Salesperson" required>
+                                            <FieldShell label="Salesperson" required>
                         {isEditing ? (
                           <input
                             value={editForm.salesperson}

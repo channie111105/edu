@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Save, 
   Search, 
@@ -26,7 +26,7 @@ export interface ServicePackage {
   name: string;
   price: number;
   country: string;
-  productPackage: string;
+  programTypes: string[];
   programs: string[];
 
   type: string;
@@ -45,7 +45,7 @@ interface ServicePackageDraft {
   name: string;
   price: string;
   country: string;
-  productPackage: string;
+  programTypes: string[];
   programs: string[];
 
   type: string;
@@ -60,7 +60,8 @@ interface ServicePackageDraft {
 const COUNTRIES = ['Trung Quốc', 'Đức'];
 const SERVICE_TYPES = ['Onl', 'off', 'APp', 'Blended'];
 const CURRENCIES = ['Eur', 'VNĐ', 'tệ', 'won'];
-const PROGRAM_OPTIONS = ['A1', 'A2', 'B1', 'ôn B1', 'HSK 1', 'HSK 2', 'HSK 3', 'HSK 4', 'HSK 5', 'HSK 6', 'Dv hồ sơ', 'du học'];
+const PROGRAM_TYPES = ['Đào tạo', 'Du học', 'Loại khác'];
+const PROGRAM_OPTIONS = ['A1', 'A2', 'B1', 'ôn B1', 'HSK 1', 'HSK 2', 'HSK 3', 'HSK 4', 'HSK 5', 'HSK 6', 'Dv hồ sơ'];
 
 const PRODUCTS: ServicePackage[] = [
   {
@@ -68,8 +69,8 @@ const PRODUCTS: ServicePackage[] = [
     name: 'Tiếng Đức A1 (Offline)',
     price: 8000000,
     country: 'Đức',
-    productPackage: 'Gói cơ bản',
-    programs: ['du học', 'A1'],
+    programTypes: ['Đào tạo'],
+    programs: ['Dv hồ sơ', 'A1'],
     type: 'off',
     currency: 'VNĐ',
     startDate: new Date().toISOString().split('T')[0],
@@ -88,8 +89,8 @@ const PRODUCTS: ServicePackage[] = [
     name: 'Combo Du học Đức (A1-B1)',
     price: 45000000,
     country: 'Đức',
-    productPackage: 'Gói VIP',
-    programs: ['du học', 'A1', 'A2', 'B1', 'Dv hồ sơ'],
+    programTypes: ['Du học'],
+    programs: ['Dv hồ sơ', 'A1', 'A2', 'B1'],
     type: 'Blended',
     currency: 'VNĐ',
     startDate: new Date().toISOString().split('T')[0],
@@ -118,8 +119,8 @@ const createEmptyDraft = (): ServicePackageDraft => ({
   name: '',
   price: '',
   country: 'Đức',
-  productPackage: '',
-  programs: ['du học'],
+  programTypes: ['Đào tạo'],
+  programs: [],
   type: 'off',
   currency: 'VNĐ',
   startDate: new Date().toISOString().split('T')[0],
@@ -134,8 +135,8 @@ const buildDraftFromProduct = (product: ServicePackage): ServicePackageDraft => 
   name: product.name,
   price: String(product.price),
   country: product.country || 'Đức',
-  productPackage: product.productPackage || '',
-  programs: product.programs || ['du học'],
+  programTypes: product.programTypes || ['Đào tạo'],
+  programs: product.programs || [],
   type: product.type || 'off',
   currency: product.currency || 'VNĐ',
   startDate: product.startDate || new Date().toISOString().split('T')[0],
@@ -157,9 +158,13 @@ const normalizeProduct = (value: unknown): ServicePackage | null => {
   const name = String(source.name || '').trim();
   const price = Number(source.price) || 0;
   const country = String(source.country || 'Đức');
-  const productPackage = String(source.productPackage || '');
-  const programs = Array.isArray(source.programs) ? source.programs : ['du học'];
-  if (!programs.includes('du học')) programs.push('du học');
+  const programTypes = Array.isArray(source.programTypes) ? source.programTypes : ['Đào tạo'];
+  let programs = Array.isArray(source.programs) ? source.programs.filter(p => p !== 'du học') : [];
+  if (programTypes.includes('Du học')) {
+    if (!programs.includes('Dv hồ sơ')) programs.push('Dv hồ sơ');
+  } else {
+    programs = programs.filter(p => p !== 'Dv hồ sơ');
+  }
   const type = String(source.type || 'off');
   const currency = String(source.currency || 'VNĐ');
   const startDate = String(source.startDate || new Date().toISOString().split('T')[0]);
@@ -182,7 +187,7 @@ const normalizeProduct = (value: unknown): ServicePackage | null => {
     name,
     price,
     country,
-    productPackage,
+    programTypes,
     programs,
     type,
     currency,
@@ -218,8 +223,12 @@ const AdminFinancialConfig: React.FC = () => {
   const [draft, setDraft] = useState<ServicePackageDraft | null>(null);
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
   const [formError, setFormError] = useState('');
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState('');
+
+  useEffect(() => {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(products));
+    window.dispatchEvent(new CustomEvent('educrm:financial-config-changed'));
+  }, [products]);
 
   const formatCurrency = (val: number) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(val);
   const filteredProducts = products.filter((product) =>
@@ -307,7 +316,6 @@ const AdminFinancialConfig: React.FC = () => {
       name: draft.name.trim(),
       price: Number(draft.price) || 0,
       country: draft.country,
-      productPackage: draft.productPackage,
       programs: draft.programs,
       type: draft.type,
       currency: draft.currency,
@@ -366,8 +374,7 @@ const AdminFinancialConfig: React.FC = () => {
         ? prev.map((product) => (product.id === editingProductId ? nextProduct : product))
         : [nextProduct, ...prev],
     );
-    setHasUnsavedChanges(true);
-    setFeedbackMessage(editingProductId ? `Đã cập nhật nháp ${nextProduct.name}.` : `Đã thêm nháp ${nextProduct.name}.`);
+    setFeedbackMessage(editingProductId ? `Đã cập nhật ${nextProduct.name}.` : `Đã thêm ${nextProduct.name}.`);
     closeModal();
   };
 
@@ -375,15 +382,10 @@ const AdminFinancialConfig: React.FC = () => {
     if (!window.confirm(`Bạn có chắc muốn xóa "${product.name}"?`)) return;
 
     setProducts((prev) => prev.filter((item) => item.id !== product.id));
-    setHasUnsavedChanges(true);
-    setFeedbackMessage(`Đã xóa nháp ${product.name}.`);
+    setFeedbackMessage(`Đã xóa ${product.name}.`);
   };
 
-  const handleSaveAll = () => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(products));
-    setHasUnsavedChanges(false);
-    setFeedbackMessage('Đã lưu bảng giá gói dịch vụ.');
-  };
+
 
   return (
     <div className="flex flex-col h-full bg-[#f8fafc] text-[#111418] font-sans overflow-y-auto">
@@ -406,7 +408,7 @@ const AdminFinancialConfig: React.FC = () => {
                     <div>
                       <h3 className="font-bold text-blue-950 text-lg">Nguyên tắc gói dịch vụ</h3>
                       <p className="text-sm text-blue-800 mt-1 max-w-2xl">
-                          Mỗi gói dịch vụ có một lộ trình đóng phí riêng để dùng khi tạo báo giá và hợp đồng. Gói dịch vụ bắt buộc phải bao gồm chương trình Du học.
+                          Mỗi gói dịch vụ có một lộ trình đóng phí riêng để dùng khi tạo báo giá và hợp đồng. Gói dịch vụ bắt buộc phải bao gồm chương trình Dv hồ sơ.
                       </p>
                     </div>
                 </div>
@@ -416,15 +418,11 @@ const AdminFinancialConfig: React.FC = () => {
                 </div>
               </div>
 
-              {feedbackMessage ? (
-                <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700 flex items-center gap-2">
+              {feedbackMessage && (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700 flex items-center gap-2 animate-in fade-in slide-in-from-top-1 duration-200">
                   <CheckCircle2 size={16} /> {feedbackMessage}
                 </div>
-              ) : hasUnsavedChanges ? (
-                <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-700">
-                  Có thay đổi chưa lưu. Vui lòng nhấn "Lưu thay đổi" để hoàn tất.
-                </div>
-              ) : null}
+              )}
 
               {/* Price List Table */}
               <div className="bg-white rounded-xl border border-[#cfdbe7] shadow-sm overflow-hidden">
@@ -468,7 +466,6 @@ const AdminFinancialConfig: React.FC = () => {
                             <td className="px-6 py-4 font-mono text-xs font-bold text-slate-500">{prod.id}</td>
                             <td className="px-6 py-4">
                                 <div className="font-bold text-slate-900">{prod.name}</div>
-                                <div className="text-[10px] text-slate-400 uppercase font-bold">{prod.productPackage}</div>
                             </td>
                             <td className="px-6 py-4 text-sm text-slate-700 font-medium">{prod.country}</td>
                             <td className="px-6 py-4">
@@ -520,16 +517,7 @@ const AdminFinancialConfig: React.FC = () => {
                 </table>
               </div>
 
-              <div className="flex justify-end">
-                <button
-                  type="button"
-                  onClick={handleSaveAll}
-                  disabled={!hasUnsavedChanges}
-                  className="flex items-center gap-2 bg-green-600 text-white px-6 py-3 rounded-lg font-bold shadow-md transition-colors hover:bg-green-700 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
-                >
-                    <Save size={20} /> Lưu thay đổi
-                </button>
-              </div>
+
             </div>
 
         </div>
@@ -597,16 +585,7 @@ const AdminFinancialConfig: React.FC = () => {
                     </select>
                   </div>
 
-                  <div className="md:col-span-4">
-                    <label className={labelClass}>Gói SP</label>
-                    <input
-                      value={draft.productPackage}
-                      onChange={(event) => updateDraftField('productPackage', event.target.value)}
-                      className={inputClass}
-                      placeholder="Nhập tên gói..."
-                    />
-                  </div>
-                  <div className="md:col-span-4">
+                  <div className="md:col-span-6">
                     <label className={labelClass}>Loại hình</label>
                     <select
                       value={draft.type}
@@ -616,7 +595,7 @@ const AdminFinancialConfig: React.FC = () => {
                       {SERVICE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                     </select>
                   </div>
-                  <div className="md:col-span-4">
+                  <div className="md:col-span-6">
                     <label className={labelClass}>Trạng thái</label>
                     <select
                       value={draft.status}
@@ -668,27 +647,79 @@ const AdminFinancialConfig: React.FC = () => {
                   </div>
 
                   <div className="md:col-span-12">
+                    <label className={labelClass}>Loại chương trình</label>
+                    <div className="flex flex-wrap gap-4 p-3 border border-slate-200 rounded-lg bg-slate-50 mb-4">
+                      {PROGRAM_TYPES.map(pt => (
+                        <label key={pt} className="flex items-center gap-2 cursor-pointer group">
+                          <input
+                            type="checkbox"
+                            checked={draft.programTypes?.includes(pt) || false}
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              let nextTypes = [...(draft.programTypes || [])];
+                              
+                              if (pt === 'Loại khác') {
+                                if (checked) nextTypes = ['Loại khác'];
+                                else nextTypes = [];
+                              } else {
+                                if (checked) {
+                                  nextTypes = nextTypes.filter(t => t !== 'Loại khác');
+                                  nextTypes.push(pt);
+                                } else {
+                                  nextTypes = nextTypes.filter(t => t !== pt);
+                                }
+                              }
+                              
+                              updateDraftField('programTypes', nextTypes);
+                              
+                              if (nextTypes.includes('Du học')) {
+                                if (!draft.programs.includes('Dv hồ sơ')) {
+                                  updateDraftField('programs', [...draft.programs, 'Dv hồ sơ']);
+                                }
+                              } else {
+                                if (draft.programs.includes('Dv hồ sơ')) {
+                                  updateDraftField('programs', draft.programs.filter(p => p !== 'Dv hồ sơ'));
+                                }
+                              }
+                            }}
+                            className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer"
+                          />
+                          <span className="text-sm font-medium text-slate-700">{pt}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="md:col-span-12">
                     <label className={labelClass}>Chương trình</label>
                     <div className="flex flex-wrap gap-4 p-3 border border-slate-200 rounded-lg bg-slate-50">
-                        {PROGRAM_OPTIONS.map(prog => (
-                            <label key={prog} className="flex items-center gap-2 cursor-pointer group">
-                                <input
-                                    type="checkbox"
-                                    checked={draft.programs.includes(prog)}
-                                    disabled={prog === 'du học'} // Bắt buộc
-                                    onChange={(e) => {
-                                        const next = e.target.checked 
-                                            ? [...draft.programs, prog]
-                                            : draft.programs.filter(p => p !== prog);
-                                        updateDraftField('programs', next);
-                                    }}
-                                    className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer disabled:cursor-not-allowed"
-                                />
-                                <span className={`text-sm font-medium ${prog === 'du học' ? 'text-blue-700 font-bold' : 'text-slate-700'}`}>
-                                    {prog} {prog === 'du học' && <span className="text-[10px] text-blue-500">(Bắt buộc)</span>}
-                                </span>
-                            </label>
-                        ))}
+                        {PROGRAM_OPTIONS.map(prog => {
+                             const isStudyAbroad = draft.programTypes?.includes('Du học') || false;
+                             const isRequired = prog === 'Dv hồ sơ' && isStudyAbroad;
+                             const isHidden = prog === 'Dv hồ sơ' && !isStudyAbroad;
+
+                             if (isHidden) return null;
+
+                             return (
+                               <label key={prog} className="flex items-center gap-2 cursor-pointer group">
+                                   <input
+                                       type="checkbox"
+                                       checked={draft.programs.includes(prog)}
+                                       disabled={isRequired}
+                                       onChange={(e) => {
+                                           const next = e.target.checked 
+                                               ? [...draft.programs, prog]
+                                               : draft.programs.filter(p => p !== prog);
+                                           updateDraftField('programs', next);
+                                       }}
+                                       className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+                                   />
+                                   <span className={`text-sm font-medium ${isRequired ? 'text-blue-700 font-bold' : 'text-slate-700'}`}>
+                                       {prog} {isRequired && <span className="text-[10px] text-blue-500">(Bắt buộc)</span>}
+                                   </span>
+                               </label>
+                             );
+                        })}
                     </div>
                   </div>
 

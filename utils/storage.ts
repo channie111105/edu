@@ -814,7 +814,40 @@ const buildStudentNote = (
   return parts.join(' | ');
 };
 
+export const getQuotationProgramTypes = (quotation: IQuotation): string[] => {
+  if (typeof window === 'undefined') return [];
+  const raw = window.localStorage.getItem('educrm_admin_financial_course_packages_v1');
+  let packages: any[] = [];
+  try {
+    if (raw) packages = JSON.parse(raw);
+  } catch(e) {}
+  
+  const types = new Set<string>();
+  (quotation.lineItems || []).forEach(item => {
+    const pkg = packages.find(p => p.name === item.servicePackage || p.id === item.servicePackage);
+    if (pkg && pkg.programTypes) {
+      pkg.programTypes.forEach((pt: string) => types.add(pt));
+    }
+  });
+  
+  if (types.size === 0) {
+    if (quotation.serviceType === 'StudyAbroad') types.add('Du học');
+    else if (quotation.serviceType === 'Training') types.add('Đào tạo');
+    else if (quotation.serviceType === 'Combo') {
+      types.add('Du học');
+      types.add('Đào tạo');
+    }
+  }
+  
+  return Array.from(types);
+};
+
 const getQuotationStudentDrafts = (quotation: IQuotation): QuotationStudentDraft[] => {
+  const programTypes = getQuotationProgramTypes(quotation);
+  if (!programTypes.includes('Đào tạo') && !programTypes.includes('Combo')) {
+    return [];
+  }
+
   const lead = getLeadById(quotation.leadId || '');
   const lineItems = (quotation.lineItems || []).filter((item) => normalizeStudentIdentity(item.studentName));
 

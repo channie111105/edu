@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+﻿import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Save, Printer, ChevronRight, ChevronDown, FileText, Lock, Plus, Pencil } from 'lucide-react';
 import { useRef } from 'react';
@@ -28,7 +28,7 @@ export interface ServicePackage {
   name: string;
   price: number;
   country: string;
-  productPackage: string;
+  programTypes: string[];
   programs: string[];
   type: string;
   currency: string;
@@ -51,8 +51,8 @@ const DEFAULT_SERVICE_PACKAGES: ServicePackage[] = [
     name: 'Tiếng Đức A1 (Offline)',
     price: 8000000,
     country: 'Đức',
-    productPackage: 'Gói cơ bản',
-    programs: ['du học', 'A1'],
+    programTypes: ['Đào tạo'],
+    programs: ['Dv hồ sơ', 'A1'],
     type: 'off',
     currency: 'VNĐ',
     startDate: new Date().toISOString().split('T')[0],
@@ -71,8 +71,8 @@ const DEFAULT_SERVICE_PACKAGES: ServicePackage[] = [
     name: 'Combo Du học Đức (A1-B1)',
     price: 45000000,
     country: 'Đức',
-    productPackage: 'Gói VIP',
-    programs: ['du học', 'A1', 'A2', 'B1', 'Dv hồ sơ'],
+    programTypes: ['Du học'],
+    programs: ['Dv hồ sơ', 'A1', 'A2', 'B1'],
     type: 'Blended',
     currency: 'VNĐ',
     startDate: new Date().toISOString().split('T')[0],
@@ -598,26 +598,43 @@ const QuotationDetails: React.FC = () => {
   const [servicePackages, setServicePackages] = useState<ServicePackage[]>([]);
 
   useEffect(() => {
-    const raw = window.localStorage.getItem('educrm_admin_financial_course_packages_v1');
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) {
-          setServicePackages(parsed);
-          return;
+    const loadFromStorage = () => {
+      const raw = window.localStorage.getItem('educrm_admin_financial_course_packages_v1');
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            setServicePackages(parsed);
+            return;
+          }
+        } catch (e) {
+          console.error('Failed to load service packages', e);
         }
-      } catch (e) {
-        console.error('Failed to load service packages', e);
       }
-    }
-    setServicePackages(DEFAULT_SERVICE_PACKAGES);
+      setServicePackages(DEFAULT_SERVICE_PACKAGES);
+    };
+
+    loadFromStorage();
+
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'educrm_admin_financial_course_packages_v1') {
+        loadFromStorage();
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    window.addEventListener('educrm:financial-config-changed', loadFromStorage);
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('educrm:financial-config-changed', loadFromStorage);
+    };
   }, []);
 
   const [quotationCreatorWorkflowStatus, setQuotationCreatorWorkflowStatus] = useState<'draft' | 'sent' | 'sale_order' | 'cancelled'>('draft');
   const [creatorLineItems, setCreatorLineItems] = useState<IQuotationLineItem[]>([]);
   const [showOrderLineModal, setShowOrderLineModal] = useState(false);
   const [editingCreatorLineId, setEditingCreatorLineId] = useState<string | null>(null);
-  const [programDropdownOpen, setProgramDropdownOpen] = useState(false);
   const [contractTemplateDropdownOpen, setContractTemplateDropdownOpen] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
@@ -632,7 +649,6 @@ const QuotationDetails: React.FC = () => {
   const [logAudienceFilter, setLogAudienceFilter] = useState<LogAudienceFilter>('ALL');
   const [pendingLogAttachments, setPendingLogAttachments] = useState<string[]>([]);
   const logAttachmentInputRef = useRef<HTMLInputElement | null>(null);
-  const programDropdownRef = useRef<HTMLDivElement | null>(null);
   const contractTemplateDropdownRef = useRef<HTMLDivElement | null>(null);
   const quotationPrintRestoreTabRef = useRef<QuotationTab | null>(null);
 
@@ -688,18 +704,7 @@ const QuotationDetails: React.FC = () => {
     return () => window.removeEventListener('educrm:quotations-changed', syncRefundAmountFromQuotation as EventListener);
   }, [formData.id]);
 
-  useEffect(() => {
-    if (!programDropdownOpen) return;
 
-    const handleClickOutside = (event: MouseEvent) => {
-      if (programDropdownRef.current && !programDropdownRef.current.contains(event.target as Node)) {
-        setProgramDropdownOpen(false);
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [programDropdownOpen]);
 
   useEffect(() => {
     if (!contractTemplateDropdownOpen) return;
@@ -939,17 +944,17 @@ const QuotationDetails: React.FC = () => {
         : Array.isArray(formData.lineItems) && formData.lineItems.length > 0
           ? formData.lineItems
           : [
-              {
-                id: 'workflow-fallback-line',
-                name: formData.product || '',
-                quantity: 1,
-                unitPrice: toNumberOrZero(formData.finalAmount || formData.amount),
-                discount: 0,
-                total: toNumberOrZero(formData.finalAmount || formData.amount),
-                servicePackage: formData.lineItems?.[0]?.servicePackage || fallbackServicePackage,
-                targetMarket: formData.lineItems?.[0]?.targetMarket || formData.targetCountry
-              }
-            ];
+            {
+              id: 'workflow-fallback-line',
+              name: formData.product || '',
+              quantity: 1,
+              unitPrice: toNumberOrZero(formData.finalAmount || formData.amount),
+              discount: 0,
+              total: toNumberOrZero(formData.finalAmount || formData.amount),
+              servicePackage: formData.lineItems?.[0]?.servicePackage || fallbackServicePackage,
+              targetMarket: formData.lineItems?.[0]?.targetMarket || formData.targetCountry
+            }
+          ];
 
     let totalDue = 0;
     let firstInstallmentDue = 0;
@@ -981,8 +986,8 @@ const QuotationDetails: React.FC = () => {
 
     const approvedPayments = formData.id
       ? getTransactions().filter(
-          (transaction) => transaction.quotationId === formData.id && transaction.status === 'DA_DUYET'
-        )
+        (transaction) => transaction.quotationId === formData.id && transaction.status === 'DA_DUYET'
+      )
       : [];
     const totalPaid = approvedPayments.reduce((sum, transaction) => sum + toNumberOrZero(transaction.amount), 0);
 
@@ -1077,8 +1082,8 @@ const QuotationDetails: React.FC = () => {
       quotationDate: formatDisplayDate(formData.quotationDate || formData.createdAt),
       confirmDate: formatDisplayDate(
         formData.confirmDate ||
-          formData.saleConfirmedAt ||
-          (formData.status === QuotationStatus.LOCKED ? formData.lockedAt || formData.updatedAt : undefined)
+        formData.saleConfirmedAt ||
+        (formData.status === QuotationStatus.LOCKED ? formData.lockedAt || formData.updatedAt : undefined)
       ),
       productName: formData.product || '',
       totalAmount: formatCurrency(formData.finalAmount || formData.amount),
@@ -1155,11 +1160,11 @@ const QuotationDetails: React.FC = () => {
     const keyword = contractDraft.templateName.trim().toLowerCase();
     const source = keyword
       ? contractTemplateOptions.filter((contractOption) =>
-          [contractOption.templateName, contractOption.code, contractOption.customerName]
-            .join(' ')
-            .toLowerCase()
-            .includes(keyword)
-        )
+        [contractOption.templateName, contractOption.code, contractOption.customerName]
+          .join(' ')
+          .toLowerCase()
+          .includes(keyword)
+      )
       : contractTemplateOptions;
 
     return source.slice(0, 8);
@@ -1169,8 +1174,8 @@ const QuotationDetails: React.FC = () => {
     () =>
       Boolean(
         linkedContract ||
-          Boolean((contractDraft.templateName || '').trim()) ||
-          Object.values(contractDraft.templateFields).some((value) => value.trim())
+        Boolean((contractDraft.templateName || '').trim()) ||
+        Object.values(contractDraft.templateFields).some((value) => value.trim())
       ),
     [contractDraft.templateFields, contractDraft.templateName, linkedContract]
   );
@@ -1190,8 +1195,8 @@ const QuotationDetails: React.FC = () => {
       quotationDate: formatDisplayDate(quotation.quotationDate || quotation.createdAt),
       confirmDate: formatDisplayDate(
         quotation.confirmDate ||
-          quotation.saleConfirmedAt ||
-          (quotation.status === QuotationStatus.LOCKED ? quotation.lockedAt || quotation.updatedAt : undefined)
+        quotation.saleConfirmedAt ||
+        (quotation.status === QuotationStatus.LOCKED ? quotation.lockedAt || quotation.updatedAt : undefined)
       ),
       productName: quotation.product || '',
       totalAmount: formatCurrency(quotation.finalAmount || quotation.amount),
@@ -1489,7 +1494,7 @@ const QuotationDetails: React.FC = () => {
   const openNewOrderLineModal = () => {
     if (!canEditQuotation) return;
     setEditingCreatorLineId(null);
-    setProgramDropdownOpen(false);
+
     setOrderLineDraft(createOrderDraft(formData));
     setShowOrderLineModal(true);
   };
@@ -1499,23 +1504,22 @@ const QuotationDetails: React.FC = () => {
     const foundLine = creatorLineItems.find((item) => item.id === lineId);
     if (!foundLine) return;
     setEditingCreatorLineId(lineId);
-    setProgramDropdownOpen(false);
+
     setOrderLineDraft(createOrderDraft(formData, undefined, foundLine));
     setShowOrderLineModal(true);
   };
 
   const closeOrderLineModal = () => {
-    setProgramDropdownOpen(false);
+
     setShowOrderLineModal(false);
     setEditingCreatorLineId(null);
     setOrderLineDraft(createOrderDraft(formData));
   };
 
-  const handleOrderDraftMarketChange = (market: CreatorMarket | '') => {
-    setProgramDropdownOpen(false);
+  const handleOrderDraftMarketChange = (market: string) => {
     setOrderLineDraft((prev) => ({
       ...prev,
-      targetMarket: market,
+      targetMarket: market as any,
       servicePackage: '',
       productId: undefined,
       productName: '',
@@ -1526,49 +1530,42 @@ const QuotationDetails: React.FC = () => {
     }));
   };
 
-  const handleOrderDraftServiceChange = (servicePackage: CreatorServicePackage | '') => {
-    setProgramDropdownOpen(false);
-    
-    // Check if the service package matches admin custom config
-    const custom = servicePackages.find(p => p.country === orderLineDraft.targetMarket && p.name === servicePackage);
-    if (custom) {
-      setOrderLineDraft((prev) => ({
+  const handleOrderDraftServiceChange = (servicePackage: string) => {
+    setOrderLineDraft((prev) => {
+      const market = prev.targetMarket;
+      // Check if the service package matches admin custom config
+      const custom = servicePackages.find(p => p.country === market && p.name === servicePackage);
+
+      if (custom) {
+        return {
+          ...prev,
+          servicePackage: servicePackage as any,
+          productId: custom.id,
+          productName: custom.name,
+          courseName: '',
+          programs: custom.programs || [],
+          classId: '',
+          unitPrice: custom.price,
+          paymentSchedule: [] // clear schedule so the effect will rebuild it
+        };
+      }
+
+      const catalog = getPrimaryCatalogByServicePackage(market as any, servicePackage as any);
+      return {
         ...prev,
-        servicePackage,
-        productId: custom.id,
-        productName: custom.name,
+        servicePackage: servicePackage as any,
+        productId: catalog?.id,
+        productName: catalog?.product || servicePackage,
         courseName: '',
-        programs: custom.programs,
+        programs: [],
         classId: '',
-        unitPrice: custom.price,
-        paymentSchedule: [] // clear schedule so the effect will rebuild it
-      }));
-      return;
-    }
-
-    const catalog = getPrimaryCatalogByServicePackage(orderLineDraft.targetMarket, servicePackage);
-    setOrderLineDraft((prev) => ({
-      ...prev,
-      servicePackage,
-      productId: catalog?.id,
-      productName: catalog?.product || servicePackage,
-      courseName: '',
-      programs: [],
-      classId: '',
-      unitPrice: catalog?.defaultPrice || 0,
-      paymentSchedule: []
-    }));
+        unitPrice: catalog?.defaultPrice || 0,
+        paymentSchedule: []
+      };
+    });
   };
 
-  const handleOrderDraftProgramToggle = (program: string) => {
-    setOrderLineDraft((prev) => ({
-      ...prev,
-      programs: prev.programs.includes(program)
-        ? prev.programs.filter((item) => item !== program)
-        : [...prev.programs, program],
-      classId: ''
-    }));
-  };
+
 
   const handleOrderDraftPaymentScheduleChange = (
     rowId: string,
@@ -1581,9 +1578,9 @@ const QuotationDetails: React.FC = () => {
         row.id !== rowId
           ? row
           : {
-              ...row,
-              [field]: field === 'amount' ? Math.max(0, Math.round(Number(value) || 0)) : value
-            }
+            ...row,
+            [field]: field === 'amount' ? Math.max(0, Math.round(Number(value) || 0)) : value
+          }
       )
     }));
   };
@@ -1755,29 +1752,22 @@ const QuotationDetails: React.FC = () => {
         .map(p => p.country)
         .filter(Boolean)
     ));
-    if (fromAdmin.length > 0) return fromAdmin;
-    return CREATOR_MARKETS as unknown as string[];
+    return fromAdmin;
   }, [servicePackages]);
 
   const availableServicePackages = useMemo(() => {
     if (!orderLineDraft.targetMarket) return [];
-    
+
     const custom = servicePackages
       .filter(p => p.country === orderLineDraft.targetMarket && (p.status === 'Đang áp dụng' || p.status === 'active'))
       .map(p => p.name);
-    
-    if (custom.length > 0) return Array.from(new Set(custom));
 
-    return Array.from(
-      new Set(
-        ORDER_LINE_CATALOG.filter((item) => item.market === orderLineDraft.targetMarket).map((item) => item.servicePackage)
-      )
-    );
+    return Array.from(new Set(custom));
   }, [orderLineDraft.targetMarket, servicePackages]);
 
   const availableProducts = useMemo(() => {
     if (!orderLineDraft.targetMarket || !orderLineDraft.servicePackage) return [];
-    
+
     const custom = servicePackages.find(p => p.country === orderLineDraft.targetMarket && p.name === orderLineDraft.servicePackage);
     if (custom) {
       return [{
@@ -1792,14 +1782,10 @@ const QuotationDetails: React.FC = () => {
       }];
     }
 
-    return ORDER_LINE_CATALOG.filter(
-      (item) => item.market === orderLineDraft.targetMarket && item.servicePackage === orderLineDraft.servicePackage
-    );
+    return [];
   }, [orderLineDraft.servicePackage, orderLineDraft.targetMarket, servicePackages]);
 
-  const availableProgramOptions = useMemo(() => {
-    return Array.from(new Set(availableProducts.flatMap((item) => item.programOptions)));
-  }, [availableProducts]);
+
 
   const availableClassOptions = useMemo(() => {
     if (!orderLineDraft.targetMarket) return creatorClasses;
@@ -2016,9 +2002,9 @@ const QuotationDetails: React.FC = () => {
           term.id !== termId
             ? term
             : {
-                ...term,
-                [field]: fromInputDate(inputValue, field === 'expectedDate' ? term.expectedDate : term.dueDate) || ''
-              }
+              ...term,
+              [field]: fromInputDate(inputValue, field === 'expectedDate' ? term.expectedDate : term.dueDate) || ''
+            }
         )
       };
     });
@@ -2067,10 +2053,10 @@ const QuotationDetails: React.FC = () => {
         paymentSchedule: normalizePaymentSchedule(item.paymentSchedule, lineTotal).map((term) =>
           term.id === termId
             ? {
-                ...term,
-                activatedAt: term.activatedAt || activatedAt,
-                activatedBy: term.activatedBy || actor
-              }
+              ...term,
+              activatedAt: term.activatedAt || activatedAt,
+              activatedBy: term.activatedBy || actor
+            }
             : term
         )
       };
@@ -2243,11 +2229,10 @@ const QuotationDetails: React.FC = () => {
                           disabled={!row.canActivate}
                           onClick={() => handleActivateInstallment(row.lineItemId, row.termId)}
                           title={row.canActivate ? 'Kích hoạt lần thu này' : 'Chỉ Kế toán được kích hoạt'}
-                          className={`inline-flex items-center rounded-md border px-2 py-1 text-[10px] font-semibold transition ${
-                            row.canActivate
+                          className={`inline-flex items-center rounded-md border px-2 py-1 text-[10px] font-semibold transition ${row.canActivate
                               ? 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'
                               : 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
-                          }`}
+                            }`}
                         >
                           Kích hoạt
                         </button>
@@ -2323,12 +2308,12 @@ const QuotationDetails: React.FC = () => {
   };
 
   const newQuotationView = isNew ? (
-      <div className="min-h-screen bg-slate-100 p-4 md:p-6 text-sm text-slate-800">
-        <div className="mx-auto max-w-7xl">
+    <div className="min-h-screen bg-slate-100 p-4 md:p-6 text-sm text-slate-800">
+      <div className="mx-auto max-w-7xl">
         <div className="overflow-hidden rounded-lg border bg-white shadow-sm">
-            <div className="border-b border-slate-200 bg-white px-6 py-2">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex h-8">
+          <div className="border-b border-slate-200 bg-white px-6 py-2">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex h-8">
                 <div className="flex items-center">
                   <div className={`rounded-l-md border border-slate-200 px-5 py-1.5 text-[10px] font-extrabold uppercase ${quotationCreatorWorkflowStatus === 'draft' ? 'bg-blue-50 text-[#2b5a83]' : 'bg-white text-slate-400'}`}>Báo giá</div>
                   <div className="relative h-full w-[16px] overflow-hidden">
@@ -2347,304 +2332,304 @@ const QuotationDetails: React.FC = () => {
                 {quotationCreatorWorkflowStatus === 'cancelled' && (
                   <div className="ml-2 rounded-md border border-red-200 bg-red-50 px-3 py-1.5 text-[10px] font-bold uppercase text-red-600">Đã hủy</div>
                 )}
-                </div>
+              </div>
 
-                <div className="flex items-center gap-2">
-                  <button onClick={handleCreateCreatorQuotation} className="rounded bg-blue-600 px-5 py-1.5 text-xs font-bold uppercase text-white shadow-sm hover:bg-blue-700">
-                    Tạo
-                  </button>
-                  <button onClick={() => navigate('/contracts/quotations')} className="flex h-8 w-8 items-center justify-center rounded border border-slate-300 bg-white text-slate-600 shadow-sm hover:bg-slate-50">
-                    <X size={14} />
-                  </button>
-                </div>
+              <div className="flex items-center gap-2">
+                <button onClick={handleCreateCreatorQuotation} className="rounded bg-blue-600 px-5 py-1.5 text-xs font-bold uppercase text-white shadow-sm hover:bg-blue-700">
+                  Tạo
+                </button>
+                <button onClick={() => navigate('/contracts/quotations')} className="flex h-8 w-8 items-center justify-center rounded border border-slate-300 bg-white text-slate-600 shadow-sm hover:bg-slate-50">
+                  <X size={14} />
+                </button>
               </div>
             </div>
+          </div>
 
-            <div className="overflow-y-auto bg-white p-12">
-              <div className="mx-auto max-w-4xl">
-                <h2 className="mb-8 text-3xl font-bold tracking-tight text-slate-800">Mới</h2>
+          <div className="overflow-y-auto bg-white p-12">
+            <div className="mx-auto max-w-4xl">
+              <h2 className="mb-8 text-3xl font-bold tracking-tight text-slate-800">Mới</h2>
 
-                <div className="mb-12 grid grid-cols-1 gap-x-20 gap-y-5 lg:grid-cols-2">
-                  <div className="space-y-4">
-                    <div className="flex min-h-[32px] items-center">
-                      <label className="w-40 text-[13px] font-bold text-slate-700">Khách hàng</label>
-                      <div className="relative flex-1">
-                        <div className="flex items-center rounded border border-slate-300 bg-blue-50 px-3 py-1.5">
-                          <input
-                            className="w-full bg-transparent text-[13px] font-bold text-blue-900 outline-none"
-                            value={customerQuery || formData.customerName || ''}
-                            onChange={(e) => {
-                              const value = e.target.value;
-                              setCustomerQuery(value);
-                              setFormData((prev) => ({ ...prev, customerName: value }));
-                              setCustomerDropdownOpen(true);
-                            }}
-                            onFocus={() => setCustomerDropdownOpen(true)}
-                            onBlur={() => setTimeout(() => setCustomerDropdownOpen(false), 120)}
-                            placeholder="Chọn hoặc nhập khách hàng"
-                          />
-                          <button
-                            type="button"
-                            className="text-slate-500 hover:text-slate-700"
-                            onMouseDown={(e) => e.preventDefault()}
-                            onClick={() => setCustomerDropdownOpen((prev) => !prev)}
-                          >
-                            <ChevronDown size={16} />
-                          </button>
-                        </div>
-
-                        {customerDropdownOpen && (
-                          <div className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded border bg-white shadow">
-                            {customerOptions.length > 0 ? (
-                              customerOptions.map((customer) => {
-                                return (
-                                  <button
-                                    key={`${customer.source}-${customer.id}`}
-                                    type="button"
-                                    className="w-full border-b px-3 py-2 text-left hover:bg-slate-50"
-                                    onMouseDown={(e) => {
-                                      e.preventDefault();
-                                      applyCustomerSelection(customer, { includeDob: true });
-                                    }}
-                                  >
-                                    <div className="font-medium text-slate-800">{customer.name}</div>
-                                    <div className="text-xs text-slate-500">{customer.phone || customer.email || 'Không có thông tin liên hệ'}</div>
-                                  </button>
-                                );
-                              })
-                            ) : (
-                              <div className="px-3 py-2 text-xs text-slate-500">Không có khách hàng phù hợp</div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="flex min-h-[32px] items-center">
-                      <label className="w-40 text-[13px] font-bold text-slate-700">Sale phụ trách</label>
-                      <select
-                        className="flex-1 rounded border border-slate-300 bg-blue-50 px-3 py-1.5 text-[13px] outline-none transition-colors focus:border-blue-500"
-                        value={formData.createdBy || user?.id || ''}
-                        disabled={!canEditQuotation}
-                        onChange={(e) => {
-                          if (!canEditQuotation) return;
-                          const selectedSale = salesOwnerOptions.find((option) => option.id === e.target.value);
-                          setFormData((prev) => ({
-                            ...prev,
-                            createdBy: e.target.value,
-                            salespersonName: selectedSale?.name || prev.salespersonName || ''
-                          }));
-                        }}
-                      >
-                        {salesOwnerOptions.map((option) => (
-                          <option key={option.id} value={option.id}>{option.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="space-y-4">
-                    <div className="flex min-h-[32px] items-center">
-                      <label className="w-[148px] text-[13px] font-bold text-slate-700">Ngày hết hạn</label>
-                      <div className="flex-1">
+              <div className="mb-12 grid grid-cols-1 gap-x-20 gap-y-5 lg:grid-cols-2">
+                <div className="space-y-4">
+                  <div className="flex min-h-[32px] items-center">
+                    <label className="w-40 text-[13px] font-bold text-slate-700">Khách hàng</label>
+                    <div className="relative flex-1">
+                      <div className="flex items-center rounded border border-slate-300 bg-blue-50 px-3 py-1.5">
                         <input
-                          type="date"
-                          className="w-full rounded border border-slate-300 bg-white px-3 py-1.5 text-[13px] outline-none transition-colors focus:border-blue-500"
-                          value={formData.expirationDate || ''}
-                          disabled={!canEditQuotation}
-                          onChange={(e) => canEditQuotation && setFormData((prev) => ({ ...prev, expirationDate: e.target.value }))}
+                          className="w-full bg-transparent text-[13px] font-bold text-blue-900 outline-none"
+                          value={customerQuery || formData.customerName || ''}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            setCustomerQuery(value);
+                            setFormData((prev) => ({ ...prev, customerName: value }));
+                            setCustomerDropdownOpen(true);
+                          }}
+                          onFocus={() => setCustomerDropdownOpen(true)}
+                          onBlur={() => setTimeout(() => setCustomerDropdownOpen(false), 120)}
+                          placeholder="Chọn hoặc nhập khách hàng"
                         />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mb-6 flex gap-8 border-b border-slate-200 px-2">
-                  <button onClick={() => setActiveTab('order_lines')} className={`pb-3 text-[11px] font-extrabold uppercase tracking-wider ${activeTab === 'order_lines' ? 'border-b-2 border-blue-700 text-blue-700' : 'text-slate-400 transition-colors hover:text-slate-600'}`}>Chi tiết đơn hàng</button>
-                  <button onClick={() => setActiveTab('other_info')} className={`pb-3 text-[11px] font-extrabold uppercase tracking-wider ${activeTab === 'other_info' ? 'border-b-2 border-blue-700 text-blue-700' : 'text-slate-400 transition-colors hover:text-slate-600'}`}>Thông tin khác</button>
-                </div>
-
-                {activeTab === 'order_lines' && (
-                  <div className="overflow-x-auto">
-                    <table className="w-full table-fixed border-collapse text-left text-[12px]">
-                      <colgroup>
-                        <col className="w-[19%]" />
-                        <col className="w-[30%]" />
-                        <col className="w-[15%]" />
-                        <col className="w-[14%]" />
-                        <col className="w-[22%]" />
-                      </colgroup>
-                      <thead className="bg-[#f8f9fa] font-bold uppercase text-slate-700">
-                        <tr className="border-b border-slate-200">
-                          <th className="p-3">Gói dịch vụ</th>
-                          <th className="p-3">Chương trình</th>
-                          <th className="p-3 text-right">Đơn giá</th>
-                          <th className="p-3 text-center">Giảm giá (%)</th>
-                          <th className="p-3 text-right">Thành tiền</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {creatorLineItems.map((item) => (
-                          <tr
-                            key={item.id}
-                            className={`${canEditQuotation ? 'cursor-pointer hover:bg-slate-50' : 'cursor-default'} border-b border-slate-100 transition-colors`}
-                            onClick={() => canEditQuotation && openEditOrderLineModal(item.id)}
-                          >
-                            <td className="align-top p-3 text-slate-700">{item.servicePackage || '-'}</td>
-                            <td className="align-top p-3 text-slate-500">
-                              <div className="text-[11px] leading-5">
-                                <div className="font-semibold text-slate-700">
-                                  {item.programs?.length ? item.programs.join(', ') : item.courseName || '-'}
-                                </div>
-                                {item.courseName && item.programs?.length ? (
-                                  <div>
-                                    <span className="font-semibold text-slate-500">Khóa học:</span> {item.courseName}
-                                  </div>
-                                ) : null}
-                                {item.testerName ? (
-                                  <div>
-                                    <span className="font-semibold text-slate-500">Tester:</span> {item.testerName}
-                                  </div>
-                                ) : null}
-                                {item.className ? (
-                                  <div>
-                                    <span className="font-semibold text-slate-500">Lớp:</span> {item.className}
-                                  </div>
-                                ) : null}
-                                {item.additionalInfo ? (
-                                  <div>
-                                    <span className="font-semibold text-slate-500">Thông tin thêm:</span> {item.additionalInfo}
-                                  </div>
-                                ) : null}
-                                {!item.courseName && !item.programs?.length && !item.testerName && !item.className && !item.additionalInfo && (
-                                  <div className="italic text-slate-400">Không có thông tin thêm</div>
-                                )}
-                              </div>
-                            </td>
-                            <td className="align-top p-3 text-right text-slate-700">{(item.unitPrice || 0).toLocaleString('vi-VN')}</td>
-                            <td className="align-top p-3 text-center text-slate-700">{item.discount || 0}</td>
-                            <td className="align-top p-3 text-right font-bold text-slate-900">{(item.total || 0).toLocaleString('vi-VN')}</td>
-                          </tr>
-                        ))}
-                        <tr className="bg-slate-50/30">
-                          <td colSpan={5} className="p-3">
-                            <button
-                              onClick={openNewOrderLineModal}
-                              disabled={!canEditQuotation}
-                              className="flex items-center gap-1 font-bold text-blue-600 transition-all hover:underline disabled:cursor-not-allowed disabled:text-slate-400 disabled:no-underline"
-                            >
-                              <Plus size={14} /> Thêm đơn hàng
-                            </button>
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-
-                {activeTab === 'other_info' && (
-                  <div className="grid grid-cols-1 gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 md:grid-cols-2">
-                    <div>
-                      <label className="mb-1 block text-[10px] font-bold uppercase text-slate-600">Loại dịch vụ</label>
-                      <select
-                        value={formData.serviceType || 'Training'}
-                        onChange={(e) => canEditQuotation && setFormData((prev) => ({ ...prev, serviceType: e.target.value as IQuotation['serviceType'] }))}
-                        disabled={!canEditQuotation}
-                        className="h-9 w-full rounded border border-slate-300 bg-white px-3 py-1.5 text-[13px]"
-                      >
-                        <option value="Training">Đào tạo</option>
-                        <option value="StudyAbroad">Du học</option>
-                        <option value="Combo">Combo</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="mb-1 block text-[10px] font-bold uppercase text-slate-600">Mã lớp dự kiến</label>
-                      <ClassCodeLookupInput
-                        value={formData.classCode || ''}
-                        onChange={(value) => canEditQuotation && setFormData((prev) => ({ ...prev, classCode: value }))}
-                        loadOptions={loadClassCodeOptions}
-                        disabled={!canEditQuotation}
-                        placeholder="VD: DE-A1-02/2026"
-                        inputClassName="h-9 w-full rounded border border-slate-300 bg-white px-3 py-1.5 text-[13px] outline-none focus:border-blue-500"
-                        buttonClassName="h-9 rounded border border-slate-300 bg-white px-3 text-[12px] font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100"
-                      />
-                    </div>
-                    <div>
-                      <label className="mb-1 block text-[10px] font-bold uppercase text-slate-600">Lịch học mong muốn</label>
-                      <input
-                        value={formData.schedule || ''}
-                        onChange={(e) => canEditQuotation && setFormData((prev) => ({ ...prev, schedule: e.target.value }))}
-                        disabled={!canEditQuotation}
-                        className="h-9 w-full rounded border border-slate-300 bg-white px-3 py-1.5 text-[13px]"
-                        placeholder="VD: T2-T4-T6, 19:00-21:00"
-                      />
-                    </div>
-                    <div>
-                      <label className="mb-1 block text-[10px] font-bold uppercase text-slate-600">Ghi chú chính sách giá</label>
-                      <input
-                        value={formData.pricingNote || ''}
-                        onChange={(e) => canEditQuotation && setFormData((prev) => ({ ...prev, pricingNote: e.target.value }))}
-                        disabled={!canEditQuotation}
-                        className="h-9 w-full rounded border border-slate-300 bg-white px-3 py-1.5 text-[13px]"
-                        placeholder="Nêu lý do giảm giá/chính sách áp dụng..."
-                      />
-                    </div>
-                    <div className="col-span-1 grid items-end gap-3 md:col-span-2 md:grid-cols-[minmax(0,1fr)_auto]">
-                      <div>
-                        <label className="mb-1 block text-[10px] font-bold uppercase text-slate-600">Thông tin khác</label>
-                        <textarea
-                          value={formData.internalNote || ''}
-                          onChange={(e) => canEditQuotation && setFormData((prev) => ({ ...prev, internalNote: e.target.value }))}
-                          disabled={!canEditQuotation}
-                          className="h-14 w-full resize-none rounded border border-slate-300 bg-white px-3 py-2 text-[13px]"
-                          placeholder="Ghi chú nội bộ hoặc yêu cầu xử lý..."
-                        />
-                      </div>
-                      <label className="inline-flex whitespace-nowrap pb-2 text-[13px] font-semibold text-slate-700">
-                        <input
-                          type="checkbox"
-                          checked={!!formData.needInvoice}
-                          onChange={(e) => canEditQuotation && setFormData((prev) => ({ ...prev, needInvoice: e.target.checked }))}
-                          disabled={!canEditQuotation}
-                          className="mr-2 rounded border-slate-300"
-                        />
-                        KH cần in hóa đơn VAT
-                      </label>
-                    </div>
-                  </div>
-                )}
-
-                <div className="mt-16 flex justify-end">
-                  <div className="w-80 space-y-2 border-t border-slate-800 pt-4">
-                    <div className="flex justify-between py-1 text-[13px]">
-                      <span className="font-bold text-slate-500">Số tiền trước thuế:</span>
-                      <span className="border-b border-slate-200 px-6 font-bold text-slate-900">{creatorSubtotal.toLocaleString('vi-VN')} ₫</span>
-                    </div>
-                    <div className="flex justify-between py-1 text-[13px]">
-                      <span className="font-bold text-slate-500">Thuế:</span>
-                      <span className="border-b border-slate-200 px-6 font-bold text-slate-900">0 ₫</span>
-                    </div>
-                    <div className="mt-2 flex items-center justify-between border-t border-slate-200 py-5">
-                      <span className="text-lg font-black uppercase tracking-tighter text-slate-800">Tổng cộng:</span>
-                      <span className="border-b-2 border-slate-800 px-6 text-2xl font-black tracking-tight text-blue-700">{creatorGrandTotal.toLocaleString('vi-VN')} ₫</span>
-                    </div>
-                  </div>
-                </div>
-
-                {showOrderLineModal && (
-                  <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/50 p-3 backdrop-blur-sm">
-                    <div className="flex max-h-[calc(100vh-1rem)] w-full max-w-5xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl">
-                      <div className="shrink-0 flex items-center justify-between border-b border-slate-200 px-6 py-3">
-                        <h3 className="text-lg font-bold text-slate-900">
-                          {editingCreatorLineId ? 'Cập nhật đơn hàng' : 'Thêm đơn hàng'}
-                        </h3>
-                        <button type="button" onClick={closeOrderLineModal} className="text-slate-400 transition-colors hover:text-slate-700">
-                          <X size={18} />
+                        <button
+                          type="button"
+                          className="text-slate-500 hover:text-slate-700"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => setCustomerDropdownOpen((prev) => !prev)}
+                        >
+                          <ChevronDown size={16} />
                         </button>
                       </div>
 
-                      <div className="min-h-0 overflow-y-auto px-6 py-4">
-                        <div className="grid gap-4 md:grid-cols-2">
+                      {customerDropdownOpen && (
+                        <div className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded border bg-white shadow">
+                          {customerOptions.length > 0 ? (
+                            customerOptions.map((customer) => {
+                              return (
+                                <button
+                                  key={`${customer.source}-${customer.id}`}
+                                  type="button"
+                                  className="w-full border-b px-3 py-2 text-left hover:bg-slate-50"
+                                  onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    applyCustomerSelection(customer, { includeDob: true });
+                                  }}
+                                >
+                                  <div className="font-medium text-slate-800">{customer.name}</div>
+                                  <div className="text-xs text-slate-500">{customer.phone || customer.email || 'Không có thông tin liên hệ'}</div>
+                                </button>
+                              );
+                            })
+                          ) : (
+                            <div className="px-3 py-2 text-xs text-slate-500">Không có khách hàng phù hợp</div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex min-h-[32px] items-center">
+                    <label className="w-40 text-[13px] font-bold text-slate-700">Sale phụ trách</label>
+                    <select
+                      className="flex-1 rounded border border-slate-300 bg-blue-50 px-3 py-1.5 text-[13px] outline-none transition-colors focus:border-blue-500"
+                      value={formData.createdBy || user?.id || ''}
+                      disabled={!canEditQuotation}
+                      onChange={(e) => {
+                        if (!canEditQuotation) return;
+                        const selectedSale = salesOwnerOptions.find((option) => option.id === e.target.value);
+                        setFormData((prev) => ({
+                          ...prev,
+                          createdBy: e.target.value,
+                          salespersonName: selectedSale?.name || prev.salespersonName || ''
+                        }));
+                      }}
+                    >
+                      {salesOwnerOptions.map((option) => (
+                        <option key={option.id} value={option.id}>{option.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="flex min-h-[32px] items-center">
+                    <label className="w-[148px] text-[13px] font-bold text-slate-700">Ngày hết hạn</label>
+                    <div className="flex-1">
+                      <input
+                        type="date"
+                        className="w-full rounded border border-slate-300 bg-white px-3 py-1.5 text-[13px] outline-none transition-colors focus:border-blue-500"
+                        value={formData.expirationDate || ''}
+                        disabled={!canEditQuotation}
+                        onChange={(e) => canEditQuotation && setFormData((prev) => ({ ...prev, expirationDate: e.target.value }))}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mb-6 flex gap-8 border-b border-slate-200 px-2">
+                <button onClick={() => setActiveTab('order_lines')} className={`pb-3 text-[11px] font-extrabold uppercase tracking-wider ${activeTab === 'order_lines' ? 'border-b-2 border-blue-700 text-blue-700' : 'text-slate-400 transition-colors hover:text-slate-600'}`}>Chi tiết đơn hàng</button>
+                <button onClick={() => setActiveTab('other_info')} className={`pb-3 text-[11px] font-extrabold uppercase tracking-wider ${activeTab === 'other_info' ? 'border-b-2 border-blue-700 text-blue-700' : 'text-slate-400 transition-colors hover:text-slate-600'}`}>Thông tin khác</button>
+              </div>
+
+              {activeTab === 'order_lines' && (
+                <div className="overflow-x-auto">
+                  <table className="w-full table-fixed border-collapse text-left text-[12px]">
+                    <colgroup>
+                      <col className="w-[19%]" />
+                      <col className="w-[30%]" />
+                      <col className="w-[15%]" />
+                      <col className="w-[14%]" />
+                      <col className="w-[22%]" />
+                    </colgroup>
+                    <thead className="bg-[#f8f9fa] font-bold uppercase text-slate-700">
+                      <tr className="border-b border-slate-200">
+                        <th className="p-3">Gói dịch vụ</th>
+                        <th className="p-3">Chương trình</th>
+                        <th className="p-3 text-right">Đơn giá</th>
+                        <th className="p-3 text-center">Giảm giá (%)</th>
+                        <th className="p-3 text-right">Thành tiền</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {creatorLineItems.map((item) => (
+                        <tr
+                          key={item.id}
+                          className={`${canEditQuotation ? 'cursor-pointer hover:bg-slate-50' : 'cursor-default'} border-b border-slate-100 transition-colors`}
+                          onClick={() => canEditQuotation && openEditOrderLineModal(item.id)}
+                        >
+                          <td className="align-top p-3 text-slate-700">{item.servicePackage || '-'}</td>
+                          <td className="align-top p-3 text-slate-500">
+                            <div className="text-[11px] leading-5">
+                              <div className="font-semibold text-slate-700">
+                                {item.programs?.length ? item.programs.join(', ') : item.courseName || '-'}
+                              </div>
+                              {item.courseName && item.programs?.length ? (
+                                <div>
+                                  <span className="font-semibold text-slate-500">Khóa học:</span> {item.courseName}
+                                </div>
+                              ) : null}
+                              {item.testerName ? (
+                                <div>
+                                  <span className="font-semibold text-slate-500">Tester:</span> {item.testerName}
+                                </div>
+                              ) : null}
+                              {item.className ? (
+                                <div>
+                                  <span className="font-semibold text-slate-500">Lớp:</span> {item.className}
+                                </div>
+                              ) : null}
+                              {item.additionalInfo ? (
+                                <div>
+                                  <span className="font-semibold text-slate-500">Thông tin thêm:</span> {item.additionalInfo}
+                                </div>
+                              ) : null}
+                              {!item.courseName && !item.programs?.length && !item.testerName && !item.className && !item.additionalInfo && (
+                                <div className="italic text-slate-400">Không có thông tin thêm</div>
+                              )}
+                            </div>
+                          </td>
+                          <td className="align-top p-3 text-right text-slate-700">{(item.unitPrice || 0).toLocaleString('vi-VN')}</td>
+                          <td className="align-top p-3 text-center text-slate-700">{item.discount || 0}</td>
+                          <td className="align-top p-3 text-right font-bold text-slate-900">{(item.total || 0).toLocaleString('vi-VN')}</td>
+                        </tr>
+                      ))}
+                      <tr className="bg-slate-50/30">
+                        <td colSpan={5} className="p-3">
+                          <button
+                            onClick={openNewOrderLineModal}
+                            disabled={!canEditQuotation}
+                            className="flex items-center gap-1 font-bold text-blue-600 transition-all hover:underline disabled:cursor-not-allowed disabled:text-slate-400 disabled:no-underline"
+                          >
+                            <Plus size={14} /> Thêm đơn hàng
+                          </button>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {activeTab === 'other_info' && (
+                <div className="grid grid-cols-1 gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 md:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-[10px] font-bold uppercase text-slate-600">Loại dịch vụ</label>
+                    <select
+                      value={formData.serviceType || 'Training'}
+                      onChange={(e) => canEditQuotation && setFormData((prev) => ({ ...prev, serviceType: e.target.value as IQuotation['serviceType'] }))}
+                      disabled={!canEditQuotation}
+                      className="h-9 w-full rounded border border-slate-300 bg-white px-3 py-1.5 text-[13px]"
+                    >
+                      <option value="Training">Đào tạo</option>
+                      <option value="StudyAbroad">Du học</option>
+                      <option value="Combo">Combo</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[10px] font-bold uppercase text-slate-600">Mã lớp dự kiến</label>
+                    <ClassCodeLookupInput
+                      value={formData.classCode || ''}
+                      onChange={(value) => canEditQuotation && setFormData((prev) => ({ ...prev, classCode: value }))}
+                      loadOptions={loadClassCodeOptions}
+                      disabled={!canEditQuotation}
+                      placeholder="VD: DE-A1-02/2026"
+                      inputClassName="h-9 w-full rounded border border-slate-300 bg-white px-3 py-1.5 text-[13px] outline-none focus:border-blue-500"
+                      buttonClassName="h-9 rounded border border-slate-300 bg-white px-3 text-[12px] font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[10px] font-bold uppercase text-slate-600">Lịch học mong muốn</label>
+                    <input
+                      value={formData.schedule || ''}
+                      onChange={(e) => canEditQuotation && setFormData((prev) => ({ ...prev, schedule: e.target.value }))}
+                      disabled={!canEditQuotation}
+                      className="h-9 w-full rounded border border-slate-300 bg-white px-3 py-1.5 text-[13px]"
+                      placeholder="VD: T2-T4-T6, 19:00-21:00"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[10px] font-bold uppercase text-slate-600">Ghi chú chính sách giá</label>
+                    <input
+                      value={formData.pricingNote || ''}
+                      onChange={(e) => canEditQuotation && setFormData((prev) => ({ ...prev, pricingNote: e.target.value }))}
+                      disabled={!canEditQuotation}
+                      className="h-9 w-full rounded border border-slate-300 bg-white px-3 py-1.5 text-[13px]"
+                      placeholder="Nêu lý do giảm giá/chính sách áp dụng..."
+                    />
+                  </div>
+                  <div className="col-span-1 grid items-end gap-3 md:col-span-2 md:grid-cols-[minmax(0,1fr)_auto]">
+                    <div>
+                      <label className="mb-1 block text-[10px] font-bold uppercase text-slate-600">Thông tin khác</label>
+                      <textarea
+                        value={formData.internalNote || ''}
+                        onChange={(e) => canEditQuotation && setFormData((prev) => ({ ...prev, internalNote: e.target.value }))}
+                        disabled={!canEditQuotation}
+                        className="h-14 w-full resize-none rounded border border-slate-300 bg-white px-3 py-2 text-[13px]"
+                        placeholder="Ghi chú nội bộ hoặc yêu cầu xử lý..."
+                      />
+                    </div>
+                    <label className="inline-flex whitespace-nowrap pb-2 text-[13px] font-semibold text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={!!formData.needInvoice}
+                        onChange={(e) => canEditQuotation && setFormData((prev) => ({ ...prev, needInvoice: e.target.checked }))}
+                        disabled={!canEditQuotation}
+                        className="mr-2 rounded border-slate-300"
+                      />
+                      KH cần in hóa đơn VAT
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              <div className="mt-16 flex justify-end">
+                <div className="w-80 space-y-2 border-t border-slate-800 pt-4">
+                  <div className="flex justify-between py-1 text-[13px]">
+                    <span className="font-bold text-slate-500">Số tiền trước thuế:</span>
+                    <span className="border-b border-slate-200 px-6 font-bold text-slate-900">{creatorSubtotal.toLocaleString('vi-VN')} ₫</span>
+                  </div>
+                  <div className="flex justify-between py-1 text-[13px]">
+                    <span className="font-bold text-slate-500">Thuế:</span>
+                    <span className="border-b border-slate-200 px-6 font-bold text-slate-900">0 ₫</span>
+                  </div>
+                  <div className="mt-2 flex items-center justify-between border-t border-slate-200 py-5">
+                    <span className="text-lg font-black uppercase tracking-tighter text-slate-800">Tổng cộng:</span>
+                    <span className="border-b-2 border-slate-800 px-6 text-2xl font-black tracking-tight text-blue-700">{creatorGrandTotal.toLocaleString('vi-VN')} ₫</span>
+                  </div>
+                </div>
+              </div>
+
+              {showOrderLineModal && (
+                <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/50 p-3 backdrop-blur-sm">
+                  <div className="flex max-h-[calc(100vh-1rem)] w-full max-w-5xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl">
+                    <div className="shrink-0 flex items-center justify-between border-b border-slate-200 px-6 py-3">
+                      <h3 className="text-lg font-bold text-slate-900">
+                        {editingCreatorLineId ? 'Cập nhật đơn hàng' : 'Thêm đơn hàng'}
+                      </h3>
+                      <button type="button" onClick={closeOrderLineModal} className="text-slate-400 transition-colors hover:text-slate-700">
+                        <X size={18} />
+                      </button>
+                    </div>
+
+                    <div className="min-h-0 overflow-y-auto px-6 py-4">
+                      <div className="grid gap-4 md:grid-cols-2">
                         <div className="min-w-0 space-y-3">
                           <div>
                             <label className="mb-1 block text-xs font-bold uppercase text-slate-600">Tên học sinh</label>
@@ -2696,50 +2681,21 @@ const QuotationDetails: React.FC = () => {
                         </div>
 
                         <div className="min-w-0 space-y-3">
-                          <div ref={programDropdownRef} className="relative min-w-0">
+                          <div className="relative min-w-0">
                             <label className="mb-1 block text-xs font-bold uppercase text-slate-600">Chương trình</label>
-                            <button
-                              type="button"
-                              onClick={() => setProgramDropdownOpen((prev) => !prev)}
-                              className="flex h-10 w-full items-center justify-between gap-3 rounded border border-slate-300 bg-white px-3 text-left text-sm outline-none transition-colors hover:border-blue-400 focus:border-blue-500"
-                            >
-                              <div className="min-w-0 flex flex-1 flex-nowrap items-center gap-2 overflow-hidden">
-                                {orderLineDraft.programs.length > 0 ? (
-                                  orderLineDraft.programs.map((program) => (
-                                    <span key={program} className="shrink-0 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
-                                      {program}
-                                    </span>
-                                  ))
-                                ) : (
-                                  <span className="truncate text-sm text-slate-400">
-                                    -- Chọn chương trình --
+                            <div className="flex min-h-[40px] w-full flex-wrap items-center gap-2 rounded border border-slate-300 bg-slate-50 px-3 py-2">
+                              {orderLineDraft.programs.length > 0 ? (
+                                orderLineDraft.programs.map((program) => (
+                                  <span key={program} className="shrink-0 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
+                                    {program}
                                   </span>
-                                )}
-                              </div>
-                              <ChevronDown size={16} className={`shrink-0 text-slate-400 transition-transform ${programDropdownOpen ? 'rotate-180' : ''}`} />
-                            </button>
-
-                            {programDropdownOpen && (
-                              <div className="absolute z-30 mt-1 w-full rounded border border-slate-200 bg-white shadow-lg">
-                                <div className="max-h-56 overflow-auto py-1">
-                                  {availableProgramOptions.length > 0 ? (
-                                    availableProgramOptions.map((program) => (
-                                      <label key={program} className="flex cursor-pointer items-center gap-3 px-3 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-50">
-                                        <input
-                                          type="checkbox"
-                                          checked={orderLineDraft.programs.includes(program)}
-                                          onChange={() => handleOrderDraftProgramToggle(program)}
-                                          className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                                        />
-                                        <span>{program}</span>
-                                      </label>
-                                    ))
-                                  ) : (
-                                    <div className="px-3 py-2 text-sm text-slate-400">Chưa có chương trình phù hợp</div>
-                                  )}
-                                </div>
-                              </div>
-                            )}
+                                ))
+                              ) : (
+                                <span className="text-sm text-slate-400">
+                                  -- Theo cấu hình gói dịch vụ --
+                                </span>
+                              )}
+                            </div>
                           </div>
 
                           <div>
@@ -2783,14 +2739,14 @@ const QuotationDetails: React.FC = () => {
                           </div>
                         </div>
 
-                            <div className="md:col-span-2">
-                              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                                <div className="mb-2 flex items-center justify-between">
-                                  <div>
-                                    <div className="text-xs font-bold uppercase tracking-wide text-slate-600">Lộ trình đóng phí</div>
-                                    <div className="text-sm text-slate-500">Mặc định theo cấu hình admin, có thể chỉnh trực tiếp trước khi lưu.</div>
-                                  </div>
-                                </div>
+                        <div className="md:col-span-2">
+                          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                            <div className="mb-2 flex items-center justify-between">
+                              <div>
+                                <div className="text-xs font-bold uppercase tracking-wide text-slate-600">Lộ trình đóng phí</div>
+                                <div className="text-sm text-slate-500">Mặc định theo cấu hình admin, có thể chỉnh trực tiếp trước khi lưu.</div>
+                              </div>
+                            </div>
 
                             {orderLineDraft.paymentSchedule.length > 0 ? (
                               <div className="overflow-x-auto">
@@ -2859,55 +2815,55 @@ const QuotationDetails: React.FC = () => {
                           </div>
                         </div>
 
-                          <div className="md:col-span-2">
-                            <label className="mb-1 block text-xs font-bold uppercase text-slate-600">Thông tin thêm</label>
-                            <textarea
-                              value={orderLineDraft.additionalInfo}
-                              onChange={(e) => setOrderLineDraft((prev) => ({ ...prev, additionalInfo: e.target.value }))}
-                              className="h-20 w-full resize-none rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500"
-                              placeholder="Nhập ghi chú hoặc yêu cầu đặc biệt..."
-                            />
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="shrink-0 flex items-center justify-between border-t border-slate-200 px-6 py-3">
-                        <div className="text-sm font-semibold text-slate-600">
-                          Thành tiền: <span className="text-base text-blue-700">{calculateCreatorLineTotal(orderLineDraft.unitPrice, orderLineDraft.discountPercent).toLocaleString('vi-VN')} đ</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => handleSaveOrderLine('close')}
-                            className="rounded bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700"
-                          >
-                            Lưu và đóng
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleSaveOrderLine('new')}
-                            className="rounded border border-blue-200 bg-blue-50 px-4 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-100"
-                          >
-                            Lưu và thêm
-                          </button>
-                          <button
-                            type="button"
-                            onClick={handleRemoveOrderLine}
-                            className="rounded border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
-                          >
-                            Loại bỏ
-                          </button>
+                        <div className="md:col-span-2">
+                          <label className="mb-1 block text-xs font-bold uppercase text-slate-600">Thông tin thêm</label>
+                          <textarea
+                            value={orderLineDraft.additionalInfo}
+                            onChange={(e) => setOrderLineDraft((prev) => ({ ...prev, additionalInfo: e.target.value }))}
+                            className="h-20 w-full resize-none rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500"
+                            placeholder="Nhập ghi chú hoặc yêu cầu đặc biệt..."
+                          />
                         </div>
                       </div>
                     </div>
+
+                    <div className="shrink-0 flex items-center justify-between border-t border-slate-200 px-6 py-3">
+                      <div className="text-sm font-semibold text-slate-600">
+                        Thành tiền: <span className="text-base text-blue-700">{calculateCreatorLineTotal(orderLineDraft.unitPrice, orderLineDraft.discountPercent).toLocaleString('vi-VN')} đ</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleSaveOrderLine('close')}
+                          className="rounded bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700"
+                        >
+                          Lưu và đóng
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSaveOrderLine('new')}
+                          className="rounded border border-blue-200 bg-blue-50 px-4 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-100"
+                        >
+                          Lưu và thêm
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleRemoveOrderLine}
+                          className="rounded border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                        >
+                          Loại bỏ
+                        </button>
+                      </div>
+                    </div>
                   </div>
-                )}
-              </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
       </div>
-    ) : null;
+    </div>
+  ) : null;
 
   const handleSaveContractDraft = () => {
     if (!canEditQuotation) return;
@@ -3014,35 +2970,35 @@ const QuotationDetails: React.FC = () => {
 
     const fallback = [];
     if (formData.status === QuotationStatus.SALE_CONFIRMED || formData.status === QuotationStatus.SALE_ORDER) {
+      fallback.push({
+        id: 'fallback-confirmed',
+        timestamp: formData.saleConfirmedAt || formData.updatedAt || formData.createdAt || new Date().toISOString(),
+        user: 'System',
+        type: 'system',
+        action: 'Sale Confirmed',
+        detail: 'Trạng thái đổi từ Quotation sang Confirm'
+      });
+    }
+    if (formData.paymentProof) {
+      fallback.push({
+        id: 'fallback-payment',
+        timestamp: formData.updatedAt || formData.createdAt || new Date().toISOString(),
+        user: 'System',
+        type: 'system',
+        action: 'Payment Proof',
+        detail: `Đã cập nhật chứng từ: ${formData.paymentProof}`
+      });
+    }
     fallback.push({
-      id: 'fallback-confirmed',
-      timestamp: formData.saleConfirmedAt || formData.updatedAt || formData.createdAt || new Date().toISOString(),
-      user: 'System',
+      id: 'fallback-created',
+      timestamp: formData.createdAt || new Date().toISOString(),
+      user: formData.createdBy || 'System',
       type: 'system',
-      action: 'Sale Confirmed',
-      detail: 'Trạng thái đổi từ Quotation sang Confirm'
+      action: 'Create Quotation',
+      detail: 'Tạo SO'
     });
-  }
-  if (formData.paymentProof) {
-    fallback.push({
-      id: 'fallback-payment',
-      timestamp: formData.updatedAt || formData.createdAt || new Date().toISOString(),
-      user: 'System',
-      type: 'system',
-      action: 'Payment Proof',
-      detail: `Đã cập nhật chứng từ: ${formData.paymentProof}`
-    });
-  }
-  fallback.push({
-    id: 'fallback-created',
-    timestamp: formData.createdAt || new Date().toISOString(),
-    user: formData.createdBy || 'System',
-    type: 'system',
-    action: 'Create Quotation',
-    detail: 'Tạo SO'
-  });
-  return fallback;
-}, [formData.createdAt, formData.createdBy, formData.logNotes, formData.paymentProof, formData.saleConfirmedAt, formData.status, formData.updatedAt]);
+    return fallback;
+  }, [formData.createdAt, formData.createdBy, formData.logNotes, formData.paymentProof, formData.saleConfirmedAt, formData.status, formData.updatedAt]);
 
   const filteredActivityLogs = useMemo(
     () => filterByLogAudience(activityLogs, logAudienceFilter, getQuotationLogAudience),
@@ -3244,11 +3200,10 @@ const QuotationDetails: React.FC = () => {
                           ? 'Giao dịch đã duyệt, không thể gửi yêu cầu hủy ở bước này'
                           : 'Gửi yêu cầu hủy SO'
                 }
-                className={`px-3 py-1.5 rounded text-xs font-semibold border ${
-                  canApproveCancelNow
+                className={`px-3 py-1.5 rounded text-xs font-semibold border ${canApproveCancelNow
                     ? 'border-amber-300 bg-amber-50 text-amber-700'
                     : 'border-rose-200 bg-white text-rose-600'
-                } disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400`}
+                  } disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400`}
               >
                 {canApproveCancelNow ? 'Duyệt hủy' : hasPendingCancelRequest ? 'Chờ duyệt' : 'Hủy'}
               </button>
@@ -3286,13 +3241,12 @@ const QuotationDetails: React.FC = () => {
                     title={title}
                     disabled={!clickable}
                     onClick={() => clickable && handleStageClick(step.id)}
-                    className={`px-3 py-1.5 text-[11px] font-bold uppercase transition-colors ${
-                      isCurrent
+                    className={`px-3 py-1.5 text-[11px] font-bold uppercase transition-colors ${isCurrent
                         ? 'text-blue-700 bg-blue-50'
                         : isReached
                           ? 'text-slate-700 bg-white'
                           : 'text-slate-500 bg-slate-100'
-                    } ${clickable ? 'cursor-pointer hover:bg-blue-50 hover:text-blue-700' : 'cursor-default'}`}
+                      } ${clickable ? 'cursor-pointer hover:bg-blue-50 hover:text-blue-700' : 'cursor-default'}`}
                   >
                     {step.label}
                   </button>
@@ -3698,17 +3652,15 @@ const QuotationDetails: React.FC = () => {
                                   setContractDraft((prev) => ({ ...prev, templateName: contractOption.templateName }));
                                   setContractTemplateDropdownOpen(false);
                                 }}
-                                className={`block w-full rounded px-3 py-2 text-left text-sm transition-colors ${
-                                  contractDraft.templateName === contractOption.templateName
+                                className={`block w-full rounded px-3 py-2 text-left text-sm transition-colors ${contractDraft.templateName === contractOption.templateName
                                     ? 'bg-blue-600 text-white'
                                     : 'text-slate-700 hover:bg-slate-100'
-                                }`}
+                                  }`}
                               >
                                 <div className="font-medium">{contractOption.templateName}</div>
                                 <div
-                                  className={`text-xs ${
-                                    contractDraft.templateName === contractOption.templateName ? 'text-blue-100' : 'text-slate-400'
-                                  }`}
+                                  className={`text-xs ${contractDraft.templateName === contractOption.templateName ? 'text-blue-100' : 'text-slate-400'
+                                    }`}
                                 >
                                   {contractOption.code || 'Chưa có mã hợp đồng'}
                                   {contractOption.customerName ? ` • ${contractOption.customerName}` : ''}
@@ -3725,58 +3677,58 @@ const QuotationDetails: React.FC = () => {
                 </div>
 
                 <div className="space-y-4">
-                    <div>
-                      <h3 className="mb-3 text-sm font-bold uppercase text-slate-800">Field map đã nối</h3>
-                      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                        {CONTRACT_FIELD_CONFIG.map((field) => (
-                          <div key={field.key}>
-                            <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1">{field.label}</label>
-                            <input
-                              type="text"
-                              value={getContractFieldValue(field.key)}
-                              onChange={(e) => canEditQuotation && setContractDraft((prev) => ({
-                                ...prev,
-                                templateFields: {
-                                  ...prev.templateFields,
-                                  [field.key]: e.target.value
-                                }
-                              }))}
-                              disabled={!canEditQuotation}
-                              className="w-full rounded border px-3 py-2 outline-none focus:border-blue-500"
-                              placeholder={field.placeholder}
-                            />
-                          </div>
-                        ))}
-                      </div>
+                  <div>
+                    <h3 className="mb-3 text-sm font-bold uppercase text-slate-800">Field map đã nối</h3>
+                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                      {CONTRACT_FIELD_CONFIG.map((field) => (
+                        <div key={field.key}>
+                          <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1">{field.label}</label>
+                          <input
+                            type="text"
+                            value={getContractFieldValue(field.key)}
+                            onChange={(e) => canEditQuotation && setContractDraft((prev) => ({
+                              ...prev,
+                              templateFields: {
+                                ...prev.templateFields,
+                                [field.key]: e.target.value
+                              }
+                            }))}
+                            disabled={!canEditQuotation}
+                            className="w-full rounded border px-3 py-2 outline-none focus:border-blue-500"
+                            placeholder={field.placeholder}
+                          />
+                        </div>
+                      ))}
                     </div>
+                  </div>
 
-                    <div className="rounded border border-slate-200 bg-slate-50 p-4">
-                      <div className="text-xs font-bold uppercase text-slate-500 mb-2">Field lấy từ SO</div>
-                      <div className="grid gap-2 text-xs text-slate-600 md:grid-cols-2 xl:grid-cols-3">
-                        <div>Quotation code: <span className="font-semibold text-slate-800">{derivedContractFields.quotationCode || '-'}</span></div>
-                        <div>Quotation date: <span className="font-semibold text-slate-800">{derivedContractFields.quotationDate || '-'}</span></div>
-                        <div>Confirm date: <span className="font-semibold text-slate-800">{derivedContractFields.confirmDate || '-'}</span></div>
-                        <div>Gói dịch vụ: <span className="font-semibold text-slate-800">{derivedContractFields.productName || '-'}</span></div>
-                        <div>Tổng giá trị: <span className="font-semibold text-slate-800">{derivedContractFields.totalAmount || '-'}</span></div>
-                        <div>Thanh toán: <span className="font-semibold text-slate-800">{derivedContractFields.paymentMethod || '-'}</span></div>
-                      </div>
+                  <div className="rounded border border-slate-200 bg-slate-50 p-4">
+                    <div className="text-xs font-bold uppercase text-slate-500 mb-2">Field lấy từ SO</div>
+                    <div className="grid gap-2 text-xs text-slate-600 md:grid-cols-2 xl:grid-cols-3">
+                      <div>Quotation code: <span className="font-semibold text-slate-800">{derivedContractFields.quotationCode || '-'}</span></div>
+                      <div>Quotation date: <span className="font-semibold text-slate-800">{derivedContractFields.quotationDate || '-'}</span></div>
+                      <div>Confirm date: <span className="font-semibold text-slate-800">{derivedContractFields.confirmDate || '-'}</span></div>
+                      <div>Gói dịch vụ: <span className="font-semibold text-slate-800">{derivedContractFields.productName || '-'}</span></div>
+                      <div>Tổng giá trị: <span className="font-semibold text-slate-800">{derivedContractFields.totalAmount || '-'}</span></div>
+                      <div>Thanh toán: <span className="font-semibold text-slate-800">{derivedContractFields.paymentMethod || '-'}</span></div>
                     </div>
+                  </div>
 
-                    <div className="flex flex-wrap justify-end gap-2">
-                      <button
-                        type="button"
-                        onClick={handleSaveContractDraft}
-                        disabled={!canEditQuotation}
-                        className="inline-flex items-center gap-2 rounded bg-blue-600 px-4 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
-                      >
-                        <Save size={14} /> Lưu contract riêng
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={handleSaveContractDraft}
+                      disabled={!canEditQuotation}
+                      className="inline-flex items-center gap-2 rounded bg-blue-600 px-4 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+                    >
+                      <Save size={14} /> Lưu contract riêng
+                    </button>
+                    {formData.id && (
+                      <button type="button" onClick={() => navigate(`/contracts/quotations/${formData.id}/contract`)} className="inline-flex items-center gap-2 rounded border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700">
+                        <Printer size={14} /> Xem bản in
                       </button>
-                      {formData.id && (
-                        <button type="button" onClick={() => navigate(`/contracts/quotations/${formData.id}/contract`)} className="inline-flex items-center gap-2 rounded border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700">
-                          <Printer size={14} /> Xem bản in
-                        </button>
-                      )}
-                    </div>
+                    )}
+                  </div>
 
                 </div>
               </div>

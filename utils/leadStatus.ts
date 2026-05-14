@@ -18,6 +18,8 @@ export const CLOSED_LEAD_STATUS_KEYS = [
   LEAD_STATUS_KEYS.UNVERIFIED,
 ] as const;
 
+import { getDynamicLeadStatusLabels, getSystemCatalog } from './systemConfig';
+
 export const LEAD_STATUS_LABELS: Record<LeadStatusKey, string> = {
   [LEAD_STATUS_KEYS.NEW]: 'Lead mới',
   [LEAD_STATUS_KEYS.ASSIGNED]: 'Đã phân bổ',
@@ -25,17 +27,29 @@ export const LEAD_STATUS_LABELS: Record<LeadStatusKey, string> = {
   [LEAD_STATUS_KEYS.CONTACTED]: 'Đang chăm sóc',
   [LEAD_STATUS_KEYS.CONVERTED]: 'Đã chuyển đổi',
   [LEAD_STATUS_KEYS.NURTURING]: 'Nuôi dưỡng',
-  [LEAD_STATUS_KEYS.UNVERIFIED]: 'K xác thực',
+  [LEAD_STATUS_KEYS.UNVERIFIED]: 'Không xác thực',
   [LEAD_STATUS_KEYS.LOST]: 'Mất',
 };
 
-const getLeadStatusDisplayLabel = (status: LeadStatusKey) =>
-  status === LEAD_STATUS_KEYS.CONVERTED ? 'Đã convert' : LEAD_STATUS_LABELS[status];
+const getLeadStatusDisplayLabel = (status: LeadStatusKey) => {
+  const dynamicLabels = getDynamicLeadStatusLabels();
+  return dynamicLabels[status] || LEAD_STATUS_LABELS[status];
+};
 
-export const LEAD_STATUS_OPTIONS = (Object.values(LEAD_STATUS_KEYS) as LeadStatusKey[]).map((value) => ({
-  value,
-  label: getLeadStatusDisplayLabel(value),
-}));
+export const LEAD_STATUS_OPTIONS_FULL = (Object.values(LEAD_STATUS_KEYS) as LeadStatusKey[])
+  .map((value) => {
+    const dynamicLabels = getDynamicLeadStatusLabels();
+    const catalog = getSystemCatalog('leadStatuses');
+    const catalogItem = catalog.find(item => item.value === value);
+    
+    return {
+      value,
+      label: dynamicLabels[value] || LEAD_STATUS_LABELS[value],
+      inactive: catalogItem?.inactive
+    };
+  });
+
+export const LEAD_STATUS_OPTIONS = LEAD_STATUS_OPTIONS_FULL.filter(opt => !opt.inactive);
 
 const LEAD_STATUS_VALUE_BY_KEY: Record<LeadStatusKey, string> = {
   [LEAD_STATUS_KEYS.NEW]: LeadStatus.NEW,

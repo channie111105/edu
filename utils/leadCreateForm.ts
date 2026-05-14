@@ -6,6 +6,7 @@ import {
   LEAD_SOURCE_OPTIONS,
   LEAD_TARGET_COUNTRY_OPTIONS,
   STUDENT_EDUCATION_LEVEL_OPTIONS,
+  ADMIN_TEAM_OPTIONS,
 } from './systemConfig';
 
 export {
@@ -14,6 +15,7 @@ export {
   LEAD_SOURCE_OPTIONS,
   LEAD_TARGET_COUNTRY_OPTIONS,
   STUDENT_EDUCATION_LEVEL_OPTIONS,
+  ADMIN_TEAM_OPTIONS,
 } from './systemConfig';
 
 export type LeadCreateModalTab = 'notes' | 'student' | 'extra';

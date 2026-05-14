@@ -7,7 +7,8 @@ import {
   getStudents,
   getTransactions,
   updateQuotation,
-  updateStudent
+  updateStudent,
+  getQuotationProgramTypes
 } from '../utils/storage';
 import { decodeMojibakeText } from '../utils/mojibake';
 
@@ -49,7 +50,6 @@ export type StudyAbroadCaseRecord = {
   demographicInfo: string;
   country: string;
   program: string;
-  productPackage: string;
   major: string;
   salesperson: string;
   branch: string;
@@ -107,7 +107,6 @@ export type UpdateStudyAbroadCasePayload = {
   demographicInfo: string;
   country: string;
   program: string;
-  productPackage: string;
   major: string;
   salesperson: string;
   branch: string;
@@ -548,9 +547,9 @@ const getStudyAbroadContextText = (quotation: IQuotation, lead?: ILead): string 
 
 const matchesStudyAbroadService = (quotation: IQuotation, lead?: ILead): boolean => {
   if (quotation.status !== QuotationStatus.LOCKED) return false;
-  if (quotation.serviceType === 'StudyAbroad') return true;
-  if (getStudyAbroadLineItems(quotation).length > 0) return true;
-  return hasStudyAbroadKeyword(quotation.product, quotation.programType);
+  const programTypes = getQuotationProgramTypes(quotation);
+  if (programTypes.includes('Du học') || programTypes.includes('Combo')) return true;
+  return false;
 };
 
 const getLinkedStudent = (quotation: IQuotation, students: StudentLike[]): StudentLike | undefined => {
@@ -621,10 +620,7 @@ const buildCaseRecord = (
   const country = normalizeCountry(quotation.country || quotation.targetCountry || lead?.targetCountry || lead?.studentInfo?.targetCountry || inferredCountry) || UNKNOWN;
 
   const inferredProgram = inferProgram(studyAbroadContext || [quotation.product, quotation.serviceType, lead?.program].filter(Boolean).join(' '));
-  const inferredPackage = inferProductPackage(studyAbroadContext || [quotation.product, quotation.programType].filter(Boolean).join(' '));
   const program = cleanText(quotation.programType || lead?.program || inferredProgram) || UNKNOWN;
-  const productPackage = cleanText(quotation.studyAbroadProductPackage || inferredPackage) || NOT_UPDATED;
-
   const major = cleanText(quotation.major || lead?.educationLevel || lead?.currentEducationStatus) || NOT_UPDATED;
   const salesperson = resolveSalesName(quotation, lead);
   const branch = cleanText(quotation.branchName || admission?.campusId || student?.campus || lead?.city) || UNKNOWN;
@@ -697,7 +693,6 @@ const buildCaseRecord = (
     demographicInfo,
     country,
     program,
-    productPackage,
     major,
     salesperson,
     branch,
@@ -810,7 +805,6 @@ const buildCaseUpdateLog = (
   if (cleanText(quotation.studentPhone) !== cleanText(payload.phone)) changedFields.push('SĐT');
   if (cleanText(quotation.country) !== cleanText(payload.country)) changedFields.push('Quốc gia');
   if (cleanText(quotation.programType) !== cleanText(payload.program)) changedFields.push('Chương trình');
-  if (cleanText(quotation.studyAbroadProductPackage) !== cleanText(payload.productPackage)) changedFields.push('Gói sản phẩm');
   if (cleanText(quotation.major) !== cleanText(payload.major)) changedFields.push('Ngành');
   if (cleanText(quotation.salespersonName) !== cleanText(payload.salesperson)) changedFields.push('Salesperson');
   if (cleanText(quotation.branchName) !== cleanText(payload.branch)) changedFields.push('Chi nhánh');
@@ -873,7 +867,6 @@ export const updateStudyAbroadCase = (
     country: cleanText(payload.country) || undefined,
     targetCountry: cleanText(payload.country) || undefined,
     programType: cleanText(payload.program) || undefined,
-    studyAbroadProductPackage: cleanText(payload.productPackage) || undefined,
     major: cleanText(payload.major) || undefined,
     salespersonName: cleanText(payload.salesperson) || undefined,
     branchName: cleanText(payload.branch) || undefined,

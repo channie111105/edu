@@ -146,7 +146,7 @@ const resolveInterviewMeta = (
 ): InterviewResolvedMeta => {
   const matchedCase = caseByStudentToken.get(getInterviewStudentToken(item.studentName));
   const marketSource = [matchedCase?.country, item.subType, item.location].filter(Boolean).join(' ');
-  const programSource = [matchedCase?.program, matchedCase?.productPackage, item.subType, item.location]
+  const programSource = [matchedCase?.program, item.subType, item.location]
     .filter(Boolean)
     .join(' ');
 
@@ -305,7 +305,7 @@ const StudyAbroadInterviews: React.FC = () => {
   }, [customRange, interviewMetaById, interviews, searchTerm, selectedAdvancedFilterEntries, timeRangeType]);
 
   const activeSearchChips = useMemo<PinnedSearchChip[]>(() => {
-    const chips = selectedAdvancedFilterEntries.map(([fieldId, value]) => ({
+    const chips: PinnedSearchChip[] = selectedAdvancedFilterEntries.map(([fieldId, value]) => ({
       key: fieldId,
       label: `${INTERVIEW_ADVANCED_FILTER_LABELS[fieldId]}: ${formatInterviewAdvancedFilterValue(fieldId, value)}`
     }));

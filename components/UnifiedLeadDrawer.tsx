@@ -65,7 +65,7 @@ export interface ServicePackage {
   name: string;
   price: number;
   country: string;
-  productPackage: string;
+  programTypes: string[];
   programs: string[];
   type: string;
   currency: string;
@@ -88,8 +88,8 @@ const DEFAULT_SERVICE_PACKAGES: ServicePackage[] = [
     name: 'Tiếng Đức A1 (Offline)',
     price: 8000000,
     country: 'Đức',
-    productPackage: 'Gói cơ bản',
-    programs: ['du học', 'A1'],
+    programTypes: ['Đào tạo'],
+    programs: ['Dv hồ sơ', 'A1'],
     type: 'off',
     currency: 'VNĐ',
     startDate: new Date().toISOString().split('T')[0],
@@ -108,8 +108,8 @@ const DEFAULT_SERVICE_PACKAGES: ServicePackage[] = [
     name: 'Combo Du học Đức (A1-B1)',
     price: 45000000,
     country: 'Đức',
-    productPackage: 'Gói VIP',
-    programs: ['du học', 'A1', 'A2', 'B1', 'Dv hồ sơ'],
+    programTypes: ['Du học'],
+    programs: ['Dv hồ sơ', 'A1', 'A2', 'B1'],
     type: 'Blended',
     currency: 'VNĐ',
     startDate: new Date().toISOString().split('T')[0],

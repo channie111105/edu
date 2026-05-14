@@ -927,7 +927,7 @@ export interface IQuotation {
   internalNote?: string;
   internalNoteUpdatedAt?: string;
   demographicInfo?: string;
-  studyAbroadProductPackage?: string;
+
   caseProcessorName?: string;
   serviceStatusNote?: string;
   intakeDate?: string;

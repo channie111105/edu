@@ -299,7 +299,7 @@ const getProgramName = (quotation?: IQuotation, classInfo?: any) => {
 
 const getServicePackage = (quotation?: IQuotation) => {
   const firstLineItem = quotation?.lineItems?.find((item) => item.servicePackage || item.name);
-  return firstLineItem?.servicePackage || quotation?.studyAbroadProductPackage || firstLineItem?.name || quotation?.product || '—';
+  return firstLineItem?.servicePackage || firstLineItem?.name || quotation?.product || '—';
 };
 
 const getChargeName = (quotation?: IQuotation) => {

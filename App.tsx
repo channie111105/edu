@@ -136,6 +136,7 @@ const AppRoutes = () => {
           <Route path="admin/users" element={renderLazyRoute('./pages/AdminUserManagement.tsx')} />
           <Route path="admin/permissions" element={renderLazyRoute('./pages/AdminPermissions.tsx')} />
           <Route path="admin/system-config" element={renderLazyRoute('./pages/AdminSystemConfig.tsx')} />
+          <Route path="admin/org-config" element={renderLazyRoute('./pages/AdminOrgConfig.tsx')} />
           <Route path="admin/automation" element={renderLazyRoute('./pages/AdminAutomationRules.tsx')} />
           <Route path="admin/audit-logs" element={renderLazyRoute('./pages/AdminAuditLogs.tsx')} />
           <Route path="admin/financial-config" element={renderLazyRoute('./pages/AdminFinancialConfig.tsx')} />

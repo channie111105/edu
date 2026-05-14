@@ -95,6 +95,7 @@ export const NAV_ITEMS = [
   // --- ROLE ADMIN ---
   { label: 'Quản lý Người dùng', path: '/admin/users', icon: UserCog, roles: [UserRole.ADMIN] },
   { label: 'Cấu hình Dữ liệu', path: '/admin/system-config', icon: Database, roles: [UserRole.ADMIN] },
+  { label: 'Cấu hình Tổ chức', path: '/admin/org-config', icon: Network, roles: [UserRole.ADMIN] },
 
   // Advanced Tools (New Phase 2)
 
