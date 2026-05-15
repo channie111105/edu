@@ -30,6 +30,7 @@ interface AuthContextType {
   login: (role: UserRole) => void;
   logout: () => void;
   switchRole: (role: UserRole) => void;
+  switchWorkspace: (role: UserRole) => void;
   /** Kiểm tra xem user có quyền cụ thể không (scope khác 'none') */
   checkPermission: (groupId: PermissionGroupId, sectionId: string, permissionId: string) => boolean;
   /** Lấy scope của một quyền cụ thể */
@@ -237,6 +238,16 @@ export const AuthProvider = ({ children }: { children?: ReactNode }) => {
     setPermissionState(loadedPermissions);
   }, []);
 
+  // ── switchWorkspace ─────────────────────────────────────────────────────────
+  const switchWorkspace = useCallback((role: UserRole) => {
+    if (adminUser && user) {
+      // Chỉ thay đổi role hiển thị (workspace) nhưng giữ nguyên identity và permissions
+      setUser({ ...user, role });
+    } else {
+      login(role);
+    }
+  }, [adminUser, user, login]);
+
   // ── checkPermission ───────────────────────────────────────────────────────
   const checkPermission = useCallback(
     (groupId: PermissionGroupId, sectionId: string, permissionId: string): boolean => {
@@ -303,6 +314,7 @@ export const AuthProvider = ({ children }: { children?: ReactNode }) => {
         login,
         logout,
         switchRole,
+        switchWorkspace,
         checkPermission,
         getPermissionScope,
         hasGroupAccess,

@@ -79,13 +79,13 @@ const ModuleCard: React.FC<ModuleCardProps> = ({ role, icon: Icon, title, subtit
 );
 
 const ModuleSelectionPage: React.FC = () => {
-  const { login, adminUser, hasGroupAccess } = useAuth();
+  const { switchWorkspace, adminUser, hasGroupAccess } = useAuth();
   const navigate = useNavigate();
   const copy = MODULE_COPY.vi;
 
   const handleSelectRole = (role: UserRole, isDisabled: boolean) => {
     if (isDisabled) return;
-    login(role);
+    switchWorkspace(role);
     navigate('/');
   };
 
