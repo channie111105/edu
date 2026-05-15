@@ -51,7 +51,7 @@ export interface AdminUserFormData {
   endDate: string;
 }
 
-const STORAGE_KEY = 'educrm_admin_users_v3';
+const STORAGE_KEY = 'educrm_admin_users_v4';
 export const ADMIN_USERS_CHANGED_EVENT = 'educrm:admin-users-changed';
 
 export const ADMIN_USER_ROLE_OPTIONS = Object.values(UserRole);
