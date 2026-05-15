@@ -9,86 +9,132 @@ import {
   GraduationCap,
   ThumbsDown,
   ThumbsUp,
+  Megaphone
 } from 'lucide-react';
-
-const DATA_EVALUATIONS = [
-  {
-    id: 'd1',
-    name: 'Data_THPT_NguyenDu_K12',
-    source: 'Hợp tác Trường THPT',
-    code: '#D-2410-01',
-    date: '24/10/2023',
-    importer: 'Admin',
-    total: 500,
-    match: '96.0%',
-    valid: 480,
-    interested: '30.0%',
-    interestedCount: 150,
-    enrolled: '30.0%',
-    enrolledCount: 45,
-    eval: 'good',
-    evalText: 'ƯU TIÊN NHẬP',
-    note: 'Tỷ lệ nhập học cao',
-  },
-  {
-    id: 'd2',
-    name: 'Mua_Data_Ngoai_T10',
-    source: 'Mua ngoài (Agency A)',
-    code: '#D-2010-02',
-    date: '20/10/2023',
-    importer: 'Marketing Lead',
-    total: 1000,
-    match: '35.0%',
-    valid: 350,
-    interested: '2.0%',
-    interestedCount: 20,
-    enrolled: '10.0%',
-    enrolledCount: 2,
-    eval: 'bad',
-    evalText: 'DỪNG HỢP TÁC',
-    note: 'SĐT ảo quá nhiều',
-  },
-  {
-    id: 'd3',
-    name: 'Hoi_Thao_Du_Hoc_Duc_HaNoi',
-    source: 'Sự kiện Offline',
-    code: '#D-1510-01',
-    date: '15/10/2023',
-    importer: 'Sales Leader',
-    total: 200,
-    match: '99.0%',
-    valid: 198,
-    interested: '60.0%',
-    interestedCount: 120,
-    enrolled: '50.0%',
-    enrolledCount: 60,
-    eval: 'good',
-    evalText: 'ƯU TIÊN NHẬP',
-    note: 'Tỷ lệ nhập học cao',
-  },
-  {
-    id: 'd4',
-    name: 'Import_Excel_Cu_2022',
-    source: 'Hệ thống cũ',
-    code: '#D-0110-03',
-    date: '01/10/2023',
-    importer: 'Admin',
-    total: 1500,
-    match: '93.3%',
-    valid: 1400,
-    interested: '3.3%',
-    interestedCount: 50,
-    enrolled: '10.0%',
-    enrolledCount: 5,
-    eval: 'warning',
-    evalText: 'CÂN NHẮC LẠI',
-    note: 'Ít nhu cầu học',
-  },
-] as const;
+import { getLeads } from '../utils/storage';
+import { LeadStatus } from '../types';
+import { getCampaignCatalog } from '../utils/campaignCatalog';
 
 const CampaignEvaluation: React.FC = () => {
   const { id } = useParams<{ id: string }>();
+  const isAll = id === 'all';
   const navigate = useNavigate();
+
+  const catalog = getCampaignCatalog();
+  const campaign = catalog.find(c => c.id === id);
+  const campaignName = campaign?.name || (isAll ? 'Tất cả chiến dịch' : id);
+
+  const allLeads = getLeads();
+  // Filter leads
+  const campaignLeads = allLeads.filter(l => {
+    const leadCamp = (l as any).campaign || l.marketingData?.campaign;
+    if (isAll) return !!leadCamp;
+    return leadCamp === campaignName || leadCamp === id;
+  });
+
+  // Group by: If "All", group by Campaign Name. If specific campaign, group by Batch.
+  const batchMap = new Map<string, any>();
+  campaignLeads.forEach(lead => {
+    const key = isAll 
+      ? ((lead as any).campaign || lead.marketingData?.campaign || 'Không xác định')
+      : (lead.marketingData?.batch || 'Nguồn vãng lai');
+      
+    if (!batchMap.has(key)) {
+      batchMap.set(key, {
+        name: key,
+        source: isAll ? 'Chiến dịch' : (lead.source || 'Marketing'),
+        date: lead.createdAt.split('T')[0],
+        total: 0,
+        valid: 0,
+        interested: 0,
+        enrolled: 0
+      });
+    }
+    const stats = batchMap.get(key);
+    stats.total++;
+    const status = String(lead.status);
+    const isAssigned = lead.ownerId && lead.ownerId !== 'system';
+    
+    // Definition of "Khả dụng" (Usable) per user request: 
+    // Must be assigned to sales and successfully contacted/converted.
+    const isUsable = isAssigned && [
+      LeadStatus.CONTACTED, 
+      LeadStatus.QUALIFIED, 
+      LeadStatus.CONVERTED, 
+      LeadStatus.LOST,
+      'Đã liên hệ',
+      'Đạt chuẩn',
+      'Chốt',
+      'Hủy'
+    ].includes(status as any);
+
+    if (isUsable) stats.valid++;
+    
+    if ([LeadStatus.CONTACTED, LeadStatus.QUALIFIED, LeadStatus.CONVERTED, LeadStatus.PICKED, 'Đã liên hệ', 'Đạt chuẩn', 'Chốt'].includes(status as any)) {
+      stats.interested++;
+    }
+    if (status === LeadStatus.CONVERTED || status === 'Chốt') {
+      stats.enrolled++;
+    }
+  });
+
+  const evaluations = Array.from(batchMap.values()).map((item, idx) => {
+    const validRate = item.total > 0 ? (item.valid / item.total * 100) : 0;
+    const interestedRate = item.total > 0 ? (item.interested / item.total * 100) : 0;
+    const enrolledRate = item.total > 0 ? (item.enrolled / item.total * 100) : 0;
+
+    let evalStatus: 'good' | 'warning' | 'bad' = 'warning';
+    let evalText = 'CÂN NHẮC LẠI';
+    let note = 'Cần theo dõi thêm';
+
+    if (enrolledRate >= 5 || (interestedRate >= 20 && validRate >= 80)) {
+      evalStatus = 'good';
+      evalText = 'ƯU TIÊN NHẬP';
+      note = 'Tỷ lệ chuyển đổi tốt';
+    } else if (validRate < 50 || interestedRate < 5) {
+      evalStatus = 'bad';
+      evalText = 'DỪNG HỢP TÁC';
+      note = 'Chất lượng data thấp';
+    }
+
+    return {
+      id: `eval_${idx}`,
+      ...item,
+      match: validRate.toFixed(1) + '%',
+      interestedRate: interestedRate.toFixed(1) + '%',
+      enrolledRate: enrolledRate.toFixed(1) + '%',
+      eval: evalStatus,
+      evalText,
+      note
+    };
+  });
+
+  const totalData = campaignLeads.length;
+  const totalValid = campaignLeads.filter(l => l.phone && l.phone.length >= 10).length;
+  const totalInterested = campaignLeads.filter(l => [LeadStatus.CONTACTED, LeadStatus.QUALIFIED, LeadStatus.CONVERTED, LeadStatus.PICKED].includes(String(l.status) as any)).length;
+
+  const validRateTotal = totalData > 0 ? Math.round((totalValid / totalData) * 100) : 0;
+  const interestedRateTotal = totalData > 0 ? Math.round((totalInterested / totalData) * 100) : 0;
+
+  if (totalData === 0) {
+    return (
+      <div className="mx-auto min-h-screen max-w-[1600px] bg-slate-50 p-6 font-inter text-slate-900">
+        <button onClick={() => navigate('/campaigns')} className="flex items-center gap-2 font-semibold text-slate-500 hover:text-slate-800 mb-6">
+          <ArrowLeft size={20} /> Quay lại
+        </button>
+        <div className="flex flex-col items-center justify-center py-32 bg-white rounded-2xl border border-dashed border-slate-300">
+           <Megaphone size={64} className="text-slate-200 mb-4" />
+           <h2 className="text-xl font-bold text-slate-400">Chưa có dữ liệu đánh giá</h2>
+           <p className="text-slate-400 mt-2 text-center max-w-md">
+             {isAll 
+               ? 'Hệ thống hiện chưa có Lead nào được gán vào bất kỳ chiến dịch nào để phân tích.'
+               : 'Chiến dịch này hiện chưa có Lead nào được gán vào để phân tích và đánh giá chất lượng.'
+             }
+           </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto min-h-screen max-w-[1600px] animate-in bg-slate-50 p-6 font-inter text-slate-900 fade-in slide-in-from-right-4 duration-300">
@@ -101,9 +147,11 @@ const CampaignEvaluation: React.FC = () => {
             <ArrowLeft size={20} className="transition-transform group-hover:-translate-x-1" />
             Quay lại
           </button>
-          <h1 className="text-2xl font-bold text-slate-900">Đánh giá chiến dịch: {id || 'camp_01'}</h1>
+          <h1 className="text-2xl font-bold text-slate-900">
+            {isAll ? 'Đánh giá tổng thể chiến dịch' : `Đánh giá chiến dịch: ${campaignName}`}
+          </h1>
           <p className="mt-1 text-sm text-slate-500">
-            Theo dõi chất lượng từng đợt tuyển sinh để tối ưu chi phí Marketing.
+            Dữ liệu đánh giá dựa trên {totalData} Lead {isAll ? 'từ tất cả chiến dịch' : 'thực tế'} trong hệ thống.
           </p>
         </div>
       </div>
@@ -115,7 +163,7 @@ const CampaignEvaluation: React.FC = () => {
           </div>
           <div>
             <p className="text-xs font-bold uppercase text-slate-500">Tổng data đã nhập</p>
-            <p className="text-2xl font-bold text-slate-900">3.200</p>
+            <p className="text-2xl font-bold text-slate-900">{totalData.toLocaleString()}</p>
           </div>
         </div>
         <div className="flex items-center gap-4 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -123,8 +171,8 @@ const CampaignEvaluation: React.FC = () => {
             <CheckCircle size={24} />
           </div>
           <div>
-            <p className="text-xs font-bold uppercase text-slate-500">SĐT liên lạc được</p>
-            <p className="text-2xl font-bold text-slate-900">81%</p>
+            <p className="text-xs font-bold uppercase text-slate-500">SĐT Khả dụng (Thực tế)</p>
+            <p className="text-2xl font-bold text-slate-900">{validRateTotal}%</p>
           </div>
         </div>
         <div className="flex items-center gap-4 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -133,7 +181,7 @@ const CampaignEvaluation: React.FC = () => {
           </div>
           <div>
             <p className="text-xs font-bold uppercase text-slate-500">Tỷ lệ quan tâm học</p>
-            <p className="text-2xl font-bold text-slate-900">24%</p>
+            <p className="text-2xl font-bold text-slate-900">{interestedRateTotal}%</p>
           </div>
         </div>
       </div>
@@ -142,16 +190,16 @@ const CampaignEvaluation: React.FC = () => {
         <table className="w-full text-left text-sm">
           <thead className="border-b border-slate-200 bg-slate-50 text-xs font-bold uppercase text-slate-500">
             <tr>
-              <th className="p-4 pl-6">Tên đợt / Nguồn data</th>
-              <th className="p-4">Ngày nhập</th>
+              <th className="p-4 pl-6">{isAll ? 'Tên chiến dịch' : 'Tên đợt / Nguồn data'}</th>
+              <th className="p-4">{isAll ? 'Ngày bắt đầu' : 'Ngày nhập'}</th>
               <th className="p-4">Tổng SĐT</th>
               <th className="p-4">Chất lượng SĐT</th>
               <th className="p-4">Kết quả tuyển sinh</th>
-              <th className="p-4">Đánh giá nguồn</th>
+              <th className="p-4">Đánh giá {isAll ? 'hiệu quả' : 'nguồn'}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {DATA_EVALUATIONS.map((item) => (
+            {evaluations.map((item) => (
               <tr key={item.id} className="transition-colors hover:bg-slate-50">
                 <td className="p-4 pl-6">
                   <p className="font-bold text-slate-900">{item.name}</p>
@@ -159,7 +207,6 @@ const CampaignEvaluation: React.FC = () => {
                     <span className="rounded bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
                       {item.source}
                     </span>
-                    <span className="text-xs text-slate-400">{item.code}</span>
                   </div>
                 </td>
                 <td className="p-4 text-slate-600">
@@ -167,7 +214,6 @@ const CampaignEvaluation: React.FC = () => {
                     <Calendar size={14} />
                     {item.date}
                   </div>
-                  <p className="mt-1 text-xs text-slate-400">Bởi: {item.importer}</p>
                 </td>
                 <td className="p-4 font-bold text-slate-900">
                   {item.total}
@@ -176,7 +222,7 @@ const CampaignEvaluation: React.FC = () => {
                 <td className="p-4">
                   <p
                     className={`font-bold ${
-                      parseFloat(item.match) > 90
+                      parseFloat(item.match) > 80
                         ? 'text-green-600'
                         : parseFloat(item.match) < 50
                           ? 'text-red-500'
@@ -188,19 +234,19 @@ const CampaignEvaluation: React.FC = () => {
                   <div className="mt-1 h-1 w-24 overflow-hidden rounded-full bg-slate-100">
                     <div
                       style={{ width: item.match }}
-                      className={`h-full ${parseFloat(item.match) > 90 ? 'bg-green-500' : 'bg-amber-500'}`}
+                      className={`h-full ${parseFloat(item.match) > 80 ? 'bg-green-500' : 'bg-amber-500'}`}
                     ></div>
                   </div>
-                  <p className="mt-1 text-xs text-slate-400">{item.valid} SĐT đúng</p>
+                  <p className="mt-1 text-xs text-slate-400">{item.valid} SĐT có tương tác</p>
                 </td>
                 <td className="space-y-1 p-4">
                   <div className="flex justify-between text-xs text-slate-600">
-                    <span>Quan tâm ({item.interestedCount})</span>
-                    <span className="font-bold">{item.interested}</span>
+                    <span>Quan tâm ({item.interested})</span>
+                    <span className="font-bold">{item.interestedRate}</span>
                   </div>
                   <div className="flex justify-between text-xs text-green-700">
-                    <span>Nhập học ({item.enrolledCount})</span>
-                    <span className="font-bold">{item.enrolled}</span>
+                    <span>Nhập học ({item.enrolled})</span>
+                    <span className="font-bold">{item.enrolledRate}</span>
                   </div>
                 </td>
                 <td className="p-4">
@@ -232,5 +278,4 @@ const CampaignEvaluation: React.FC = () => {
     </div>
   );
 };
-
 export default CampaignEvaluation;

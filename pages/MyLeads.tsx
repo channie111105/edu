@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { getCollaborators, getDeals, getLeads, saveLead, saveDeals, saveLeads, getClosedLeadReasons, getTags, saveTags, getSalesTeams } from '../utils/storage';
+import { getAdminUsers } from '../utils/adminUsers';
 import { LeadStatus, ILead, DealStage, UserRole, type Activity } from '../types';
 import ConvertLeadModal, { ConvertLeadModalSubmitData } from '../components/ConvertLeadModal';
 import LeadCareScheduleModal, {
@@ -117,12 +118,13 @@ const MyLeads: React.FC = () => {
    const { salesTestRole } = useSalesTestRole(user?.role);
    const isSalesLeader = salesTestRole === UserRole.SALES_LEADER;
 
-   const SALES_REPS = [
-      { id: 'u1', name: 'Trần Văn Quản Trị' },
-      { id: 'u2', name: 'Sarah Miller' },
-      { id: 'u3', name: 'David Clark' },
-      { id: 'u4', name: 'Alex Rivera' },
-   ];
+   const SALES_REPS = useMemo(() => {
+      const saleRoles = [UserRole.SALES_REP, UserRole.SALES_LEADER, UserRole.ADMIN, UserRole.FOUNDER];
+      return getAdminUsers()
+         .filter((u) => u.accountStatus === 'active' && u.roles.some(r => saleRoles.includes(r)))
+         .map((u) => ({ id: u.id, name: u.name }));
+   }, []);
+
 
    const normalizeFilterToken = useCallback((value?: string) => decodeMojibakeText(String(value || '')).trim().toLowerCase(), []);
    const normalizeOwnerToken = normalizeFilterToken;
@@ -249,6 +251,28 @@ const MyLeads: React.FC = () => {
          .map((name) => ({ value: name, label: name })),
       [showCreateLeadModal]
    );
+
+   const salesStaffOptions = useMemo(() => {
+      const optionsMap = new Map<string, { value: string; label: string }>();
+      const teams = getSalesTeams();
+
+      teams.forEach((team) => {
+         team.members.forEach((member) => {
+            if (member.userId) {
+               optionsMap.set(member.userId, { value: member.name, label: member.name });
+            }
+         });
+      });
+
+      const options = Array.from(optionsMap.values());
+      const currentUserName = user?.name;
+
+      return options.sort((a, b) => {
+         if (a.value === currentUserName) return -1;
+         if (b.value === currentUserName) return 1;
+         return a.label.localeCompare(b.label, 'vi');
+      });
+   }, [user?.name]);
    const newCloseReasonOptions = useMemo(() => getCloseReasonOptions(newLeadData.status), [newLeadData.status]);
    const patchNewLeadData = (patch: Partial<LeadCreateFormData>) => {
       setNewLeadData((prev) => ({ ...prev, ...patch }));
@@ -2934,10 +2958,20 @@ const MyLeads: React.FC = () => {
                                     <select
                                        className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
                                        value={newLeadData.source}
-                                       onChange={e => setNewLeadData({ ...newLeadData, source: e.target.value })}
+                                       onChange={e => {
+                                          const newSource = e.target.value;
+                                          const patch: Partial<LeadCreateFormData> = { source: newSource };
+                                          if (newSource === 'Cá nhân') {
+                                             patch.referredBy = user?.name || '';
+                                          } else if (newSource === 'Công ty') {
+                                             patch.referredBy = '';
+                                          }
+                                          setNewLeadData({ ...newLeadData, ...patch });
+                                       }}
                                     >
-                                       {LEAD_SOURCE_OPTIONS.map(option => (
-                                          <option key={option.value} value={option.value}>{option.label}</option>
+                                       <option value="">-- Chọn nguồn --</option>
+                                       {LEAD_SOURCE_OPTIONS.map(opt => (
+                                          <option key={opt.value} value={opt.value}>{opt.label}</option>
                                        ))}
                                     </select>
                                  </div>
@@ -2956,16 +2990,32 @@ const MyLeads: React.FC = () => {
                                  </div>
                                  <div className="flex items-center gap-4">
                                     <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Người GT</label>
-                                    <select
-                                       className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
-                                       value={newLeadData.referredBy}
-                                       onChange={e => setNewLeadData({ ...newLeadData, referredBy: e.target.value })}
-                                    >
-                                       <option value="">-- Chọn người giới thiệu --</option>
-                                       {referrerSelectOptions.map(option => (
-                                          <option key={option.value} value={option.value}>{option.label}</option>
-                                       ))}
-                                    </select>
+                                    {newLeadData.source === 'Công ty' ? (
+                                       <input
+                                          disabled
+                                          className="flex-1 px-3 py-2 border border-slate-200 bg-slate-50 rounded text-sm text-slate-400 cursor-not-allowed"
+                                          value=""
+                                          placeholder="Không khả dụng"
+                                       />
+                                    ) : newLeadData.source === 'Thị trường' ? (
+                                       <input
+                                          className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
+                                          value={newLeadData.referredBy}
+                                          onChange={e => setNewLeadData({ ...newLeadData, referredBy: e.target.value })}
+                                          placeholder="Nhập tên người giới thiệu"
+                                       />
+                                    ) : (
+                                       <select
+                                          className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
+                                          value={newLeadData.referredBy}
+                                          onChange={e => setNewLeadData({ ...newLeadData, referredBy: e.target.value })}
+                                       >
+                                          <option value="">-- Chọn người giới thiệu --</option>
+                                          {(newLeadData.source === 'Cá nhân' ? salesStaffOptions : referrerSelectOptions).map(option => (
+                                             <option key={option.value} value={option.value}>{option.label}</option>
+                                          ))}
+                                       </select>
+                                    )}
                                  </div>
                               </div>
                            )}

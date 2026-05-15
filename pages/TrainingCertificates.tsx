@@ -1,6 +1,8 @@
 
 import React, { useState } from 'react';
+import { UserRole } from '../types';
 import { useNavigate } from 'react-router-dom';
+import { getAdminUsers } from '../utils/adminUsers';
 import { 
   ArrowLeft, 
   Award, 
@@ -17,12 +19,17 @@ const TrainingCertificates: React.FC = () => {
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
 
-  // Mock Data: Eligible Students
-  const [eligibleStudents, setEligibleStudents] = useState([
-    { id: 1, name: 'Nguyễn Văn Nam', course: 'Tiếng Đức A1', completedDate: '12/01/2024', avatar: 'https://i.pravatar.cc/150?u=a042581f4e29026024d', salesRep: 'Sarah Miller' },
-    { id: 2, name: 'Trần Thị Hương', course: 'Tiếng Trung HSK1', completedDate: '10/01/2024', avatar: 'https://i.pravatar.cc/150?u=a042581f4e29026704d', salesRep: 'David Clark' },
-    { id: 3, name: 'Lê Hoàng', course: 'Giao tiếp B1', completedDate: '14/01/2024', avatar: 'https://i.pravatar.cc/150?u=a042581f4e29026024e', salesRep: 'Sarah Miller' },
-  ]);
+  const [eligibleStudents, setEligibleStudents] = useState(() => {
+    const users = getAdminUsers();
+    const admin = users.find(u => u.roles.includes(UserRole.ADMIN))?.name || 'Trần Văn Quản Trị';
+    const sale = users.find(u => u.roles.includes(UserRole.SALES_REP))?.name || admin;
+    
+    return [
+      { id: 1, name: 'Nguyễn Văn Nam', course: 'Tiếng Đức A1', completedDate: '12/01/2024', avatar: 'https://i.pravatar.cc/150?u=a042581f4e29026024d', salesRep: admin },
+      { id: 2, name: 'Trần Thị Hương', course: 'Tiếng Trung HSK1', completedDate: '10/01/2024', avatar: 'https://i.pravatar.cc/150?u=a042581f4e29026704d', salesRep: sale },
+      { id: 3, name: 'Lê Hoàng', course: 'Giao tiếp B1', completedDate: '14/01/2024', avatar: 'https://i.pravatar.cc/150?u=a042581f4e29026024e', salesRep: admin },
+    ];
+  });
 
   // Mock Data: History
   const HISTORY = [

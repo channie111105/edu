@@ -1,6 +1,8 @@
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
+import { getAdminUsers } from '../utils/adminUsers';
+import { UserRole } from '../types';
 import { 
   Printer, 
   Edit, 
@@ -49,13 +51,24 @@ const ContractDetails: React.FC = () => {
   // Print Modal State
   const [showPrintModal, setShowPrintModal] = useState(false);
 
+  const systemRepresentative = useMemo(() => {
+      const users = getAdminUsers();
+      const rep = users.find(u => u.roles.includes(UserRole.ADMIN) || u.roles.includes(UserRole.SALES_LEADER) || u.roles.includes(UserRole.FOUNDER)) || users[0];
+      return {
+          id: rep?.id || 'admin',
+          name: rep?.name || 'Trần Văn Quản Trị',
+          avatar: (rep?.name || 'Admin').split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2),
+          role: rep?.role || 'Giám đốc Kinh doanh'
+      };
+  }, []);
+
   // --- STATE FOR LOGIC DEMO ---
   const [contractStatus, setContractStatus] = useState<'DRAFT' | 'SENT' | 'SIGNED_PENDING_PAYMENT' | 'ACTIVE' | 'BREACHED'>('SIGNED_PENDING_PAYMENT');
   const [installment1Paid, setInstallment1Paid] = useState(false);
 
   // --- MOCK DATA: AUDIT TRAIL (Nhật ký Pháp lý) ---
   const auditLog = [
-      { action: 'Đã gửi Email cho khách', time: '12/10/2023 09:00', ip: 'System', user: 'Sarah Miller' },
+      { action: 'Đã gửi Email cho khách', time: '12/10/2023 09:00', ip: 'System', user: systemRepresentative.name },
       { action: 'Khách hàng đã xem', time: '12/10/2023 09:15', ip: '113.160.x.x (iPhone 14)', user: 'Guest' },
       { action: 'Khách hàng đã ký số (OTP)', time: '12/10/2023 10:30', ip: '113.160.x.x (iPhone 14)', user: 'Guest' },
       { action: 'Hệ thống khóa file PDF', time: '12/10/2023 10:31', ip: 'System', user: 'Auto' },
@@ -508,9 +521,9 @@ const ContractDetails: React.FC = () => {
                       </div>
                    </div>
                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center text-xs font-bold text-blue-700 border border-white shadow-sm">SM</div>
+                      <div className="w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center text-xs font-bold text-blue-700 border border-white shadow-sm">{systemRepresentative.avatar}</div>
                       <div>
-                         <p className="text-sm font-bold text-slate-900">Sarah Miller</p>
+                         <p className="text-sm font-bold text-slate-900">{systemRepresentative.name}</p>
                          <p className="text-[10px] text-slate-500 uppercase font-bold tracking-wide">Đại diện ULA (Bên B)</p>
                       </div>
                    </div>
@@ -570,7 +583,7 @@ const ContractDetails: React.FC = () => {
                        
                        <div className="pl-4 border-l-2 border-slate-200">
                           <p><strong>BÊN A (Trung tâm): CÔNG TY CỔ PHẦN GIÁO DỤC ULA</strong></p>
-                          <p>Đại diện: Bà Sarah Miller - Chức vụ: Giám đốc Kinh doanh</p>
+                          <p>Đại diện: {systemRepresentative.name} - Chức vụ: {systemRepresentative.role}</p>
                           <p>Địa chỉ: Tầng 5, Tòa nhà ABC, Hà Nội</p>
                        </div>
 
@@ -603,7 +616,7 @@ const ContractDetails: React.FC = () => {
                     <div className="mt-16 flex justify-between gap-12">
                        <div className="flex-1 text-center">
                           <p className="font-bold uppercase mb-16">Đại diện Bên A</p>
-                          <p className="font-bold">Sarah Miller</p>
+                          <p className="font-bold">{systemRepresentative.name}</p>
                        </div>
                        <div className="flex-1 text-center">
                           <p className="font-bold uppercase mb-16">Đại diện Bên B</p>

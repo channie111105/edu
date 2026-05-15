@@ -20,6 +20,7 @@ import {
   Pencil
 } from 'lucide-react';
 import { getCampaignCatalog, saveCampaignCatalog } from '../utils/campaignCatalog';
+import { getSystemCatalog, SYSTEM_CONFIG_EVENT } from '../utils/systemConfig';
 
 type CampaignType = 'manual' | 'auto';
 type CampaignStatus = 'Running' | 'Paused' | 'Planned' | 'Completed';
@@ -216,6 +217,14 @@ const Campaigns: React.FC = () => {
   const [campaigns, setCampaigns] = useState(() => getCampaignCatalog());
   const [draggedItem, setDraggedItem] = useState<string | null>(null);
 
+  const [channelOptions, setChannelOptions] = useState(() => getSystemCatalog('leadChannels'));
+
+  useEffect(() => {
+    const syncChannels = () => setChannelOptions(getSystemCatalog('leadChannels'));
+    window.addEventListener(SYSTEM_CONFIG_EVENT, syncChannels);
+    return () => window.removeEventListener(SYSTEM_CONFIG_EVENT, syncChannels);
+  }, []);
+
   useEffect(() => {
     saveCampaignCatalog(campaigns);
   }, [campaigns]);
@@ -371,7 +380,6 @@ const Campaigns: React.FC = () => {
         <div className="flex flex-col items-center justify-center py-20 bg-white rounded-xl border border-dashed border-slate-300 col-span-full">
           <Megaphone size={48} className="text-slate-300 mb-4" />
           <p className="text-slate-500 font-medium">Không tìm thấy chiến dịch nào.</p>
-          <button className="mt-4 text-blue-600 font-bold hover:underline">Tạo chiến dịch đầu tiên</button>
         </div>
       );
     }
@@ -452,7 +460,7 @@ const Campaigns: React.FC = () => {
                       {c.spent > 0 ? ((c.revenue - c.spent) / c.spent * 100).toFixed(0) + '%' : 'N/A'}
                     </td>
                     <td className="p-4">
-                      <div className="flex justify-center">
+                      <div className="flex justify-center gap-2">
                         <button
                           type="button"
                           onClick={(e) => handleOpenEditModal(e, c)}
@@ -594,12 +602,14 @@ const Campaigns: React.FC = () => {
             <p className="text-slate-500 mt-1">{t('campaigns.description')}</p>
           </div>
           <div className="flex gap-3">
-            <button
-              onClick={() => navigate('/campaigns/camp_01/evaluation')}
-              className="px-5 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-lg font-bold flex items-center gap-2 shadow-sm hover:bg-slate-50 transition-all"
-            >
-              <BarChart3 size={20} className="text-blue-600" /> {t('campaigns.evaluate')}
-            </button>
+            {campaigns.length > 0 && (
+              <button
+                onClick={() => navigate('/campaigns/all/evaluation')}
+                className="px-5 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-lg font-bold flex items-center gap-2 shadow-sm hover:bg-slate-50 transition-all"
+              >
+                <BarChart3 size={20} className="text-blue-600" /> {t('campaigns.evaluate')}
+              </button>
+            )}
             <button
               onClick={handleOpenCreateModal}
               className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg font-bold flex items-center gap-2 shadow-sm transition-all focus:ring-4 focus:ring-blue-100"
@@ -723,12 +733,10 @@ const Campaigns: React.FC = () => {
                       value={newCampaignData.channel}
                       onChange={e => handleChannelChange(e.target.value)}
                     >
-                      <option value="Facebook">Facebook</option>
-                      <option value="Google Ads">Google Ads</option>
-                      <option value="TikTok">TikTok</option>
-                      <option value="Email">Email</option>
-                      <option value="Event/Offline">Sự kiện / Offline</option>
-                      <option value="Zalo">Zalo Ads</option>
+                      <option value="">-- Chọn kênh --</option>
+                      {channelOptions.map(opt => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
                     </select>
                   </div>
                   <div>

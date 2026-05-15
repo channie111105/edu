@@ -91,34 +91,18 @@ const findAdminUser = (usernameOrEmail: string): AdminUserRecord | null => {
  * Tạo demo IUser theo role (dùng khi chọn module nhanh, không cần login thật).
  */
 const getDemoUserByRole = (role: UserRole): IUser => {
-  if (role === UserRole.SALES_REP) {
-    return {
-      id: 'u2',
-      name: 'Sarah Miller',
-      role: UserRole.SALES_REP,
-      avatar: 'https://i.pravatar.cc/150?u=a042581f4e29026024d',
-    };
+  const matchedAdminUser = findAdminUserByRole(role);
+  if (matchedAdminUser) {
+    return toIUser(matchedAdminUser);
   }
 
-  if (role === UserRole.SALES_LEADER) {
-    return {
-      id: 'u1',
-      name: 'Trần Văn Quản Trị',
-      role: UserRole.SALES_LEADER,
-      avatar: 'https://picsum.photos/200?sales-leader',
-    };
-  }
-
-  if (role === UserRole.MARKETING) {
-    return {
-      id: 'u1',
-      name: 'Trần Văn Quản Trị',
-      role: UserRole.MARKETING,
-      avatar: 'https://picsum.photos/200',
-    };
-  }
-
-  return { ...MOCK_USER, role };
+  // Fallback to default admin if no user with that role exists
+  return {
+    id: 'u1',
+    name: 'Trần Văn Quản Trị',
+    role: role,
+    avatar: 'https://picsum.photos/200',
+  };
 };
 
 /**

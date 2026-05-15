@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -40,7 +40,11 @@ import {
     ResponsiveContainer
 } from 'recharts';
 import * as XLSX from 'xlsx';
+import { getLeads, saveLeads, getCollaborators, getSalesTeams } from '../utils/storage';
+import { useAuth } from '../contexts/AuthContext';
+import { getCampaignCatalog } from '../utils/campaignCatalog';
 import { decodeMojibakeReactNode, decodeMojibakeText } from '../utils/mojibake';
+import CampaignEvaluation from './CampaignEvaluation';
 import { getLeadPhoneValidationMessage, isValidLeadPhone, normalizeLeadPhone } from '../utils/phone';
 import {
     LEAD_CAMPUS_OPTIONS,
@@ -78,13 +82,14 @@ const ROI_CHART_DATA = [
 const LEAD_STATUS_OPTIONS = ['Mới', 'Đã liên hệ', 'Đạt chuẩn', 'Chốt', 'Hủy'];
 
 type LeadRecord = {
-    id: number;
+    id: string | number;
     name: string;
     phone: string;
     email: string;
     status: string;
     verified: boolean;
     source: string;
+    createdAt: string;
     targetCountry?: string;
     market?: string;
     company?: string;
@@ -294,7 +299,8 @@ const INITIAL_LEADS: LeadRecord[] = Array.from({ length: 20 }, (_, i) => ({
     email: `lead${i + 1}@example.com`,
     status: LEAD_STATUS_OPTIONS[Math.floor(Math.random() * LEAD_STATUS_OPTIONS.length)],
     verified: Math.random() > 0.3,
-    source: 'Facebook'
+    source: 'Facebook',
+    createdAt: new Date().toISOString()
 }));
 
 const DATA_VIEW_OPTIONS: Array<{ id: DataViewMode; icon: LucideIcon; title: string }> = [
@@ -389,7 +395,8 @@ const CampaignDetails: React.FC = () => {
     const navigate = useNavigate();
     const location = useLocation();
     const { t } = useTranslation('marketing');
-    const [activeTab, setActiveTab] = useState<'dashboard' | 'api' | 'form' | 'data'>('dashboard');
+    const { user } = useAuth();
+    const [activeTab, setActiveTab] = useState<'dashboard' | 'api' | 'form' | 'data' | 'evaluation'>('dashboard');
     const campaignStatusLabels: Record<CampaignDetailStatus, string> = {
         Running: t('campaigns.statuses.running'),
         Paused: t('campaigns.statuses.paused'),
@@ -448,8 +455,29 @@ const CampaignDetails: React.FC = () => {
     const [fbPixelId, setFbPixelId] = useState('1293849182312');
 
     // State for Leads (Drag & Drop)
-    const [leads, setLeads] = useState<LeadRecord[]>(INITIAL_LEADS);
-    const [draggedItem, setDraggedItem] = useState<number | null>(null);
+    // State for Leads
+    const [leads, setLeads] = useState<LeadRecord[]>(() => {
+        const catalog = getCampaignCatalog();
+        const campaign = catalog.find(c => c.id === id);
+        const campaignName = campaign?.name || id;
+        
+        const allLeads = getLeads();
+        return allLeads
+            .filter(l => (l as any).campaign === campaignName || l.marketingData?.campaign === campaignName || (l as any).campaign === id)
+            .map(l => ({
+                id: Number(l.id) || Math.random(),
+                name: l.name,
+                phone: l.phone,
+                email: l.email,
+                status: l.status,
+                verified: true,
+                source: l.source || 'Marketing',
+                createdAt: l.createdAt || new Date().toISOString(),
+                campaign: (l as any).campaign || l.marketingData?.campaign,
+                channel: l.marketingData?.channel
+            }));
+    });
+    const [draggedItem, setDraggedItem] = useState<string | number | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState<string>('all');
     const [sourceFilter, setSourceFilter] = useState<string>('all');
@@ -585,16 +613,16 @@ const CampaignDetails: React.FC = () => {
         return [...matches].sort((left, right) => {
             switch (sortMode) {
                 case 'oldest':
-                    return left.id - right.id;
+                    return Number(left.id) - Number(right.id);
                 case 'name_asc':
                     return left.name.localeCompare(right.name, 'vi');
                 case 'name_desc':
                     return right.name.localeCompare(left.name, 'vi');
                 case 'status':
-                    return left.status.localeCompare(right.status, 'vi') || right.id - left.id;
+                    return left.status.localeCompare(right.status, 'vi') || Number(right.id) - Number(left.id);
                 case 'newest':
                 default:
-                    return right.id - left.id;
+                    return Number(right.id) - Number(left.id);
             }
         });
     }, [leads, searchTerm, sortMode, sourceFilter, statusFilter, verificationFilter]);
@@ -687,13 +715,79 @@ const CampaignDetails: React.FC = () => {
         [filteredLeads.length, leadCountsByStatus]
     );
 
+    const persistLeads = (updatedLeads: LeadRecord[]) => {
+        const allLeads = getLeads();
+        const campaignName = getCampaignCatalog().find(c => c.id === id)?.name || id;
+
+        // Map local LeadRecord back to ILead for storage.ts
+        const mappedCampaignLeads = updatedLeads.map(l => {
+            const existingLead = allLeads.find(al => String(al.id) === String(l.id));
+            
+            // Create a base ILead or use existing one
+            const base: any = existingLead ? { ...existingLead } : {
+                id: String(l.id),
+                createdAt: l.createdAt || new Date().toISOString(),
+                lastInteraction: new Date().toISOString(),
+                notes: '',
+                ownerId: 'system',
+                program: 'Tiếng Đức',
+                score: 0,
+                slaStatus: 'normal'
+            };
+
+            return {
+                ...base,
+                id: String(l.id),
+                name: l.name,
+                phone: l.phone,
+                email: l.email,
+                status: l.status,
+                source: l.source || 'Marketing',
+                campaign: l.campaign || campaignName,
+                company: l.company,
+                referredBy: l.referredBy,
+                address: l.address,
+                targetCountry: l.targetCountry,
+                marketingData: {
+                    ...base.marketingData,
+                    campaign: l.campaign || campaignName,
+                    source: l.source || 'Marketing',
+                    channel: l.channel,
+                    medium: l.medium,
+                    tags: l.tags ? (Array.isArray(l.tags) ? l.tags : String(l.tags).split(',').map(t => t.trim())) : []
+                }
+            };
+        });
+
+        // Filter out other leads from other campaigns
+        const otherLeads = allLeads.filter(l => {
+            const lCampaign = (l as any).campaign || l.marketingData?.campaign;
+            return lCampaign !== campaignName && lCampaign !== id;
+        });
+
+        // Save the combined list
+        saveLeads([...otherLeads, ...mappedCampaignLeads] as any);
+    };
+
     const addLeads = (rows: Omit<LeadRecord, 'id'>[]) => {
         if (!rows.length) return;
 
         setLeads(prev => {
-            let nextId = prev.length ? Math.max(...prev.map(lead => lead.id)) + 1 : 1;
-            const mappedRows = rows.map(row => ({ ...row, id: nextId++ }));
-            return [...mappedRows, ...prev];
+            const currentMaxId = prev.length ? Math.max(...prev.map(lead => Number(lead.id) || 0)) : 0;
+            const globalLeads = getLeads();
+            const globalMaxId = globalLeads.length ? Math.max(...globalLeads.map(l => Number(l.id) || 0)) : 0;
+            
+            let nextId = Math.max(currentMaxId, globalMaxId) + 1;
+            
+            const mappedRows = rows.map(row => ({ 
+                ...row, 
+                id: nextId++, 
+                createdAt: (row as any).createdAt || new Date().toISOString() 
+            }));
+            
+            const nextLeads = [...mappedRows, ...prev];
+            persistLeads(nextLeads);
+            return nextLeads;
         });
     };
 
@@ -701,7 +795,42 @@ const CampaignDetails: React.FC = () => {
         setManualLead(createManualLeadDraft(campaignMeta.name));
     };
 
-    const getManualFieldOptions = (fieldId: QrLeadField[ 'id' ]) => {
+    const salesStaffOptions = useMemo(() => {
+        const optionsMap = new Map<string, { value: string; label: string }>();
+        const teams = getSalesTeams();
+
+        teams.forEach((team) => {
+            team.members.forEach((member) => {
+                if (member.userId) {
+                    optionsMap.set(member.userId, { value: member.name, label: member.name });
+                }
+            });
+        });
+
+        const options = Array.from(optionsMap.values());
+        const currentUserName = user?.name;
+
+        return options.sort((a, b) => {
+            if (a.value === currentUserName) return -1;
+            if (b.value === currentUserName) return 1;
+            return a.label.localeCompare(b.label, 'vi');
+        });
+    }, [user?.name]);
+
+    const collaboratorOptions = useMemo(
+        () => Array.from(
+            new Set(
+                getCollaborators()
+                    .map((item: any) => String(item?.name || '').trim())
+                    .filter(Boolean)
+            )
+        )
+            .sort((left: string, right: string) => left.localeCompare(right, 'vi'))
+            .map((name) => ({ value: name, label: name })),
+        []
+    );
+
+    const getManualFieldOptions = (fieldId: QrLeadField[ 'id' ]): { value: string; label: string }[] => {
         switch (fieldId) {
             case 'targetCountry':
                 return LEAD_TARGET_COUNTRY_OPTIONS.map((option) => ({ value: option.value, label: option.label }));
@@ -718,6 +847,10 @@ const CampaignDetails: React.FC = () => {
                 ];
             case 'channel':
                 return LEAD_CHANNEL_OPTIONS.map((option) => ({ value: option.label, label: option.label }));
+            case 'referredBy':
+                if (manualLead.source === 'Cá nhân') return salesStaffOptions;
+                if (manualLead.source === 'CTV') return collaboratorOptions;
+                return [];
             default:
                 return [];
         }
@@ -737,7 +870,17 @@ const CampaignDetails: React.FC = () => {
     };
 
     const updateManualLeadField = (fieldId: QrLeadField[ 'id' ], value: string) => {
-        setManualLead((prev) => ({ ...prev, [fieldId]: value }));
+        setManualLead((prev) => {
+            const next = { ...prev, [fieldId]: value };
+            if (fieldId === 'source') {
+                if (value === 'Cá nhân') {
+                    next.referredBy = user?.name || '';
+                } else if (value === 'Công ty') {
+                    next.referredBy = '';
+                }
+            }
+            return next;
+        });
     };
 
     const handleAddManualLead = () => {
@@ -766,6 +909,7 @@ const CampaignDetails: React.FC = () => {
             status: manualLead.status,
             verified: manualLead.verified,
             source: manualLead.source.trim() || 'Nhập tay',
+            createdAt: new Date().toISOString(),
             targetCountry: manualLead.targetCountry.trim(),
             market: manualLead.market.trim(),
             company: manualLead.company.trim(),
@@ -820,7 +964,8 @@ const CampaignDetails: React.FC = () => {
                         email,
                         source,
                         status,
-                        verified
+                        verified,
+                        createdAt: new Date().toISOString()
                     } satisfies Omit<LeadRecord, 'id'>;
                 })
                 .filter((row): row is Omit<LeadRecord, 'id'> => Boolean(row));
@@ -889,12 +1034,13 @@ const CampaignDetails: React.FC = () => {
         { id: 'api', label: 'Cấu hình API', icon: Settings },
         { id: 'form', label: 'Biểu mẫu & mã QR', icon: FileText },
         { id: 'data', label: 'Danh sách dữ liệu', icon: Database },
+        { id: 'evaluation', label: 'Đánh giá chất lượng', icon: TrendingUp },
     ];
 
     const visibleTabs = isAutoCampaign ? tabs : tabs.filter((tab) => tab.id !== 'api');
 
     // --- DRAG AND DROP HANDLERS ---
-    const handleDragStart = (e: React.DragEvent, id: number) => {
+    const handleDragStart = (e: React.DragEvent, id: string | number) => {
         setDraggedItem(id);
         e.dataTransfer.effectAllowed = 'move';
         (e.target as HTMLElement).style.opacity = '0.5';
@@ -914,12 +1060,16 @@ const CampaignDetails: React.FC = () => {
         e.preventDefault();
         if (draggedItem === null) return;
 
-        setLeads(prev => prev.map(lead => {
-            if (lead.id === draggedItem) {
-                return { ...lead, status: targetStatus };
-            }
-            return lead;
-        }));
+        setLeads(prev => {
+            const nextLeads = prev.map(lead => {
+                if (lead.id === draggedItem) {
+                    return { ...lead, status: targetStatus };
+                }
+                return lead;
+            });
+            persistLeads(nextLeads);
+            return nextLeads;
+        });
         setDraggedItem(null);
     };
 
@@ -1057,55 +1207,111 @@ const CampaignDetails: React.FC = () => {
 
             // --- DASHBOARD VIEW ---
             case 'dashboard': {
-                const verifiedCount = filteredLeads.filter((lead) => lead.verified).length;
-                const sourceCount = new Set(filteredLeads.map((lead) => lead.source)).size;
+                const totalLeads = leads.length;
+                const validLeads = leads.filter(l => l.phone && l.phone.length >= 10).length;
+                const contactedLeads = leads.filter(l => [LEAD_STATUS_OPTIONS[1], LEAD_STATUS_OPTIONS[2], LEAD_STATUS_OPTIONS[3]].includes(l.status)).length;
+                const convertedLeads = leads.filter(l => l.status === LEAD_STATUS_OPTIONS[3]).length;
+
+                const validRate = totalLeads > 0 ? Math.round((validLeads / totalLeads) * 100) : 0;
+                const contactedRate = totalLeads > 0 ? Math.round((contactedLeads / totalLeads) * 100) : 0;
+                const conversionRate = totalLeads > 0 ? Math.round((convertedLeads / totalLeads) * 100) : 0;
+
+                // Get financial data from catalog
+                const catalog = getCampaignCatalog();
+                const camp = catalog.find(c => c.id === id) || ({} as any);
+                const budget = camp.budget || 0;
+                const spent = camp.spent || 0;
+                const revenue = camp.revenue || 0;
+                const roi = spent > 0 ? Math.round(((revenue - spent) / spent) * 100) : 0;
+
+                // Calculate real distribution of leads over time
+                const chartData = Array.from({ length: 10 }, (_, i) => {
+                    const date = new Date();
+                    date.setDate(date.getDate() - (9 - i));
+                    const dateStr = date.toISOString().split('T')[0];
+                    const count = leads.filter(l => l.createdAt?.split('T')[0] === dateStr).length;
+                    return { name: dateStr.split('-').slice(1).reverse().join('/'), leads: count };
+                });
 
                 return (
-                    <div className="space-y-4 animate-in zoom-in-95 duration-500">
-                        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                        {/* Quick Stats Grid */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                             {[
-                                { label: 'Tổng khách tiềm năng', value: filteredLeads.length, tone: 'bg-sky-50 text-sky-700' },
-                                { label: 'Đã xác thực', value: verifiedCount, tone: 'bg-cyan-50 text-cyan-700' },
-                                {
-                                    label: 'Tỷ lệ xác thực',
-                                    value: `${filteredLeads.length ? Math.round((verifiedCount / filteredLeads.length) * 100) : 0}%`,
-                                    tone: 'bg-blue-50 text-blue-700'
-                                },
-                                { label: 'Nguồn đang hoạt động', value: sourceCount, tone: 'bg-indigo-50 text-indigo-700' }
-                            ].map((metric) => (
-                                <div
-                                    key={metric.label}
-                                    className="rounded-[20px] border border-slate-200 bg-white px-4 py-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
-                                >
-                                    <div className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${metric.tone}`}>
-                                        {metric.label}
-                                    </div>
-                                    <div className="mt-3 text-2xl font-semibold tracking-tight text-slate-800">{metric.value}</div>
+                                { label: 'Tổng dữ liệu', value: totalLeads.toLocaleString(), color: 'text-slate-900' },
+                                { label: 'Tỷ lệ xác thực', value: `${validRate}%`, color: 'text-sky-700' },
+                                { label: 'Tỷ lệ đã liên hệ', value: `${contactedRate}%`, color: 'text-cyan-700' },
+                                { label: 'Tỷ lệ chốt', value: `${conversionRate}%`, color: 'text-indigo-700' },
+                            ].map((stat, i) => (
+                                <div key={i} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm transition-transform hover:scale-[1.01]">
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">{stat.label}</p>
+                                    <p className={`text-2xl font-black ${stat.color}`}>{stat.value}</p>
                                 </div>
                             ))}
                         </div>
 
-                        <div className="flex items-center justify-center rounded-[24px] border border-slate-200 bg-white px-6 py-10 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-                            <div className="w-full max-w-xl space-y-4">
-                                {funnelData.map((step, idx) => (
-                                    <div key={idx} className="flex flex-col items-center group">
-                                        <div
-                                            className={`flex h-16 items-center justify-center rounded-2xl text-white shadow-lg transition-all group-hover:scale-[1.01] ${step.color}`}
-                                            style={{ width: `${48 + step.percentage * 0.45}%`, minWidth: '220px' }}
-                                        >
-                                            <div className="flex flex-col items-center leading-tight">
-                                                <span className="text-lg font-semibold">{step.count}</span>
-                                                <span className="text-[10px] font-semibold uppercase tracking-[0.25em] text-white/80">
-                                                    {step.percentage}%
-                                                </span>
-                                            </div>
-                                        </div>
-                                        {idx < funnelData.length - 1 && (
-                                            <div className="my-1 h-6 border-l-2 border-dashed border-slate-200"></div>
-                                        )}
-                                        <span className="mt-2 text-[10px] font-black uppercase tracking-widest text-slate-400">{step.label}</span>
+                        {/* Chart and Financial Section */}
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                            <div className="lg:col-span-2 bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
+                                <div className="flex items-center gap-2 mb-8">
+                                    <TrendingUp size={18} className="text-sky-600" />
+                                    <h3 className="text-sm font-bold text-slate-800 uppercase tracking-widest">Biểu đồ tăng trưởng Lead</h3>
+                                </div>
+                                <div className="h-64 w-full">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <AreaChart data={chartData}>
+                                            <defs>
+                                                <linearGradient id="colorLeads" x1="0" y1="0" x2="0" y2="1">
+                                                    <stop offset="5%" stopColor="#0ea5e9" stopOpacity={0.1} />
+                                                    <stop offset="95%" stopColor="#0ea5e9" stopOpacity={0} />
+                                                </linearGradient>
+                                            </defs>
+                                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                                            <XAxis 
+                                                dataKey="name" 
+                                                axisLine={false} 
+                                                tickLine={false} 
+                                                tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 700 }}
+                                                dy={10}
+                                            />
+                                            <YAxis hide />
+                                            <Tooltip 
+                                                contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', fontSize: '12px', fontWeight: 'bold' }}
+                                            />
+                                            <Area 
+                                                type="monotone" 
+                                                dataKey="leads" 
+                                                stroke="#0ea5e9" 
+                                                strokeWidth={3} 
+                                                fillOpacity={1} 
+                                                fill="url(#colorLeads)" 
+                                            />
+                                        </AreaChart>
+                                    </ResponsiveContainer>
+                                </div>
+                            </div>
+
+                            <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm flex flex-col justify-between">
+                                <div className="space-y-6">
+                                    <div>
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 text-center">Ngân sách</p>
+                                        <p className="text-2xl font-black text-slate-800 text-center">{budget.toLocaleString()}đ</p>
                                     </div>
-                                ))}
+                                    <div className="pt-6 border-t border-slate-100">
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 text-center">Đã chi tiêu</p>
+                                        <p className="text-2xl font-black text-slate-600 text-center">{spent.toLocaleString()}đ</p>
+                                    </div>
+                                    <div className="pt-6 border-t border-slate-100">
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 text-center">Doanh thu dự kiến</p>
+                                        <p className="text-2xl font-black text-emerald-600 text-center">{revenue.toLocaleString()}đ</p>
+                                    </div>
+                                </div>
+                                <div className="mt-8 bg-slate-50 rounded-2xl p-6 text-center">
+                                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Hiệu quả ROI</p>
+                                    <p className={`text-3xl font-black ${roi >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                                        {roi >= 0 ? '+' : ''}{roi}%
+                                    </p>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -1130,6 +1336,14 @@ const CampaignDetails: React.FC = () => {
                             {campaignChannelLabel} • {campaignTypeLabel} • <span className={`font-bold ${getCampaignStatusTone(campaignMeta.status)}`}>{campaignStatusLabel}</span>
                         </p>
                     </div>
+                </div>
+                <div className="flex gap-3">
+                    <button 
+                        onClick={() => setActiveTab('evaluation')}
+                        className="px-4 py-2 bg-white border border-slate-200 text-slate-700 rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-2"
+                    >
+                        <TrendingUp size={16} className="text-blue-600" /> Đánh giá chất lượng
+                    </button>
                 </div>
             </div>
 
@@ -1162,10 +1376,22 @@ const CampaignDetails: React.FC = () => {
                             {/* Quick Stats Grid */}
                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                                 {[
-                                    { label: 'Tổng dữ liệu', value: CAMPAIGNS_METRICS.totalLeads.toLocaleString(), color: 'text-slate-900' },
-                                    { label: 'Tỷ lệ xác thực', value: `${CAMPAIGNS_METRICS.validRate}%`, color: 'text-sky-700' },
-                                    { label: 'Tỷ lệ đã liên hệ', value: `${CAMPAIGNS_METRICS.contactedRate}%`, color: 'text-cyan-700' },
-                                    { label: 'Tỷ lệ chốt', value: `${CAMPAIGNS_METRICS.conversionRate}%`, color: 'text-indigo-700' },
+                                    { label: 'Tổng dữ liệu', value: leads.length.toLocaleString(), color: 'text-slate-900' },
+                                    { 
+                                        label: 'Tỷ lệ xác thực', 
+                                        value: `${leads.length > 0 ? Math.round((leads.filter(l => l.phone && l.phone.length >= 10).length / leads.length) * 100) : 0}%`, 
+                                        color: 'text-sky-700' 
+                                    },
+                                    { 
+                                        label: 'Tỷ lệ đã liên hệ', 
+                                        value: `${leads.length > 0 ? Math.round((leads.filter(l => [LEAD_STATUS_OPTIONS[1], LEAD_STATUS_OPTIONS[2], LEAD_STATUS_OPTIONS[3]].includes(l.status)).length / leads.length) * 100) : 0}%`, 
+                                        color: 'text-cyan-700' 
+                                    },
+                                    { 
+                                        label: 'Tỷ lệ chốt', 
+                                        value: `${leads.length > 0 ? Math.round((leads.filter(l => l.status === LEAD_STATUS_OPTIONS[3]).length / leads.length) * 100) : 0}%`, 
+                                        color: 'text-indigo-700' 
+                                    },
                                 ].map((stat, i) => (
                                     <div key={i} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm transition-transform hover:scale-[1.01]">
                                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">{stat.label}</p>
@@ -1174,51 +1400,87 @@ const CampaignDetails: React.FC = () => {
                                 ))}
                             </div>
 
-                            {/* ROI Chart Card */}
-                            <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm">
-                                <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2 mb-4">
-                                    <TrendingUp size={20} className="text-slate-500" /> Biểu đồ hiệu quả ROI
-                                </h3>
-
-                                <div className="h-[240px] w-full">
-                                    <ResponsiveContainer width="100%" height="100%">
-                                        <AreaChart data={ROI_CHART_DATA}>
-                                            <defs>
-                                                <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
-                                                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.1} />
-                                                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
-                                                </linearGradient>
-                                            </defs>
-                                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                                            <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12 }} dy={10} />
-                                            <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12 }} />
-                                            <Tooltip
-                                                contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
-                                            />
-                                            <Area type="monotone" dataKey="revenue" stroke="#3b82f6" strokeWidth={3} fillOpacity={1} fill="url(#colorRevenue)" />
-                                            <Area type="monotone" dataKey="budget" stroke="#e2e8f0" strokeWidth={2} fill="transparent" />
-                                        </AreaChart>
-                                    </ResponsiveContainer>
+                            {/* ROI and Financials */}
+                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                                <div className="lg:col-span-2 bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
+                                    <div className="flex items-center gap-2 mb-8">
+                                        <TrendingUp size={18} className="text-sky-600" />
+                                        <h3 className="text-sm font-bold text-slate-800 uppercase tracking-widest">Biểu đồ tăng trưởng Lead</h3>
+                                    </div>
+                                    <div className="h-64 w-full">
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <AreaChart data={(() => {
+                                                const counts: { [key: string]: number } = {};
+                                                leads.forEach(l => {
+                                                    const d = l.createdAt?.split('T')[0];
+                                                    if (d) counts[d] = (counts[d] || 0) + 1;
+                                                });
+                                                
+                                                return Array.from({ length: 10 }, (_, i) => {
+                                                    const date = new Date();
+                                                    date.setDate(date.getDate() - (9 - i));
+                                                    const dateStr = date.toISOString().split('T')[0];
+                                                    return { 
+                                                        name: dateStr.split('-').slice(1).reverse().join('/'), 
+                                                        leads: counts[dateStr] || 0 
+                                                    };
+                                                });
+                                            })()}>
+                                                <defs>
+                                                    <linearGradient id="colorLeads" x1="0" y1="0" x2="0" y2="1">
+                                                        <stop offset="5%" stopColor="#0ea5e9" stopOpacity={0.1} />
+                                                        <stop offset="95%" stopColor="#0ea5e9" stopOpacity={0} />
+                                                    </linearGradient>
+                                                </defs>
+                                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                                                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 700 }} dy={10} />
+                                                <YAxis hide />
+                                                <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', fontSize: '12px', fontWeight: 'bold' }} />
+                                                <Area type="monotone" dataKey="leads" stroke="#0ea5e9" strokeWidth={3} fillOpacity={1} fill="url(#colorLeads)" />
+                                            </AreaChart>
+                                        </ResponsiveContainer>
+                                    </div>
                                 </div>
 
-                                {/* Footer Stats inside ROI Chart */}
-                                <div className="mt-6 pt-6 border-t border-slate-100 grid grid-cols-1 md:grid-cols-3 gap-8 text-center">
-                                    <div>
-                                        <p className="text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-widest">Chi phí</p>
-                                        <p className="text-lg font-black text-slate-900">{CAMPAIGNS_METRICS.budget.toLocaleString()}đ</p>
-                                    </div>
-                                    <div>
-                                        <p className="text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-widest">Doanh thu</p>
-                                        <p className="text-lg font-black text-cyan-700">{CAMPAIGNS_METRICS.revenue.toLocaleString()}đ</p>
-                                    </div>
-                                    <div>
-                                        <p className="text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-widest">Lợi nhuận ROI</p>
-                                        <p className="text-lg font-black text-sky-700">+{CAMPAIGNS_METRICS.roi}%</p>
-                                    </div>
+                                <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm flex flex-col justify-between">
+                                    {(() => {
+                                        const camp = getCampaignCatalog().find(c => c.id === id) || ({} as any);
+                                        const budget = camp.budget || 0;
+                                        const spent = camp.spent || 0;
+                                        const revenue = camp.revenue || 0;
+                                        const roi = spent > 0 ? Math.round(((revenue - spent) / spent) * 100) : 0;
+                                        return (
+                                            <>
+                                                <div className="space-y-6">
+                                                    <div>
+                                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 text-center">Ngân sách</p>
+                                                        <p className="text-2xl font-black text-slate-800 text-center">{budget.toLocaleString()}đ</p>
+                                                    </div>
+                                                    <div className="pt-6 border-t border-slate-100">
+                                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 text-center">Đã chi tiêu</p>
+                                                        <p className="text-2xl font-black text-slate-600 text-center">{spent.toLocaleString()}đ</p>
+                                                    </div>
+                                                    <div className="pt-6 border-t border-slate-100">
+                                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 text-center">Doanh thu dự kiến</p>
+                                                        <p className="text-2xl font-black text-emerald-600 text-center">{revenue.toLocaleString()}đ</p>
+                                                    </div>
+                                                </div>
+                                                <div className="mt-8 bg-slate-50 rounded-2xl p-6 text-center">
+                                                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Hiệu quả ROI</p>
+                                                    <p className={`text-3xl font-black ${roi >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                                                        {roi >= 0 ? '+' : ''}{roi}%
+                                                    </p>
+                                                </div>
+                                            </>
+                                        );
+                                    })()}
                                 </div>
                             </div>
                         </div>
                     )}
+
+                    {/* TAB: EVALUATION */}
+                    {activeTab === 'evaluation' && <CampaignEvaluation />}
 
                     {/* TAB 2: API CONFIG */}
                     {activeTab === 'api' && isAutoCampaign && (
@@ -1666,7 +1928,22 @@ const CampaignDetails: React.FC = () => {
                                                 {getManualFieldLabel(field)}
                                                 {field.required ? ' *' : ''}
                                             </label>
-                                            {isSelectField ? (
+                                            {field.id === 'referredBy' && manualLead.source === 'Công ty' ? (
+                                                <input
+                                                    disabled
+                                                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-400 cursor-not-allowed"
+                                                    value=""
+                                                    placeholder="Không khả dụng"
+                                                />
+                                            ) : field.id === 'referredBy' && manualLead.source === 'Thị trường' ? (
+                                                <input
+                                                    type="text"
+                                                    className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-sky-500"
+                                                    value={manualLead.referredBy}
+                                                    onChange={(e) => updateManualLeadField('referredBy', e.target.value)}
+                                                    placeholder="Nhập tên người giới thiệu"
+                                                />
+                                            ) : isSelectField ? (
                                                 <select
                                                     className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-sky-500"
                                                     value={field.id === 'status' ? normalizeLeadStatus(value) : value}
@@ -1732,4 +2009,3 @@ const CampaignDetails: React.FC = () => {
 };
 
 export default CampaignDetails;
-

@@ -25,3 +25,22 @@ VITE_GEMINI_API_KEY=your_key_here
 ```
 
 Any `VITE_` variable is bundled into the client, so do not use a sensitive production key in a public deployment.
+
+## Deployment to GitHub Pages
+
+This project is configured to deploy automatically via GitHub Actions.
+
+### Setup Instructions
+
+1. **Push to GitHub**: Ensure your code is pushed to the `main` branch.
+2. **Enable Pages**:
+   - Go to your repository on GitHub.
+   - Click on **Settings** > **Pages**.
+   - Under **Build and deployment** > **Source**, select **GitHub Actions**.
+3. **Automatic Deployment**: Every push to the `main` branch will now trigger the "Deploy Vite site to Pages" workflow.
+
+### Manual Deployment (Alternative)
+
+If you prefer to deploy manually:
+1. Install the deployment tool: `npm install gh-pages --save-dev --force`
+2. Run the deploy script: `npm run deploy`

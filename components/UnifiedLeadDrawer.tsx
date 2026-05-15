@@ -12,6 +12,7 @@ import {
     Printer, RotateCcw, Monitor, Pencil, Save
 } from 'lucide-react';
 import { FIXED_LEAD_TAGS, addContract, addQuotation, getClosedLeadReasons, getCollaborators, getLeadById, getLostReasons, getQuotations, getTags, getTeachers, getTrainingClasses, saveTags, updateQuotation } from '../utils/storage';
+import { getAdminUsers } from '../utils/adminUsers';
 import CreateMeetingModal from './CreateMeetingModal';
 import { MeetingCustomerOption } from '../utils/meetingHelpers';
 import { LEAD_CHANNEL_OPTIONS } from '../constants';
@@ -425,12 +426,18 @@ const ACTIVITY_TYPES = [
     { id: 'other', label: 'Khác', icon: MoreHorizontal, defaultDelayHours: 4 },
 ] as const;
 
-const MOCK_USERS = [
-    { id: 'u1', name: 'Sarah Miller', avatar: 'SM', role: 'Sales Rep' },
-    { id: 'u2', name: 'Minh Khôi', avatar: 'MK', role: 'Contract Manager' },
-    { id: 'u3', name: 'Hải Yến', avatar: 'HY', role: 'Sales Manager' },
-    { id: 'u4', name: 'Admin', avatar: 'AD', role: 'Admin' },
-];
+const getSystemStaff = () => {
+    const saleRoles = [UserRole.SALES_REP, UserRole.SALES_LEADER, UserRole.ADMIN, UserRole.FOUNDER];
+    return getAdminUsers()
+        .filter((u) => u.accountStatus === 'active' && u.roles.some(r => saleRoles.includes(r)))
+        .map((u) => ({
+            id: u.id,
+            name: u.name,
+            avatar: u.avatar || u.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2),
+            role: u.role,
+            department: u.department
+        }));
+};
 
 const PIPELINE_STAGE_OPTIONS: DealStage[] = [
     DealStage.NEW_OPP,
@@ -572,13 +579,12 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
             options.set(user.id, {
                 id: user.id,
                 name: user.name,
-                avatar: user.name.slice(0, 2).toUpperCase(),
+                avatar: user.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2),
                 role: user.role || 'Sales Rep'
             });
         }
 
-        MOCK_USERS
-            .filter((item) => item.role !== 'Contract Manager')
+        getSystemStaff()
             .forEach((item) => options.set(item.id, item));
 
         return Array.from(options.values());
@@ -628,7 +634,13 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
     useEffect(() => {
         if (!initialLead) return;
         if (followers.length === 0 && initialLead.ownerId) {
-            const owner = MOCK_USERS.find(u => u.name === initialLead.ownerId) || { id: 'u1', name: initialLead.ownerId || 'Sarah Miller', avatar: 'SM', isOwner: true };
+            const systemStaff = getSystemStaff();
+            const owner = systemStaff.find(u => u.name === initialLead.ownerId || u.id === initialLead.ownerId) || { 
+                id: initialLead.ownerId || 'u1', 
+                name: initialLead.ownerId || 'Trần Văn Quản Trị', 
+                avatar: (initialLead.ownerId || 'Admin').slice(0, 2).toUpperCase(), 
+                isOwner: true 
+            };
             setFollowers([{ ...owner, addedAt: new Date().toISOString() }]);
         }
     }, [initialLead?.ownerId]);
@@ -1214,7 +1226,8 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
 
             // Sync Owner to Followers
             if (field === 'ownerId') {
-                const newOwner = MOCK_USERS.find(u => u.name === currentValue) || { id: 'u-ex', name: currentValue as string, avatar: 'EX', role: 'Sales Rep' };
+                const systemStaff = getSystemStaff();
+                const newOwner = systemStaff.find(u => u.name === currentValue) || { id: 'u-ex', name: currentValue as string, avatar: (currentValue as string).slice(0, 2).toUpperCase(), role: 'Sales Rep' };
                 if (!followers?.find(f => f.name === currentValue)) {
                     handleAddFollower(newOwner, true);
                 }
@@ -1826,7 +1839,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
 
         // 3. LOGGING & HANDOVER
         // Add Contract Manager as Follower
-        const contractManager = MOCK_USERS.find(u => u.role === 'Contract Manager');
+        const contractManager = getSystemStaff().find(u => u.role === UserRole.ADMIN || u.department?.includes('Hợp đồng'));
         let updatedFollowers = [...followers];
         let logs: any[] = [];
 
@@ -3407,7 +3420,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                             <div className="p-6">
                                 <p className="text-sm text-slate-500 mb-6">Chọn nhân viên Sales để chuyển quyền xử lý Lead này.</p>
                                 <div className="space-y-3 max-h-[400px] overflow-y-auto pr-1 custom-scrollbar">
-                                    {MOCK_USERS.filter(u => u.name !== lead.ownerId).map(u => (
+                                    {getSystemStaff().filter(u => u.name !== lead.ownerId).map(u => (
                                         <button
                                             key={u.id}
                                             onClick={() => handleAssignAction(u)}
@@ -3443,7 +3456,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                                 <button onClick={() => setShowFollowersModal(false)}><X size={16} className="text-slate-400 hover:text-black" /></button>
                             </div>
                             <div className="space-y-2">
-                                {MOCK_USERS.map(u => {
+                                {getSystemStaff().map(u => {
                                     const isFollowing = followers?.some(f => f.id === u.id);
                                     return (
                                         <div key={u.id} className="flex justify-between items-center p-2 hover:bg-slate-50 rounded border border-transparent hover:border-slate-100">

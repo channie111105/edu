@@ -21,6 +21,7 @@ import {
    Search
 } from 'lucide-react';
 import { getCollaborators, getLeadById, getLeads, getSalesTeams, saveLead, saveLeads } from '../utils/storage';
+import { getAdminUsers } from '../utils/adminUsers';
 import { ILead, LeadStatus, UserRole } from '../types';
 import { calculateSLAWarnings, SLAWarning, SLAConfig } from '../utils/slaUtils';
 import UnifiedLeadDrawer from '../components/UnifiedLeadDrawer';
@@ -31,41 +32,12 @@ import PinnedSearchInput, { PinnedSearchChip } from '../components/PinnedSearchI
 import { decodeMojibakeText } from '../utils/mojibake';
 import { clearLeadReclaimTracking, getPickedLeadFirstActionDeadline, getPickedLeadFirstActionMessage } from '../utils/leadSla';
 
-// Mock Sales Reps
-const SALES_REPS = [
-   { id: 'u2', name: 'Sarah Miller', team: 'Team Đức', avatar: 'SM', color: 'bg-purple-100 text-purple-700' },
-   { id: 'u3', name: 'David Clark', team: 'Team Trung', avatar: 'DC', color: 'bg-blue-100 text-blue-700' },
-   { id: 'u4', name: 'Alex Rivera', team: 'Team Du học', avatar: 'AR', color: 'bg-green-100 text-green-700' },
-   { id: 'u1', name: 'Tôi', team: 'Admin', avatar: 'ME', color: 'bg-slate-100 text-slate-700' },
-   { id: 'u3', name: 'Nguyễn Văn A', team: 'Team Trung', avatar: 'NA', color: 'bg-orange-100 text-orange-700' },
-];
-
-const ASSIGNABLE_SALES_REPS: AssignableSalesRep[] = (() => {
-   const seen = new Set<string>();
-   return SALES_REPS.filter((rep) => {
-      if (!rep.id || seen.has(rep.id)) return false;
-      seen.add(rep.id);
-      return true;
-   });
-})();
-
-const buildEmptyAssignmentRatios = () =>
-   ASSIGNABLE_SALES_REPS.reduce<Record<string, string>>((acc, rep) => {
-      acc[rep.id] = '';
-      return acc;
-   }, {});
-
 const parseAssignmentRatio = (value: string) => {
    const parsed = Number.parseInt(value, 10);
    return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
 };
 
-const buildLeadCountByRatio = (leadCount: number, ratios: Record<string, number>) => {
-   return ASSIGNABLE_SALES_REPS.reduce<Record<string, number>>((acc, rep) => {
-      acc[rep.id] = Math.max(0, ratios[rep.id] || 0);
-      return acc;
-   }, {});
-};
+
 
 type SlowType = 'slow_accept' | 'slow_appointment' | 'slow_first_call';
 type TabType = SlowType | 'slow_collaborator' | 'slow_list' | 'reclaim' | 'report';
@@ -349,6 +321,43 @@ const SLALeadList: React.FC = () => {
    const { user } = useAuth();
    const filterRef = useRef<HTMLDivElement>(null);
 
+   const SALES_REPS = useMemo(() => {
+      const saleRoles = [UserRole.SALES_REP, UserRole.SALES_LEADER, UserRole.ADMIN, UserRole.FOUNDER];
+      const users = getAdminUsers();
+      const colors = [
+         'bg-blue-100 text-blue-700',
+         'bg-purple-100 text-purple-700',
+         'bg-green-100 text-green-700',
+         'bg-orange-100 text-orange-700',
+         'bg-slate-100 text-slate-700'
+      ];
+      return users
+         .filter((u) => u.accountStatus === 'active' && u.roles.some(r => saleRoles.includes(r)))
+         .map((u, i) => ({
+            id: u.id,
+            name: u.name,
+            team: u.team || u.department || 'Staff',
+            avatar: u.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2),
+            color: colors[i % colors.length]
+         }));
+   }, []);
+
+   const ASSIGNABLE_SALES_REPS = useMemo(() => {
+      const seen = new Set<string>();
+      return SALES_REPS.filter((rep) => {
+         if (!rep.id || seen.has(rep.id)) return false;
+         seen.add(rep.id);
+         return true;
+      });
+   }, [SALES_REPS]);
+
+   const buildLeadCountByRatio = (leadCount: number, ratios: Record<string, number>) => {
+      return ASSIGNABLE_SALES_REPS.reduce<Record<string, number>>((acc, rep) => {
+         acc[rep.id] = Math.max(0, ratios[rep.id] || 0);
+         return acc;
+      }, {});
+   };
+
    // Main Tab State
    const [activeTab, setActiveTab] = useState<TabType>('slow_accept');
 
@@ -391,7 +400,17 @@ const SLALeadList: React.FC = () => {
    const [selectedLead, setSelectedLead] = useState<ILead | null>(null);
    const [selectedReclaimLeadIds, setSelectedReclaimLeadIds] = useState<string[]>([]);
    const [showAssignModal, setShowAssignModal] = useState(false);
-   const [assignmentRatios, setAssignmentRatios] = useState<Record<string, string>>(() => buildEmptyAssignmentRatios());
+   const [assignmentRatios, setAssignmentRatios] = useState<Record<string, string>>({});
+   
+   useEffect(() => {
+      if (ASSIGNABLE_SALES_REPS.length > 0 && Object.keys(assignmentRatios).length === 0) {
+         setAssignmentRatios(ASSIGNABLE_SALES_REPS.reduce<Record<string, string>>((acc, rep) => {
+            acc[rep.id] = '';
+            return acc;
+         }, {}));
+      }
+   }, [ASSIGNABLE_SALES_REPS]);
+
    const [assignRepSearch, setAssignRepSearch] = useState('');
    const [assignCampusFilter, setAssignCampusFilter] = useState('all');
    const [collaborators, setCollaborators] = useState<ICollaboratorSlaItem[]>([]);
@@ -1084,7 +1103,10 @@ const SLALeadList: React.FC = () => {
    };
 
    const resetAssignModal = () => {
-      setAssignmentRatios(buildEmptyAssignmentRatios());
+      setAssignmentRatios(ASSIGNABLE_SALES_REPS.reduce<Record<string, string>>((acc, rep) => {
+         acc[rep.id] = '';
+         return acc;
+      }, {}));
    };
 
    const openAssignModal = (item?: ReclaimLeadItem) => {
@@ -1350,8 +1372,8 @@ const SLALeadList: React.FC = () => {
    };
 
    const getRepInfo = (id?: string) => {
-      if (!id) return { name: '-', color: '', avatar: '?', team: '' };
-      const rep = SALES_REPS.find(r => r.id === id) || { name: 'Unknown', color: 'bg-gray-100', avatar: '?', team: '' };
+      if (!id) return { name: 'REMOVED', color: '', avatar: '?', team: '' };
+      const rep = SALES_REPS.find(r => r.id === id) || { name: 'REMOVED', color: 'bg-gray-100', avatar: '?', team: '' };
       return {
          ...rep,
          name: text(rep.name),

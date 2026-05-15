@@ -28,11 +28,11 @@ export const KEYS = {
   REFUNDS: 'educrm_refunds',
   REFUND_LOGS: 'educrm_refund_logs',
   INVOICES: 'educrm_invoices',
-  COLLABORATORS: 'educrm_collaborators',
+  COLLABORATORS: 'educrm_collaborators_v2',
   TAGS: 'educrm_tags',
   LOST_REASONS: 'educrm_lost_reasons',
-  SALES_KPIS: 'educrm_sales_kpis',
-  SALES_TEAMS: 'educrm_sales_teams',
+  SALES_KPIS: 'educrm_sales_kpis_v2',
+  SALES_TEAMS: 'educrm_sales_teams_v2',
   LEAD_DISTRIBUTION_CONFIG: 'educrm_lead_distribution_config',
   INIT: 'educrm_initialized'
 };
@@ -2625,21 +2625,7 @@ const INITIAL_SALES_TEAMS: ISalesTeam[] = [
     productFocus: 'Tiếng Đức / Du học Đức',
     assignKeywords: ['Đức', 'Tiếng Đức', 'Du học Đức', 'German'],
     members: [
-      { userId: 'u1', name: 'Trần Văn Quản Trị', role: 'Team Lead', branch: 'Hà Nội' },
-      { userId: 'u2', name: 'Sarah Miller', role: 'Sales Rep', branch: 'Hà Nội' }
-    ],
-    createdAt: KPI_SEED_TIMESTAMP,
-    updatedAt: KPI_SEED_TIMESTAMP
-  },
-  {
-    id: 'team-trung',
-    name: 'Team Trung',
-    branch: 'HCM',
-    productFocus: 'Tiếng Trung / Du học Trung',
-    assignKeywords: ['Trung', 'Tiếng Trung', 'Du học Trung', 'Chinese'],
-    members: [
-      { userId: 'u3', name: 'David Clark', role: 'Team Lead', branch: 'HCM' },
-      { userId: 'u4', name: 'Alex Rivera', role: 'Sales Rep', branch: 'HCM' }
+      { userId: 'u1', name: 'Trần Văn Quản Trị', role: 'Team Lead', branch: 'Hà Nội' }
     ],
     createdAt: KPI_SEED_TIMESTAMP,
     updatedAt: KPI_SEED_TIMESTAMP
@@ -2661,45 +2647,6 @@ const INITIAL_SALES_KPIS: ISalesKpiTarget[] = [
     updatedAt: KPI_SEED_TIMESTAMP
   },
   {
-    id: `kpi-${CURRENT_KPI_PERIOD}-u2`,
-    period: CURRENT_KPI_PERIOD,
-    ownerId: 'u2',
-    ownerName: 'Sarah Miller',
-    teamId: 'team-duc',
-    teamName: 'Team Đức',
-    branch: 'Hà Nội',
-    targetRevenue: 350000000,
-    targetContracts: 6,
-    createdAt: KPI_SEED_TIMESTAMP,
-    updatedAt: KPI_SEED_TIMESTAMP
-  },
-  {
-    id: `kpi-${CURRENT_KPI_PERIOD}-u3`,
-    period: CURRENT_KPI_PERIOD,
-    ownerId: 'u3',
-    ownerName: 'David Clark',
-    teamId: 'team-trung',
-    teamName: 'Team Trung',
-    branch: 'HCM',
-    targetRevenue: 280000000,
-    targetContracts: 5,
-    createdAt: KPI_SEED_TIMESTAMP,
-    updatedAt: KPI_SEED_TIMESTAMP
-  },
-  {
-    id: `kpi-${CURRENT_KPI_PERIOD}-u4`,
-    period: CURRENT_KPI_PERIOD,
-    ownerId: 'u4',
-    ownerName: 'Alex Rivera',
-    teamId: 'team-trung',
-    teamName: 'Team Trung',
-    branch: 'HCM',
-    targetRevenue: 200000000,
-    targetContracts: 4,
-    createdAt: KPI_SEED_TIMESTAMP,
-    updatedAt: KPI_SEED_TIMESTAMP
-  },
-  {
     id: `kpi-${PREVIOUS_KPI_PERIOD}-u1`,
     period: PREVIOUS_KPI_PERIOD,
     ownerId: 'u1',
@@ -2709,45 +2656,6 @@ const INITIAL_SALES_KPIS: ISalesKpiTarget[] = [
     branch: 'Hà Nội',
     targetRevenue: 520000000,
     targetContracts: 7,
-    createdAt: KPI_SEED_TIMESTAMP,
-    updatedAt: KPI_SEED_TIMESTAMP
-  },
-  {
-    id: `kpi-${PREVIOUS_KPI_PERIOD}-u2`,
-    period: PREVIOUS_KPI_PERIOD,
-    ownerId: 'u2',
-    ownerName: 'Sarah Miller',
-    teamId: 'team-duc',
-    teamName: 'Team Đức',
-    branch: 'Hà Nội',
-    targetRevenue: 320000000,
-    targetContracts: 5,
-    createdAt: KPI_SEED_TIMESTAMP,
-    updatedAt: KPI_SEED_TIMESTAMP
-  },
-  {
-    id: `kpi-${PREVIOUS_KPI_PERIOD}-u3`,
-    period: PREVIOUS_KPI_PERIOD,
-    ownerId: 'u3',
-    ownerName: 'David Clark',
-    teamId: 'team-trung',
-    teamName: 'Team Trung',
-    branch: 'HCM',
-    targetRevenue: 250000000,
-    targetContracts: 4,
-    createdAt: KPI_SEED_TIMESTAMP,
-    updatedAt: KPI_SEED_TIMESTAMP
-  },
-  {
-    id: `kpi-${PREVIOUS_KPI_PERIOD}-u4`,
-    period: PREVIOUS_KPI_PERIOD,
-    ownerId: 'u4',
-    ownerName: 'Alex Rivera',
-    teamId: 'team-trung',
-    teamName: 'Team Trung',
-    branch: 'HCM',
-    targetRevenue: 180000000,
-    targetContracts: 3,
     createdAt: KPI_SEED_TIMESTAMP,
     updatedAt: KPI_SEED_TIMESTAMP
   }

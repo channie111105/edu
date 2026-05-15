@@ -2,7 +2,22 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { ILead, LeadStatus, UserRole } from '../types';
+import {
+  getAdminUsers,
+  ADMIN_USERS_CHANGED_EVENT,
+  type AdminUserRecord,
+} from '../utils/adminUsers';
+import {
+  UserRole,
+  LeadStatus,
+  DealStage,
+  type ILead,
+  type IStudentInfo,
+  type IMarketingData,
+  type IActivityLog,
+  type ILeadAuditLog,
+  type IFollower,
+} from '../types';
 import SLABadge from '../components/SLABadge';
 import ConvertLeadModal, { ConvertLeadModalSubmitData } from '../components/ConvertLeadModal';
 import UnifiedLeadDrawer from '../components/UnifiedLeadDrawer';
@@ -104,11 +119,7 @@ import {
 } from 'lucide-react';
 import { read, utils, write } from 'xlsx';
 
-const SALES_REPS = [
-  { id: 'u2', name: 'Sarah Miller', team: 'Team Đức', avatar: 'SM', color: 'bg-purple-100 text-purple-700' },
-  { id: 'u3', name: 'David Clark', team: 'Team Trung', avatar: 'DC', color: 'bg-blue-100 text-blue-700' },
-  { id: 'u4', name: 'Alex Rivera', team: 'Team Du học', avatar: 'AR', color: 'bg-green-100 text-green-700' },
-];
+
 
 const normalizeAssignFilterToken = (value?: string) =>
   decodeMojibakeText(String(value || ''))
@@ -117,10 +128,10 @@ const normalizeAssignFilterToken = (value?: string) =>
     .trim()
     .toLowerCase();
 
- const buildEmptyAssignmentRatios = () =>
-   SALES_REPS.reduce<Record<string, string>>((acc, rep) => {
-     acc[rep.id] = '';
-     return acc;
+const buildEmptyAssignmentRatios = (reps: any[]) =>
+  reps.reduce<Record<string, string>>((acc, rep) => {
+    acc[rep.id] = '';
+    return acc;
   }, {});
 
 const parseAssignmentRatio = (value: string) => {
@@ -128,8 +139,8 @@ const parseAssignmentRatio = (value: string) => {
   return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
 };
 
-const buildLeadCountByRatio = (leadCount: number, ratios: Record<string, number>) => {
-  return SALES_REPS.reduce<Record<string, number>>((acc, rep) => {
+const buildLeadCountByRatio = (leadCount: number, ratios: Record<string, number>, reps: any[]) => {
+  return reps.reduce<Record<string, number>>((acc, rep) => {
     acc[rep.id] = Math.max(0, ratios[rep.id] || 0);
     return acc;
   }, {});
@@ -147,6 +158,41 @@ const Leads: React.FC = () => {
   const [leads, setLeads] = useState<ILead[]>([]);
   const [searchFilters, setSearchFilters] = useState<SearchFilter[]>([]);
 
+  // Dynamic Sales Reps State
+  const [salesReps, setSalesReps] = useState(() => {
+    const users = getAdminUsers();
+    const saleRoles = [UserRole.SALES_REP, UserRole.SALES_LEADER, UserRole.ADMIN, UserRole.FOUNDER];
+    return users
+      .filter((u) => u.accountStatus === 'active' && u.roles.some(r => saleRoles.includes(r)))
+      .map((u) => ({
+        id: u.id,
+        name: u.name,
+        team: u.team || u.department || 'Phòng Sales',
+        avatar: u.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2),
+        color: 'bg-blue-100 text-blue-700'
+      }));
+  });
+
+  useEffect(() => {
+    const syncUsers = () => {
+      const users = getAdminUsers();
+      const saleRoles = [UserRole.SALES_REP, UserRole.SALES_LEADER, UserRole.ADMIN, UserRole.FOUNDER];
+      const reps = users
+        .filter((u) => u.accountStatus === 'active' && u.roles.some(r => saleRoles.includes(r)))
+        .map((u) => ({
+          id: u.id,
+          name: u.name,
+          team: u.team || u.department || 'Phòng Sales',
+          avatar: u.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2),
+          color: 'bg-blue-100 text-blue-700'
+        }));
+      setSalesReps(reps);
+    };
+
+    window.addEventListener(ADMIN_USERS_CHANGED_EVENT, syncUsers);
+    return () => window.removeEventListener(ADMIN_USERS_CHANGED_EVENT, syncUsers);
+  }, []);
+
   // Drawer State
   const [selectedLead, setSelectedLead] = useState<ILead | null>(null);
   const [leadToConvert, setLeadToConvert] = useState<ILead | null>(null);
@@ -154,7 +200,7 @@ const Leads: React.FC = () => {
   // Selection & Assignment State
   const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
   const [showAssignModal, setShowAssignModal] = useState(false);
-  const [assignmentRatios, setAssignmentRatios] = useState<Record<string, string>>(() => buildEmptyAssignmentRatios());
+  const [assignmentRatios, setAssignmentRatios] = useState<Record<string, string>>(() => buildEmptyAssignmentRatios(salesReps));
   const [assignRepSearch, setAssignRepSearch] = useState('');
   const [assignCampusFilter, setAssignCampusFilter] = useState('all');
 
@@ -249,21 +295,21 @@ const Leads: React.FC = () => {
 
   const assignmentRatioValues = useMemo(
     () =>
-      SALES_REPS.reduce<Record<string, number>>((acc, rep) => {
+      salesReps.reduce<Record<string, number>>((acc, rep) => {
         acc[rep.id] = parseAssignmentRatio(assignmentRatios[rep.id] || '');
         return acc;
       }, {}),
-    [assignmentRatios]
+    [assignmentRatios, salesReps]
   );
 
   const assignmentRatioTotal = useMemo(
-    () => SALES_REPS.reduce((sum, rep) => sum + (assignmentRatioValues[rep.id] || 0), 0),
-    [assignmentRatioValues]
+    () => salesReps.reduce((sum, rep) => sum + (assignmentRatioValues[rep.id] || 0), 0),
+    [assignmentRatioValues, salesReps]
   );
 
   const assignmentLeadCounts = useMemo(
-    () => buildLeadCountByRatio(selectedLeadIds.length, assignmentRatioValues),
-    [assignmentRatioValues, selectedLeadIds.length]
+    () => buildLeadCountByRatio(selectedLeadIds.length, assignmentRatioValues, salesReps),
+    [assignmentRatioValues, selectedLeadIds.length, salesReps]
   );
 
   const assignmentSalesReps = useMemo(() => {
@@ -284,7 +330,7 @@ const Leads: React.FC = () => {
       });
     });
 
-    return SALES_REPS.map((rep) => ({
+    return salesReps.map((rep) => ({
       ...rep,
       team: teamByUserId.get(rep.id) || decodeMojibakeText(rep.team),
       branch: branchByUserId.get(rep.id) || ''
@@ -320,7 +366,7 @@ const Leads: React.FC = () => {
   };
 
   const resetAssignModal = () => {
-    setAssignmentRatios(buildEmptyAssignmentRatios());
+    setAssignmentRatios(buildEmptyAssignmentRatios(salesReps));
   };
 
   const closeAssignModal = () => {
@@ -447,10 +493,10 @@ const Leads: React.FC = () => {
   const [isAddingEditTag, setIsAddingEditTag] = useState(false);
   const leadSalesOptions = useMemo(
     () => {
-      const allowedIds = new Set(SALES_REPS.map((rep) => rep.id));
+      const allowedIds = new Set(salesReps.map((rep) => rep.id));
       return buildLeadSalesRepOptions(
         getSalesTeams(),
-        SALES_REPS.map((rep) => ({ id: rep.id, name: rep.name, team: rep.team }))
+        salesReps.map((rep) => ({ id: rep.id, name: rep.name, team: rep.team }))
       ).filter((option) => allowedIds.has(option.id));
     },
     []
@@ -471,8 +517,19 @@ const Leads: React.FC = () => {
     )
       .sort((left, right) => left.localeCompare(right, 'vi'))
       .map((name) => ({ value: name, label: name })),
-    [showCreateModal]
+    [showCreateModal, selectedLead]
   );
+
+  const salesStaffOptions = useMemo(() => {
+    const options = salesReps.map(rep => ({ value: rep.name, label: rep.name }));
+    const currentUserName = user?.name;
+    
+    return options.sort((a, b) => {
+      if (a.value === currentUserName) return -1;
+      if (b.value === currentUserName) return 1;
+      return a.label.localeCompare(b.label, 'vi');
+    });
+  }, [salesReps, user?.name]);
   const patchNewLeadData = (patch: Partial<LeadCreateFormData>) => {
     setNewLeadData((prev) => ({ ...prev, ...patch }));
   };
@@ -523,7 +580,7 @@ const Leads: React.FC = () => {
   };
 
   const getDuplicateLeadOwner = (ownerId?: string) =>
-    SALES_REPS.find((rep) => rep.id === ownerId || rep.name === ownerId);
+    salesReps.find((rep) => rep.id === ownerId || rep.name === ownerId);
 
   const getDuplicateLeadOwnerLabel = (lead: ILead) =>
     getDuplicateLeadOwner(lead.ownerId)?.name || lead.ownerId || 'Chưa phân';
@@ -858,8 +915,8 @@ const Leads: React.FC = () => {
               type: 'system',
               title: selectedLead.ownerId ? 'Chia lại Lead' : 'Phân bổ Lead',
               description: selectedLead.ownerId
-                ? `Lead được chia lại từ ${SALES_REPS.find((rep) => rep.id === selectedLead.ownerId)?.name || selectedLead.ownerId} sang ${SALES_REPS.find((rep) => rep.id === updatedLead.ownerId)?.name || updatedLead.ownerId}.`
-                : `Lead được giao cho ${SALES_REPS.find((rep) => rep.id === updatedLead.ownerId)?.name || updatedLead.ownerId}.`,
+                ? `Lead được chia lại từ ${salesReps.find((rep) => rep.id === selectedLead.ownerId)?.name || selectedLead.ownerId} sang ${salesReps.find((rep) => rep.id === updatedLead.ownerId)?.name || updatedLead.ownerId}.`
+                : `Lead được giao cho ${salesReps.find((rep) => rep.id === updatedLead.ownerId)?.name || updatedLead.ownerId}.`,
               user: user?.name || 'Admin'
             })]
             : [])
@@ -1420,7 +1477,7 @@ const Leads: React.FC = () => {
       case 'address':
         return decodeMojibakeText(String(lead.address || [(lead as any).street, (lead as any).ward, (lead as any).city].filter(Boolean).join(', ') || '')).trim() || 'Chưa có dữ liệu';
       case 'salesperson':
-        return decodeMojibakeText(String(SALES_REPS.find((rep) => rep.id === lead.ownerId)?.name || lead.ownerId || '')).trim() || 'Chưa có dữ liệu';
+        return decodeMojibakeText(String(salesReps.find((rep) => rep.id === lead.ownerId)?.name || lead.ownerId || '')).trim() || 'Chưa có dữ liệu';
       case 'campaign':
         return decodeMojibakeText(String((lead as any).campaign || lead.marketingData?.campaign || '')).trim() || 'Chưa có dữ liệu';
       case 'source':
@@ -1557,7 +1614,7 @@ const Leads: React.FC = () => {
     const dynamicValues = filteredLeads.flatMap((lead) =>
       getLeadToolbarFieldValues(lead, activeAdvancedFilterField.id, {
         getSalespersonLabel: (currentLead) =>
-          SALES_REPS.find((rep) => rep.id === currentLead.ownerId)?.name || currentLead.ownerId || ''
+          salesReps.find((rep) => rep.id === currentLead.ownerId)?.name || currentLead.ownerId || ''
       })
     );
 
@@ -2183,7 +2240,7 @@ const Leads: React.FC = () => {
   };
 
   const handleAssignSubmit = () => {
-    const repsWithLeads = SALES_REPS.filter((rep) => (assignmentLeadCounts[rep.id] || 0) > 0);
+    const repsWithLeads = salesReps.filter((rep) => (assignmentLeadCounts[rep.id] || 0) > 0);
 
     if (repsWithLeads.length === 0) {
       alert("Vui lòng nhập số lượng lead cho ít nhất 1 nhân viên Sale");
@@ -2218,8 +2275,8 @@ const Leads: React.FC = () => {
               timestamp: nowIso,
               title: lead.ownerId ? 'Chia lại Lead' : 'Phân bổ Lead',
               description: lead.ownerId
-                ? `Lead được chia lại từ ${SALES_REPS.find((rep) => rep.id === lead.ownerId)?.name || lead.ownerId} sang ${SALES_REPS.find((rep) => rep.id === ownerId)?.name || ownerId}.`
-                : `Lead được giao cho ${SALES_REPS.find((rep) => rep.id === ownerId)?.name || ownerId}.`,
+                ? `Lead được chia lại từ ${salesReps.find((rep) => rep.id === lead.ownerId)?.name || lead.ownerId} sang ${salesReps.find((rep) => rep.id === ownerId)?.name || ownerId}.`
+                : `Lead được giao cho ${salesReps.find((rep) => rep.id === ownerId)?.name || ownerId}.`,
               user: user?.name || 'Admin'
             })
           ],
@@ -2462,10 +2519,10 @@ const Leads: React.FC = () => {
           <td className={compactBodyCellClass}>
             {lead.ownerId ? (
               <div className="flex items-center gap-2">
-                <span className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold ${SALES_REPS.find((rep) => rep.id === lead.ownerId)?.color || 'bg-slate-100 text-slate-600'}`}>
-                  {SALES_REPS.find((rep) => rep.id === lead.ownerId)?.avatar || 'NA'}
+                <span className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold ${salesReps.find((rep) => rep.id === lead.ownerId)?.color || 'bg-slate-100 text-slate-600'}`}>
+                  {salesReps.find((rep) => rep.id === lead.ownerId)?.avatar || 'NA'}
                 </span>
-                <span className="truncate text-[12px] font-medium text-slate-700">{SALES_REPS.find((rep) => rep.id === lead.ownerId)?.name || '-'}</span>
+                <span className="truncate text-[12px] font-medium text-slate-700">{salesReps.find((rep) => rep.id === lead.ownerId)?.name || '-'}</span>
               </div>
             ) : (
               <span className="text-[12px] text-slate-400">Chưa nhận</span>
@@ -3464,7 +3521,7 @@ const Leads: React.FC = () => {
                     <div className="flex items-center gap-4">
                       <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Sản phẩm</label>
                       <select
-                        className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700 font-bold"
+                        className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
                         value={editLeadData.product}
                         onChange={e => setEditLeadData({ ...editLeadData, product: e.target.value })}
                       >
@@ -3504,7 +3561,7 @@ const Leads: React.FC = () => {
                       <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Phụ trách</label>
                       <select className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm outline-none bg-white" value={editLeadData.salesperson} onChange={e => setEditLeadData({ ...editLeadData, salesperson: e.target.value })}>
                         <option value="">-- Sale phụ trách --</option>
-                        {SALES_REPS.map(rep => <option key={rep.id} value={rep.id}>{rep.name}</option>)}
+                        {salesReps.map(rep => <option key={rep.id} value={rep.id}>{rep.name}</option>)}
                       </select>
                     </div>
                     <div className="flex items-center gap-4">
@@ -3590,7 +3647,20 @@ const Leads: React.FC = () => {
                         </div>
                         <div className="flex items-center gap-4">
                           <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Nguồn</label>
-                          <select className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm outline-none bg-white text-slate-700" value={editLeadData.source} onChange={e => setEditLeadData({ ...editLeadData, source: e.target.value })}>
+                          <select 
+                            className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm outline-none bg-white text-slate-700" 
+                            value={editLeadData.source} 
+                            onChange={e => {
+                              const newSource = e.target.value;
+                              const patch: Partial<LeadCreateFormData> = { source: newSource };
+                              if (newSource === 'Cá nhân') {
+                                patch.referredBy = user?.name || '';
+                              } else if (newSource === 'Công ty') {
+                                patch.referredBy = '';
+                              }
+                              setEditLeadData({ ...editLeadData, ...patch });
+                            }}
+                          >
                             <option value="">-- Chọn nguồn --</option>
                             {LEAD_SOURCE_OPTIONS.map(opt => (
                               <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -3608,7 +3678,32 @@ const Leads: React.FC = () => {
                         </div>
                         <div className="flex items-center gap-4">
                           <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Người GT</label>
-                          <input className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm outline-none" value={editLeadData.referredBy} onChange={e => setEditLeadData({ ...editLeadData, referredBy: e.target.value })} />
+                          {editLeadData.source === 'Công ty' ? (
+                            <input
+                              disabled
+                              className="flex-1 px-3 py-2 border border-slate-200 bg-slate-50 rounded text-sm text-slate-400 cursor-not-allowed"
+                              value=""
+                              placeholder="Không khả dụng"
+                            />
+                          ) : editLeadData.source === 'Thị trường' ? (
+                            <input
+                              className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
+                              value={editLeadData.referredBy}
+                              onChange={e => setEditLeadData({ ...editLeadData, referredBy: e.target.value })}
+                              placeholder="Nhập tên người giới thiệu"
+                            />
+                          ) : (
+                            <select
+                              className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
+                              value={editLeadData.referredBy}
+                              onChange={e => setEditLeadData({ ...editLeadData, referredBy: e.target.value })}
+                            >
+                              <option value="">-- Chọn người giới thiệu --</option>
+                              {(editLeadData.source === 'Cá nhân' ? salesStaffOptions : referrerSelectOptions).map(option => (
+                                <option key={option.value} value={option.value}>{option.label}</option>
+                              ))}
+                            </select>
+                          )}
                         </div>
                       </div>
                     )}
@@ -3729,7 +3824,7 @@ const Leads: React.FC = () => {
                     <div className="flex items-center gap-4">
                       <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Sản phẩm</label>
                       <select
-                        className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700 font-bold"
+                        className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
                         value={newLeadData.product}
                         onChange={e => setNewLeadData({ ...newLeadData, product: e.target.value })}
                       >
@@ -3932,7 +4027,16 @@ const Leads: React.FC = () => {
                           <select
                             className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
                             value={newLeadData.source}
-                            onChange={e => setNewLeadData({ ...newLeadData, source: e.target.value })}
+                            onChange={e => {
+                              const newSource = e.target.value;
+                              const patch: Partial<LeadCreateFormData> = { source: newSource };
+                              if (newSource === 'Cá nhân') {
+                                patch.referredBy = user?.name || '';
+                              } else if (newSource === 'Công ty') {
+                                patch.referredBy = '';
+                              }
+                              setNewLeadData({ ...newLeadData, ...patch });
+                            }}
                           >
                             <option value="">-- Chọn nguồn --</option>
                             {LEAD_SOURCE_OPTIONS.map(opt => (
@@ -3955,16 +4059,32 @@ const Leads: React.FC = () => {
                         </div>
                         <div className="flex items-center gap-4">
                           <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Người GT</label>
-                          <select
-                            className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
-                            value={newLeadData.referredBy}
-                            onChange={e => setNewLeadData({ ...newLeadData, referredBy: e.target.value })}
-                          >
-                            <option value="">-- Chọn người giới thiệu --</option>
-                            {referrerSelectOptions.map(option => (
-                              <option key={option.value} value={option.value}>{option.label}</option>
-                            ))}
-                          </select>
+                          {newLeadData.source === 'Công ty' ? (
+                            <input
+                              disabled
+                              className="flex-1 px-3 py-2 border border-slate-200 bg-slate-50 rounded text-sm text-slate-400 cursor-not-allowed"
+                              value=""
+                              placeholder="Không khả dụng"
+                            />
+                          ) : newLeadData.source === 'Thị trường' ? (
+                            <input
+                              className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
+                              value={newLeadData.referredBy}
+                              onChange={e => setNewLeadData({ ...newLeadData, referredBy: e.target.value })}
+                              placeholder="Nhập tên người giới thiệu"
+                            />
+                          ) : (
+                            <select
+                              className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
+                              value={newLeadData.referredBy}
+                              onChange={e => setNewLeadData({ ...newLeadData, referredBy: e.target.value })}
+                            >
+                              <option value="">-- Chọn người giới thiệu --</option>
+                              {(newLeadData.source === 'Cá nhân' ? salesStaffOptions : referrerSelectOptions).map(option => (
+                                <option key={option.value} value={option.value}>{option.label}</option>
+                              ))}
+                            </select>
+                          )}
                         </div>
                       </div>
                     )}

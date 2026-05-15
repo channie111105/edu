@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getLeadById, saveLead, deleteLead } from '../utils/storage';
+import { getAdminUsers } from '../utils/adminUsers';
 import { useAuth } from '../contexts/AuthContext';
 import ConvertLeadModal, { ConvertLeadModalSubmitData } from '../components/ConvertLeadModal';
 import { convertLeadToOpportunity } from '../utils/leadConversion';
@@ -673,15 +674,22 @@ const SalesLeadQuickProcess: React.FC = () => {
                         {/* Assigned User */}
                         <div>
                             <h3 className="text-sm font-bold text-slate-700 uppercase mb-3">NGƯỜI PHỤ TRÁCH</h3>
-                            <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
-                                <div className="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold">
-                                    SM
-                                </div>
-                                <div>
-                                    <p className="text-sm font-bold text-slate-900">Sarah Miller</p>
-                                    <p className="text-xs text-slate-500">Sales Rep</p>
-                                </div>
-                            </div>
+                            {(() => {
+                                const owner = getAdminUsers().find(u => u.id === lead.ownerId || u.name === lead.ownerId);
+                                const displayName = owner?.name || lead.ownerId || 'Chưa phân bổ';
+                                const initials = displayName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+                                return (
+                                    <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                                        <div className="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold">
+                                            {initials}
+                                        </div>
+                                        <div>
+                                            <p className="text-sm font-bold text-slate-900">{displayName}</p>
+                                            <p className="text-xs text-slate-500">{owner?.role || 'Sales Rep'}</p>
+                                        </div>
+                                    </div>
+                                );
+                            })()}
                         </div>
 
                         {/* SLA Warning */}

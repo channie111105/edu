@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getLeadById, saveLead, addMeeting } from '../utils/storage';
+import { getAdminUsers } from '../utils/adminUsers';
 import { useAuth } from '../contexts/AuthContext';
 import { getLeadStatusLabel, isLeadStatusOneOf, LEAD_STATUS_KEYS, LEAD_STATUS_OPTIONS, normalizeLeadStatusKey, toLeadStatusValue } from '../utils/leadStatus';
 import ConvertLeadModal, { ConvertLeadModalSubmitData } from '../components/ConvertLeadModal';
@@ -661,15 +662,23 @@ const LeadDetails: React.FC = () => {
                   {/* Owner Section (Bottom Right) */}
                   <div className="mt-auto border-t border-slate-100 pt-6">
                      <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 block">NGÆ¯á»œI PHá»¤ TRÃCH</label>
-                     <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-700 font-bold flex items-center justify-center text-sm">
-                           {lead.ownerId === 'u2' ? 'SM' : 'AD'}
-                        </div>
-                        <div>
-                           <p className="text-sm font-bold text-slate-900">{lead.ownerId === 'u2' ? 'Sarah Miller' : 'Admin User'}</p>
-                           <p className="text-xs text-slate-500">Sales Rep</p>
-                        </div>
-                     </div>
+                      {(() => {
+                         const owner = getAdminUsers().find(u => u.id === lead.ownerId || u.name === lead.ownerId);
+                         const displayName = owner?.name || lead.ownerId || 'Chưa phân bổ';
+                         const initials = displayName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+                         return (
+                            <div className="flex items-center gap-3">
+                               <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-700 font-bold flex items-center justify-center text-sm">
+                                  {initials}
+                               </div>
+                               <div>
+                                  <p className="text-sm font-bold text-slate-900">{displayName}</p>
+                                  <p className="text-xs text-slate-500">{owner?.role || 'Sales Rep'}</p>
+                               </div>
+                            </div>
+                         );
+                      })()}
+
                   </div>
 
                </div>

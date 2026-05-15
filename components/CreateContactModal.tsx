@@ -1,7 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { AlertTriangle, ListPlus, Mail, MapPin, Phone, Save, Tag, User, Users, X } from 'lucide-react';
 import { IContact } from '../types';
 import { getContacts } from '../utils/storage';
+import { getAdminUsers } from '../utils/adminUsers';
+import { useAuth } from '../contexts/AuthContext';
 
 interface CreateContactModalProps {
     isOpen: boolean;
@@ -9,13 +11,13 @@ interface CreateContactModalProps {
     onSave: (contact: Partial<IContact>, createNew: boolean) => void;
 }
 
-const defaultFormData = (): Partial<IContact> => ({
+const defaultFormData = (currentUserId: string): Partial<IContact> => ({
     name: '',
     phone: '',
     email: '',
     address: '',
     source: 'Khác',
-    ownerId: 'u2',
+    ownerId: currentUserId || 'u1',
     notes: '',
     marketingData: {
         tags: []
@@ -27,14 +29,29 @@ const inputClassName =
     'w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-100 focus:border-blue-300 outline-none transition-all';
 
 const CreateContactModal: React.FC<CreateContactModalProps> = ({ isOpen, onClose, onSave }) => {
-    const [formData, setFormData] = useState<Partial<IContact>>(defaultFormData);
+    const { user } = useAuth();
+    const currentUserId = user?.id || 'u1';
+    const [formData, setFormData] = useState<Partial<IContact>>(() => defaultFormData(currentUserId));
     const [phoneError, setPhoneError] = useState<string | null>(null);
+
+    const salesStaffOptions = useMemo(() => {
+        const users = getAdminUsers();
+        const currentUserName = user?.name;
+        
+        return users
+            .map(u => ({ value: u.id, label: u.name }))
+            .sort((a, b) => {
+                if (a.label === currentUserName) return -1;
+                if (b.label === currentUserName) return 1;
+                return a.label.localeCompare(b.label, 'vi');
+            });
+    }, [user?.name]);
 
     useEffect(() => {
         if (!isOpen) return;
-        setFormData(defaultFormData());
+        setFormData(defaultFormData(currentUserId));
         setPhoneError(null);
-    }, [isOpen]);
+    }, [isOpen, currentUserId]);
 
     if (!isOpen) return null;
 
@@ -71,7 +88,7 @@ const CreateContactModal: React.FC<CreateContactModalProps> = ({ isOpen, onClose
     };
 
     const resetForm = () => {
-        setFormData(defaultFormData());
+        setFormData(defaultFormData(currentUserId));
         setPhoneError(null);
     };
 
@@ -195,12 +212,14 @@ const CreateContactModal: React.FC<CreateContactModalProps> = ({ isOpen, onClose
                                     <Users size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                                     <select
                                         className={inputClassName}
-                                        value={formData.ownerId || 'u2'}
+                                        value={formData.ownerId || currentUserId}
                                         onChange={(event) => setFormData((prev) => ({ ...prev, ownerId: event.target.value }))}
                                     >
-                                        <option value="u1">Trần Văn Quản Trị</option>
-                                        <option value="u2">Sarah Miller</option>
-                                        <option value="u3">Nguyễn Văn Sales</option>
+                                        {salesStaffOptions.map(option => (
+                                            <option key={option.value} value={option.value}>
+                                                {option.label}
+                                            </option>
+                                        ))}
                                     </select>
                                 </div>
                             </div>

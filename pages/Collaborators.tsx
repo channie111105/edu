@@ -63,56 +63,7 @@ interface ICollaboratorFollower {
     addedAt?: string;
 }
 
-const MOCK_COLLABORATORS: ICollaborator[] = [
-    {
-        id: 'ctv_1',
-        code: 'CTV0001',
-        name: 'Nguyễn Văn A',
-        phone: '0912345678',
-        ownerId: 'u1',
-        ownerName: 'Trần Văn Quản Trị',
-        city: 'Hà Nội',
-        industry: 'Giáo viên',
-        segment: 'IELTS',
-        notes: 'Cần gửi chính sách thưởng mới',
-        nextAppointment: '2026-05-20',
-        status: 'Hoạt động'
-    },
-    {
-        id: 'ctv_2',
-        code: 'CTV0002',
-        name: 'Trần Thị B',
-        phone: '0988777666',
-        ownerId: 'u2',
-        ownerName: 'Sarah Miller',
-        city: 'Hồ Chí Minh',
-        industry: 'Sinh viên',
-        segment: 'Du học',
-        notes: 'Đã gửi quà tết. Follow up tháng sau.',
-        nextAppointment: '2026-06-10',
-        status: 'Tạm ngưng'
-    },
-    {
-        id: 'ctv_3',
-        code: 'CTV0003',
-        name: 'Lê Văn C',
-        phone: '0901112233',
-        ownerId: 'u3',
-        ownerName: 'David Clark',
-        city: 'Đà Nẵng',
-        industry: 'Trung tâm tiếng Anh',
-        segment: 'Xuất khẩu lao động',
-        notes: 'Tiềm năng lớn, cần chăm sóc kỹ.',
-        status: 'Hoạt động'
-    }
-];
-
-const SALE_OWNER_OPTIONS = [
-    { id: 'u1', name: 'Trần Văn Quản Trị' },
-    { id: 'u2', name: 'Sarah Miller' },
-    { id: 'u3', name: 'David Clark' },
-    { id: 'u4', name: 'Alex Rivera' }
-];
+const MOCK_COLLABORATORS: ICollaborator[] = [];
 
 const COLLABORATOR_ACTIVITY_TYPES = [
     { id: 'Call', label: 'Gọi điện', icon: Phone },
@@ -466,16 +417,6 @@ const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, is
             });
         });
 
-        SALE_OWNER_OPTIONS.forEach((item) => {
-            const existing = options.get(item.id);
-            options.set(
-                item.id,
-                existing
-                    ? { ...existing, name: item.name, avatar: existing.avatar || getInitials(item.name) }
-                    : buildCollaboratorFollower(item.id, item.name)
-            );
-        });
-
         if (user?.id && user?.name) {
             const existing = options.get(user.id);
             options.set(
@@ -589,12 +530,12 @@ const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, is
         }
 
         if (scheduleNext && !trimmedScheduleSummary) {
-            showToast('\u0056ui l\u00f2ng nh\u1eadp n\u1ed9i dung l\u1ecbch ch\u0103m s\u00f3c.', 'error');
+            showToast('Vui lòng nhập nội dung lịch chăm sóc.', 'error');
             return;
         }
 
         if (scheduleNext && !nextActivityDate) {
-            showToast('\u0056ui l\u00f2ng ch\u1ecdn ng\u00e0y gi\u1edd cho l\u1ecbch ch\u0103m s\u00f3c.', 'error');
+            showToast('Vui lòng chọn ngày giờ cho lịch chăm sóc.', 'error');
             return;
         }
 
@@ -644,7 +585,7 @@ const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, is
                 type: 'activity',
                 status: 'scheduled',
                 timestamp: new Date().toISOString(),
-                title: `[${activityLabel}] L\u1ecbch ch\u0103m s\u00f3c ti\u1ebfp theo`,
+                title: `[${activityLabel}] Lịch chăm sóc tiếp theo`,
                 description: trimmedScheduleSummary,
                 user: user?.name || 'Admin',
                 datetime: scheduledAt
@@ -658,7 +599,7 @@ const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, is
                 id: `act-${Date.now() + 1}`,
                 type: 'note',
                 timestamp: new Date().toISOString(),
-                title: `[${typeLabels[interactionType] || interactionType}] Ch\u0103m s\u00f3c CTV`,
+                title: `[${typeLabels[interactionType] || interactionType}] Chăm sóc CTV`,
                 description: trimmedNote,
                 user: user?.name || 'Admin'
             });
@@ -679,7 +620,7 @@ const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, is
         showToast(
             scheduleNext
                 ? trimmedNote
-                    ? '\u0110\u00e3 l\u01b0u ch\u0103m s\u00f3c v\u00e0 t\u1ea1o l\u1ecbch ti\u1ebfp theo cho CTV.'
+                    ? 'Đã lưu chăm sóc và tạo lịch tiếp theo cho CTV.'
                     : 'Đã tạo lịch chăm sóc tiếp theo cho CTV.'
                 : 'Đã lưu nhật ký chăm sóc CTV.'
         );
@@ -992,8 +933,8 @@ const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, is
                                             <div className="rounded-xl border border-violet-200 bg-violet-50/60 p-4">
                                                 <div className="flex flex-wrap items-start justify-between gap-3">
                                                     <div>
-                                                        <div className="text-[10px] font-bold uppercase tracking-widest text-violet-700">{'L\u1ecbch ch\u0103m s\u00f3c ti\u1ebfp theo'}</div>
-                                                        <p className="mt-1 text-xs text-slate-500">{'Form CTV d\u00f9ng c\u00f9ng 3 tr\u01b0\u1eddng nh\u01b0 pipeline: h\u00e0nh \u0111\u1ed9ng, n\u1ed9i dung, ng\u00e0y gi\u1edd.'}</p>
+                                                        <div className="text-[10px] font-bold uppercase tracking-widest text-violet-700">Lịch chăm sóc tiếp theo</div>
+                                                        <p className="mt-1 text-xs text-slate-500">Form CTV dùng cùng 3 trường như pipeline: hành động, nội dung, ngày giờ.</p>
                                                     </div>
                                                     {ctv.nextAppointment && (
                                                         <span className="inline-flex items-center gap-1 rounded-full border border-violet-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-violet-700">
@@ -1006,7 +947,7 @@ const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, is
                                                 <div className="mt-4 space-y-3">
                                                     <div>
                                                         <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                                                            {'H\u00e0nh \u0111\u1ed9ng'}
+                                                            Hành động
                                                         </label>
                                                         <select
                                                             value={nextActivityType}
@@ -1021,19 +962,19 @@ const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, is
 
                                                     <div>
                                                         <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                                                            {'N\u1ed9i dung'}
+                                                            Nội dung
                                                         </label>
                                                         <textarea
                                                             value={nextActivitySummary}
                                                             onChange={(e) => setNextActivitySummary(e.target.value)}
-                                                            placeholder="Nh\u1eadp n\u1ed9i dung l\u1ecbch ch\u0103m s\u00f3c..."
+                                                            placeholder="Nhập nội dung lịch chăm sóc..."
                                                             className="h-24 w-full resize-none rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition-colors focus:border-violet-400"
                                                         />
                                                     </div>
 
                                                     <div>
                                                         <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                                                            {'Ng\u00e0y gi\u1edd'}
+                                                            Ngày giờ
                                                         </label>
                                                         <input
                                                             type="datetime-local"
@@ -1340,11 +1281,26 @@ const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, is
         </div>
     );
 };
-
 const Collaborators: React.FC = () => {
     const { user } = useAuth();
     const [searchTerm, setSearchTerm] = useState('');
     const [filterCity, setFilterCity] = useState('All');
+    const ownerOptions = useMemo(() => {
+        const options = new Map<string, { id: string; name: string }>();
+        const teams = getSalesTeams();
+
+        teams.forEach((team) => {
+            team.members.forEach((member) => {
+                options.set(member.userId, { id: member.userId, name: member.name });
+            });
+        });
+
+        if (user?.id && user?.name) {
+            options.set(user.id, { id: user.id, name: user.name });
+        }
+
+        return Array.from(options.values()).sort((a, b) => a.name.localeCompare(b.name, 'vi'));
+    }, [user?.id, user?.name]);
     const [filterSegment, setFilterSegment] = useState('All');
     const [filterStatus, setFilterStatus] = useState<'All' | CollaboratorStatusValue>('All');
     const [activeTab, setActiveTab] = useState<'all' | 'slow_ctv'>('all');
@@ -1359,13 +1315,6 @@ const Collaborators: React.FC = () => {
     const [columns, setColumns] = useState(ALL_COLUMNS);
     const [showColumnDropdown, setShowColumnDropdown] = useState(false);
     const canViewAllCollaborators = user?.role === UserRole.ADMIN || user?.role === UserRole.FOUNDER;
-    const ownerOptions = useMemo(() => {
-        const base = [...SALE_OWNER_OPTIONS];
-        if (user?.id && !base.some(item => item.id === user.id)) {
-            base.unshift({ id: user.id, name: user.name });
-        }
-        return base;
-    }, [user?.id, user?.name]);
     const getOwnerName = useCallback((ownerId?: string) => {
         if (!ownerId) return '';
         return ownerOptions.find(item => item.id === ownerId)?.name || ownerId;
