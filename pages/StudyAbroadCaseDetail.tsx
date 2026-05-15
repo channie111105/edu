@@ -89,87 +89,87 @@ const secondaryButtonClassName =
 const sectionCardClassName = 'rounded-[24px] border border-slate-200 bg-white shadow-[0_10px_30px_rgba(15,23,42,0.04)]';
 
 const PROGRAM_OPTIONS = [
-  { value: text('Du há»c ÄH Äá»©c'), label: text('Du há»c ÄH Äá»©c') },
-  { value: text('Du há»c nghá»'), label: text('Du há»c nghá»') },
+  { value: text('Du học ĐH Đức'), label: text('Du học ĐH Đức') },
+  { value: text('Du học nghề'), label: text('Du học nghề') },
   { value: '18B', label: '18B' }
 ] as const;
 
 const PRODUCT_PACKAGE_OPTIONS = [
-  { value: text('Combo du há»c Äá»©c'), label: text('Combo du há»c Äá»©c') },
-  { value: text('Combo du há»c nghá»'), label: text('Combo du há»c nghá»') },
-  { value: text('Du há»c nghá»'), label: text('Du há»c nghá»') }
+  { value: text('Combo du học Đức'), label: text('Combo du học Đức') },
+  { value: text('Combo du học nghề'), label: text('Combo du học nghề') },
+  { value: text('Du học nghề'), label: text('Du học nghề') }
 ] as const;
 
 const SERVICE_STATUS_OPTIONS: Option<StudyAbroadServiceStatus>[] = [
-  { value: 'NEW', label: 'Má»›i' },
-  { value: 'UNPROCESSED', label: 'ChÆ°a xá»­ lÃ½' },
-  { value: 'PROCESSED', label: 'ÄÃ£ xá»­ lÃ½' },
-  { value: 'DEPARTED', label: 'ÄÃ£ bay' },
-  { value: 'WITHDRAWN', label: 'ÄÃ£ rÃºt há»“ sÆ¡' },
-  { value: 'VISA_FAILED', label: 'TrÆ°á»£t visa' },
-  { value: 'REPROCESSING', label: 'Äang xá»­ lÃ½ láº¡i' }
+  { value: 'NEW', label: 'Mới' },
+  { value: 'UNPROCESSED', label: 'Chưa xử lý' },
+  { value: 'PROCESSED', label: 'Đã xử lý' },
+  { value: 'DEPARTED', label: 'Đã bay' },
+  { value: 'WITHDRAWN', label: 'Đã rút hồ sơ' },
+  { value: 'VISA_FAILED', label: 'Trượt visa' },
+  { value: 'REPROCESSING', label: 'Đang xử lý lại' }
 ];
 
 const INVOICE_STATUS_OPTIONS: Option<StudyAbroadInvoiceStatus>[] = [
-  { value: 'UNPAID', label: 'ChÆ°a ná»™p' },
-  { value: 'HAS_INVOICE', label: 'CÃ³ invoice' },
-  { value: 'PAID', label: 'ÄÃ£ ná»™p' }
+  { value: 'UNPAID', label: 'Chưa nộp' },
+  { value: 'HAS_INVOICE', label: 'Có invoice' },
+  { value: 'PAID', label: 'Đã nộp' }
 ];
 
 const SCHOOL_INTERVIEW_STATUS_OPTIONS: Option<StudyAbroadSchoolInterviewStatus>[] = [
-  { value: 'NO_SCHEDULE', label: 'ChÆ°a cÃ³ lá»‹ch' },
-  { value: 'SCHEDULED', label: 'ÄÃ£ cÃ³ lá»‹ch' },
-  { value: 'INTERVIEWED', label: 'ÄÃ£ phá»ng váº¥n' },
-  { value: 'FAILED', label: 'TrÆ°á»£t' },
-  { value: 'NOT_REQUIRED', label: 'KhÃ´ng cáº§n' }
+  { value: 'NO_SCHEDULE', label: 'Chưa có lịch' },
+  { value: 'SCHEDULED', label: 'Đã có lịch' },
+  { value: 'INTERVIEWED', label: 'Đã phỏng vấn' },
+  { value: 'FAILED', label: 'Trượt' },
+  { value: 'NOT_REQUIRED', label: 'Không cần' }
 ];
 
 const CMTC_STATUS_OPTIONS: Option<StudyAbroadCmtcStatus>[] = [
-  { value: 'NOT_OPENED', label: 'ChÆ°a má»Ÿ tÃ i khoáº£n' },
-  { value: 'OPENED', label: 'ÄÃ£ má»Ÿ tÃ i khoáº£n' },
-  { value: 'SUBMITTED', label: 'ÄÃ£ ná»™p' }
+  { value: 'NOT_OPENED', label: 'Chưa mở tài khoản' },
+  { value: 'OPENED', label: 'Đã mở tài khoản' },
+  { value: 'SUBMITTED', label: 'Đã nộp' }
 ];
 
 const PROGRAM_SELECTION_OPTIONS: Option<StudyAbroadProgramSelectionStatus>[] = [
-  { value: 'NOT_SELECTED', label: 'ChÆ°a chá»n' },
-  { value: 'SELECTED', label: 'ÄÃ£ chá»n' }
+  { value: 'NOT_SELECTED', label: 'Chưa chọn' },
+  { value: 'SELECTED', label: 'Đã chọn' }
 ];
 
 const CASE_COMPLETENESS_OPTIONS: Option<StudyAbroadCaseCompleteness>[] = [
-  { value: 'MISSING', label: 'ChÆ°a Ä‘á»§' },
-  { value: 'FULL', label: 'ÄÃ£ Ä‘á»§' }
+  { value: 'MISSING', label: 'Chưa đủ' },
+  { value: 'FULL', label: 'Đã đủ' }
 ];
 
 const TRANSLATION_STATUS_OPTIONS: Option<StudyAbroadTranslationStatus>[] = [
-  { value: 'NOT_YET', label: 'ChÆ°a' },
-  { value: 'DONE', label: 'CÃ³' }
+  { value: 'NOT_YET', label: 'Chưa' },
+  { value: 'DONE', label: 'Có' }
 ];
 
 const OFFER_LETTER_OPTIONS: Option<StudyAbroadOfferLetterStatus>[] = [
-  { value: 'NOT_SENT', label: 'ChÆ°a gá»­i' },
-  { value: 'SENT', label: 'ÄÃ£ gá»­i' },
-  { value: 'RECEIVED', label: 'ÄÃ£ cÃ³' }
+  { value: 'NOT_SENT', label: 'Chưa gửi' },
+  { value: 'SENT', label: 'Đã gửi' },
+  { value: 'RECEIVED', label: 'Đã có' }
 ];
 
 const EMBASSY_APPOINTMENT_OPTIONS: Option<StudyAbroadEmbassyAppointmentStatus>[] = [
-  { value: 'NOT_BOOKED', label: 'ChÆ°a Ä‘áº·t' },
-  { value: 'BOOKED', label: 'ÄÃ£ Ä‘áº·t lá»‹ch' },
-  { value: 'SCHEDULED', label: 'ÄÃ£ cÃ³ lá»‹ch' },
-  { value: 'CANCELLED', label: 'Há»§y lá»‹ch' }
+  { value: 'NOT_BOOKED', label: 'Chưa đặt' },
+  { value: 'BOOKED', label: 'Đã đặt lịch' },
+  { value: 'SCHEDULED', label: 'Đã có lịch' },
+  { value: 'CANCELLED', label: 'Hủy lịch' }
 ];
 
 const VISA_STATUS_OPTIONS: Option<StudyAbroadVisaStatus>[] = [
-  { value: 'NOT_SUBMITTED', label: 'ChÆ°a ná»™p' },
-  { value: 'SUBMITTED', label: 'ÄÃ£ ná»™p' },
-  { value: 'SUPPLEMENT', label: 'Bá»• sung' },
-  { value: 'GRANTED', label: 'Äá»— visa' },
-  { value: 'FAILED', label: 'TrÆ°á»£t visa' }
+  { value: 'NOT_SUBMITTED', label: 'Chưa nộp' },
+  { value: 'SUBMITTED', label: 'Đã nộp' },
+  { value: 'SUPPLEMENT', label: 'Bổ sung' },
+  { value: 'GRANTED', label: 'Đỗ visa' },
+  { value: 'FAILED', label: 'Trượt visa' }
 ];
 
 const FLIGHT_STATUS_OPTIONS: Option<StudyAbroadFlightStatus>[] = [
-  { value: 'NOT_DEPARTED', label: 'ChÆ°a bay' },
-  { value: 'DEPARTED', label: 'ÄÃ£ bay' },
-  { value: 'CANCELLED', label: 'Há»§y' }
+  { value: 'NOT_DEPARTED', label: 'Chưa bay' },
+  { value: 'DEPARTED', label: 'Đã bay' },
+  { value: 'CANCELLED', label: 'Hủy' }
 ];
 
 const getOptionLabel = (options: readonly Option<string>[], value: string) =>
@@ -341,15 +341,15 @@ const toEditForm = (row: StudyAbroadCaseRecord): EditFormState => ({
 });
 
 const deriveStageFromForm = (form: EditFormState) => {
-  if (form.flightStatus === 'DEPARTED') return text('ÄÃƒ BAY');
-  if (form.visaStatus === 'GRANTED') return text('CÃ“ VISA');
-  if (form.embassyAppointmentStatus === 'SCHEDULED') return text('ÄÃƒ CÃ“ Lá»ŠCH Háº¸N DSQ');
-  if (form.offerLetterStatus === 'RECEIVED') return text('ÄÃƒ CÃ“ THÆ¯ Má»ŒI');
+  if (form.flightStatus === 'DEPARTED') return text('ĐÃ BAY');
+  if (form.visaStatus === 'GRANTED') return text('CÓ VISA');
+  if (form.embassyAppointmentStatus === 'SCHEDULED') return text('ĐÃ CÓ LỊCH HẸN DSQ');
+  if (form.offerLetterStatus === 'RECEIVED') return text('ĐÃ CÓ THƯ MỌI');
   if (form.schoolInterviewStatus === 'INTERVIEWED' || form.schoolInterviewStatus === 'PASSED') {
-    return text('ÄÃƒ PHá»ŽNG Váº¤N TRÆ¯á»ŒNG/DN');
+    return text('ĐÃ PHỎNG VẤN TRƯỌNG/DN');
   }
-  if (form.programSelectionStatus === 'SELECTED') return text('ÄÃƒ CHá»ŒN CHÆ¯Æ NG TRÃŒNH');
-  return text('Há»’ SÆ  Má»šI');
+  if (form.programSelectionStatus === 'SELECTED') return text('ĐÃ CHỌN CHƯƠNG TRÌNH');
+  return text('HỒ SƠ MỚI');
 };
 
 const buildProgressSteps = (form: EditFormState): ProgressStep[] => [
@@ -358,8 +358,8 @@ const buildProgressSteps = (form: EditFormState): ProgressStep[] => [
     title: 'Program selected',
     subtitle:
       form.programSelectionStatus === 'SELECTED'
-        ? form.schoolProgramName || text('ÄÃ£ chá»n chÆ°Æ¡ng trÃ¬nh')
-        : text('ChÆ°a chá»n chÆ°Æ¡ng trÃ¬nh'),
+        ? form.schoolProgramName || text('Đã chọn chương trình')
+        : text('Chưa chọn chương trình'),
     state: form.programSelectionStatus === 'SELECTED' ? 'done' : 'pending'
   },
   {
@@ -452,7 +452,7 @@ const ReadOnlyValue: React.FC<{
   placeholder?: string;
   className?: string;
   icon?: ReadOnlyIcon;
-}> = ({ value, multiline = false, placeholder = text('ChÆ°a cáº­p nháº­t'), className = '', icon: Icon }) => {
+}> = ({ value, multiline = false, placeholder = text('Chưa cập nhật'), className = '', icon: Icon }) => {
   const hasValue =
     value !== null &&
     value !== undefined &&
@@ -614,7 +614,7 @@ const ViewProgressTimelineItem: React.FC<{
   title: string;
   subtitle: string;
   date?: string;
-  state: ProgressStep['state'];
+  state: ProgressStep[ 'state' ];
   isLast: boolean;
 }> = ({ title, subtitle, date, state, isLast }) => {
   const markerClassName =
@@ -741,11 +741,11 @@ const StudyAbroadCaseDetail: React.FC = () => {
     setSaving(false);
 
     if (!ok) {
-      window.alert(text('KhÃ´ng thá»ƒ cáº­p nháº­t há»“ sÆ¡. Vui lÃ²ng thá»­ láº¡i.'));
+      window.alert(text('Không thể cập nhật hồ sơ. Vui lòng thử lại.'));
       return;
     }
 
-    setSaveNotice(text('ÄÃ£ lÆ°u thay Ä‘á»•i há»“ sÆ¡.'));
+    setSaveNotice(text('Đã lưu thay đổi hồ sơ.'));
     setIsEditing(false);
     reloadCase();
   };
@@ -834,7 +834,7 @@ const StudyAbroadCaseDetail: React.FC = () => {
       <div className="flex h-full items-center justify-center bg-gradient-to-br from-[#eef4ff] via-[#f8fbff] to-[#edf2ff]">
         <div className="inline-flex items-center gap-2 text-slate-600">
           <Loader2 size={16} className="animate-spin" />
-          {text('Äang táº£i há»“ sÆ¡...')}
+          {text('Đang tải hồ sơ...')}
         </div>
       </div>
     );
@@ -844,10 +844,10 @@ const StudyAbroadCaseDetail: React.FC = () => {
     return (
       <div className="flex h-full items-center justify-center bg-gradient-to-br from-[#eef4ff] via-[#f8fbff] to-[#edf2ff] p-4">
         <div className="w-full max-w-xl rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
-          <h2 className="text-lg font-bold text-slate-900">{text('KhÃ´ng tÃ¬m tháº¥y há»“ sÆ¡')}</h2>
-          <p className="mt-2 text-sm text-slate-500">{text('Há»“ sÆ¡ cÃ³ thá»ƒ Ä‘Ã£ bá»‹ xÃ³a hoáº·c chÆ°a Ä‘á»“ng bá»™ dá»¯ liá»‡u.')}</p>
+          <h2 className="text-lg font-bold text-slate-900">{text('Không tìm thấy hồ sơ')}</h2>
+          <p className="mt-2 text-sm text-slate-500">{text('Hồ sơ có thể đã bị xóa hoặc chưa đồng bộ dữ liệu.')}</p>
           <button onClick={() => navigate('/study-abroad/cases')} className={`${primaryButtonClassName} mt-4`}>
-            {text('Quay láº¡i danh sÃ¡ch')}
+            {text('Quay lại danh sách')}
           </button>
         </div>
       </div>
@@ -1147,7 +1147,7 @@ const StudyAbroadCaseDetail: React.FC = () => {
                   className="mb-2 inline-flex items-center gap-2 text-sm font-semibold text-slate-500 hover:text-slate-900"
                 >
                   <ArrowLeft size={15} />
-                  Danh sÃ¡ch há»“ sÆ¡
+                  Danh sách hồ sơ
                 </button>
                 <div className="flex flex-wrap items-center gap-3">
                   <h1 className="text-[28px] font-semibold leading-tight tracking-[-0.02em] text-slate-950 lg:text-[32px]">
@@ -1162,7 +1162,7 @@ const StudyAbroadCaseDetail: React.FC = () => {
                   </span>
                 </div>
                 <p className="mt-2 text-sm text-slate-500">
-                  Há»“ sÆ¡ {row.soCode} â€¢ Application progress láº¥y tá»« dá»¯ liá»‡u Ä‘Ã£ lÆ°u.
+                  Hồ sơ {row.soCode} • Application progress lấy từ dữ liệu đã lưu.
                 </p>
               </div>
             </div>
@@ -1170,17 +1170,17 @@ const StudyAbroadCaseDetail: React.FC = () => {
             <div className="flex items-center gap-3">
               {isEditing ? (
                 <button onClick={handleCancelEdit} className={secondaryButtonClassName}>
-                  Há»§y chá»‰nh sá»­a
+                  Hủy chỉnh sửa
                 </button>
               ) : (
                 <button onClick={() => navigate('/study-abroad/cases')} className={secondaryButtonClassName}>
-                  Quay láº¡i
+                  Quay lại
                 </button>
               )}
               {isEditing ? (
                 <button onClick={handleSave} disabled={saving} className={primaryButtonClassName}>
                   {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
-                  {saving ? 'Äang lÆ°u...' : 'LÆ°u thay Ä‘á»•i'}
+                  {saving ? 'Đang lưu...' : 'Lưu thay đổi'}
                 </button>
               ) : (
                 <button
@@ -1207,9 +1207,9 @@ const StudyAbroadCaseDetail: React.FC = () => {
             <div className="space-y-4">
               <section className={sectionCardClassName}>
                 <div className="border-b border-slate-200 px-5 py-4">
-                  <div className="text-[18px] font-medium tracking-[-0.01em] text-slate-950">ThÃ´ng tin chung</div>
+                  <div className="text-[18px] font-medium tracking-[-0.01em] text-slate-950">Thông tin chung</div>
                   <div className="mt-1 text-[13px] leading-5 text-slate-500">
-                    NhÃ¢n kháº©u há»c, chÆ°Æ¡ng trÃ¬nh, gÃ³i sáº£n pháº©m, sale, chi nhÃ¡nh vÃ  ngÆ°á»i xá»­ lÃ½ há»“ sÆ¡.
+                    Nhân khẩu học, chương trình, gói sản phẩm, sale, chi nhánh và người xử lý hồ sơ.
                   </div>
                 </div>
                 <div className="p-5">
@@ -1301,7 +1301,7 @@ const StudyAbroadCaseDetail: React.FC = () => {
                           </FieldShell>
                         </div>
                       </div>
-                      <FieldShell label="ChÆ°Æ¡ng trÃ¬nh" required>
+                      <FieldShell label="Chương trình" required>
                         {isEditing ? (
                           <select
                             value={editForm.program}
@@ -1329,7 +1329,7 @@ const StudyAbroadCaseDetail: React.FC = () => {
                           <ReadOnlyValue value={getDisplayText(editForm.salesperson)} icon={Briefcase} />
                         )}
                       </FieldShell>
-                      <FieldShell label="Chi nhÃ¡nh">
+                      <FieldShell label="Chi nhánh">
                         {isEditing ? (
                           <input
                             value={editForm.branch}
@@ -1340,7 +1340,7 @@ const StudyAbroadCaseDetail: React.FC = () => {
                           <ReadOnlyValue value={getDisplayText(editForm.branch)} icon={Building2} />
                         )}
                       </FieldShell>
-                      <FieldShell label="NgÆ°á»i xá»­ lÃ½ há»“ sÆ¡">
+                      <FieldShell label="Người xử lý hồ sơ">
                         {isEditing ? (
                           <input
                             value={editForm.processorName}
@@ -1360,13 +1360,13 @@ const StudyAbroadCaseDetail: React.FC = () => {
             <div className="space-y-4">
               <section className={sectionCardClassName}>
                 <div className="border-b border-slate-200 px-5 py-4">
-                  <div className="text-[18px] font-medium tracking-[-0.01em] text-slate-950">ThÃ´ng tin trÆ°á»ng</div>
-                  <div className="mt-1 text-[13px] leading-5 text-slate-500">Ká»³ nháº­p há»c, invoice, phá»ng váº¥n trÆ°á»ng, CMTC vÃ  chá»n chÆ°Æ¡ng trÃ¬nh.</div>
+                  <div className="text-[18px] font-medium tracking-[-0.01em] text-slate-950">Thông tin trường</div>
+                  <div className="mt-1 text-[13px] leading-5 text-slate-500">Kỳ nhập học, invoice, phỏng vấn trường, CMTC và chọn chương trình.</div>
                 </div>
                 <div className="p-5">
                   <fieldset disabled={!isEditing || saving}>
                     <div className="grid gap-4 md:grid-cols-2">
-                      <FieldShell label="Ká»³ nháº­p há»c">
+                      <FieldShell label="Kỳ nhập học">
                         {isEditing ? (
                           <input
                             type="date"
@@ -1398,7 +1398,7 @@ const StudyAbroadCaseDetail: React.FC = () => {
                           <ReadOnlyValue value={getOptionLabel(INVOICE_STATUS_OPTIONS, editForm.invoiceStatus)} icon={FileText} />
                         )}
                       </FieldShell>
-                      <FieldShell label="Phá»ng váº¥n trÆ°á»ng">
+                      <FieldShell label="Phỏng vấn trường">
                         {isEditing ? (
                           <select
                             value={editForm.schoolInterviewStatus}
@@ -1417,7 +1417,7 @@ const StudyAbroadCaseDetail: React.FC = () => {
                           <ReadOnlyValue value={getOptionLabel(SCHOOL_INTERVIEW_STATUS_OPTIONS, editForm.schoolInterviewStatus)} icon={User} />
                         )}
                       </FieldShell>
-                      <FieldShell label="NgÃ y phá»ng váº¥n trÆ°á»ng">
+                      <FieldShell label="Ngày phỏng vấn trường">
                         {isEditing ? (
                           <input
                             type="date"
@@ -1441,7 +1441,7 @@ const StudyAbroadCaseDetail: React.FC = () => {
                           <ReadOnlyValue value={formatDisplayNumber(editForm.cmtcAmount)} icon={Wallet} />
                         )}
                       </FieldShell>
-                      <FieldShell label="Tráº¡ng thÃ¡i CMTC">
+                      <FieldShell label="Trạng thái CMTC">
                         {isEditing ? (
                           <select
                             value={editForm.cmtc}
@@ -1458,7 +1458,7 @@ const StudyAbroadCaseDetail: React.FC = () => {
                           <ReadOnlyValue value={getOptionLabel(CMTC_STATUS_OPTIONS, editForm.cmtc)} icon={ClipboardList} />
                         )}
                       </FieldShell>
-                      <FieldShell label="Chá»n ngÃ nh / chÆ°Æ¡ng trÃ¬nh">
+                      <FieldShell label="Chọn ngành / chương trình">
                         {isEditing ? (
                           <select
                             value={editForm.programSelectionStatus}
@@ -1477,7 +1477,7 @@ const StudyAbroadCaseDetail: React.FC = () => {
                           <ReadOnlyValue value={getOptionLabel(PROGRAM_SELECTION_OPTIONS, editForm.programSelectionStatus)} icon={Globe} />
                         )}
                       </FieldShell>
-                      <FieldShell label="TÃªn chÆ°Æ¡ng trÃ¬nh">
+                      <FieldShell label="Tên chương trình">
                         {isEditing ? (
                           <input
                             value={editForm.schoolProgramName}
@@ -1496,7 +1496,7 @@ const StudyAbroadCaseDetail: React.FC = () => {
               <section className={sectionCardClassName}>
                 <div className="border-b border-slate-200 px-5 py-4">
                   <div className="text-[18px] font-medium tracking-[-0.01em] text-slate-950">Application Progress</div>
-                  <div className="mt-1 text-[13px] leading-5 text-slate-500">Sinh tá»± Ä‘á»™ng tá»« cÃ¡c tiáº¿n Ä‘á»™ há»“ sÆ¡ Ä‘Ã£ lÆ°u.</div>
+                  <div className="mt-1 text-[13px] leading-5 text-slate-500">Sinh tự động từ các tiến độ hồ sơ đã lưu.</div>
                 </div>
                 <div className="p-5">
                   {progressSteps.map((step) => (
@@ -1509,15 +1509,15 @@ const StudyAbroadCaseDetail: React.FC = () => {
             <div className="space-y-4">
               <section className={sectionCardClassName}>
                 <div className="border-b border-slate-200 px-5 py-4">
-                  <div className="text-[18px] font-medium tracking-[-0.01em] text-slate-950">Tráº¡ng thÃ¡i há»“ sÆ¡</div>
+                  <div className="text-[18px] font-medium tracking-[-0.01em] text-slate-950">Trạng thái hồ sơ</div>
                   <div className="mt-1 text-[13px] leading-5 text-slate-500">
-                    TÃ¬nh tráº¡ng há»“ sÆ¡ vÃ  cÃ¡c má»‘c xá»­ lÃ½ chÃ­nh.
+                    Tình trạng hồ sơ và các mốc xử lý chính.
                   </div>
                 </div>
                 <div className="p-5">
                   <fieldset disabled={!isEditing || saving}>
                     <div className="grid gap-4 md:grid-cols-2">
-                      <FieldShell label="Tráº¡ng thÃ¡i há»“ sÆ¡">
+                      <FieldShell label="Trạng thái hồ sơ">
                         {isEditing ? (
                           <select
                             value={editForm.caseCompleteness}
@@ -1536,7 +1536,7 @@ const StudyAbroadCaseDetail: React.FC = () => {
                           <ReadOnlyValue value={getOptionLabel(CASE_COMPLETENESS_OPTIONS, editForm.caseCompleteness)} icon={ClipboardList} />
                         )}
                       </FieldShell>
-                      <FieldShell label="Dá»‹ch thuáº­t cÃ´ng chá»©ng">
+                      <FieldShell label="Dịch thuật công chứng">
                         {isEditing ? (
                           <select
                             value={editForm.translationStatus}
@@ -1555,7 +1555,7 @@ const StudyAbroadCaseDetail: React.FC = () => {
                           <ReadOnlyValue value={getOptionLabel(TRANSLATION_STATUS_OPTIONS, editForm.translationStatus)} icon={Languages} />
                         )}
                       </FieldShell>
-                      <FieldShell label="Xin thÆ° má»i" className="md:col-span-2">
+                      <FieldShell label="Xin thư mời" className="md:col-span-2">
                         {isEditing ? (
                           <select
                             value={editForm.offerLetterStatus}
@@ -1574,7 +1574,7 @@ const StudyAbroadCaseDetail: React.FC = () => {
                           <ReadOnlyValue value={getOptionLabel(OFFER_LETTER_OPTIONS, editForm.offerLetterStatus)} icon={Mail} />
                         )}
                       </FieldShell>
-                      <FieldShell label="Lá»‹ch háº¹n ÄSQ">
+                      <FieldShell label="Lịch hẹn ĐSQ">
                         {isEditing ? (
                           <select
                             value={editForm.embassyAppointmentStatus}
@@ -1596,7 +1596,7 @@ const StudyAbroadCaseDetail: React.FC = () => {
                           <ReadOnlyValue value={getOptionLabel(EMBASSY_APPOINTMENT_OPTIONS, editForm.embassyAppointmentStatus)} icon={Calendar} />
                         )}
                       </FieldShell>
-                      <FieldShell label="NgÃ y háº¹n ÄSQ">
+                      <FieldShell label="Ngày hẹn ĐSQ">
                         {isEditing ? (
                           <input
                             type="date"
@@ -1625,7 +1625,7 @@ const StudyAbroadCaseDetail: React.FC = () => {
                           <ReadOnlyValue value={getOptionLabel(VISA_STATUS_OPTIONS, editForm.visaStatus)} icon={FileText} />
                         )}
                       </FieldShell>
-                      <FieldShell label="Xuáº¥t cáº£nh">
+                      <FieldShell label="Xuất cảnh">
                         {isEditing ? (
                           <select
                             value={editForm.flightStatus}
@@ -1642,7 +1642,7 @@ const StudyAbroadCaseDetail: React.FC = () => {
                           <ReadOnlyValue value={getOptionLabel(FLIGHT_STATUS_OPTIONS, editForm.flightStatus)} icon={Plane} />
                         )}
                       </FieldShell>
-                      <FieldShell label="NgÃ y nháº­p cáº£nh dá»± kiáº¿n">
+                      <FieldShell label="Ngày nhập cảnh dự kiến">
                         {isEditing ? (
                           <input
                             type="date"
@@ -1654,13 +1654,13 @@ const StudyAbroadCaseDetail: React.FC = () => {
                           <ReadOnlyValue value={formatDisplayDate(editForm.expectedEntryDate)} icon={Calendar} />
                         )}
                       </FieldShell>
-                      <FieldShell label="Ghi chÃº tráº¡ng thÃ¡i há»“ sÆ¡" className="md:col-span-2">
+                      <FieldShell label="Ghi chú trạng thái hồ sơ" className="md:col-span-2">
                         {isEditing ? (
                           <textarea
                             value={editForm.caseCompletenessNote}
                             onChange={(event) => updateEditForm('caseCompletenessNote', event.target.value)}
                             className={textareaClassName}
-                            placeholder="Nháº­p ghi chÃº..."
+                            placeholder="Nhập ghi chú..."
                           />
                         ) : (
                           <ReadOnlyValue value={getDisplayText(editForm.caseCompletenessNote)} multiline icon={FileText} />
@@ -1674,7 +1674,7 @@ const StudyAbroadCaseDetail: React.FC = () => {
               <section className={sectionCardClassName}>
                 <div className="border-b border-slate-200 px-5 py-4">
                   <div className="text-[18px] font-medium tracking-[-0.01em] text-slate-950">Log note</div>
-                  <div className="mt-1 text-[13px] leading-5 text-slate-500">LÆ°u láº¡i cÃ¡c thay Ä‘á»•i tráº¡ng thÃ¡i cá»§a há»“ sÆ¡, ká»ƒ cáº£ thay Ä‘á»•i chÆ°a lÆ°u.</div>
+                  <div className="mt-1 text-[13px] leading-5 text-slate-500">Lưu lại các thay đổi trạng thái của hồ sơ, kể cả thay đổi chưa lưu.</div>
                 </div>
                 <div className="max-h-[640px] overflow-auto p-5">
                   <div className="mb-4 flex justify-end">
@@ -1712,7 +1712,7 @@ const StudyAbroadCaseDetail: React.FC = () => {
                     </div>
                   ) : (
                     <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
-                      ChÆ°a cÃ³ thay Ä‘á»•i tráº¡ng thÃ¡i nÃ o Ä‘Æ°á»£c ghi nháº­n.
+                      Chưa có thay đổi trạng thái nào được ghi nhận.
                     </div>
                   )}
                 </div>

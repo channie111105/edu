@@ -123,7 +123,17 @@ export const normalizeLeadStatusKey = (status?: string): LeadStatusKey => {
   return STATUS_NORMALIZATION_MAP[token] || LEAD_STATUS_KEYS.NEW;
 };
 
-export const getLeadStatusLabel = (status?: string) => getLeadStatusDisplayLabel(normalizeLeadStatusKey(status));
+export const getLeadStatusLabel = (status?: string) => {
+  if (!status) return '-';
+  const dynamicLabels = getDynamicLeadStatusLabels();
+  
+  // 1. Check if the exact status string is a key in dynamic labels (highest priority)
+  if (dynamicLabels[status]) return dynamicLabels[status];
+  
+  // 2. Try normalized version to match legacy hardcoded keys (new, assigned, etc)
+  const key = normalizeLeadStatusKey(status);
+  return dynamicLabels[key] || LEAD_STATUS_LABELS[key] || status;
+};
 
 export const isLeadStatusOneOf = (status: string | undefined, accepted: readonly LeadStatusKey[]) => {
   const normalized = normalizeLeadStatusKey(status);

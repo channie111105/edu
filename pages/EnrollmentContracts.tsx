@@ -74,11 +74,11 @@ const CONTRACT_TOOLBAR_GROUP_OPTIONS = [
   { id: 'month', label: 'Tháng' }
 ] as const satisfies ReadonlyArray<ToolbarOption>;
 
-type ContractTimeField = (typeof CONTRACT_TOOLBAR_TIME_FIELD_OPTIONS)[number]['id'];
+type ContractTimeField = (typeof CONTRACT_TOOLBAR_TIME_FIELD_OPTIONS)[number][ 'id' ];
 type ContractTimeFieldSelection = typeof CONTRACT_TOOLBAR_TIME_PLACEHOLDER | ContractTimeField;
-type ContractTimeRangeType = (typeof CONTRACT_TOOLBAR_TIME_PRESETS)[number]['id'];
-type ContractAdvancedFilterFieldKey = (typeof CONTRACT_TOOLBAR_FILTER_OPTIONS)[number]['id'];
-type ContractAdvancedGroupFieldKey = (typeof CONTRACT_TOOLBAR_GROUP_OPTIONS)[number]['id'];
+type ContractTimeRangeType = (typeof CONTRACT_TOOLBAR_TIME_PRESETS)[number][ 'id' ];
+type ContractAdvancedFilterFieldKey = (typeof CONTRACT_TOOLBAR_FILTER_OPTIONS)[number][ 'id' ];
+type ContractAdvancedGroupFieldKey = (typeof CONTRACT_TOOLBAR_GROUP_OPTIONS)[number][ 'id' ];
 
 type ContractListRow = {
   contract: IContract;

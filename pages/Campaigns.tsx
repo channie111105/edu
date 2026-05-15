@@ -778,7 +778,7 @@ const Campaigns: React.FC = () => {
                     </div>
                     ) : (
                     <div className="min-h-[42px] px-3 border border-slate-200 rounded-lg bg-slate-50 flex items-center">
-                      <span className="text-sm font-medium text-slate-500">Chiáº¿n dá»‹ch thÆ°á»ng khÃ´ng cÃ³ Ä‘áº¥u ná»‘i API.</span>
+                      <span className="text-sm font-medium text-slate-500">Chiến dịch thường không có đấu nối API.</span>
                     </div>
                     )}
                   </div>

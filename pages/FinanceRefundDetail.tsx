@@ -70,7 +70,7 @@ const normalizeRefundStatus = (status: unknown): RefundStatus => {
 const normalizeRefund = (item: Partial<IRefundRequest>): IRefundRequest => ({
    id: item.id || `REF-${Date.now()}`,
    createdAt: item.createdAt || new Date().toISOString(),
-   studentName: item.studentName || 'ChÆ°a cáº­p nháº­t',
+   studentName: item.studentName || 'Chưa cập nhật',
    soCode: item.soCode || '',
    contractCode: item.contractCode || '',
    program: item.program || '',
@@ -81,9 +81,9 @@ const normalizeRefund = (item: Partial<IRefundRequest>): IRefundRequest => ({
       item.retainedAmount === null || item.retainedAmount === undefined ? null : Number(item.retainedAmount || 0),
    approvedAmount:
       item.approvedAmount === null || item.approvedAmount === undefined ? null : Number(item.approvedAmount || 0),
-   reason: item.reason || 'LÃ½ do khÃ¡c',
+   reason: item.reason || 'Lý do khác',
    refundBasis: item.refundBasis || '',
-   createdBy: item.createdBy || 'Há»‡ thá»‘ng',
+   createdBy: item.createdBy || 'Hệ thống',
    ownerName: item.ownerName || '',
    status: normalizeRefundStatus(item.status),
    paymentVoucherCode: item.paymentVoucherCode || '',
@@ -268,10 +268,10 @@ const FinanceRefundDetail: React.FC = () => {
       if (!refund) return [];
 
       return [
-         { label: 'ÄÃ£ Ä‘Ã³ng', value: formatCurrency(refund.paidAmount), tone: 'text-slate-900' },
-         { label: 'Äá» nghá»‹ hoÃ n', value: formatCurrency(refund.requestedAmount), tone: 'text-orange-600' },
-         { label: 'Giá»¯ láº¡i', value: formatCurrency(refund.retainedAmount), tone: 'text-amber-600' },
-         { label: 'Duyá»‡t hoÃ n', value: formatCurrency(refund.approvedAmount), tone: 'text-emerald-600' }
+         { label: 'Đã đóng', value: formatCurrency(refund.paidAmount), tone: 'text-slate-900' },
+         { label: 'Đề nghị hoàn', value: formatCurrency(refund.requestedAmount), tone: 'text-orange-600' },
+         { label: 'Giữ lại', value: formatCurrency(refund.retainedAmount), tone: 'text-amber-600' },
+         { label: 'Duyệt hoàn', value: formatCurrency(refund.approvedAmount), tone: 'text-emerald-600' }
       ];
    }, [refund]);
 
@@ -318,7 +318,7 @@ const FinanceRefundDetail: React.FC = () => {
       };
       const updated = updateRefund(nextRefund);
       if (!updated) {
-         window.alert('KhÃ´ng thá»ƒ cáº­p nháº­t tráº¡ng thÃ¡i hoÃ n tiá»n.');
+         window.alert('Không thể cập nhật trạng thái hoàn tiền.');
          return;
       }
 
@@ -330,9 +330,9 @@ const FinanceRefundDetail: React.FC = () => {
          refundId: refund.id,
          action: note
             ? `${action.label}: ${note}`
-            : `${action.label} chuyá»ƒn tráº¡ng thÃ¡i sang ${STATUS_META[action.nextStatus].label}`,
+            : `${action.label} chuyển trạng thái sang ${STATUS_META[action.nextStatus].label}`,
          createdAt: new Date().toISOString(),
-         createdBy: user?.name || user?.role || 'Há»‡ thá»‘ng'
+         createdBy: user?.name || user?.role || 'Hệ thống'
       });
 
       setNoteDraft('');
@@ -343,7 +343,7 @@ const FinanceRefundDetail: React.FC = () => {
 
       const trimmed = noteDraft.trim();
       if (!trimmed) {
-         window.alert('Nháº­p log note trÆ°á»›c khi lÆ°u.');
+         window.alert('Nhập log note trước khi lưu.');
          return;
       }
 
@@ -352,7 +352,7 @@ const FinanceRefundDetail: React.FC = () => {
          refundId: refund.id,
          action: `Log note: ${trimmed}`,
          createdAt: new Date().toISOString(),
-         createdBy: user?.name || user?.role || 'Há»‡ thá»‘ng'
+         createdBy: user?.name || user?.role || 'Hệ thống'
       });
       setNoteDraft('');
    };
@@ -361,14 +361,14 @@ const FinanceRefundDetail: React.FC = () => {
       return (
          <div className="flex min-h-screen items-center justify-center bg-[#f5f6f8] p-6">
             <div className="w-full max-w-md rounded-md border border-slate-200 bg-white p-6 shadow-sm">
-               <div className="text-base font-bold text-slate-900">KhÃ´ng tÃ¬m tháº¥y há»“ sÆ¡ hoÃ n tiá»n</div>
-               <div className="mt-2 text-[13px] text-slate-500">Báº£n ghi cÃ³ thá»ƒ Ä‘Ã£ bá»‹ xoÃ¡ hoáº·c chÆ°a tá»“n táº¡i.</div>
+               <div className="text-base font-bold text-slate-900">Không tìm thấy hồ sơ hoàn tiền</div>
+               <div className="mt-2 text-[13px] text-slate-500">Bản ghi có thể đã bị xoá hoặc chưa tồn tại.</div>
                <button
                   type="button"
                   onClick={() => navigate('/refunds')}
                   className="mt-4 rounded-md bg-slate-900 px-3 py-2 text-[13px] font-semibold text-white"
                >
-                  Quay láº¡i danh sÃ¡ch
+                  Quay lại danh sách
                </button>
             </div>
          </div>
@@ -390,16 +390,16 @@ const FinanceRefundDetail: React.FC = () => {
                            >
                               <ArrowLeft size={14} />
                            </button>
-                           <span>HoÃ n tiá»n</span>
+                           <span>Hoàn tiền</span>
                            <ChevronRight size={12} />
                            <span className="font-semibold text-slate-500">{refund.id}</span>
                         </div>
                         <div className="truncate text-[26px] font-black leading-none text-slate-900">
-                           {refund.id} â€¢ {refund.studentName}
+                           {refund.id} • {refund.studentName}
                         </div>
                         <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-400">
-                           <span>Táº¡o ngÃ y {formatDate(refund.createdAt)}</span>
-                           <span>NgÆ°á»i táº¡o: {refund.createdBy || '--'}</span>
+                           <span>Tạo ngày {formatDate(refund.createdAt)}</span>
+                           <span>Người tạo: {refund.createdBy || '--'}</span>
                         </div>
                      </div>
 
@@ -443,13 +443,13 @@ const FinanceRefundDetail: React.FC = () => {
                         <section className="rounded-md border border-slate-200 bg-white p-4">
                            <SectionTitle title="Document Info" />
                            <div className="mt-3">
-                              <RowField label="Há»c viÃªn" value={refund.studentName} />
-                              <RowField label="Há»“ sÆ¡" value={refund.soCode || '--'} />
-                              <RowField label="Há»£p Ä‘á»“ng" value={refund.contractCode} />
-                              <RowField label="ChÆ°Æ¡ng trÃ¬nh / khÃ³a há»c" value={refund.program || '--'} />
-                              <RowField label="NgÆ°á»i phá»¥ trÃ¡ch há»“ sÆ¡" value={refund.ownerName || '--'} />
+                              <RowField label="Học viên" value={refund.studentName} />
+                              <RowField label="Hồ sơ" value={refund.soCode || '--'} />
+                              <RowField label="Hợp đồng" value={refund.contractCode} />
+                              <RowField label="Chương trình / khóa học" value={refund.program || '--'} />
+                              <RowField label="Người phụ trách hồ sơ" value={refund.ownerName || '--'} />
                               <RowField
-                                 label="NgÆ°á»i táº¡o, ngÃ y táº¡o, tráº¡ng thÃ¡i"
+                                 label="Người tạo, ngày tạo, trạng thái"
                                  value={
                                     <div className="space-y-0.5">
                                        <div>{refund.createdBy || '--'}</div>
@@ -465,11 +465,11 @@ const FinanceRefundDetail: React.FC = () => {
                         <section className="rounded-md border border-slate-200 bg-white p-4">
                            <SectionTitle title="Financial Info" />
                            <div className="mt-3">
-                              <RowField label="Sá»‘ tiá»n Ä‘Ã£ Ä‘Ã³ng" value={formatCurrency(refund.paidAmount)} />
-                              <RowField label="Khoáº£n thu liÃªn quan" value={refund.relatedPaymentCode || '--'} />
-                              <RowField label="Sá»‘ tiá»n Ä‘á» nghá»‹ hoÃ n" value={formatCurrency(refund.requestedAmount)} />
-                              <RowField label="Sá»‘ tiá»n Ä‘á»“ng Ã½ hoÃ n" value={formatCurrency(refund.approvedAmount)} />
-                              <RowField label="Sá»‘ tiá»n dá»± kiáº¿n giá»¯ láº¡i" value={formatCurrency(refund.retainedAmount)} />
+                              <RowField label="Số tiền đã đóng" value={formatCurrency(refund.paidAmount)} />
+                              <RowField label="Khoản thu liên quan" value={refund.relatedPaymentCode || '--'} />
+                              <RowField label="Số tiền đề nghị hoàn" value={formatCurrency(refund.requestedAmount)} />
+                              <RowField label="Số tiền đồng ý hoàn" value={formatCurrency(refund.approvedAmount)} />
+                              <RowField label="Số tiền dự kiến giữ lại" value={formatCurrency(refund.retainedAmount)} />
                            </div>
                         </section>
                      </div>
@@ -478,26 +478,26 @@ const FinanceRefundDetail: React.FC = () => {
                         <SectionTitle title="Reasons & Documents" />
                         <div className="mt-3 grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
                            <div className="space-y-3">
-                              <RowField label="LÃ½ do hoÃ n" value={refund.reason || '--'} multiline />
-                              <RowField label="CÄƒn cá»© / chÃ­nh sÃ¡ch Ã¡p dá»¥ng" value={refund.refundBasis || '--'} multiline />
-                              <RowField label="Ghi chÃº ná»™i bá»™" value={refund.note || '--'} multiline />
+                              <RowField label="Lý do hoàn" value={refund.reason || '--'} multiline />
+                              <RowField label="Căn cứ / chính sách áp dụng" value={refund.refundBasis || '--'} multiline />
+                              <RowField label="Ghi chú nội bộ" value={refund.note || '--'} multiline />
                            </div>
 
                            <div className="space-y-4 rounded-md border border-slate-100 bg-slate-50/50 p-3">
                               <div>
                                  <div className="mb-2 flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">
                                     <FileText size={14} className="text-slate-400" />
-                                    File minh chá»©ng
+                                    File minh chứng
                                  </div>
-                                 <FileChipList items={refund.evidenceFiles} emptyText="ChÆ°a cÃ³ file minh chá»©ng." />
+                                 <FileChipList items={refund.evidenceFiles} emptyText="Chưa có file minh chứng." />
                               </div>
 
                               <div>
                                  <div className="mb-2 flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">
                                     <FolderOpen size={14} className="text-slate-400" />
-                                    TÃ i liá»‡u liÃªn quan
+                                    Tài liệu liên quan
                                  </div>
-                                 <FileChipList items={refund.relatedDocuments} emptyText="ChÆ°a cÃ³ tÃ i liá»‡u liÃªn quan." />
+                                 <FileChipList items={refund.relatedDocuments} emptyText="Chưa có tài liệu liên quan." />
                               </div>
                            </div>
                         </div>
@@ -509,8 +509,8 @@ const FinanceRefundDetail: React.FC = () => {
                         <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
                            <ShieldCheck size={14} className="text-slate-400" />
                            <div>
-                              <div className="text-[14px] font-extrabold uppercase tracking-[0.18em] text-slate-700">PhÃª duyá»‡t hoÃ n tiá»n</div>
-                              <div className="text-[11px] text-slate-400">Sale, káº¿ toÃ¡n, CEO vÃ  log note</div>
+                              <div className="text-[14px] font-extrabold uppercase tracking-[0.18em] text-slate-700">Phê duyệt hoàn tiền</div>
+                              <div className="text-[11px] text-slate-400">Sale, kế toán, CEO và log note</div>
                            </div>
                         </div>
 
@@ -523,7 +523,7 @@ const FinanceRefundDetail: React.FC = () => {
                                  value={noteDraft}
                                  onChange={(event) => setNoteDraft(event.target.value)}
                                  className="min-h-[84px] w-full rounded-md border border-slate-200 px-3 py-2 text-[13px] text-slate-900 outline-none transition-colors focus:border-blue-400"
-                                 placeholder="Nháº­p ghi chÃº xá»­ lÃ½, lÃ½ do duyá»‡t hoáº·c lÆ°u Ã½..."
+                                 placeholder="Nhập ghi chú xử lý, lý do duyệt hoặc lưu ý..."
                               />
                            </div>
 
@@ -532,7 +532,7 @@ const FinanceRefundDetail: React.FC = () => {
                               onClick={handleAddLogNote}
                               className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-[13px] font-semibold text-slate-700 transition-colors hover:bg-slate-50"
                            >
-                              LÆ°u log note
+                              Lưu log note
                            </button>
 
                            {availableActions.length > 0 ? (
@@ -550,7 +550,7 @@ const FinanceRefundDetail: React.FC = () => {
                               </div>
                            ) : (
                               <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 px-3 py-3 text-[12px] text-slate-500">
-                                 KhÃ´ng cÃ³ bÆ°á»›c duyá»‡t kháº£ dá»¥ng cho vai trÃ² hiá»‡n táº¡i hoáº·c há»“ sÆ¡ Ä‘Ã£ á»Ÿ tráº¡ng thÃ¡i cuá»‘i.
+                                 Không có bước duyệt khả dụng cho vai trò hiện tại hoặc hồ sơ đã ở trạng thái cuối.
                               </div>
                            )}
 
@@ -577,14 +577,14 @@ const FinanceRefundDetail: React.FC = () => {
                         <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
                            <Receipt size={14} className="text-slate-400" />
                            <div>
-                              <div className="text-[14px] font-extrabold uppercase tracking-[0.18em] text-slate-700">Tá»•ng quan xá»­ lÃ½</div>
-                              <div className="text-[11px] text-slate-400">ThÃ´ng tin nghiá»‡p vá»¥ chÃ­nh</div>
+                              <div className="text-[14px] font-extrabold uppercase tracking-[0.18em] text-slate-700">Tổng quan xử lý</div>
+                              <div className="text-[11px] text-slate-400">Thông tin nghiệp vụ chính</div>
                            </div>
                         </div>
                         <div className="mt-3">
-                           <RowField label="Chá»©ng tá»« chi" value={refund.paymentVoucherCode || '--'} />
-                           <RowField label="NgÃ y thá»±c chi" value={formatDate(refund.payoutDate)} />
-                           <RowField label="Há»“ sÆ¡ liÃªn quan" value={refund.soCode || '--'} />
+                           <RowField label="Chứng từ chi" value={refund.paymentVoucherCode || '--'} />
+                           <RowField label="Ngày thực chi" value={formatDate(refund.payoutDate)} />
+                           <RowField label="Hồ sơ liên quan" value={refund.soCode || '--'} />
                         </div>
                      </section>
 
@@ -592,14 +592,14 @@ const FinanceRefundDetail: React.FC = () => {
                         <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
                            <CalendarDays size={14} className="text-slate-400" />
                            <div>
-                              <div className="text-[14px] font-extrabold uppercase tracking-[0.18em] text-slate-700">Nháº­t kÃ½ xá»­ lÃ½</div>
-                              <div className="text-[11px] text-slate-400">Tiáº¿n trÃ¬nh phÃª duyá»‡t hoÃ n tiá»n</div>
+                              <div className="text-[14px] font-extrabold uppercase tracking-[0.18em] text-slate-700">Nhật ký xử lý</div>
+                              <div className="text-[11px] text-slate-400">Tiến trình phê duyệt hoàn tiền</div>
                            </div>
                         </div>
 
                         <div className="mt-3">
                            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-                              <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Bá»™ lá»c log note</div>
+                              <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Bộ lọc log note</div>
                               <LogAudienceFilterControl value={logAudienceFilter} onChange={setLogAudienceFilter} />
                            </div>
                            {filteredLogs.length > 0 ? (
@@ -617,7 +617,7 @@ const FinanceRefundDetail: React.FC = () => {
                                  ))}
                               </div>
                            ) : (
-                              <div className="text-[12px] italic text-slate-400">ChÆ°a cÃ³ lá»‹ch sá»­ phÃ¹ há»£p bá»™ lá»c.</div>
+                              <div className="text-[12px] italic text-slate-400">Chưa có lịch sử phù hợp bộ lọc.</div>
                            )}
                         </div>
                      </section>
@@ -625,11 +625,11 @@ const FinanceRefundDetail: React.FC = () => {
                      <section className="rounded-md border border-slate-200 bg-white p-4">
                         <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
                            <UserRound size={14} className="text-slate-400" />
-                           <div className="text-[14px] font-extrabold uppercase tracking-[0.18em] text-slate-700">Phá»¥ trÃ¡ch</div>
+                           <div className="text-[14px] font-extrabold uppercase tracking-[0.18em] text-slate-700">Phụ trách</div>
                         </div>
                         <div className="mt-3 space-y-2 text-[13px] text-slate-900">
                            <div className="font-semibold">{refund.ownerName || '--'}</div>
-                           <div className="text-[11px] text-slate-400">Theo dÃµi há»“ sÆ¡ hoÃ n tiá»n vÃ  phá»‘i há»£p xá»­ lÃ½.</div>
+                           <div className="text-[11px] text-slate-400">Theo dõi hồ sơ hoàn tiền và phối hợp xử lý.</div>
                         </div>
                      </section>
                   </aside>

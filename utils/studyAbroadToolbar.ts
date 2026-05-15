@@ -1,4 +1,4 @@
-import {
+﻿import {
   StudyAbroadCaseRecord,
   StudyAbroadServiceStatus
 } from '../services/studyAbroadCases.local';
@@ -230,8 +230,8 @@ export const sortStudyAbroadSelectableValues = (
   if (fieldId === 'progress') {
     const progressOrder = new Map(STUDY_ABROAD_PROGRESS_ORDER.map((value, index) => [value, index]));
     return [...values].sort((left, right) => {
-      const leftOrder = progressOrder.get(left) ?? Number.MAX_SAFE_INTEGER;
-      const rightOrder = progressOrder.get(right) ?? Number.MAX_SAFE_INTEGER;
+      const leftOrder = progressOrder.get(left as any) ?? Number.MAX_SAFE_INTEGER;
+      const rightOrder = progressOrder.get(right as any) ?? Number.MAX_SAFE_INTEGER;
       if (leftOrder !== rightOrder) return leftOrder - rightOrder;
       return left.localeCompare(right, 'vi');
     });
@@ -266,3 +266,4 @@ export const buildStudyAbroadSelectableValuesByField = (
     },
     {}
   );
+

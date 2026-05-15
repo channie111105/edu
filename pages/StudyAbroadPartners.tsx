@@ -110,7 +110,7 @@ interface IStudyAbroadPartner {
 interface IPartnerFormState {
   name: string;
   type: string;
-  country: IStudyAbroadPartner['country'];
+  country: IStudyAbroadPartner[ 'country' ];
   ranking: string;
   intake: string;
   applicants: string;
@@ -128,12 +128,12 @@ interface IPartnerFormState {
   rankingGlobal: string;
 }
 
-const COUNTRY_LABEL: Record<IStudyAbroadPartner['country'], string> = {
+const COUNTRY_LABEL: Record<IStudyAbroadPartner[ 'country' ], string> = {
   Germany: 'Đức',
   China: 'Trung Quốc'
 };
 
-const COUNTRY_FLAG: Record<IStudyAbroadPartner['country'], string> = {
+const COUNTRY_FLAG: Record<IStudyAbroadPartner[ 'country' ], string> = {
   Germany: '🇩🇪',
   China: '🇨🇳'
 };
@@ -193,22 +193,22 @@ const GROUP_BY_OPTIONS: Array<{ key: PartnerGroupByKey; label: string }> = [
 ];
 
 const PARTNER_TIME_FIELD_OPTIONS = [
-  { id: 'intakeTerm', label: 'K\u1ef3 tuy\u1ec3n sinh' }
+  { id: 'intakeTerm', label: 'Kỳ tuyển sinh' }
 ] as const satisfies ReadonlyArray<ToolbarOption>;
 
 const PARTNER_TIME_PLACEHOLDER = 'action';
 
 const PARTNER_ADVANCED_FILTER_OPTIONS = [
-  { id: 'country', label: 'Qu\u1ed1c gia' },
+  { id: 'country', label: 'Quốc gia' },
   { id: 'program', label: 'Chương trình' },
-  { id: 'intake', label: 'K\u1ef3 nh\u1eadp h\u1ecdc' },
+  { id: 'intake', label: 'Kỳ nhập học' },
   { id: 'major', label: 'Ngành' }
 ] as const satisfies ReadonlyArray<ToolbarOption>;
 
 const PARTNER_ADVANCED_FILTER_LABELS: Record<PartnerAdvancedFieldKey, string> = {
-  country: 'Qu\u1ed1c gia',
+  country: 'Quốc gia',
   program: 'Chương trình',
-  intake: 'K\u1ef3 nh\u1eadp h\u1ecdc',
+  intake: 'Kỳ nhập học',
   major: 'Ngành'
 };
 
@@ -345,7 +345,7 @@ const doesPartnerTimeFieldMatch = (
 
 const formatPartnerAdvancedFilterValue = (fieldId: PartnerAdvancedFieldKey, value: string) => {
   if (fieldId === 'country' && value in COUNTRY_LABEL) {
-    return COUNTRY_LABEL[value as IStudyAbroadPartner['country']];
+    return COUNTRY_LABEL[value as IStudyAbroadPartner[ 'country' ]];
   }
   return value;
 };
@@ -370,8 +370,7 @@ const PARTNERS: IStudyAbroadPartner[] = [
       quota: '50 sinh viên/năm',
       cmtc: 'Tài khoản phong tỏa 11.208 EUR',
       majors: ['Kỹ thuật', 'Công nghệ thông tin', 'Kinh tế', 'Điều dưỡng'],
-      overview:
-        'Đại học Kỹ thuật Munich là trường dẫn đầu tại Đức về kỹ thuật, công nghệ và khoa học ứng dụng với mạng lưới hợp tác doanh nghiệp mạnh.',
+      overview: 'Đại học Kỹ thuật Munich là trường dẫn đầu tại Đức về kỹ thuật, công nghệ và khoa học ứng dụng với mạng lưới hợp tác doanh nghiệp mạnh.',
       website: 'https://www.tum.de',
       schoolType: 'Công lập',
       rankingGlobal: '#1 Đức',
@@ -441,8 +440,7 @@ const PARTNERS: IStudyAbroadPartner[] = [
       quota: '30 sinh viên/năm',
       cmtc: 'Sổ tiết kiệm tối thiểu 30.000 USD',
       majors: ['Kinh tế', 'Ngôn ngữ Trung', 'Khoa học dữ liệu'],
-      overview:
-        'Đại học Bắc Kinh nổi bật với các chương trình kinh tế, ngôn ngữ và khoa học dữ liệu dành cho sinh viên quốc tế.',
+      overview: 'Đại học Bắc Kinh nổi bật với các chương trình kinh tế, ngôn ngữ và khoa học dữ liệu dành cho sinh viên quốc tế.',
       website: 'https://www.pku.edu.cn',
       schoolType: 'Công lập',
       rankingGlobal: 'Top 20 châu Á',
@@ -512,8 +510,7 @@ const PARTNERS: IStudyAbroadPartner[] = [
       quota: '20 sinh viên/năm',
       cmtc: 'Tài khoản phong tỏa 11.208 EUR',
       majors: ['Y sinh', 'Khoa học xã hội', 'Nghiên cứu liên ngành'],
-      overview:
-        'Đại học Heidelberg phù hợp với hồ sơ học thuật định hướng nghiên cứu, đặc biệt ở y sinh và khoa học xã hội.',
+      overview: 'Đại học Heidelberg phù hợp với hồ sơ học thuật định hướng nghiên cứu, đặc biệt ở y sinh và khoa học xã hội.',
       website: 'https://www.uni-heidelberg.de',
       schoolType: 'Công lập',
       rankingGlobal: 'Top 50 thế giới',
@@ -583,8 +580,7 @@ const PARTNERS: IStudyAbroadPartner[] = [
       quota: '15 sinh viên/năm',
       cmtc: 'Chứng minh thu nhập người bảo lãnh',
       majors: ['Y khoa', 'Công nghệ thông tin', 'Tài chính'],
-      overview:
-        'Đại học Phục Đán mạnh về các chương trình quốc tế trong nhóm ngành y khoa, CNTT và tài chính cạnh tranh cao.',
+      overview: 'Đại học Phục Đán mạnh về các chương trình quốc tế trong nhóm ngành y khoa, CNTT và tài chính cạnh tranh cao.',
       website: 'https://www.fudan.edu.cn',
       schoolType: 'Công lập',
       rankingGlobal: 'Top 100 thế giới',
@@ -652,7 +648,7 @@ const normalizePartnerAction = (value: unknown): Exclude<PartnerActionKey, 'ALL'
   return 'CREATED';
 };
 
-const normalizePartnerCountry = (value: unknown): IStudyAbroadPartner['country'] => {
+const normalizePartnerCountry = (value: unknown): IStudyAbroadPartner[ 'country' ] => {
   const token = decodeMojibakeText(String(value || '')).toLowerCase();
   return token.includes('china') || token.includes('trung') ? 'China' : 'Germany';
 };
@@ -691,7 +687,7 @@ const normalizePartner = (partner: IStudyAbroadPartner): IStudyAbroadPartner => 
         name: decodeMojibakeText(program.name),
         school: decodeMojibakeText(program.school),
         major: decodeMojibakeText(program.major),
-        degreeLevel: decodeMojibakeText(program.degreeLevel) as IPartnerProgram['degreeLevel'],
+        degreeLevel: decodeMojibakeText(program.degreeLevel) as IPartnerProgram[ 'degreeLevel' ],
         language: decodeMojibakeText(program.language),
         intake: decodeMojibakeText(program.intake),
         quantity: decodeMojibakeText(program.quantity),
@@ -1829,7 +1825,7 @@ const StudyAbroadPartners: React.FC = () => {
                             <select
                               className={modalSelectClass}
                               value={partnerForm.country}
-                              onChange={(event) => updatePartnerFormField('country', event.target.value as IStudyAbroadPartner['country'])}
+                              onChange={(event) => updatePartnerFormField('country', event.target.value as IStudyAbroadPartner[ 'country' ])}
                             >
                               <option value="Germany">Đức</option>
                               <option value="China">Trung Quốc</option>
@@ -2039,7 +2035,7 @@ const StudyAbroadPartners: React.FC = () => {
                     <select
                       className={modalFieldClass}
                       value={partnerForm.country}
-                      onChange={(event) => updatePartnerFormField('country', event.target.value as IStudyAbroadPartner['country'])}
+                      onChange={(event) => updatePartnerFormField('country', event.target.value as IStudyAbroadPartner[ 'country' ])}
                     >
                       <option value="Germany">Đức</option>
                       <option value="China">Trung Quốc</option>

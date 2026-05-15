@@ -155,10 +155,10 @@ const normalizeStudentClaimRecord = (claim: IStudentClaim): IStudentClaim => {
 
 const stripInlineStorageUrl = (value?: string) => {
   const normalized = typeof value === 'string' ? value.trim() : '';
-  return normalized.startsWith('data:') ? '' : normalized;
+  return normalized.startsWith('data: ') ? '' : normalized;
 };
 
-const compactTransactionProofFiles = (proofFiles?: ITransaction['proofFiles']) => {
+const compactTransactionProofFiles = (proofFiles?: ITransaction[ 'proofFiles' ]) => {
   if (!Array.isArray(proofFiles)) return [];
 
   return proofFiles.map((file) => ({
@@ -1111,7 +1111,7 @@ export const createTransactionFromQuotation = (quotationId: string, createdBy: s
   // TODO: replace mock service with BE API
   const quotation = getQuotations().find((q) => q.id === quotationId);
   if (!quotation) {
-    throw new Error('KhÃ´ng tÃ¬m tháº¥y bÃ¡o giÃ¡ Ä‘á»ƒ táº¡o giao dá»‹ch');
+    throw new Error('Không tìm thấy báo giá để tạo giao dịch');
   }
 
   const paymentMethod = quotation.paymentMethod === 'CK' ? 'CHUYEN_KHOAN' : quotation.paymentMethod === 'CASH' ? 'TIEN_MAT' : 'OTHER';
@@ -1138,7 +1138,7 @@ export const createTransactionFromQuotation = (quotationId: string, createdBy: s
     status: 'DRAFT',
     createdAt: Date.now(),
     createdBy,
-    note: 'Táº¡o tá»« bÆ°á»›c Confirm Sale'
+    note: 'Tạo từ bước Confirm Sale'
   };
 
   addTransaction(newTransaction);
@@ -1381,12 +1381,12 @@ export const removeStudentFromClass = (classId: string, studentId: string) => {
 export const transferStudentClass = (studentId: string, fromClassId: string, toClassId: string) => {
   // TODO: replace storage with BE API
   if (fromClassId === toClassId) {
-    throw new Error('Lá»›p Ä‘Ã­ch pháº£i khÃ¡c lá»›p hiá»‡n táº¡i');
+    throw new Error('Lớp đích phải khác lớp hiện tại');
   }
 
   const list = getClassStudents();
   const from = list.find((item) => item.classId === fromClassId && item.studentId === studentId);
-  if (!from) throw new Error('KhÃ´ng tÃ¬m tháº¥y há»c viÃªn trong lá»›p hiá»‡n táº¡i');
+  if (!from) throw new Error('Không tìm thấy học viên trong lớp hiện tại');
 
   const eligibility = validateStudentClassEligibility(studentId, toClassId);
   if (!eligibility.ok) {
@@ -1433,7 +1433,7 @@ export const updateDebtTerms = (classId: string, studentId: string, debtTerms: I
 export const updateClassStudentStatus = (
   classId: string,
   studentId: string,
-  status: IClassStudent['status']
+  status: IClassStudent[ 'status' ]
 ) => {
   const list = getClassStudents();
   const idx = list.findIndex((item) => item.classId === classId && item.studentId === studentId);
@@ -1473,7 +1473,7 @@ export const saveTrainingClasses = (classes: ITrainingClass[]) => {
   emitClientEvent('educrm:training-classes-changed');
 };
 
-export const updateClassStatus = (classId: string, status: ITrainingClass['status']) => {
+export const updateClassStatus = (classId: string, status: ITrainingClass[ 'status' ]) => {
   const classes = getTrainingClasses();
   const idx = classes.findIndex((item) => item.id === classId || item.code === classId);
   if (idx < 0) return null;
@@ -1641,7 +1641,7 @@ const buildDefaultSessions = (classInfo?: ITrainingClass): IClassSession[] => {
       id: `SESSION-${classInfo?.id || 'CLASS'}-${order}`,
       classId: classInfo?.id || '',
       date: toDateOnly(date),
-      title: `Buá»•i ${order} - BÃ i ${order}`,
+      title: `Buổi ${order} - Bài ${order}`,
       order,
       isHeld: false
     };
@@ -1845,7 +1845,7 @@ export const upsertStudentScore = (
   const midterm = patch.midterm ?? current.midterm ?? 0;
   const finalScore = patch.final ?? current.final ?? 0;
   const average = Number(((assignment + midterm + finalScore) / 3).toFixed(1));
-  const rank: IStudentScore['rank'] = average >= 8.5 ? 'A' : average >= 7 ? 'B' : average >= 5.5 ? 'C' : 'D';
+  const rank: IStudentScore[ 'rank' ] = average >= 8.5 ? 'A' : average >= 7 ? 'B' : average >= 5.5 ? 'C' : 'D';
   const next: IStudentScore = {
     ...current,
     assignment,
@@ -1889,7 +1889,7 @@ export const getAllLogNotes = (): ILogNote[] => {
   }
 };
 
-export const getLogNotes = (entityType: ILogNote['entityType'], entityId: string): ILogNote[] => {
+export const getLogNotes = (entityType: ILogNote[ 'entityType' ], entityId: string): ILogNote[] => {
   return getAllLogNotes()
     .filter((log) => log.entityType === entityType && log.entityId === entityId)
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -1921,7 +1921,7 @@ export const addStudentLog = (
   action: string,
   message: string,
   createdBy = 'system',
-  category: ILogNote['category'] = 'SYSTEM'
+  category: ILogNote[ 'category' ] = 'SYSTEM'
 ) => {
   return addLogNote({
     id: `LOG-STUDENT-${Date.now()}`,
@@ -1935,7 +1935,7 @@ export const addStudentLog = (
   });
 };
 
-export const updateTeacher = (updated: ITeacher, actor = 'system', action = 'UPDATE_PROFILE', message = 'Cáº­p nháº­t há»“ sÆ¡ giÃ¡o viÃªn') => {
+export const updateTeacher = (updated: ITeacher, actor = 'system', action = 'UPDATE_PROFILE', message = 'Cập nhật hồ sơ giáo viên') => {
   const list = getTeachers();
   const idx = list.findIndex((t) => t.id === updated.id);
   if (idx === -1) return false;
@@ -1971,7 +1971,7 @@ export const addTeacher = (teacher: ITeacher, actor = 'system') => {
     entityType: 'TEACHER',
     entityId: teacher.id,
     action: 'CREATE_TEACHER',
-    message: `Táº¡o má»›i há»“ sÆ¡ giÃ¡o viÃªn ${teacher.fullName}`,
+    message: `Tạo mới hồ sơ giáo viên ${teacher.fullName}`,
     createdAt: new Date().toISOString(),
     createdBy: actor
   });
@@ -1981,7 +1981,7 @@ export const addTeacher = (teacher: ITeacher, actor = 'system') => {
 export const assignTeacherToClass = (teacherId: string, classId: string, actor = 'system') => {
   // TODO: replace mock service with BE API
   const teacher = getTeacherById(teacherId);
-  if (!teacher) return { ok: false, error: 'KhÃ´ng tÃ¬m tháº¥y giÃ¡o viÃªn' };
+  if (!teacher) return { ok: false, error: 'Không tìm thấy giáo viên' };
 
   if (!teacher.assignedClassIds.includes(classId)) {
     teacher.assignedClassIds = [...teacher.assignedClassIds, classId];
@@ -1997,14 +1997,14 @@ export const assignTeacherToClass = (teacherId: string, classId: string, actor =
     saveTrainingClasses(classes);
   }
 
-  updateTeacher(teacher, actor, 'ASSIGN_CLASS', `GÃ¡n lá»›p ${classId} cho giÃ¡o viÃªn`);
+  updateTeacher(teacher, actor, 'ASSIGN_CLASS', `Gán lớp ${classId} cho giáo viên`);
   return { ok: true };
 };
 
 export const unassignTeacherFromClass = (teacherId: string, classId: string, actor = 'system') => {
   // TODO: replace mock service with BE API
   const teacher = getTeacherById(teacherId);
-  if (!teacher) return { ok: false, error: 'KhÃ´ng tÃ¬m tháº¥y giÃ¡o viÃªn' };
+  if (!teacher) return { ok: false, error: 'Không tìm thấy giáo viên' };
 
   teacher.assignedClassIds = teacher.assignedClassIds.filter((id) => id !== classId);
 
@@ -2018,7 +2018,7 @@ export const unassignTeacherFromClass = (teacherId: string, classId: string, act
     saveTrainingClasses(classes);
   }
 
-  updateTeacher(teacher, actor, 'UNASSIGN_CLASS', `Bá» lá»›p ${classId} khá»i giÃ¡o viÃªn`);
+  updateTeacher(teacher, actor, 'UNASSIGN_CLASS', `Bỏ lớp ${classId} khỏi giáo viên`);
   return { ok: true };
 };
 export const createStudentFromQuotation = (quotation: IQuotation) => {
@@ -2512,7 +2512,7 @@ const INITIAL_QUOTATIONS: IQuotation[] = [
         studentName: 'Nguyễn Thị F',
         targetMarket: 'Đức',
         servicePackage: 'Đào tạo',
-        programs: ['A2'],
+        programs: [ 'A2' ],
         paymentSchedule: [
           {
             id: 'Q-006-term-1',
@@ -2871,15 +2871,15 @@ const INITIAL_TEACHERS: ITeacher[] = [
   {
     id: 'T001',
     code: 'GV001',
-    fullName: 'Nguyá»…n Thá»‹ Lan',
+    fullName: 'Nguyễn Thị Lan',
     phone: '0901234567',
     dob: '1990-08-15',
     email: 'lan.nguyen@educrm.com',
-    address: 'Ba ÄÃ¬nh, HÃ  Ná»™i',
+    address: 'Ba Đình, Hà Nội',
     contractType: 'Full-time',
-    contractNote: 'HÄ chÃ­nh thá»©c 12 thÃ¡ng',
+    contractNote: 'HĐ chính thức 12 tháng',
     startDate: '2022-01-01',
-    teachSubjects: ['German'],
+    teachSubjects: [ 'German' ],
     teachLevels: ['A1', 'A2', 'B1'],
     certificates: ['Goethe C1', 'Pedagogy Cert'],
     status: 'ACTIVE',
@@ -2889,35 +2889,35 @@ const INITIAL_TEACHERS: ITeacher[] = [
   {
     id: 'T002',
     code: 'GV002',
-    fullName: 'HoÃ ng Van Nam',
+    fullName: 'Hoàng Van Nam',
     phone: '0912345678',
     dob: '1988-05-10',
     email: 'nam.hoang@educrm.com',
     address: 'Q1, TP.HCM',
     contractType: 'Part-time',
-    contractNote: 'Lá»‹ch dáº¡y theo ca',
+    contractNote: 'Lịch dạy theo ca',
     startDate: '2023-03-15',
-    teachSubjects: ['English'],
+    teachSubjects: [ 'English' ],
     teachLevels: ['IELTS', 'TOEIC'],
     certificates: ['IELTS 8.5', 'TESOL'],
     status: 'ACTIVE',
-    assignedClassIds: ['AUS-COOK-K01'],
+    assignedClassIds: [ 'AUS-COOK-K01' ],
     createdAt: new Date().toISOString()
   },
   {
     id: 'T003',
     code: 'GV003',
-    fullName: 'Tráº§n Thá»‹ Hoa',
+    fullName: 'Trần Thị Hoa',
     phone: '0987654321',
     dob: '1995-11-20',
     email: 'hoa.tran@educrm.com',
-    address: 'Cáº§u Giáº¥y, HÃ  Ná»™i',
+    address: 'Cầu Giấy, Hà Nội',
     contractType: 'Full-time',
-    contractNote: 'Äang táº¡m nghá»‰',
+    contractNote: 'Đang tạm nghỉ',
     startDate: '2021-06-01',
-    teachSubjects: ['Chinese'],
+    teachSubjects: [ 'Chinese' ],
     teachLevels: ['HSK3', 'HSK4', 'HSK5'],
-    certificates: ['HSK 6'],
+    certificates: [ 'HSK 6' ],
     status: 'INACTIVE',
     assignedClassIds: [],
     createdAt: new Date().toISOString()
@@ -2930,7 +2930,7 @@ const INITIAL_LOG_NOTES: ILogNote[] = [
     entityType: 'TEACHER',
     entityId: 'T001',
     action: 'CREATE_TEACHER',
-    message: 'Táº¡o má»›i há»“ sÆ¡ giÃ¡o viÃªn Nguyá»…n Thá»‹ Lan',
+    message: 'Tạo mới hồ sơ giáo viên Nguyễn Thị Lan',
     createdAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
     createdBy: 'system'
   },
@@ -2939,7 +2939,7 @@ const INITIAL_LOG_NOTES: ILogNote[] = [
     entityType: 'TEACHER',
     entityId: 'T002',
     action: 'ASSIGN_CLASS',
-    message: 'GÃ¡n lá»›p AUS-COOK-K01 cho giÃ¡o viÃªn',
+    message: 'Gán lớp AUS-COOK-K01 cho giáo viên',
     createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
     createdBy: 'u1'
   },
@@ -2948,7 +2948,7 @@ const INITIAL_LOG_NOTES: ILogNote[] = [
     entityType: 'CLASS',
     entityId: 'GER-A1-K35',
     action: 'CLASS_CREATED',
-    message: 'Khá»Ÿi táº¡o lá»›p vÃ  danh sÃ¡ch há»c viÃªn demo',
+    message: 'Khởi tạo lớp và danh sách học viên demo',
     createdAt: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(),
     createdBy: 'system'
   },
@@ -2957,7 +2957,7 @@ const INITIAL_LOG_NOTES: ILogNote[] = [
     entityType: 'CLASS',
     entityId: 'GER-A1-K36',
     action: 'CLASS_CREATED',
-    message: 'Khá»Ÿi táº¡o lá»›p vÃ  danh sÃ¡ch há»c viÃªn demo',
+    message: 'Khởi tạo lớp và danh sách học viên demo',
     createdAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
     createdBy: 'system'
   }
@@ -3335,7 +3335,7 @@ const migrateInlineFinanceAttachments = () => {
   try {
     const transactions = getTransactions();
     const hasInlineTransactionAttachment = transactions.some((transaction) =>
-      Array.isArray(transaction.proofFiles) && transaction.proofFiles.some((file) => typeof file?.url === 'string' && file.url.trim().startsWith('data:'))
+      Array.isArray(transaction.proofFiles) && transaction.proofFiles.some((file) => typeof file?.url === 'string' && file.url.trim().startsWith('data: '))
     );
 
     if (hasInlineTransactionAttachment) {
@@ -3344,7 +3344,7 @@ const migrateInlineFinanceAttachments = () => {
 
     const actualTransactions = getActualTransactions();
     const hasInlineActualAttachment = actualTransactions.some((transaction) =>
-      [transaction.proof, transaction.attachmentUrl].some((value) => typeof value === 'string' && value.trim().startsWith('data:'))
+      [transaction.proof, transaction.attachmentUrl].some((value) => typeof value === 'string' && value.trim().startsWith('data: '))
     );
 
     if (hasInlineActualAttachment) {
@@ -3410,7 +3410,7 @@ const migrateTrainingClassesData = () => {
     const migrationKey = 'educrm_migration_training_classes_v1';
     if (localStorage.getItem(migrationKey) === 'done') return;
 
-    const mapStatus = (status?: string): ITrainingClass['status'] => {
+    const mapStatus = (status?: string): ITrainingClass[ 'status' ] => {
       const raw = (status || '').toUpperCase();
       if (raw === 'ACTIVE') return 'ACTIVE';
       if (raw === 'DONE' || raw === 'COMPLETED') return 'DONE';
@@ -3430,34 +3430,34 @@ const migrateTrainingClassesData = () => {
 };
 
 const MOJIBAKE_TEXT_MAP: Record<string, string> = {
-  'Du h?c Ã?c - Combo A1-B1': 'Du há»c Äá»©c - Combo A1-B1',
-  'KhÃ³a ti?ng Ã?c B1-B2': 'KhÃ³a tiáº¿ng Äá»©c B1-B2',
-  'Combo Du h?c ngh? Ãšc': 'Combo Du há»c nghá» Ãšc',
-  'Du h?c Ã?c - Tr?n gÃ³i': 'Du há»c Äá»©c - Trá»n gÃ³i',
-  'Ti?ng Ã?c A1-B1': 'Tiáº¿ng Äá»©c A1-B1',
-  'KhÃ³a ti?ng Ã?c A2': 'KhÃ³a tiáº¿ng Äá»©c A2',
-  'Combo Du h?c Ã?c': 'Combo Du há»c Äá»©c',
-  'Sáº£n pháº©m': 'Sản phẩm',
-  'Lá»›p dá»± kiáº¿n': 'Lớp dự kiến',
-  'Chuyá»ƒn lá»›p': 'Chuyển lớp',
-  'G?i l?n 1': 'Gá»i láº§n 1',
-  'G?i l?n 2': 'Gá»i láº§n 2',
-  'Ti?m nang': 'Tiá»m nÄƒng',
-  'C?n tu v?n': 'Cáº§n tÆ° váº¥n'
+  'Du h?c Ð?c - Combo A1-B1': 'Du học Đức - Combo A1-B1',
+  'Khóa ti?ng Ð?c B1-B2': 'Khóa tiếng Đức B1-B2',
+  'Combo Du h?c ngh? Úc': 'Combo Du học nghề Úc',
+  'Du h?c Ð?c - Tr?n gói': 'Du học Đức - Trọn gói',
+  'Ti?ng Ð?c A1-B1': 'Tiếng Đức A1-B1',
+  'Khóa ti?ng Ð?c A2': 'Khóa tiếng Đức A2',
+  'Combo Du h?c Ð?c': 'Combo Du học Đức',
+  'Sản phẩm': 'Sản phẩm',
+  'Lớp dự kiến': 'Lớp dự kiến',
+  'Chuyển lớp': 'Chuyển lớp',
+  'G?i l?n 1': 'Gọi lần 1',
+  'G?i l?n 2': 'Gọi lần 2',
+  'Ti?m nang': 'Tiềm năng',
+  'C?n tu v?n': 'Cần tư vấn'
 };
 
 const MOJIBAKE_TOKEN_MAP: Record<string, string> = {
-  'Du h?c': 'Du há»c',
-  'ti?ng': 'tiáº¿ng',
-  'ngh?': 'nghá»',
-  'Tr?n': 'Trá»n',
-  'Ã?c': 'Äá»©c',
-  'G?i': 'Gá»i',
-  'l?n': 'láº§n',
-  'Ti?m': 'Tiá»m',
-  'nang': 'nÄƒng',
-  'C?n': 'Cáº§n',
-  'v?n': 'váº¥n'
+  'Du h?c': 'Du học',
+  'ti?ng': 'tiếng',
+  'ngh?': 'nghề',
+  'Tr?n': 'Trọn',
+  'Ð?c': 'Đức',
+  'G?i': 'Gọi',
+  'l?n': 'lần',
+  'Ti?m': 'Tiềm',
+  'nang': 'năng',
+  'C?n': 'Cần',
+  'v?n': 'vấn'
 };
 
 const tryDecodeMojibake = (value: string): string => {
@@ -3961,7 +3961,7 @@ export const addContact = (contact: IContact): IContact => {
       return newContact;
     }
   } catch (error) {
-    console.error('Error in addContact:', error);
+    console.error('Error in addContact: ', error);
     throw error;
   }
 };
@@ -4090,13 +4090,13 @@ export const saveDeals = (deals: IDeal[]) => {
 export const addDeal = (deal: IDeal) => {
   try {
     const deals = getDeals();
-    console.log('[Storage] Adding new Deal:', deal.title);
+    console.log('[Storage] Adding new Deal: ', deal.title);
     deals.unshift(deal);
     localStorage.setItem(KEYS.DEALS, JSON.stringify(deals));
     syncLostLeadStatusesFromDeals(deals);
     return deals;
   } catch (error) {
-    console.error('Error in addDeal:', error);
+    console.error('Error in addDeal: ', error);
     return [];
   }
 };
@@ -4118,7 +4118,7 @@ export const updateDeal = (updatedDeal: IDeal): boolean => {
     }
     return false;
   } catch (error) {
-    console.error('Error in updateDeal:', error);
+    console.error('Error in updateDeal: ', error);
     return false;
   }
 };
@@ -4139,7 +4139,7 @@ export const getContracts = (): IContract[] => {
 
 export const addContract = (contract: IContract) => {
   const contracts = getContracts();
-  console.log('[Storage] Adding new Contract:', contract.code);
+  console.log('[Storage] Adding new Contract: ', contract.code);
   contracts.unshift(contract);
   localStorage.setItem(KEYS.CONTRACTS, JSON.stringify(contracts));
   emitClientEvent('educrm:contracts-changed');

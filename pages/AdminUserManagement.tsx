@@ -51,6 +51,13 @@ import {
   type AdminUserFormData,
   type AdminUserRecord,
 } from '../utils/adminUsers';
+import {
+  ORG_CONFIG_EVENT,
+  getBranches,
+  getTeams,
+  type OrgBranch,
+  type OrgTeam,
+} from '../utils/orgConfig';
 import { UserRole, type ILead } from '../types';
 
 type FilterId = 'role' | 'department' | 'branch' | 'accountStatus' | 'contractType' | 'managerId';
@@ -338,6 +345,8 @@ const AdminUserManagement: React.FC = () => {
   const [deleteError, setDeleteError] = useState('');
   const [reassignUserId, setReassignUserId] = useState('');
 
+  const [orgVersion, setOrgVersion] = useState(0);
+
   useEffect(() => {
     const syncData = () => {
       setUsers(getAdminUsers());
@@ -345,16 +354,22 @@ const AdminUserManagement: React.FC = () => {
       setPermissionRoles(loadAdminPermissionSettings().roles);
     };
 
+    const syncOrg = () => {
+      setOrgVersion(v => v + 1);
+    };
+
     syncData();
     window.addEventListener(ADMIN_USERS_CHANGED_EVENT, syncData as EventListener);
     window.addEventListener(ADMIN_PERMISSIONS_EVENT, syncData as EventListener);
     window.addEventListener('educrm:leads-changed', syncData as EventListener);
+    window.addEventListener(ORG_CONFIG_EVENT, syncOrg);
     window.addEventListener('storage', syncData);
 
     return () => {
       window.removeEventListener(ADMIN_USERS_CHANGED_EVENT, syncData as EventListener);
       window.removeEventListener(ADMIN_PERMISSIONS_EVENT, syncData as EventListener);
       window.removeEventListener('educrm:leads-changed', syncData as EventListener);
+      window.removeEventListener(ORG_CONFIG_EVENT, syncOrg);
       window.removeEventListener('storage', syncData);
     };
   }, []);
@@ -378,11 +393,24 @@ const AdminUserManagement: React.FC = () => {
 
   const branchOptions = useMemo(
     () =>
-      Array.from(new Set([...DEFAULT_ADMIN_BRANCHES, ...users.map((item) => item.branch).filter(Boolean)])).map((item) => ({
-        value: item,
-        label: item,
-      })),
-    [users]
+      getBranches()
+        .filter((b) => b.status === 'Đang hoạt động')
+        .map((b) => ({
+          value: b.name,
+          label: b.name,
+        })),
+    [orgVersion]
+  );
+
+  const teamOptions = useMemo(
+    () =>
+      getTeams()
+        .filter((t) => t.status === 'Đang hoạt động')
+        .map((t) => ({
+          value: t.name,
+          label: t.name,
+        })),
+    [orgVersion]
   );
 
   const managerOptions = useMemo(
@@ -1241,6 +1269,16 @@ const AdminUserManagement: React.FC = () => {
 
                   <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-12">
                     <div className="lg:col-span-4">
+                      <label className={labelClass}>Họ và tên</label>
+                      <input
+                        value={formData.name}
+                        onChange={(event) => handleFormFieldChange('name', event.target.value)}
+                        className={inputClass}
+                        placeholder="Nguyễn Văn A"
+                      />
+                    </div>
+
+                    <div className="lg:col-span-4">
                       <label className={labelClass}>Username</label>
                       <input
                         value={formData.username}
@@ -1250,7 +1288,7 @@ const AdminUserManagement: React.FC = () => {
                       />
                     </div>
 
-                    <div className="lg:col-span-5">
+                    <div className="lg:col-span-4">
                       <label className={labelClass}>Email</label>
                       <input
                         type="email"
@@ -1261,7 +1299,7 @@ const AdminUserManagement: React.FC = () => {
                       />
                     </div>
 
-                    <div className="lg:col-span-3">
+                    <div className="lg:col-span-4">
                       <label className={labelClass}>Mật khẩu</label>
                       <input
                         type="password"
@@ -1273,7 +1311,7 @@ const AdminUserManagement: React.FC = () => {
                       />
                     </div>
 
-                    <div className="lg:col-span-7">
+                    <div className="lg:col-span-8">
                       <label className={labelClass}>Role</label>
                       <select
                         value={formData.permissionRoleLabel}
@@ -1289,7 +1327,39 @@ const AdminUserManagement: React.FC = () => {
                       </select>
                     </div>
 
-                    <div className="lg:col-span-5">
+                    <div className="lg:col-span-4">
+                      <label className={labelClass}>Cơ sở (Chi nhánh)</label>
+                      <select
+                        value={formData.branch}
+                        onChange={(event) => handleFormFieldChange('branch', event.target.value)}
+                        className={inputClass}
+                      >
+                        <option value="">Chọn cơ sở</option>
+                        {branchOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="lg:col-span-4">
+                      <label className={labelClass}>Team (Phòng ban)</label>
+                      <select
+                        value={formData.team}
+                        onChange={(event) => handleFormFieldChange('team', event.target.value)}
+                        className={inputClass}
+                      >
+                        <option value="">Chọn team</option>
+                        {teamOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="lg:col-span-4">
                       <label className={labelClass}>Trạng thái</label>
                       <select
                         value={formData.accountStatus}

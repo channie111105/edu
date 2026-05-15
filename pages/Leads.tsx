@@ -21,9 +21,11 @@ import {
   createLeadInitialState,
   filterLeadSalesRepOptionsByCampus,
   getLeadGuardianRelation,
+  getLeadSourceLabel,
   LEAD_CAMPUS_OPTIONS,
   LEAD_PRODUCT_OPTIONS,
   LEAD_RELATION_OPTIONS,
+  LEAD_SOURCE_OPTIONS,
   LEAD_TARGET_COUNTRY_OPTIONS,
   LeadCreateFormData,
   LeadCreateModalTab,
@@ -103,9 +105,9 @@ import {
 import { read, utils, write } from 'xlsx';
 
 const SALES_REPS = [
-  { id: 'u2', name: 'Sarah Miller', team: 'Team Ã„ÂÃ¡Â»Â©c', avatar: 'SM', color: 'bg-purple-100 text-purple-700' },
+  { id: 'u2', name: 'Sarah Miller', team: 'Team Đức', avatar: 'SM', color: 'bg-purple-100 text-purple-700' },
   { id: 'u3', name: 'David Clark', team: 'Team Trung', avatar: 'DC', color: 'bg-blue-100 text-blue-700' },
-  { id: 'u4', name: 'Alex Rivera', team: 'Team Du hÃ¡Â»Âc', avatar: 'AR', color: 'bg-green-100 text-green-700' },
+  { id: 'u4', name: 'Alex Rivera', team: 'Team Du học', avatar: 'AR', color: 'bg-green-100 text-green-700' },
 ];
 
 const normalizeAssignFilterToken = (value?: string) =>
@@ -162,7 +164,7 @@ const Leads: React.FC = () => {
   const STANDARD_LEAD_STATUS = LEAD_STATUS_KEYS;
 
   const CLOSED_LEAD_STATUSES = CLOSED_LEAD_STATUS_KEYS;
-  const CUSTOM_CLOSE_REASON = 'LÃ½ do khÃ¡c';
+  const CUSTOM_CLOSE_REASON = 'Lý do khác';
   const STANDARD_LEAD_STATUS_OPTIONS = LEAD_STATUS_OPTIONS;
   const normalizeLeadStatus = normalizeLeadStatusKey;
   const isClosedLeadStatus = isClosedLeadStatusKey;
@@ -172,9 +174,9 @@ const Leads: React.FC = () => {
 
   const validateCloseReason = (status: string, reason: string, customReason?: string) => {
     if (!isClosedLeadStatus(status)) return null;
-    if (!reason) return 'Vui lÃ²ng chá»n lÃ½ do.';
+    if (!reason) return 'Vui lòng chọn lý do.';
     if (reason === CUSTOM_CLOSE_REASON && !customReason?.trim()) {
-      return 'Vui lÃ²ng nháº­p lÃ½ do cá»¥ thá»ƒ.';
+      return 'Vui lòng nhập lý do cụ thể.';
     }
     return null;
   };
@@ -237,11 +239,11 @@ const Leads: React.FC = () => {
   const getLeadListTabLabel = (tab: typeof LEAD_LIST_TABS[number]) => {
     switch (tab) {
       case 'new':
-        return 'Lead Má»›i';
+        return getLeadStatusLabel(LEAD_STATUS_KEYS.NEW);
       case 'closed':
-        return 'Lead Ä‘Ã£ Ä‘Ã³ng';
+        return 'Lead đã đóng';
       default:
-        return 'Táº¥t cáº£';
+        return 'Tất cả';
     }
   };
 
@@ -436,7 +438,7 @@ const Leads: React.FC = () => {
   // Create Modal State
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newLeadData, setNewLeadData] = useState<LeadCreateFormData>(() => createLeadInitialState()); /*
-    name: '', phone: '', email: '', source: 'hotline', program: 'TiÃ¡ÂºÂ¿ng Ã„ÂÃ¡Â»Â©c', notes: '',
+    name: '', phone: '', email: '', source: 'hotline', program: 'Tiếng Đức', notes: '',
     title: '', company: '', province: '', city: '', ward: '', street: '', salesperson: '', campaign: '', tags: [] as string[], referredBy: '',
     product: '', market: '', channel: '', status: STANDARD_LEAD_STATUS.NEW
   }); */
@@ -688,7 +690,7 @@ const Leads: React.FC = () => {
 
   const selectedAdvancedFilterOptions = ADVANCED_FILTER_FIELD_OPTIONS.filter((col) => selectedAdvancedFilterFields.includes(col.id));
   const activeAdvancedFilterField = selectedAdvancedFilterOptions[0] || null;
-  const ADVANCED_MULTI_FILTER_PREFIX = '__advanced_multi__:';
+  const ADVANCED_MULTI_FILTER_PREFIX = '__advanced_multi__: ';
 
   const toggleAdvancedFieldSelection = (type: 'filter' | 'group', fieldId: string) => {
     if (type === 'filter') {
@@ -727,7 +729,7 @@ const Leads: React.FC = () => {
   }>({
     myPipeline: false,
     unassigned: false,
-    openOps: false, // "MÃ¡Â»Å¸ cÃ†Â¡ hÃ¡Â»â„¢i"
+    openOps: false, // "Mở cơ hội"
     createdDate: null,
     closedDate: null,
     status: []
@@ -751,11 +753,11 @@ const Leads: React.FC = () => {
     const phoneError = getLeadPhoneValidationMessage(editLeadData.phone);
 
     if (!editLeadData.name.trim()) {
-      alert('Vui lÃ²ng nháº­p tÃªn khÃ¡ch hÃ ng.');
+      alert('Vui lòng nhập tên khách hàng.');
       return;
     }
     if (!editLeadData.phone.trim()) {
-      alert('Vui lÃ²ng nháº­p sá»‘ Ä‘iá»‡n thoáº¡i.');
+      alert('Vui lòng nhập số điện thoại.');
       return;
     }
     if (phoneError) {
@@ -776,8 +778,8 @@ const Leads: React.FC = () => {
     const normalizedProgram =
       editLeadData.product &&
       LEAD_PRODUCT_OPTIONS.some((option) => option.value === editLeadData.product)
-        ? editLeadData.product as ILead['program']
-        : editLeadData.program as ILead['program'];
+        ? editLeadData.product as ILead[ 'program' ]
+        : editLeadData.program as ILead[ 'program' ];
 
     const updatedLead: ILead = {
       ...selectedLead,
@@ -831,10 +833,10 @@ const Leads: React.FC = () => {
     (updatedLead as any).referredBy = editLeadData.referredBy;
 
     const changedFields = [
-      selectedLead.name !== updatedLead.name ? buildLeadAuditChange('name', selectedLead.name, updatedLead.name, 'TÃªn lead') : null,
-      selectedLead.phone !== updatedLead.phone ? buildLeadAuditChange('phone', selectedLead.phone, updatedLead.phone, 'Sá»‘ Ä‘iá»‡n thoáº¡i') : null,
-      selectedLead.status !== updatedLead.status ? buildLeadAuditChange('status', selectedLead.status, updatedLead.status, 'Tráº¡ng thÃ¡i') : null,
-      selectedLead.ownerId !== updatedLead.ownerId ? buildLeadAuditChange('ownerId', selectedLead.ownerId, updatedLead.ownerId, 'Sale phá»¥ trÃ¡ch') : null,
+      selectedLead.name !== updatedLead.name ? buildLeadAuditChange('name', selectedLead.name, updatedLead.name, 'Tên lead') : null,
+      selectedLead.phone !== updatedLead.phone ? buildLeadAuditChange('phone', selectedLead.phone, updatedLead.phone, 'Số điện thoại') : null,
+      selectedLead.status !== updatedLead.status ? buildLeadAuditChange('status', selectedLead.status, updatedLead.status, 'Trạng thái') : null,
+      selectedLead.ownerId !== updatedLead.ownerId ? buildLeadAuditChange('ownerId', selectedLead.ownerId, updatedLead.ownerId, 'Sale phụ trách') : null,
       JSON.stringify(selectedLead.marketingData?.tags || []) !== JSON.stringify(updatedLead.marketingData?.tags || [])
         ? buildLeadAuditChange('marketingData.tags', selectedLead.marketingData?.tags || [], updatedLead.marketingData?.tags || [], 'Tags')
         : null
@@ -846,18 +848,18 @@ const Leads: React.FC = () => {
           ...(selectedLead.status !== updatedLead.status
             ? [buildLeadActivityLog({
               type: 'system',
-              title: 'Äá»•i tráº¡ng thÃ¡i',
-              description: `Tráº¡ng thÃ¡i: ${getLeadStatusLabel(String(selectedLead.status || ''))} â†’ ${getLeadStatusLabel(String(updatedLead.status || ''))}`,
+              title: 'Đổi trạng thái',
+              description: `Trạng thái: ${getLeadStatusLabel(String(selectedLead.status || ''))} → ${getLeadStatusLabel(String(updatedLead.status || ''))}`,
               user: user?.name || 'Admin'
             })]
             : []),
           ...(selectedLead.ownerId !== updatedLead.ownerId
             ? [buildLeadActivityLog({
               type: 'system',
-              title: selectedLead.ownerId ? 'Chia láº¡i Lead' : 'PhÃ¢n bá»• Lead',
+              title: selectedLead.ownerId ? 'Chia lại Lead' : 'Phân bổ Lead',
               description: selectedLead.ownerId
-                ? `Lead Ä‘Æ°á»£c chia láº¡i tá»« ${SALES_REPS.find((rep) => rep.id === selectedLead.ownerId)?.name || selectedLead.ownerId} sang ${SALES_REPS.find((rep) => rep.id === updatedLead.ownerId)?.name || updatedLead.ownerId}.`
-                : `Lead Ä‘Æ°á»£c giao cho ${SALES_REPS.find((rep) => rep.id === updatedLead.ownerId)?.name || updatedLead.ownerId}.`,
+                ? `Lead được chia lại từ ${SALES_REPS.find((rep) => rep.id === selectedLead.ownerId)?.name || selectedLead.ownerId} sang ${SALES_REPS.find((rep) => rep.id === updatedLead.ownerId)?.name || updatedLead.ownerId}.`
+                : `Lead được giao cho ${SALES_REPS.find((rep) => rep.id === updatedLead.ownerId)?.name || updatedLead.ownerId}.`,
               user: user?.name || 'Admin'
             })]
             : [])
@@ -885,24 +887,24 @@ const Leads: React.FC = () => {
 
   const DATA_EVALUATIONS = [
     {
-      id: 'd1', name: 'Data_THPT_NguyenDu_K12', source: 'HÃ¡Â»Â£p tÃƒÂ¡c TrÃ†Â°Ã¡Â»Âng THPT', code: '#D-2410-01', date: '24/10/2023', importer: 'Admin',
+      id: 'd1', name: 'Data_THPT_NguyenDu_K12', source: 'Hợp tác Trường THPT', code: '#D-2410-01', date: '24/10/2023', importer: 'Admin',
       total: 500, match: '96.0%', valid: 480, interested: '30.0%', interestedCount: 150, enrolled: '30.0%', enrolledCount: 45,
-      eval: 'good', evalText: 'ƯU TIÊN NHẬP', note: 'TÃ¡Â»Â· lÃ¡Â»â€¡ nhÃ¡ÂºÂ­p hÃ¡Â»Âc cao'
+      eval: 'good', evalText: 'ƯU TIÊN NHẬP', note: 'Tỷ lệ nhập học cao'
     },
     {
       id: 'd2', name: 'Mua_Data_Ngoai_T10', source: 'Mua ngoài (Agency A)', code: '#D-2010-02', date: '20/10/2023', importer: 'Marketing Lead',
       total: 1000, match: '35.0%', valid: 350, interested: '2.0%', interestedCount: 20, enrolled: '10.0%', enrolledCount: 2,
-      eval: 'bad', evalText: 'DÃ¡Â»ÂªNG HÃ¡Â»Â¢P TÃƒÂC', note: 'SÃ„ÂT Ã¡ÂºÂ£o quÃƒÂ¡ nhiÃ¡Â»Âu'
+      eval: 'bad', evalText: 'DỪNG HỢP TÁC', note: 'SĐT ảo quá nhiều'
     },
     {
       id: 'd3', name: 'Hoi_Thao_Du_Hoc_Duc_HaNoi', source: 'Sự kiện Offline', code: '#D-1510-01', date: '15/10/2023', importer: 'Sales Leader',
       total: 200, match: '99.0%', valid: 198, interested: '60.0%', interestedCount: 120, enrolled: '50.0%', enrolledCount: 60,
-      eval: 'good', evalText: 'ƯU TIÊN NHẬP', note: 'TÃ¡Â»Â· lÃ¡Â»â€¡ nhÃ¡ÂºÂ­p hÃ¡Â»Âc cao'
+      eval: 'good', evalText: 'ƯU TIÊN NHẬP', note: 'Tỷ lệ nhập học cao'
     },
     {
       id: 'd4', name: 'Import_Excel_Cu_2022', source: 'Hệ thống cũ', code: '#D-0110-03', date: '01/10/2023', importer: 'Admin',
       total: 1500, match: '93.3%', valid: 1400, interested: '3.3%', interestedCount: 50, enrolled: '10.0%', enrolledCount: 5,
-      eval: 'warning', evalText: 'CÂN NHẮC LẠI', note: 'ÃƒÂt nhu cÃ¡ÂºÂ§u hÃ¡Â»Âc'
+      eval: 'warning', evalText: 'CÂN NHẮC LẠI', note: 'Ít nhu cầu học'
     }
   ];
 
@@ -971,7 +973,7 @@ const Leads: React.FC = () => {
       const rawJsonData = utils.sheet_to_json(ws);
       // Skip the instruction row which contains '(Bắt buộc)' or '(Tùy chọn)' in the name field
       const jsonData = rawJsonData.filter((row: any) => {
-        const nameVal = row['Họ và tên'];
+        const nameVal = row[ 'Họ và tên' ];
         return nameVal !== '(Bắt buộc)' && nameVal !== '(Tùy chọn)';
       }); // Array of Objects
 
@@ -1017,7 +1019,7 @@ const Leads: React.FC = () => {
           // Phone check
           if (field.id === 'phone') {
             if (!isValidLeadPhone(strVal)) {
-              rowErrors.push(`SÃ„ÂT sai Ã„â€˜Ã¡Â»â€¹nh dÃ¡ÂºÂ¡ng (phÃ¡ÂºÂ£i 10 sÃ¡Â»â€˜, bÃ¡ÂºÂ¯t Ã„â€˜Ã¡ÂºÂ§u bÃ¡ÂºÂ±ng 0)`);
+              rowErrors.push(`SĐT sai định dạng (phải 10 số, bắt đầu bằng 0)`);
             }
           }
         }
@@ -1026,40 +1028,40 @@ const Leads: React.FC = () => {
       if (rowErrors.length > 0) {
         errorList.push({
           row: rowNumber,
-          name: row['Họ và tên'] || 'N/A',
+          name: row[ 'Họ và tên' ] || 'N/A',
           errors: rowErrors
         });
       } else {
         // Normalize Data for CRM Import
         validRows.push({
-          title: row['Danh xưng / quan hệ'] || '',
-          name: row['Họ và tên'],
-          phone: String(row['Số điện thoại']).replace(/[\s\.\-]/g, ''),
-          email: row['Email'] || '',
-          source: row['Nguồn data'] || 'Import',
-          product: row['Sản phẩm'] || '',
-          program: row['Sản phẩm'] || 'App Tiếng Đức',
-          company: row['Cơ sở'] || '',
-          market: row['Cơ sở'] || '',
-          salesperson: row['Sale phụ trách'] || '',
-          status: row['Trạng thái'] || 'new',
-          campaign: row['Chiến dịch'] || '',
-          channel: row['Kênh'] || '',
-          referredBy: row['Người giới thiệu'] || '',
-          targetCountry: row['Thị trường mục tiêu'] || '',
-          educationLevel: row['Trình độ học vấn'] || '',
-          dob: row['Ngày sinh'] || '',
-          languageLevel: row['GPA / Điểm ngoại ngữ'] || '',
-          potential: row['Mức độ tiềm năng'] || '',
-          expectedStart: row['Thời gian dự kiến tham gia'] || '',
-          financial: row['Tài chính'] || '',
-          parentOpinion: row['Ý kiến bố mẹ'] || '',
-          notes: row['Ghi chú khác'] || '',
-          identityCard: row['Số CCCD / Hộ chiếu'] || '',
-          identityDate: row['Ngày cấp'] || '',
-          identityPlace: row['Nơi cấp'] || '',
-          address: row['Địa chỉ thường trú (Full)'] || '',
-          tags: row['Tags (phân loại)'] ? String(row['Tags (phân loại)']).split(',').map((t: string) => t.trim()) : []
+          title: row[ 'Danh xưng / quan hệ' ] || '',
+          name: row[ 'Họ và tên' ],
+          phone: String(row[ 'Số điện thoại' ]).replace(/[\s\.\-]/g, ''),
+          email: row[ 'Email' ] || '',
+          source: row[ 'Nguồn data' ] || 'Import',
+          product: row[ 'Sản phẩm' ] || '',
+          program: row[ 'Sản phẩm' ] || 'App Tiếng Đức',
+          company: row[ 'Cơ sở' ] || '',
+          market: row[ 'Cơ sở' ] || '',
+          salesperson: row[ 'Sale phụ trách' ] || '',
+          status: row[ 'Trạng thái' ] || 'new',
+          campaign: row[ 'Chiến dịch' ] || '',
+          channel: row[ 'Kênh' ] || '',
+          referredBy: row[ 'Người giới thiệu' ] || '',
+          targetCountry: row[ 'Thị trường mục tiêu' ] || '',
+          educationLevel: row[ 'Trình độ học vấn' ] || '',
+          dob: row[ 'Ngày sinh' ] || '',
+          languageLevel: row[ 'GPA / Điểm ngoại ngữ' ] || '',
+          potential: row[ 'Mức độ tiềm năng' ] || '',
+          expectedStart: row[ 'Thời gian dự kiến tham gia' ] || '',
+          financial: row[ 'Tài chính' ] || '',
+          parentOpinion: row[ 'Ý kiến bố mẹ' ] || '',
+          notes: row[ 'Ghi chú khác' ] || '',
+          identityCard: row[ 'Số CCCD / Hộ chiếu' ] || '',
+          identityDate: row[ 'Ngày cấp' ] || '',
+          identityPlace: row[ 'Nơi cấp' ] || '',
+          address: row[ 'Địa chỉ thường trú (Full)' ] || '',
+          tags: row[ 'Tags (phân loại)' ] ? String(row[ 'Tags (phân loại)' ]).split(',').map((t: string) => t.trim()) : []
         });
       }
     });
@@ -1110,7 +1112,7 @@ const Leads: React.FC = () => {
       const ws = utils.aoa_to_sheet(wsData);
 
       // Auto-fit column widths
-      ws['!cols'] = headers.map((_h, i) => {
+      ws[ '!cols' ] = headers.map((_h, i) => {
         const maxLen = Math.max(
           headers[i].length,
           examples[i].length,
@@ -1319,7 +1321,7 @@ const Leads: React.FC = () => {
     lead: ILead,
     field: string,
     rawValue: string,
-    matchMode: SearchFilter['matchMode'] = 'includes'
+    matchMode: SearchFilter[ 'matchMode' ] = 'includes'
   ) => {
     const value = normalizeAssignFilterToken(rawValue);
     if (!value) return true;
@@ -1631,7 +1633,7 @@ const Leads: React.FC = () => {
     label: string,
     value: string,
     color?: string,
-    matchMode: SearchFilter['matchMode'] = 'includes'
+    matchMode: SearchFilter[ 'matchMode' ] = 'includes'
   ) => {
     const normalizedLabel = decodeMojibakeText(label);
     const normalizedValue = decodeMojibakeText(value).trim();
@@ -1647,7 +1649,7 @@ const Leads: React.FC = () => {
 
   const applySelectedAdvancedFilter = (
     rawValue: string,
-    options?: { matchMode?: SearchFilter['matchMode']; closeDropdown?: boolean }
+    options?: { matchMode?: SearchFilter[ 'matchMode' ]; closeDropdown?: boolean }
   ) => {
     const normalizedValue = decodeMojibakeText(rawValue).trim();
     const matchMode = options?.matchMode || 'includes';
@@ -1814,8 +1816,8 @@ const Leads: React.FC = () => {
       return;
     }
 
-    if (chip.syntheticKey?.startsWith('status:')) {
-      const statusValue = chip.syntheticKey.slice('status:'.length);
+    if (chip.syntheticKey?.startsWith('status: ')) {
+      const statusValue = chip.syntheticKey.slice('status: '.length);
       setAdvancedFilters(prev => ({ ...prev, status: prev.status.filter((item) => item !== statusValue) }));
     }
   };
@@ -2021,8 +2023,8 @@ const Leads: React.FC = () => {
         buildLeadActivityLog({
           type: 'system',
           timestamp: newLeadBase.createdAt,
-          title: 'Táº¡o lead',
-          description: `Lead Ä‘Æ°á»£c táº¡o bá»Ÿi ${user?.name || 'Admin'}.`,
+          title: 'Tạo lead',
+          description: `Lead được tạo bởi ${user?.name || 'Admin'}.`,
           user: user?.name || 'System'
         })
       ],
@@ -2033,10 +2035,10 @@ const Leads: React.FC = () => {
           actorType: 'user',
           timestamp: newLeadBase.createdAt,
           changes: [
-            buildLeadAuditChange('name', '', newLeadBase.name, 'TÃªn lead'),
-            buildLeadAuditChange('phone', '', newLeadBase.phone, 'Sá»‘ Ä‘iá»‡n thoáº¡i'),
-            ...(newLeadBase.ownerId ? [buildLeadAuditChange('ownerId', '', newLeadBase.ownerId, 'Sale phá»¥ trÃ¡ch')] : []),
-            buildLeadAuditChange('status', '', newLeadBase.status, 'Tráº¡ng thÃ¡i')
+            buildLeadAuditChange('name', '', newLeadBase.name, 'Tên lead'),
+            buildLeadAuditChange('phone', '', newLeadBase.phone, 'Số điện thoại'),
+            ...(newLeadBase.ownerId ? [buildLeadAuditChange('ownerId', '', newLeadBase.ownerId, 'Sale phụ trách')] : []),
+            buildLeadAuditChange('status', '', newLeadBase.status, 'Trạng thái')
           ]
         })
       ]
@@ -2046,9 +2048,9 @@ const Leads: React.FC = () => {
       setLeads([finalLead, ...leads]);
       setShowCreateModal(false);
       setNewLeadData(createLeadInitialState());
-      alert("TÃ¡ÂºÂ¡o Lead thÃƒÂ nh cÃƒÂ´ng!");
+      alert("Tạo Lead thành công!");
     } else {
-      alert("CÃƒÂ³ lÃ¡Â»â€”i xÃ¡ÂºÂ£y ra khi lÃ†Â°u Lead");
+      alert("Có lỗi xảy ra khi lưu Lead");
     }
   };
 
@@ -2097,8 +2099,8 @@ const Leads: React.FC = () => {
       newLeadData.product &&
       LEAD_PRODUCT_OPTIONS.some((option) => option.value === newLeadData.product)
     )
-      ? newLeadData.product as ILead['program']
-      : newLeadData.program as ILead['program'];
+      ? newLeadData.product as ILead[ 'program' ]
+      : newLeadData.program as ILead[ 'program' ];
 
     const newLeadBase: ILead = {
       id: `l-${Date.now()}`,
@@ -2148,8 +2150,8 @@ const Leads: React.FC = () => {
         buildLeadActivityLog({
           type: 'system',
           timestamp: nowIso,
-          title: 'Táº¡o lead',
-          description: `Lead Ä‘Æ°á»£c táº¡o bá»Ÿi ${user?.name || 'Admin'}.`,
+          title: 'Tạo lead',
+          description: `Lead được tạo bởi ${user?.name || 'Admin'}.`,
           user: user?.name || 'System'
         })
       ],
@@ -2160,10 +2162,10 @@ const Leads: React.FC = () => {
           actorType: 'user',
           timestamp: nowIso,
           changes: [
-            buildLeadAuditChange('name', '', newLeadBase.name, 'TÃªn lead'),
-            buildLeadAuditChange('phone', '', newLeadBase.phone, 'Sá»‘ Ä‘iá»‡n thoáº¡i'),
-            ...(newLeadBase.ownerId ? [buildLeadAuditChange('ownerId', '', newLeadBase.ownerId, 'Sale phá»¥ trÃ¡ch')] : []),
-            buildLeadAuditChange('status', '', newLeadBase.status, 'Tráº¡ng thÃ¡i')
+            buildLeadAuditChange('name', '', newLeadBase.name, 'Tên lead'),
+            buildLeadAuditChange('phone', '', newLeadBase.phone, 'Số điện thoại'),
+            ...(newLeadBase.ownerId ? [buildLeadAuditChange('ownerId', '', newLeadBase.ownerId, 'Sale phụ trách')] : []),
+            buildLeadAuditChange('status', '', newLeadBase.status, 'Trạng thái')
           ]
         })
       ]
@@ -2214,10 +2216,10 @@ const Leads: React.FC = () => {
             buildLeadActivityLog({
               type: 'system',
               timestamp: nowIso,
-              title: lead.ownerId ? 'Chia láº¡i Lead' : 'PhÃ¢n bá»• Lead',
+              title: lead.ownerId ? 'Chia lại Lead' : 'Phân bổ Lead',
               description: lead.ownerId
-                ? `Lead Ä‘Æ°á»£c chia láº¡i tá»« ${SALES_REPS.find((rep) => rep.id === lead.ownerId)?.name || lead.ownerId} sang ${SALES_REPS.find((rep) => rep.id === ownerId)?.name || ownerId}.`
-                : `Lead Ä‘Æ°á»£c giao cho ${SALES_REPS.find((rep) => rep.id === ownerId)?.name || ownerId}.`,
+                ? `Lead được chia lại từ ${SALES_REPS.find((rep) => rep.id === lead.ownerId)?.name || lead.ownerId} sang ${SALES_REPS.find((rep) => rep.id === ownerId)?.name || ownerId}.`
+                : `Lead được giao cho ${SALES_REPS.find((rep) => rep.id === ownerId)?.name || ownerId}.`,
               user: user?.name || 'Admin'
             })
           ],
@@ -2228,8 +2230,8 @@ const Leads: React.FC = () => {
               actorType: 'user',
               timestamp: nowIso,
               changes: [
-                buildLeadAuditChange('ownerId', lead.ownerId, ownerId, 'Sale phá»¥ trÃ¡ch'),
-                buildLeadAuditChange('status', lead.status, nextStatus, 'Tráº¡ng thÃ¡i')
+                buildLeadAuditChange('ownerId', lead.ownerId, ownerId, 'Sale phụ trách'),
+                buildLeadAuditChange('status', lead.status, nextStatus, 'Trạng thái')
               ]
             })
           ]
@@ -2241,13 +2243,13 @@ const Leads: React.FC = () => {
     setLeads(updatedLeads);
     closeAssignModal();
     setSelectedLeadIds([]);
-    alert(`Ã„ÂÃƒÂ£ phÃƒÂ¢n bÃ¡Â»â€¢ thÃƒÂ nh cÃƒÂ´ng ${selectedLeadIds.length} lead!`);
+    alert(`Đã phân bổ thành công ${selectedLeadIds.length} lead!`);
   };
 
   // --- BULK ACTIONS ---
   const handleBulkDelete = () => {
     if (selectedLeadIds.length === 0) return;
-    if (confirm(`BÃ¡ÂºÂ¡n cÃƒÂ³ chÃ¡ÂºÂ¯c muÃ¡Â»â€˜n xÃƒÂ³a ${selectedLeadIds.length} lead Ã„â€˜ÃƒÂ£ chÃ¡Â»Ân?`)) {
+    if (confirm(`Bạn có chắc muốn xóa ${selectedLeadIds.length} lead đã chọn?`)) {
       const remainingLeads = leads.filter(l => !selectedLeadIds.includes(l.id));
       setLeads(remainingLeads);
       saveLeads(remainingLeads);
@@ -2277,7 +2279,7 @@ const Leads: React.FC = () => {
             buildLeadActivityLog({
               type: 'system',
               timestamp: nowIso,
-              description: `Tráº¡ng thÃ¡i: ${getLeadStatusLabel(String(l.status || ''))} â†’ ${getLeadStatusLabel(nextStatus)}. LÃ½ do: ${finalReason}`,
+              description: `Trạng thái: ${getLeadStatusLabel(String(l.status || ''))} → ${getLeadStatusLabel(nextStatus)}. Lý do: ${finalReason}`,
               user: user?.name || 'Admin',
               title: getLeadStatusLabel(nextStatus)
             })
@@ -2289,8 +2291,8 @@ const Leads: React.FC = () => {
               actorType: 'user',
               timestamp: nowIso,
               changes: [
-                buildLeadAuditChange('status', l.status, toLeadStatusValue(nextStatus), 'Tráº¡ng thÃ¡i'),
-                buildLeadAuditChange('lostReason', l.lostReason, finalReason, 'LÃ½ do tháº¥t báº¡i')
+                buildLeadAuditChange('status', l.status, toLeadStatusValue(nextStatus), 'Trạng thái'),
+                buildLeadAuditChange('lostReason', l.lostReason, finalReason, 'Lý do thất bại')
               ]
             })
           ]
@@ -2324,18 +2326,18 @@ const Leads: React.FC = () => {
       : filteredLeads;
     const ws = utils.json_to_sheet(leadsToExport.map(l => ({
       'ID': l.id,
-      'TÃƒÂªn': l.name,
-      'SÃ„ÂT': l.phone,
+      'Tên': l.name,
+      'SĐT': l.phone,
       'Email': l.email,
-      'CÃ†Â¡ sÃ¡Â»Å¸': l.company,
-      'NguÃ¡Â»â€œn': l.source,
-      'TrÃ¡ÂºÂ¡ng thÃƒÂ¡i': getLeadStatusLabel(l.status as string)
+      'Cơ sở': l.company,
+      'Nguồn': l.source,
+      'Trạng thái': getLeadStatusLabel(l.status as string)
     })));
     const wb = utils.book_new();
     utils.book_append_sheet(wb, ws, "Leads");
     write(wb, { bookType: 'xlsx', type: 'buffer' });
     // Trigger download (simplified)
-    alert("TÃƒÂ­nh nÃ„Æ’ng export Ã„â€˜ang Ã„â€˜Ã†Â°Ã¡Â»Â£c xÃ¡Â»Â­ lÃƒÂ½ (Console log data)");
+    alert("Tính năng export đang được xử lý (Console log data)");
     console.log(leadsToExport);
   };
 
@@ -2344,7 +2346,7 @@ const Leads: React.FC = () => {
     e.stopPropagation();
     const updatedLead = { ...lead, ownerId: user?.id, status: toLeadStatusValue(STANDARD_LEAD_STATUS.PICKED) };
     handleUpdateLead(updatedLead);
-    alert(`Ã„ÂÃƒÂ£ tiÃ¡ÂºÂ¿p nhÃ¡ÂºÂ­n lead: ${lead.name}`);
+    alert(`Đã tiếp nhận lead: ${lead.name}`);
   };
 
   const handleQuickMarkLost = (e: React.MouseEvent, lead: ILead) => {
@@ -2373,37 +2375,38 @@ const Leads: React.FC = () => {
 
   const getAllocationStatusMeta = (lead: ILead) => {
     const normalizedStatus = normalizeLeadStatus(lead.status as string);
+    const label = getLeadStatusLabel(lead.status as string);
 
     if (normalizedStatus === STANDARD_LEAD_STATUS.LOST) {
       return {
-        label: 'Máº¥t',
+        label,
         className: 'border-rose-200 bg-rose-50 text-rose-700'
       };
     }
 
     if (normalizedStatus === STANDARD_LEAD_STATUS.UNVERIFIED) {
       return {
-        label: 'KhÃ´ng xÃ¡c thá»±c',
+        label,
         className: 'border-amber-200 bg-amber-50 text-amber-700'
       };
     }
 
     if (!lead.ownerId) {
       return {
-        label: 'Má»›i',
+        label,
         className: 'border-[#e4e7ec] bg-[#f8fafc] text-slate-600'
       };
     }
 
     if (isLeadStatusOneOf(normalizedStatus, [STANDARD_LEAD_STATUS.NEW, STANDARD_LEAD_STATUS.ASSIGNED])) {
       return {
-        label: 'ÄÃ£ phÃ¢n bá»•',
+        label,
         className: 'border-[#d7e3f4] bg-[#eef4fb] text-[#4f6b8a]'
       };
     }
 
     return {
-      label: 'Đang xử lý',
+      label,
       className: 'border-[#d9e7df] bg-[#edf6f1] text-[#55756a]'
     };
   };
@@ -2416,8 +2419,7 @@ const Leads: React.FC = () => {
     const potentialClassName =
       potentialToken === 'nong' ? 'bg-red-100 text-red-700 border-red-200' :
         potentialToken === 'tiemnang' ? 'bg-amber-100 text-amber-700 border-amber-200' :
-          potentialToken === 'thamkhao' ? 'bg-slate-100 text-slate-700 border-slate-200' :
-            'bg-slate-50 text-slate-500 border-slate-200';
+          potentialToken === 'thamkhao' ? 'bg-slate-100 text-slate-700 border-slate-200' : 'bg-slate-50 text-slate-500 border-slate-200';
     const tags = getLeadTagValues(lead);
 
     return (
@@ -2438,7 +2440,7 @@ const Leads: React.FC = () => {
               {lead.program && (
                 <span
                   className="text-[9px] text-blue-600 hover:text-blue-800 font-semibold cursor-pointer hover:underline w-fit truncate block max-w-[120px]"
-                  onClick={(e) => handleClickableField(e, 'program', 'ChÃ†Â°Ã†Â¡ng trÃƒÂ¬nh', lead.program, 'bg-blue-100 text-blue-700')}
+                  onClick={(e) => handleClickableField(e, 'program', 'Chương trình', lead.program, 'bg-blue-100 text-blue-700')}
                   title={lead.program}
                 >
                   {lead.program}
@@ -2466,7 +2468,7 @@ const Leads: React.FC = () => {
                 <span className="truncate text-[12px] font-medium text-slate-700">{SALES_REPS.find((rep) => rep.id === lead.ownerId)?.name || '-'}</span>
               </div>
             ) : (
-              <span className="text-[12px] text-slate-400">ChÃ†Â°a nhÃ¡ÂºÂ­n</span>
+              <span className="text-[12px] text-slate-400">Chưa nhận</span>
             )}
           </td>
         )}
@@ -2480,10 +2482,10 @@ const Leads: React.FC = () => {
           <td className={compactBodyCellClass}>
             <span
               className="inline-flex max-w-[96px] items-center rounded-sm border border-teal-100 bg-teal-50/70 px-1.5 py-0 text-[10px] font-semibold text-teal-700"
-              onClick={(e) => handleClickableField(e, 'source', 'NguÃ¡Â»â€œn', lead.source, 'bg-teal-100 text-teal-700')}
-              title={lead.source}
+              onClick={(e) => handleClickableField(e, 'source', 'Nguồn', lead.source, 'bg-teal-100 text-teal-700')}
+              title={getLeadSourceLabel(lead.source)}
             >
-              <span className="truncate">{lead.source || '-'}</span>
+              <span className="truncate">{getLeadSourceLabel(lead.source)}</span>
             </span>
           </td>
         )}
@@ -2530,11 +2532,11 @@ const Leads: React.FC = () => {
             {nextActivity ? (
               <div className="flex max-w-[110px] items-center gap-1 overflow-hidden rounded-sm bg-purple-50 px-1 py-0 text-[9px] font-semibold text-purple-700" title={nextActivity.description}>
                 <Clock size={8} className="shrink-0" />
-                <span className="truncate">{nextActivity.description.split(':')[0] || 'LÃ¡Â»â€¹ch hÃ¡ÂºÂ¹n'}</span>
+                <span className="truncate">{nextActivity.description.split(': ')[0] || 'Lịch hẹn'}</span>
               </div>
             ) : (
               <div className="flex items-center gap-1 text-[9px] text-slate-400">
-                <Plus size={8} /> LÃƒÂªn lÃ¡Â»â€¹ch
+                <Plus size={8} /> Lên lịch
               </div>
             )}
           </td>
@@ -2588,9 +2590,9 @@ const Leads: React.FC = () => {
             {lead.slaStatus === 'danger' || lead.slaStatus === 'warning' ? (
               <span
                 className={`font-bold text-[9px] ${lead.slaStatus === 'danger' ? 'text-red-600' : 'text-amber-600'} truncate block max-w-[80px]`}
-                title={lead.slaReason || (lead.slaStatus === 'danger' ? 'QuÃƒÂ¡ hÃ¡ÂºÂ¡n' : 'ChÃƒÂº ÃƒÂ½')}
+                title={lead.slaReason || (lead.slaStatus === 'danger' ? 'Quá hạn' : 'Chú ý')}
               >
-                {lead.slaReason || (lead.slaStatus === 'danger' ? 'QuÃƒÂ¡ hÃ¡ÂºÂ¡n' : 'ChÃƒÂº ÃƒÂ½')}
+                {lead.slaReason || (lead.slaStatus === 'danger' ? 'Quá hạn' : 'Chú ý')}
               </span>
             ) : (
               <span className="text-slate-400 text-[9px]">-</span>
@@ -2658,7 +2660,7 @@ const Leads: React.FC = () => {
           <div className="hidden rounded-[18px] border border-slate-200 bg-white px-5 py-4 text-left shadow-sm">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">CÃƒÂ¡Ã‚ÂºÃ‚Â£nh bÃƒÆ’Ã‚Â¡o SLA</div>
+                <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">Cảnh báo SLA</div>
                 <div className="hidden mt-2 text-[18px] font-bold text-slate-900">{stats.slaRisk.toLocaleString()}</div>
               </div>
               <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-rose-50 text-rose-500">
@@ -2669,7 +2671,7 @@ const Leads: React.FC = () => {
           <div className="rounded-[18px] border border-slate-200 bg-white px-5 py-4 text-left shadow-sm">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">TÃƒÂ¡Ã‚Â»Ã‚Â· lÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¡ xÃƒÆ’Ã‚Â¡c thÃƒÂ¡Ã‚Â»Ã‚Â±c</div>
+                <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">Tỷ lệ xác thực</div>
                 <div className="mt-2 text-[18px] font-bold text-slate-900">{stats.verificationRate.toFixed(1)}%</div>
               </div>
               <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-violet-50 text-violet-600">
@@ -2687,7 +2689,7 @@ const Leads: React.FC = () => {
                   onClick={openCreateLeadModal}
                   className={flatRibbonButtonClass}
                 >
-                  <Plus size={13} /> TÃ¡ÂºÂ¡o mÃ¡Â»â€ºi
+                  <Plus size={13} /> Tạo mới
                 </button>
                 <button
                   onClick={openQuickAssignModal}
@@ -2699,7 +2701,7 @@ const Leads: React.FC = () => {
                   onClick={() => setShowImportModal(true)}
                   className={flatRibbonButtonClass}
                 >
-                  <FileSpreadsheet size={13} /> NhÃ¡ÂºÂ­p Excel
+                  <FileSpreadsheet size={13} /> Nhập Excel
                 </button>
                 <button
                   onClick={handleBulkExport}
@@ -2770,10 +2772,10 @@ const Leads: React.FC = () => {
           <div className="space-y-3 px-4 py-4">
             {false && selectedLeadIds.length > 0 && (
               <div className="flex flex-wrap items-center gap-2">
-                <span className="text-[12px] font-semibold text-slate-500">{selectedLeadIds.length} lead Ãƒâ€žÃ¢â‚¬Ëœang Ãƒâ€žÃ¢â‚¬ËœÃƒâ€ Ã‚Â°ÃƒÂ¡Ã‚Â»Ã‚Â£c chÃƒÂ¡Ã‚Â»Ã‚Ân</span>
+                <span className="text-[12px] font-semibold text-slate-500">{selectedLeadIds.length} lead đang được chọn</span>
                 <button onClick={openQuickAssignModal} className={compactToolbarButtonClass}><UserPlus size={14} /> Phân bổ nhanh</button>
                 <button onClick={handleBulkExport} className={compactToolbarButtonClass}><Download size={14} /> Xuất Excel</button>
-                <button onClick={handleBulkMarkLost} className={compactToolbarButtonClass}><XCircle size={14} /> Ãƒâ€žÃ‚ÂÃƒÆ’Ã‚Â¡nh dÃƒÂ¡Ã‚ÂºÃ‚Â¥u thÃƒÂ¡Ã‚ÂºÃ‚Â¥t bÃƒÂ¡Ã‚ÂºÃ‚Â¡i</button>
+                <button onClick={handleBulkMarkLost} className={compactToolbarButtonClass}><XCircle size={14} /> Đánh dấu thất bại</button>
                 <button onClick={handleBulkDelete} className={compactToolbarButtonClass}><Trash2 size={14} /> Xóa</button>
               </div>
             )}
@@ -2879,7 +2881,7 @@ const Leads: React.FC = () => {
                   <div className="hidden absolute right-0 top-full mt-2 w-[800px] bg-white border border-slate-200 rounded-lg shadow-xl z-40 p-4 animate-in fade-in zoom-in-95 flex text-sm">
                     {/* COLUMN 1: FILTER */}
                     <div className="flex-1 pr-4 border-r border-slate-100 space-y-2">
-                      <div className="font-bold text-slate-800 mb-2 flex items-center gap-2"><Filter size={14} /> BÃ¡Â»â„¢ lÃ¡Â»Âc</div>
+                      <div className="font-bold text-slate-800 mb-2 flex items-center gap-2"><Filter size={14} /> Bộ lọc</div>
 
                       {/* My Pipeline */}
                       <div className="group">
@@ -2889,7 +2891,7 @@ const Leads: React.FC = () => {
                         >
                           <span>
                             <Check size={14} className={`inline mr-2 ${advancedFilters.myPipeline ? 'text-blue-600' : 'text-transparent'}`} />
-                            Quy trÃƒÂ¬nh cÃ¡Â»Â§a tÃƒÂ´i
+                            Quy trình của tôi
                           </span>
                         </div>
                         <div className="pl-6 space-y-1">
@@ -2898,14 +2900,14 @@ const Leads: React.FC = () => {
                             className={`py-1 px-2 hover:bg-slate-50 rounded cursor-pointer ${advancedFilters.unassigned ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-slate-600'}`}
                           >
                             <Check size={12} className={`inline mr-1 ${advancedFilters.unassigned ? 'text-blue-600' : 'text-transparent'}`} />
-                            ChÃ†Â°a phÃƒÂ¢n cÃƒÂ´ng
+                            Chưa phân công
                           </div>
                           <div
                             onClick={() => setAdvancedFilters(prev => ({ ...prev, openOps: !prev.openOps }))}
                             className={`py-1 px-2 hover:bg-slate-50 rounded cursor-pointer ${advancedFilters.openOps ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-slate-600'}`}
                           >
                             <Check size={12} className={`inline mr-1 ${advancedFilters.openOps ? 'text-blue-600' : 'text-transparent'}`} />
-                            MÃ¡Â»Å¸ cÃ†Â¡ hÃ¡Â»â„¢i
+                            Mở cơ hội
                           </div>
                         </div>
                       </div>
@@ -2917,7 +2919,7 @@ const Leads: React.FC = () => {
                         <div onClick={(e) => toggleFilter('filter_created', e)} className={`flex justify-between items-center py-1.5 px-2 hover:bg-slate-50 rounded cursor-pointer ${expandedFilter === 'filter_created' ? 'bg-slate-100 text-blue-600' : advancedFilters.createdDate ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-slate-700'}`}>
                           <span>
                             <Check size={14} className={`inline mr-2 ${advancedFilters.createdDate ? 'text-blue-600' : 'text-transparent'}`} />
-                            NgÃƒÂ y tÃ¡ÂºÂ¡o
+                            Ngày tạo
                             {advancedFilters.createdDate && (
                               <span className="ml-2 text-xs bg-blue-100 px-1.5 py-0.5 rounded">
                                 {advancedFilters.createdDate.type === 'month' && `T${advancedFilters.createdDate.value}`}
@@ -2926,7 +2928,7 @@ const Leads: React.FC = () => {
                               </span>
                             )}
                           </span>
-                          <span className="text-slate-400">Ã¢â€“Â¼</span>
+                          <span className="text-slate-400">▼</span>
                         </div>
                         {expandedFilter === 'filter_created' && (
                           <div className="absolute left-0 top-full mt-1 w-full bg-white border border-slate-200 shadow-xl rounded-lg p-2 z-50">
@@ -2936,7 +2938,7 @@ const Leads: React.FC = () => {
                                 onClick={() => { setDateFilter('createdDate', 'month', month); setExpandedFilter(null); }}
                                 className={`py-1 px-3 hover:bg-blue-50 rounded cursor-pointer ${advancedFilters.createdDate?.type === 'month' && advancedFilters.createdDate?.value === month ? 'bg-blue-100 text-blue-700 font-semibold' : 'text-slate-700'}`}
                               >
-                                thÃƒÂ¡ng {month}
+                                tháng {month}
                               </div>
                             ))}
                             {[4, 3, 2, 1].map(q => (
@@ -2966,7 +2968,7 @@ const Leads: React.FC = () => {
                         <div onClick={(e) => toggleFilter('filter_closed', e)} className={`flex justify-between items-center py-1.5 px-2 hover:bg-slate-50 rounded cursor-pointer ${expandedFilter === 'filter_closed' ? 'bg-slate-100 text-blue-600' : advancedFilters.closedDate ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-slate-700'}`}>
                           <span>
                             <Check size={14} className={`inline mr-2 ${advancedFilters.closedDate ? 'text-blue-600' : 'text-transparent'}`} />
-                            NgÃƒÂ y chÃ¡Â»â€˜t
+                            Ngày chốt
                             {advancedFilters.closedDate && (
                               <span className="ml-2 text-xs bg-blue-100 px-1.5 py-0.5 rounded">
                                 {advancedFilters.closedDate.type === 'month' && `T${advancedFilters.closedDate.value}`}
@@ -2975,7 +2977,7 @@ const Leads: React.FC = () => {
                               </span>
                             )}
                           </span>
-                          <span className="text-slate-400">Ã¢â€“Â¼</span>
+                          <span className="text-slate-400">▼</span>
                         </div>
                         {expandedFilter === 'filter_closed' && (
                           <div className="absolute left-0 top-full mt-1 w-full bg-white border border-slate-200 shadow-xl rounded-lg p-2 z-50">
@@ -2985,7 +2987,7 @@ const Leads: React.FC = () => {
                                 onClick={() => { setDateFilter('closedDate', 'month', month); setExpandedFilter(null); }}
                                 className={`py-1 px-3 hover:bg-blue-50 rounded cursor-pointer ${advancedFilters.closedDate?.type === 'month' && advancedFilters.closedDate?.value === month ? 'bg-blue-100 text-blue-700 font-semibold' : 'text-slate-700'}`}
                               >
-                                thÃƒÂ¡ng {month}
+                                tháng {month}
                               </div>
                             ))}
                             {[4, 3, 2, 1].map(q => (
@@ -3013,7 +3015,7 @@ const Leads: React.FC = () => {
 
                       <div className="border-t border-slate-100 my-1"></div>
 
-                      {['Ã„ÂÃ¡ÂºÂ¡t', 'Ã„Âang diÃ¡Â»â€¦n ra', 'Rotting', 'MÃ¡ÂºÂ¥t'].map(status => (
+                      {['Đạt', 'Đang diễn ra', 'Rotting', 'Mất'].map(status => (
                         <div
                           key={status}
                           onClick={() => toggleAdvancedStatus(status)}
@@ -3025,14 +3027,14 @@ const Leads: React.FC = () => {
                       ))}
 
                       <div className="border-t border-slate-100 my-1"></div>
-                      {/* Removed "BÃ¡Â»â„¢ lÃ¡Â»Âc tÃƒÂ¹y chÃ¡Â»â€°nh" */}
+                      {/* Removed "Bộ lọc tùy chỉnh" */}
                     </div>
 
                     {/* COLUMN 2: GROUP BY */}
                     <div className="flex-1 px-4 border-r border-slate-100 space-y-2">
-                      <div className="font-bold text-slate-800 mb-2 flex items-center gap-2"><Users size={14} /> NhÃƒÂ³m theo</div>
+                      <div className="font-bold text-slate-800 mb-2 flex items-center gap-2"><Users size={14} /> Nhóm theo</div>
 
-                      {['ChuyÃƒÂªn viÃƒÂªn sales', 'BÃ¡Â»â„¢ phÃ¡ÂºÂ­n sales', 'Giai Ã„â€˜oÃ¡ÂºÂ¡n', 'ThÃƒÂ nh phÃ¡Â»â€˜', 'QuÃ¡Â»â€˜c gia', 'LÃƒÂ½ do mÃ¡ÂºÂ¥t', 'ChiÃ¡ÂºÂ¿n dÃ¡Â»â€¹ch', 'PhÃ†Â°Ã†Â¡ng tiÃ¡Â»â€¡n', 'NguÃ¡Â»â€œn'].map(field => (
+                      {['Chuyên viên sales', 'Bộ phận sales', 'Giai đoạn', 'Thành phố', 'Quốc gia', 'Lý do mất', 'Chiến dịch', 'Phương tiện', 'Nguồn'].map(field => (
                         <div key={field} className="py-1.5 px-2 hover:bg-slate-50 rounded cursor-pointer text-slate-700">
                           {field}
                         </div>
@@ -3041,12 +3043,12 @@ const Leads: React.FC = () => {
                       <div className="border-t border-slate-100 my-1"></div>
                       <div className="group relative">
                         <div onClick={(e) => toggleFilter('group_created', e)} className={`flex justify-between items-center py-1.5 px-2 hover:bg-slate-50 rounded cursor-pointer ${expandedFilter === 'group_created' ? 'bg-slate-100 text-blue-600' : 'text-slate-700'}`}>
-                          <span>NgÃƒÂ y tÃ¡ÂºÂ¡o</span>
-                          <span className="text-slate-400">Ã¢â€“Â¼</span>
+                          <span>Ngày tạo</span>
+                          <span className="text-slate-400">▼</span>
                         </div>
                         {expandedFilter === 'group_created' && (
                           <div className="absolute left-0 top-full mt-1 w-full bg-white border border-slate-200 shadow-xl rounded-lg p-2 z-50">
-                            {['NÃ„Æ’m', 'QuÃƒÂ½', 'ThÃƒÂ¡ng', 'TuÃ¡ÂºÂ§n', 'NgÃƒÂ y'].map(item => (
+                            {['Năm', 'Quý', 'Tháng', 'Tuần', 'Ngày'].map(item => (
                               <div key={item} className="py-1 px-3 hover:bg-slate-100 rounded cursor-pointer text-slate-700">{item}</div>
                             ))}
                           </div>
@@ -3054,12 +3056,12 @@ const Leads: React.FC = () => {
                       </div>
                       <div className="group relative">
                         <div onClick={(e) => toggleFilter('group_expected', e)} className={`flex justify-between items-center py-1.5 px-2 hover:bg-slate-50 rounded cursor-pointer ${expandedFilter === 'group_expected' ? 'bg-slate-100 text-blue-600' : 'text-slate-700'}`}>
-                          <span>NgÃƒÂ y Ã„â€˜ÃƒÂ³ng dÃ¡Â»Â± kiÃ¡ÂºÂ¿n</span>
-                          <span className="text-slate-400">Ã¢â€“Â¼</span>
+                          <span>Ngày đóng dự kiến</span>
+                          <span className="text-slate-400">▼</span>
                         </div>
                         {expandedFilter === 'group_expected' && (
                           <div className="absolute left-0 top-full mt-1 w-full bg-white border border-slate-200 shadow-xl rounded-lg p-2 z-50">
-                            {['NÃ„Æ’m', 'QuÃƒÂ½', 'ThÃƒÂ¡ng', 'TuÃ¡ÂºÂ§n', 'NgÃƒÂ y'].map(item => (
+                            {['Năm', 'Quý', 'Tháng', 'Tuần', 'Ngày'].map(item => (
                               <div key={item} className="py-1 px-3 hover:bg-slate-100 rounded cursor-pointer text-slate-700">{item}</div>
                             ))}
                           </div>
@@ -3067,12 +3069,12 @@ const Leads: React.FC = () => {
                       </div>
                       <div className="group relative">
                         <div onClick={(e) => toggleFilter('group_closed', e)} className={`flex justify-between items-center py-1.5 px-2 hover:bg-slate-50 rounded cursor-pointer ${expandedFilter === 'group_closed' ? 'bg-slate-100 text-blue-600' : 'text-slate-700'}`}>
-                          <span>NgÃƒÂ y chÃ¡Â»â€˜t</span>
-                          <span className="text-slate-400">Ã¢â€“Â¼</span>
+                          <span>Ngày chốt</span>
+                          <span className="text-slate-400">▼</span>
                         </div>
                         {expandedFilter === 'group_closed' && (
                           <div className="absolute left-0 top-full mt-1 w-full bg-white border border-slate-200 shadow-xl rounded-lg p-2 z-50">
-                            {['NÃ„Æ’m', 'QuÃƒÂ½', 'ThÃƒÂ¡ng', 'TuÃ¡ÂºÂ§n', 'NgÃƒÂ y'].map(item => (
+                            {['Năm', 'Quý', 'Tháng', 'Tuần', 'Ngày'].map(item => (
                               <div key={item} className="py-1 px-3 hover:bg-slate-100 rounded cursor-pointer text-slate-700">{item}</div>
                             ))}
                           </div>
@@ -3082,12 +3084,12 @@ const Leads: React.FC = () => {
                       <div className="border-t border-slate-100 my-1"></div>
                       <div className="group relative">
                         <div onClick={(e) => toggleFilter('group_custom', e)} className={`flex justify-between items-center py-1.5 px-2 hover:bg-slate-50 rounded cursor-pointer ${expandedFilter === 'group_custom' ? 'bg-slate-100 text-blue-600' : 'text-slate-700'}`}>
-                          <span>NhÃƒÂ³m tÃƒÂ¹y chÃ¡Â»â€°nh</span>
-                          <span className="text-slate-400">Ã¢â€“Â¼</span>
+                          <span>Nhóm tùy chỉnh</span>
+                          <span className="text-slate-400">▼</span>
                         </div>
                         {expandedFilter === 'group_custom' && (
                           <div className="absolute left-0 bottom-full mb-1 w-[300px] bg-white border border-slate-200 shadow-xl rounded-lg p-2 z-50 max-h-[300px] overflow-y-auto custom-scrollbar">
-                            {['BÃ¡Â»â„¢ phÃ¡ÂºÂ­n sales', 'ChiÃ¡ÂºÂ¿n dÃ¡Â»â€¹ch', 'ChuyÃƒÂªn viÃƒÂªn sales', 'ChÃ¡ÂºÂ¥t lÃ†Â°Ã¡Â»Â£ng email', 'ChÃ¡ÂºÂ¥t lÃ†Â°Ã¡Â»Â£ng Ã„â€˜iÃ¡Â»â€¡n thoÃ¡ÂºÂ¡i', 'CÃƒÂ´ng ty', 'CÃ†Â¡ hÃ¡Â»â„¢i', 'CÃ¡ÂºÂ­p nhÃ¡ÂºÂ­t giai Ã„â€˜oÃ¡ÂºÂ¡n lÃ¡ÂºÂ§n cuÃ¡Â»â€˜i', 'CÃ¡ÂºÂ­p nhÃ¡ÂºÂ­t lÃ¡ÂºÂ§n cuÃ¡Â»â€˜i bÃ¡Â»Å¸i', 'CÃ¡ÂºÂ­p nhÃ¡ÂºÂ­t lÃ¡ÂºÂ§n cuÃ¡Â»â€˜i vÃƒÂ o', 'Email', 'Email cc', 'Email chuÃ¡ÂºÂ©n hÃƒÂ³a', 'Giai Ã„â€˜oÃ¡ÂºÂ¡n', 'GiÃ¡Â»â€ºi thiÃ¡Â»â€¡u bÃ¡Â»Å¸i', 'HiÃ¡Â»â€¡n ID', 'HoÃƒÂ n tÃ¡ÂºÂ¥t tÃ„Æ’ng cÃ†Â°Ã¡Â»Âng', 'KÃ¡ÂºÂ¿ hoÃ¡ÂºÂ¡ch Ã„â€˜Ã¡Â»â€¹nh kÃ¡Â»Â³', 'LiÃƒÂªn hÃ¡Â»â€¡', 'LoÃ¡ÂºÂ¡i'].map(field => (
+                            {['Bộ phận sales', 'Chiến dịch', 'Chuyên viên sales', 'Chất lượng email', 'Chất lượng điện thoại', 'Công ty', 'Cơ hội', 'Cập nhật giai đoạn lần cuối', 'Cập nhật lần cuối bởi', 'Cập nhật lần cuối vào', 'Email', 'Email cc', 'Email chuẩn hóa', 'Giai đoạn', 'Giới thiệu bởi', 'Hiện ID', 'Hoàn tất tăng cường', 'Kế hoạch định kỳ', 'Liên hệ', 'Loại'].map(field => (
                               <div key={field} className="py-1 px-3 hover:bg-slate-100 rounded cursor-pointer whitespace-nowrap text-slate-700">{field}</div>
                             ))}
                           </div>
@@ -3097,19 +3099,19 @@ const Leads: React.FC = () => {
 
                     {/* COLUMN 3: FAVORITES */}
                     <div className="flex-1 pl-4 space-y-4">
-                      <div className="font-bold text-slate-800 mb-2 flex items-center gap-2"><Save size={14} /> Danh sÃƒÂ¡ch yÃƒÂªu thÃƒÂ­ch</div>
+                      <div className="font-bold text-slate-800 mb-2 flex items-center gap-2"><Save size={14} /> Danh sách yêu thích</div>
 
                       <div className="space-y-3">
                         <div>
-                          <label className="block text-xs font-semibold text-slate-500 mb-1">LÃ†Â°u bÃ¡Â»â„¢ lÃ¡Â»Âc hiÃ¡Â»â€¡n tÃ¡ÂºÂ¡i</label>
-                          <input className="w-full px-2 py-1.5 border border-slate-300 rounded text-sm mb-2" defaultValue="Quy trÃƒÂ¬nh" />
+                          <label className="block text-xs font-semibold text-slate-500 mb-1">Lưu bộ lọc hiện tại</label>
+                          <input className="w-full px-2 py-1.5 border border-slate-300 rounded text-sm mb-2" defaultValue="Quy trình" />
                           <div className="flex items-center gap-2 mb-2">
                             <input type="checkbox" id="default-filter" className="rounded border-slate-300" />
-                            <label htmlFor="default-filter" className="text-slate-600 text-sm">BÃ¡Â»â„¢ lÃ¡Â»Âc mÃ¡ÂºÂ·c Ã„â€˜Ã¡Â»â€¹nh</label>
+                            <label htmlFor="default-filter" className="text-slate-600 text-sm">Bộ lọc mặc định</label>
                           </div>
                           <div className="flex gap-2">
-                            <button className="flex-1 bg-purple-700 text-white py-1 rounded text-xs font-bold hover:bg-purple-800">LÃ†Â°u</button>
-                            <button className="flex-1 bg-slate-100 text-slate-700 py-1 rounded text-xs font-bold hover:bg-slate-200">ChÃ¡Â»â€°nh sÃ¡Â»Â­a</button>
+                            <button className="flex-1 bg-purple-700 text-white py-1 rounded text-xs font-bold hover:bg-purple-800">Lưu</button>
+                            <button className="flex-1 bg-slate-100 text-slate-700 py-1 rounded text-xs font-bold hover:bg-slate-200">Chỉnh sửa</button>
                           </div>
                         </div>
                       </div>
@@ -3122,10 +3124,10 @@ const Leads: React.FC = () => {
               <button
                 onClick={() => setShowDuplicateModal(true)}
                 className={`inline-flex items-center gap-1 rounded-sm border px-2 py-1 text-[11px] font-semibold transition-colors ${duplicateGroups.length > 0 ? 'border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}
-                title={`TÃƒÂ¬m thÃ¡ÂºÂ¥y ${duplicateGroups.length} nhÃƒÂ³m trÃƒÂ¹ng SÃ„ÂT`}
+                title={`Tìm thấy ${duplicateGroups.length} nhóm trùng SĐT`}
               >
                 <Database size={13} />
-                ChÃ¡Â»â€˜ng trÃƒÂ¹ng
+                Chống trùng
                 {duplicateGroups.length > 0 && (
                   <span className="bg-amber-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full ml-1">
                     {duplicateGroups.length}
@@ -3139,13 +3141,13 @@ const Leads: React.FC = () => {
                 onClick={() => setShowColumnDropdown(!showColumnDropdown)}
                 className={compactToolbarButtonClass}
               >
-                <Settings size={13} /> CÃ¡Â»â„¢t
+                <Settings size={13} /> Cột
               </button>
               {showColumnDropdown && (
                 <>
                   <div className="fixed inset-0 z-30" onClick={() => setShowColumnDropdown(false)}></div>
                   <div className="absolute right-0 top-full mt-2 w-[500px] bg-white border border-slate-200 rounded-lg shadow-xl z-40 p-3 animate-in fade-in zoom-in-95">
-                    <div className="text-xs font-bold text-slate-500 uppercase px-2 py-1 mb-2 border-b border-slate-100 pb-2">HiÃƒÂ¡Ã‚Â»Ã†â€™n thÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¹ cÃƒÂ¡Ã‚Â»Ã¢â€žÂ¢t</div>
+                    <div className="text-xs font-bold text-slate-500 uppercase px-2 py-1 mb-2 border-b border-slate-100 pb-2">Hiển thị cột</div>
                     <div className="grid grid-cols-2 gap-x-2 gap-y-1">
                       {ALL_COLUMNS.map(col => (
                         <div key={col.id} onClick={() => toggleColumn(col.id)} className="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-50 rounded cursor-pointer text-sm">
@@ -3169,7 +3171,7 @@ const Leads: React.FC = () => {
                 className={`rounded-t-xl border-b-2 px-4 pb-3 text-[14px] font-semibold transition-colors ${activeTab === tab ? 'border-[#2f5bd3] text-[#2f5bd3]' : 'border-transparent text-slate-500 hover:text-slate-900'}`}
               >
                 {tab === 'all' && 'Tất cả'}
-                {tab === 'new' && 'Lead Má»›i'}
+                {tab === 'new' && 'Lead Mới'}
               </button>
             ))}
           </div>
@@ -3187,11 +3189,11 @@ const Leads: React.FC = () => {
             </div>
             {selectedLeadIds.length > 0 && (
               <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-                <span className="text-[12px] font-semibold text-slate-500">{selectedLeadIds.length} lead Ä‘ang Ä‘Æ°á»£c chá»n</span>
-                <button onClick={openQuickAssignModal} className={compactToolbarButtonClass}><UserPlus size={14} /> PhÃ¢n bá»• nhanh</button>
-                <button onClick={handleBulkExport} className={compactToolbarButtonClass}><Download size={14} /> Xuáº¥t Excel</button>
-                <button onClick={handleBulkMarkLost} className={compactToolbarButtonClass}><XCircle size={14} /> ÄÃ¡nh dáº¥u tháº¥t báº¡i</button>
-                <button onClick={handleBulkDelete} className={compactToolbarButtonClass}><Trash2 size={14} /> XÃ³a</button>
+                <span className="text-[12px] font-semibold text-slate-500">{selectedLeadIds.length} lead đang được chọn</span>
+                <button onClick={openQuickAssignModal} className={compactToolbarButtonClass}><UserPlus size={14} /> Phân bổ nhanh</button>
+                <button onClick={handleBulkExport} className={compactToolbarButtonClass}><Download size={14} /> Xuất Excel</button>
+                <button onClick={handleBulkMarkLost} className={compactToolbarButtonClass}><XCircle size={14} /> Đánh dấu thất bại</button>
+                <button onClick={handleBulkDelete} className={compactToolbarButtonClass}><Trash2 size={14} /> Xóa</button>
               </div>
             )}
           </div>
@@ -3218,11 +3220,11 @@ const Leads: React.FC = () => {
                 </div>
                 {selectedLeadIds.length > 0 && (
                   <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-                    <span className="text-[12px] font-semibold text-slate-500">{selectedLeadIds.length} lead Ä‘ang Ä‘Æ°á»£c chá»n</span>
-                    <button onClick={openQuickAssignModal} className={compactToolbarButtonClass}><UserPlus size={14} /> PhÃ¢n bá»• nhanh</button>
-                    <button onClick={handleBulkExport} className={compactToolbarButtonClass}><Download size={14} /> Xuáº¥t Excel</button>
-                    <button onClick={handleBulkMarkLost} className={compactToolbarButtonClass}><XCircle size={14} /> ÄÃ¡nh dáº¥u tháº¥t báº¡i</button>
-                    <button onClick={handleBulkDelete} className={compactToolbarButtonClass}><Trash2 size={14} /> XÃ³a</button>
+                    <span className="text-[12px] font-semibold text-slate-500">{selectedLeadIds.length} lead đang được chọn</span>
+                    <button onClick={openQuickAssignModal} className={compactToolbarButtonClass}><UserPlus size={14} /> Phân bổ nhanh</button>
+                    <button onClick={handleBulkExport} className={compactToolbarButtonClass}><Download size={14} /> Xuất Excel</button>
+                    <button onClick={handleBulkMarkLost} className={compactToolbarButtonClass}><XCircle size={14} /> Đánh dấu thất bại</button>
+                    <button onClick={handleBulkDelete} className={compactToolbarButtonClass}><Trash2 size={14} /> Xóa</button>
                   </div>
                 )}
               </div>
@@ -3236,26 +3238,26 @@ const Leads: React.FC = () => {
                     <th className={`${compactHeaderCellClass} w-12 text-center`}>STT</th>
                     {visibleColumns.includes('opportunity') && <th className={compactHeaderCellClass}>T\u00ean li\u00ean h\u1ec7</th>}
                     {visibleColumns.includes('contact') && <th className={compactHeaderCellClass}>T\u00ean li\u00ean h\u1ec7 ph\u1ee5</th>}
-                    {visibleColumns.includes('company') && <th className={compactHeaderCellClass}>CÃ†Â¡ sÃ¡Â»Å¸ / CÃƒÂ´ng ty</th>}
+                    {visibleColumns.includes('company') && <th className={compactHeaderCellClass}>Cơ sở / Công ty</th>}
                     {visibleColumns.includes('email') && <th className={compactHeaderCellClass}>Email</th>}
-                    {visibleColumns.includes('phone') && <th className={compactHeaderCellClass}>SÃ„ÂT</th>}
+                    {visibleColumns.includes('phone') && <th className={compactHeaderCellClass}>SĐT</th>}
                     {visibleColumns.includes('salesperson') && <th className={compactHeaderCellClass}>Sale</th>}
-                    {visibleColumns.includes('campaign') && <th className={compactHeaderCellClass}>ChiÃ¡ÂºÂ¿n dÃ¡Â»â€¹ch</th>}
-                    {visibleColumns.includes('source') && <th className={compactHeaderCellClass}>NguÃ¡Â»â€œn</th>}
+                    {visibleColumns.includes('campaign') && <th className={compactHeaderCellClass}>Chiến dịch</th>}
+                    {visibleColumns.includes('source') && <th className={compactHeaderCellClass}>Nguồn</th>}
                     {visibleColumns.includes('potential') && <th className={compactHeaderCellClass}>Mức độ tiềm năng</th>}
                     {visibleColumns.includes('tags') && <th className={compactHeaderCellClass}>Tags</th>}
-                    {visibleColumns.includes('market') && <th className={compactHeaderCellClass}>THÃ¡Â»Å  TRÃ†Â¯Ã¡Â»Å“NG</th>}
-                    {visibleColumns.includes('product') && <th className={compactHeaderCellClass}>SÃ¡ÂºÂ¢N PHÃ¡ÂºÂ¨M QUAN TÃƒâ€šM</th>}
-                    {visibleColumns.includes('nextActivity') && <th className={compactHeaderCellClass}>HoÃ¡ÂºÂ¡t Ã„â€˜Ã¡Â»â„¢ng</th>}
-                    {visibleColumns.includes('deadline') && <th className={`${compactHeaderCellClass} text-right`}>HÃ¡ÂºÂ¡n chÃƒÂ³t</th>}
+                    {visibleColumns.includes('market') && <th className={compactHeaderCellClass}>THỊ TRƯỜNG</th>}
+                    {visibleColumns.includes('product') && <th className={compactHeaderCellClass}>SẢN PHẨM QUAN TÂM</th>}
+                    {visibleColumns.includes('nextActivity') && <th className={compactHeaderCellClass}>Hoạt động</th>}
+                    {visibleColumns.includes('deadline') && <th className={`${compactHeaderCellClass} text-right`}>Hạn chót</th>}
                     {visibleColumns.includes('value') && <th className={`${compactHeaderCellClass} text-right`}>Doanh thu</th>}
-                    {visibleColumns.includes('createdAt') && <th className={`${compactHeaderCellClass} text-right`}>NgÃƒÂ y Ã„â€˜Ã¡Â»â€¢ lead</th>}
-                    {visibleColumns.includes('title') && <th className={compactHeaderCellClass}>Danh xÃ†Â°ng</th>}
-                    {visibleColumns.includes('address') && <th className={compactHeaderCellClass}>Ã„ÂÃ¡Â»â€¹a chÃ¡Â»â€°</th>}
-                    {visibleColumns.includes('referredBy') && <th className={compactHeaderCellClass}>NgÃ†Â°Ã¡Â»Âi giÃ¡Â»â€ºi thiÃ¡Â»â€¡u</th>}
-                    {visibleColumns.includes('status') && <th className={`${compactHeaderCellClass} text-center`}>TrÃ¡ÂºÂ¡ng thÃƒÂ¡i</th>}
-                    {visibleColumns.includes('notes') && <th className={compactHeaderCellClass}>Ghi chÃƒÂº</th>}
-                    {visibleColumns.includes('sla') && <th className={compactHeaderCellClass}>CÃ¡ÂºÂ£nh bÃƒÂ¡o SLA</th>}
+                    {visibleColumns.includes('createdAt') && <th className={`${compactHeaderCellClass} text-right`}>Ngày đổ lead</th>}
+                    {visibleColumns.includes('title') && <th className={compactHeaderCellClass}>Danh xưng</th>}
+                    {visibleColumns.includes('address') && <th className={compactHeaderCellClass}>Địa chỉ</th>}
+                    {visibleColumns.includes('referredBy') && <th className={compactHeaderCellClass}>Người giới thiệu</th>}
+                    {visibleColumns.includes('status') && <th className={`${compactHeaderCellClass} text-center`}>Trạng thái</th>}
+                    {visibleColumns.includes('notes') && <th className={compactHeaderCellClass}>Ghi chú</th>}
+                    {visibleColumns.includes('sla') && <th className={compactHeaderCellClass}>Cảnh báo SLA</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#f1f5f9]">
@@ -3305,11 +3307,11 @@ const Leads: React.FC = () => {
               <div className="p-5 border-b border-slate-200 flex justify-between items-center bg-slate-50 shrink-0">
                 <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
                   <Users size={20} className="text-blue-600" />
-                  Chi tiÃ¡ÂºÂ¿t Lead: {selectedLead.name}
+                  Chi tiết Lead: {selectedLead.name}
                 </h3>
                 <div className="flex items-center gap-3">
                   <button className="px-3 py-1.5 bg-white border border-slate-300 rounded text-slate-600 flex items-center gap-2 text-sm font-semibold hover:bg-slate-50">
-                    <Phone size={16} /> CuÃƒÂ¡Ã‚Â»Ã¢â€žÂ¢c gÃƒÂ¡Ã‚Â»Ã‚Âi
+              <Phone size={16} /> Cuộc gọi
                   </button>
                   <button onClick={() => setSelectedLead(null)} className="text-slate-400 hover:text-slate-600"><X size={24} /></button>
                 </div>
@@ -3345,8 +3347,8 @@ const Leads: React.FC = () => {
               </div>
 
               <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-3 shrink-0">
-                <button onClick={() => setSelectedLead(null)} className="px-4 py-2 text-slate-600 font-medium hover:bg-slate-200 rounded-lg">Ãƒâ€žÃ‚ÂÃƒÆ’Ã‚Â³ng</button>
-                <button onClick={handleUpdateSelectedLead} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg flex items-center gap-2 shadow-sm"><Save size={18} /> CÃƒÂ¡Ã‚ÂºÃ‚Â­p nhÃƒÂ¡Ã‚ÂºÃ‚Â­t</button>
+                <button onClick={() => setSelectedLead(null)} className="px-4 py-2 text-slate-600 font-medium hover:bg-slate-200 rounded-lg">Đóng</button>
+              <button onClick={handleUpdateSelectedLead} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg flex items-center gap-2 shadow-sm shadow-blue-600/20"><Save size={18} /> Cập nhật</button>
               </div>
             </div>
           </div>
@@ -3360,11 +3362,11 @@ const Leads: React.FC = () => {
               <div className="p-5 border-b border-slate-200 flex justify-between items-center bg-slate-50 shrink-0">
                 <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
                   <Users size={20} className="text-blue-600" />
-                  Chi tiÃ¡ÂºÂ¿t Lead: {selectedLead.name}
+                  Chi tiết Lead: {selectedLead.name}
                 </h3>
                 <div className="flex items-center gap-3">
                   <button className="px-3 py-1.5 bg-white border border-slate-300 rounded text-slate-600 flex items-center gap-2 text-sm font-semibold hover:bg-slate-50">
-                    <Phone size={16} /> CuÃ¡Â»â„¢c gÃ¡Â»Âi
+                    <Phone size={16} /> Cuộc gọi
                   </button>
                   <button onClick={() => setSelectedLead(null)} className="text-slate-400 hover:text-slate-600"><X size={24} /></button>
                 </div>
@@ -3373,7 +3375,7 @@ const Leads: React.FC = () => {
               <div className="flex-1 overflow-y-auto bg-white p-6 md:p-8 custom-scrollbar">
                 {/* TOP HEADER */}
                 <div className="mb-6">
-                  <label className="block text-slate-700 text-sm font-bold mb-2">MÃƒÂ´ tÃ¡ÂºÂ£ / TÃƒÂªn khÃƒÂ¡ch hÃƒÂ ng <span className="text-red-500">*</span></label>
+                  <label className="block text-slate-700 text-sm font-bold mb-2">Mô tả / Tên khách hàng <span className="text-red-500">*</span></label>
                   <div className="flex gap-3">
                     <select
                       className="w-28 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white font-medium text-slate-700"
@@ -3417,60 +3419,59 @@ const Leads: React.FC = () => {
                     {false && isClosedLeadStatus(editLeadData.status) && (
                       <div className="space-y-3 rounded-xl border border-rose-200 bg-rose-50/70 p-4">
                         <div className="flex items-center gap-4">
-                          <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">LÃ½ do</label>
+                          <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Lý do</label>
                           <select
                             className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm outline-none bg-white"
                             value={editLeadData.lossReason}
                             onChange={e => setEditLeadData({ ...editLeadData, lossReason: e.target.value })}
                           >
-                            <option value="">-- Chá»n lÃ½ do --</option>
+                            <option value="">-- Chọn lý do --</option>
                             {editCloseReasonOptions.map(reason => (
                               <option key={reason} value={reason}>{reason}</option>
                             ))}
                           </select>
                         </div>
-                        {editLeadData.lossReason === CUSTOM_CLOSE_REASON && (
+                      </div>
+                    )}
+                    {editLeadData.lossReason === CUSTOM_CLOSE_REASON && (
                           <div className="flex items-start gap-4">
-                            <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold mt-2">Chi tiáº¿t</label>
+                            <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold mt-2">Chi tiết</label>
                             <textarea
-                              className="flex-1 min-h-[88px] rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none"
-                              placeholder="Nháº­p lÃ½ do cá»¥ thá»ƒ..."
+                              className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none h-20 resize-none"
+                              placeholder="Lý do chi tiết..."
                               value={editLeadData.lossReasonCustom}
                               onChange={e => setEditLeadData({ ...editLeadData, lossReasonCustom: e.target.value })}
                             />
                           </div>
                         )}
-                      </div>
-                    )}
-                    <div className="flex items-start gap-4">
-                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold pt-2">Ã„ÂÃ¡Â»â€¹a chÃ¡Â»â€°</label>
-                      <div className="flex-1 space-y-2">
-                        <input
-                          className="w-full px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none text-slate-700"
-                          placeholder="SÃ¡Â»â€˜ nhÃƒÂ , Ã„â€˜Ã†Â°Ã¡Â»Âng..."
-                          value={editLeadData.street}
-                          onChange={e => setEditLeadData({ ...editLeadData, street: e.target.value })}
-                        />
+                        <div className="flex items-start gap-4">
+                          <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold pt-2">Địa chỉ</label>
+                          <div className="flex-1 space-y-2">
+                            <input
+                              className="w-full px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none text-slate-700"
+                              placeholder="Số nhà, đường..."
+                              value={editLeadData.street}
+                              onChange={e => setEditLeadData({ ...editLeadData, street: e.target.value })}
+                            />
                         <div className="grid grid-cols-3 gap-2">
-                          <input className="px-2 py-2 border border-slate-300 rounded text-sm outline-none" placeholder="TÃ¡Â»â€°nh/TP" value={editLeadData.province} onChange={e => setEditLeadData({ ...editLeadData, province: e.target.value })} />
-                          <input className="px-2 py-2 border border-slate-300 rounded text-sm outline-none" placeholder="QuÃ¡ÂºÂ­n/HuyÃ¡Â»â€¡n" value={editLeadData.city} onChange={e => setEditLeadData({ ...editLeadData, city: e.target.value })} />
-                          <input className="px-2 py-2 border border-slate-300 rounded text-sm outline-none" placeholder="P/XÃƒÂ£" value={editLeadData.ward} onChange={e => setEditLeadData({ ...editLeadData, ward: e.target.value })} />
+                          <input className="px-2 py-2 border border-slate-300 rounded text-sm outline-none" placeholder="Tỉnh/TP" value={editLeadData.province} onChange={e => setEditLeadData({ ...editLeadData, province: e.target.value })} />
+                          <input className="px-2 py-2 border border-slate-300 rounded text-sm outline-none" placeholder="Quận/Huyện" value={editLeadData.city} onChange={e => setEditLeadData({ ...editLeadData, city: e.target.value })} />
+                          <input className="px-2 py-2 border border-slate-300 rounded text-sm outline-none" placeholder="P/Xã" value={editLeadData.ward} onChange={e => setEditLeadData({ ...editLeadData, ward: e.target.value })} />
                         </div>
                       </div>
                     </div>
 
                     <div className="flex items-center gap-4">
-                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">SÃ¡ÂºÂ£n phÃ¡ÂºÂ©m</label>
+                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Sản phẩm</label>
                       <select
-                        className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
+                        className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700 font-bold"
                         value={editLeadData.product}
                         onChange={e => setEditLeadData({ ...editLeadData, product: e.target.value })}
                       >
-                        <option value="">-- ChÃ¡Â»Ân sÃ¡ÂºÂ£n phÃ¡ÂºÂ©m --</option>
-                        <option value="TiÃ¡ÂºÂ¿ng Ã„ÂÃ¡Â»Â©c">TiÃ¡ÂºÂ¿ng Ã„ÂÃ¡Â»Â©c</option>
-                        <option value="Du hÃ¡Â»Âc Ã„ÂÃ¡Â»Â©c">Du hÃ¡Â»Âc Ã„ÂÃ¡Â»Â©c</option>
-                        <option value="Du hÃ¡Â»Âc NghÃ¡Â»Â">Du hÃ¡Â»Âc NghÃ¡Â»Â</option>
-                        <option value="XKLÃ„Â">XuÃ¡ÂºÂ¥t khÃ¡ÂºÂ©u lao Ã„â€˜Ã¡Â»â„¢ng</option>
+                        <option value="">-- Chọn sản phẩm --</option>
+                        {LEAD_PRODUCT_OPTIONS.map(opt => (
+                          <option key={opt.value} value={opt.value}>{opt.label}</option>
+                        ))}
                       </select>
                     </div>
 
@@ -3492,7 +3493,7 @@ const Leads: React.FC = () => {
                   {/* RIGHT COL */}
                   <div className="space-y-4">
                     <div className="flex items-center gap-4">
-                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Ã„ÂiÃ¡Â»â€¡n thoÃ¡ÂºÂ¡i <span className="text-red-500">*</span></label>
+                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Điện thoại <span className="text-red-500">*</span></label>
                       <input className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm outline-none font-medium text-slate-800" value={editLeadData.phone} onChange={e => setEditLeadData({ ...editLeadData, phone: e.target.value })} />
                     </div>
                     <div className="flex items-center gap-4">
@@ -3500,14 +3501,14 @@ const Leads: React.FC = () => {
                       <input className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm outline-none" value={editLeadData.email} onChange={e => setEditLeadData({ ...editLeadData, email: e.target.value })} />
                     </div>
                     <div className="flex items-center gap-4">
-                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">PhÃ¡Â»Â¥ trÃƒÂ¡ch</label>
+                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Phụ trách</label>
                       <select className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm outline-none bg-white" value={editLeadData.salesperson} onChange={e => setEditLeadData({ ...editLeadData, salesperson: e.target.value })}>
-                        <option value="">-- Sale phÃ¡Â»Â¥ trÃƒÂ¡ch --</option>
+                        <option value="">-- Sale phụ trách --</option>
                         {SALES_REPS.map(rep => <option key={rep.id} value={rep.id}>{rep.name}</option>)}
                       </select>
                     </div>
                     <div className="flex items-center gap-4">
-                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">TrÃ¡ÂºÂ¡ng thÃƒÂ¡i</label>
+                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Trạng thái</label>
                       <select className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm outline-none bg-white" value={editLeadData.status} onChange={e => setEditLeadData({ ...editLeadData, status: e.target.value, ...getCloseReasonStateForStatusChange(e.target.value, editLeadData.lossReason, editLeadData.lossReasonCustom) })}>
                         {STANDARD_LEAD_STATUS_OPTIONS.map((option) => (
                           <option key={option.value} value={option.value}>{option.label}</option>
@@ -3517,13 +3518,13 @@ const Leads: React.FC = () => {
                     {isClosedLeadStatus(editLeadData.status) && (
                       <div className="space-y-3 rounded-xl border border-rose-200 bg-rose-50/70 p-4">
                         <div className="flex items-center gap-4">
-                          <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">LÃ½ do</label>
+                          <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Lý do</label>
                           <select
                             className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm outline-none bg-white"
                             value={editLeadData.lossReason}
                             onChange={e => setEditLeadData({ ...editLeadData, lossReason: e.target.value })}
                           >
-                            <option value="">-- Chá»n lÃ½ do --</option>
+                            <option value="">-- Chọn lý do --</option>
                             {editCloseReasonOptions.map(reason => (
                               <option key={reason} value={reason}>{reason}</option>
                             ))}
@@ -3531,10 +3532,10 @@ const Leads: React.FC = () => {
                         </div>
                         {editLeadData.lossReason === CUSTOM_CLOSE_REASON && (
                           <div className="flex items-start gap-4">
-                            <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold mt-2">Chi tiáº¿t</label>
+                            <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold mt-2">Chi tiết</label>
                             <textarea
                               className="flex-1 min-h-[88px] rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none"
-                              placeholder="Nháº­p lÃ½ do cá»¥ thá»ƒ..."
+                              placeholder="Nhập lý do cụ thể..."
                               value={editLeadData.lossReasonCustom}
                               onChange={e => setEditLeadData({ ...editLeadData, lossReasonCustom: e.target.value })}
                             />
@@ -3584,29 +3585,29 @@ const Leads: React.FC = () => {
                     {editModalActiveTab === 'extra' && (
                       <div className="grid grid-cols-2 gap-x-12 gap-y-4 animate-in fade-in duration-200">
                         <div className="flex items-center gap-4">
-                          <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">ChiÃ¡ÂºÂ¿n dÃ¡Â»â€¹ch</label>
+                          <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Chiến dịch</label>
                           <input className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm outline-none" value={editLeadData.campaign} onChange={e => setEditLeadData({ ...editLeadData, campaign: e.target.value })} />
                         </div>
                         <div className="flex items-center gap-4">
-                          <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">NguÃ¡Â»â€œn</label>
-                          <select className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm outline-none bg-white" value={editLeadData.source} onChange={e => setEditLeadData({ ...editLeadData, source: e.target.value })}>
-                            <option value="hotline">Hotline</option>
-                            <option value="facebook">Facebook</option>
-                            <option value="google">Google Ads</option>
-                            <option value="referral">GiÃ¡Â»â€ºi thiÃ¡Â»â€¡u</option>
+                          <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Nguồn</label>
+                          <select className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm outline-none bg-white text-slate-700" value={editLeadData.source} onChange={e => setEditLeadData({ ...editLeadData, source: e.target.value })}>
+                            <option value="">-- Chọn nguồn --</option>
+                            {LEAD_SOURCE_OPTIONS.map(opt => (
+                              <option key={opt.value} value={opt.value}>{opt.label}</option>
+                            ))}
                           </select>
                         </div>
                         <div className="flex items-center gap-4">
-                          <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">KÃƒÂªnh</label>
+                          <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Kênh</label>
                           <select className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm outline-none bg-white" value={editLeadData.channel} onChange={e => setEditLeadData({ ...editLeadData, channel: e.target.value })}>
-                            <option value="">-- ChÃ¡Â»Ân kÃƒÂªnh --</option>
+                            <option value="">-- Chọn kênh --</option>
                             {LEAD_CHANNEL_OPTIONS.map(option => (
                               <option key={option.value} value={option.value}>{option.label}</option>
                             ))}
                           </select>
                         </div>
                         <div className="flex items-center gap-4">
-                          <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">NgÃ†Â°Ã¡Â»Âi GT</label>
+                          <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Người GT</label>
                           <input className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm outline-none" value={editLeadData.referredBy} onChange={e => setEditLeadData({ ...editLeadData, referredBy: e.target.value })} />
                         </div>
                       </div>
@@ -3617,64 +3618,8 @@ const Leads: React.FC = () => {
               </div>
 
               <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-3 shrink-0">
-                <button onClick={() => setSelectedLead(null)} className="px-4 py-2 text-slate-600 font-medium hover:bg-slate-200 rounded-lg">Ã„ÂÃƒÂ³ng</button>
-                <button onClick={handleUpdateSelectedLead} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg flex items-center gap-2 shadow-sm"><Save size={18} /> CÃ¡ÂºÂ­p nhÃ¡ÂºÂ­t</button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {false && showCreateModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowCreateModal(false)}></div>
-            <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-4xl overflow-hidden animate-in zoom-in-95 flex flex-col max-h-[90vh]">
-              <div className="p-5 border-b border-slate-200 flex justify-between items-center bg-slate-50 shrink-0">
-                <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                  <UserPlus size={20} className="text-blue-600" />
-                  ThÃƒÆ’Ã‚Âªm CÃƒâ€ Ã‚Â¡ hÃƒÂ¡Ã‚Â»Ã¢â€žÂ¢i / Lead MÃƒÂ¡Ã‚Â»Ã¢â‚¬Âºi
-                </h3>
-                <div className="flex items-center gap-3">
-                  <button className="px-3 py-1.5 bg-white border border-slate-300 rounded text-slate-600 flex items-center gap-2 text-sm font-semibold hover:bg-slate-50">
-                    <Phone size={16} /> CuÃƒÂ¡Ã‚Â»Ã¢â€žÂ¢c gÃƒÂ¡Ã‚Â»Ã‚Âi
-                  </button>
-                  <button onClick={() => setShowCreateModal(false)} className="text-slate-400 hover:text-slate-600"><X size={24} /></button>
-                </div>
-              </div>
-
-              <div className="flex-1 overflow-y-auto bg-white p-6 md:p-8 custom-scrollbar">
-                <LeadDrawerProfileForm
-                  leadFormData={newLeadData}
-                  leadFormActiveTab={createModalActiveTab}
-                  closeReasonOptions={isClosedLeadStatus(newLeadData.status) ? newCloseReasonOptions : []}
-                  salesOptions={leadSalesOptions}
-                  campaignOptions={campaignSelectOptions}
-                  referrerOptions={referrerSelectOptions}
-                  availableTags={availableTags}
-                  fixedTags={FIXED_LEAD_TAGS}
-                  isAddingTag={isAddingTag}
-                  customCloseReason={CUSTOM_CLOSE_REASON}
-                  onPatch={patchNewLeadData}
-                  onTabChange={setCreateModalActiveTab}
-                  onStatusChange={(status) => setNewLeadData((prev) => ({
-                    ...prev,
-                    status,
-                    ...getCloseReasonStateForStatusChange(status, prev.lossReason, prev.lossReasonCustom)
-                  }))}
-                  onStartAddingTag={() => setIsAddingTag(true)}
-                  onStopAddingTag={() => setIsAddingTag(false)}
-                  onAddTag={addTagToNewLead}
-                  onCreateTag={(tag) => {
-                    addTagCatalogEntry(tag);
-                    addTagToNewLead(tag);
-                  }}
-                  onRemoveSelectedTag={(tag) => setNewLeadData((prev) => ({ ...prev, tags: prev.tags.filter((item) => item !== tag) }))}
-                  onDeleteTag={deleteTagCatalogEntry}
-                />
-              </div>
-
-              <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-3 shrink-0">
-                <button onClick={() => setShowCreateModal(false)} className="px-4 py-2 text-slate-600 font-medium hover:bg-slate-200 rounded-lg">HÃƒÂ¡Ã‚Â»Ã‚Â§y bÃƒÂ¡Ã‚Â»Ã‚Â</button>
-                <button onClick={handleCreateSubmit} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg flex items-center gap-2 shadow-sm"><Save size={18} /> LÃƒâ€ Ã‚Â°u Lead mÃƒÂ¡Ã‚Â»Ã¢â‚¬Âºi</button>
+                <button onClick={() => setSelectedLead(null)} className="px-4 py-2 text-slate-600 font-medium hover:bg-slate-200 rounded-lg">Đóng</button>
+                <button onClick={handleUpdateSelectedLead} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg flex items-center gap-2 shadow-sm"><Save size={18} /> Cập nhật</button>
               </div>
             </div>
           </div>
@@ -3688,11 +3633,11 @@ const Leads: React.FC = () => {
               <div className="p-5 border-b border-slate-200 flex justify-between items-center bg-slate-50 shrink-0">
                 <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
                   <UserPlus size={20} className="text-blue-600" />
-                  ThÃƒÂªm CÃ†Â¡ hÃ¡Â»â„¢i / Lead MÃ¡Â»â€ºi
+                  Thêm Cơ hội / Lead Mới
                 </h3>
                 <div className="flex items-center gap-3">
                   <button className="px-3 py-1.5 bg-white border border-slate-300 rounded text-slate-600 flex items-center gap-2 text-sm font-semibold hover:bg-slate-50">
-                    <Phone size={16} /> CuÃ¡Â»â„¢c gÃ¡Â»Âi
+                    <Phone size={16} /> Cuộc gọi
                   </button>
                   <button onClick={() => setShowCreateModal(false)} className="text-slate-400 hover:text-slate-600"><X size={24} /></button>
                 </div>
@@ -3701,30 +3646,20 @@ const Leads: React.FC = () => {
               <div className="flex-1 overflow-y-auto bg-white p-6 md:p-8 custom-scrollbar">
 
                 {/* TOP HEADER: TITLE / NAME */}
-                {/* TOP HEADER: TITLE / NAME */}
                 <div className="mb-6">
-                  <label className="block text-slate-700 text-sm font-bold mb-2">MÃƒÂ´ tÃ¡ÂºÂ£ / TÃƒÂªn khÃƒÂ¡ch hÃƒÂ ng <span className="text-red-500">*</span></label>
+                  <label className="block text-slate-700 text-sm font-bold mb-2">Mô tả / Tên khách hàng <span className="text-red-500">*</span></label>
                   <div className="flex gap-3">
                     <select
                       className="w-28 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white font-medium text-slate-700"
                       value={newLeadData.title}
                       onChange={e => setNewLeadData({ ...newLeadData, title: e.target.value })}
                     >
-                      <option value="">Danh xÃ†Â°ng</option>
+                      <option value="">Danh xưng</option>
                       {LEAD_RELATION_OPTIONS.map((option) => (
                         <option key={option.value} value={option.value}>
                           {option.label}
                         </option>
                       ))}
-                      {false && (
-                        <>
-                      <option value="">Danh xÃ†Â°ng</option>
-                      <option value="Mr.">Anh</option>
-                      <option value="Ms.">ChÃ¡Â»â€¹</option>
-                      <option value="PhÃ¡Â»Â¥ huynh">PhÃ¡Â»Â¥ huynh</option>
-                      <option value="HÃ¡Â»Âc sinh">HÃ¡Â»Âc sinh</option>
-                        </>
-                      )}
                     </select>
                     <input
                       className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm font-semibold focus:border-purple-500 outline-none text-slate-800 placeholder:text-slate-400"
@@ -3742,13 +3677,13 @@ const Leads: React.FC = () => {
                   <div className="space-y-4">
 
                     <div className="flex items-center gap-4">
-                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">QuÃ¡Â»â€˜c gia mÃ¡Â»Â¥c tiÃƒÂªu <span className="text-red-500">*</span></label>
+                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Quốc gia mục tiêu <span className="text-red-500">*</span></label>
                       <select
                         className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
                         value={newLeadData.targetCountry}
                         onChange={e => setNewLeadData({ ...newLeadData, targetCountry: e.target.value })}
                       >
-                        <option value="">-- ChÃ¡Â»Ân quÃ¡Â»â€˜c gia mÃ¡Â»Â¥c tiÃƒÂªu --</option>
+                        <option value="">-- Chọn quốc gia mục tiêu --</option>
                         {LEAD_TARGET_COUNTRY_OPTIONS.map((option) => (
                           <option key={option.value} value={option.value}>
                             {option.label}
@@ -3757,53 +3692,32 @@ const Leads: React.FC = () => {
                       </select>
                     </div>
 
-                    {false && (
-                      <>
-                    {/* Company */}
-                    <div className="flex items-center gap-4">
-                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">CÃ†Â¡ sÃ¡Â»Å¸</label>
-                      <select
-                        className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
-                        value={newLeadData.company}
-                        onChange={e => setNewLeadData({ ...newLeadData, company: e.target.value })}
-                      >
-                        <option value="">-- ChÃ¡Â»Ân cÃ†Â¡ sÃ¡Â»Å¸ --</option>
-                        <option value="Hanoi">HÃƒÂ  NÃ¡Â»â„¢i</option>
-                        <option value="HCMC">TP. HCM</option>
-                        <option value="DaNang">Ã„ÂÃƒÂ  NÃ¡ÂºÂµng</option>
-                        <option value="HaiPhong">HÃ¡ÂºÂ£i PhÃƒÂ²ng</option>
-                      </select>
-                    </div>
-
-                      </>
-                    )}
-
                     {/* Address Group */}
                     <div className="flex items-start gap-4">
-                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold pt-2">Ã„ÂÃ¡Â»â€¹a chÃ¡Â»â€°</label>
+                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold pt-2">Địa chỉ</label>
                       <div className="flex-1 space-y-2">
                         <input
                           className="w-full px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none text-slate-700 placeholder:text-slate-400"
-                          placeholder="SÃ¡Â»â€˜ nhÃƒÂ , Ã„â€˜Ã†Â°Ã¡Â»Âng..."
+                          placeholder="Số nhà, đường..."
                           value={newLeadData.street}
                           onChange={e => setNewLeadData({ ...newLeadData, street: e.target.value })}
                         />
                         <div className="grid grid-cols-3 gap-2">
                           <input
                             className="px-2 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none text-slate-700 placeholder:text-slate-400"
-                            placeholder="TÃ¡Â»â€°nh/TP"
+                            placeholder="Tỉnh/TP"
                             value={newLeadData.province}
                             onChange={e => setNewLeadData({ ...newLeadData, province: e.target.value })}
                           />
                           <input
                             className="px-2 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none text-slate-700 placeholder:text-slate-400"
-                            placeholder="QuÃ¡ÂºÂ­n/HuyÃ¡Â»â€¡n"
+                            placeholder="Quận/Huyện"
                             value={newLeadData.city}
                             onChange={e => setNewLeadData({ ...newLeadData, city: e.target.value })}
                           />
                           <input
                             className="px-2 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none text-slate-700 placeholder:text-slate-400"
-                            placeholder="P/XÃƒÂ£"
+                            placeholder="P/Xã"
                             value={newLeadData.ward}
                             onChange={e => setNewLeadData({ ...newLeadData, ward: e.target.value })}
                           />
@@ -3813,29 +3727,27 @@ const Leads: React.FC = () => {
 
                     {/* Product */}
                     <div className="flex items-center gap-4">
-                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">SÃ¡ÂºÂ£n phÃ¡ÂºÂ©m</label>
+                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Sản phẩm</label>
                       <select
-                        className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
+                        className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700 font-bold"
                         value={newLeadData.product}
                         onChange={e => setNewLeadData({ ...newLeadData, product: e.target.value })}
                       >
                         <option value="">-- Chọn sản phẩm --</option>
-                        {LEAD_PRODUCT_OPTIONS.map((option) => (
-                          <option key={`lead-create-product-${option.value}`} value={option.value}>
-                            {option.label}
-                          </option>
+                        {LEAD_PRODUCT_OPTIONS.map(opt => (
+                          <option key={opt.value} value={opt.value}>{opt.label}</option>
                         ))}
                       </select>
                     </div>
 
                     <div className="flex items-center gap-4">
-                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">CÃ†Â¡ sÃ¡Â»Å¸</label>
+                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Cơ sở</label>
                       <select
                         className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
                         value={newLeadData.market}
                         onChange={e => setNewLeadData({ ...newLeadData, market: e.target.value, salesperson: '' })}
                       >
-                        <option value="">-- ChÃ¡Â»Ân cÃ†Â¡ sÃ¡Â»Å¸ --</option>
+                        <option value="">-- Chọn cơ sở --</option>
                         {LEAD_CAMPUS_OPTIONS.map((option) => (
                           <option key={option.value} value={option.value}>
                             {option.label}
@@ -3843,34 +3755,13 @@ const Leads: React.FC = () => {
                         ))}
                       </select>
                     </div>
-
-                    {false && (
-                      <>
-                    {/* Market */}
-                    <div className="flex items-center gap-4">
-                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">ThÃ¡Â»â€¹ trÃ†Â°Ã¡Â»Âng</label>
-                      <select
-                        className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
-                        value={newLeadData.market}
-                        onChange={e => setNewLeadData({ ...newLeadData, market: e.target.value })}
-                      >
-                        <option value="">-- ChÃ¡Â»Ân --</option>
-                        <option value="Vinh">Vinh</option>
-                        <option value="HÃƒÂ  TÃ„Â©nh">HÃƒÂ  TÃ„Â©nh</option>
-                        <option value="HÃƒÂ  NÃ¡Â»â„¢i">HÃƒÂ  NÃ¡Â»â„¢i</option>
-                        <option value="Online">Online</option>
-                      </select>
-                    </div>
-
-                      </>
-                    )}
                   </div>
 
                   {/* RIGHT COL */}
                   <div className="space-y-4">
                     {/* Phone */}
                     <div className="flex items-center gap-4">
-                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Ã„ÂiÃ¡Â»â€¡n thoÃ¡ÂºÂ¡i <span className="text-red-500">*</span></label>
+                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Điện thoại <span className="text-red-500">*</span></label>
                       <input
                         className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none text-slate-800 font-medium"
                         placeholder="0912..."
@@ -3892,7 +3783,7 @@ const Leads: React.FC = () => {
 
                     {/* Salesperson */}
                     <div className="flex items-center gap-4">
-                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">PhÃ¡Â»Â¥ trÃƒÂ¡ch</label>
+                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Phụ trách</label>
                       <select
                         className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700 disabled:bg-slate-100 disabled:text-slate-400"
                         disabled={!createLeadCampus || createLeadSalesOptions.length === 0}
@@ -3901,10 +3792,10 @@ const Leads: React.FC = () => {
                       >
                         <option value="">
                           {!createLeadCampus
-                            ? 'ChÃ¡Â»Ân cÃ†Â¡ sÃ¡Â»Å¸ trÃ†Â°Ã¡Â»â€ºc'
+                            ? 'Chọn cơ sở trước'
                             : !createLeadSalesOptions.length
-                              ? 'ChÃ†Â°a cÃƒÂ³ phÃ¡Â»Â¥ trÃƒÂ¡ch cho cÃ†Â¡ sÃ¡Â»Å¸ nÃƒÂ y'
-                              : 'ChÃ¡Â»Ân sale phÃ¡Â»Â¥ trÃƒÂ¡ch'}
+                              ? 'Chưa có phụ trách cho cơ sở này'
+                              : 'Chọn sale phụ trách'}
                         </option>
                         {createLeadSalesOptions.map(rep => (
                           <option key={rep.id} value={rep.value}>{rep.label}</option>
@@ -3914,7 +3805,7 @@ const Leads: React.FC = () => {
 
                     {/* Status */}
                     <div className="flex items-center gap-4">
-                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">TrÃ¡ÂºÂ¡ng thÃƒÂ¡i</label>
+                      <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Trạng thái</label>
                       <select
                         className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
                         value={newLeadData.status}
@@ -3929,13 +3820,13 @@ const Leads: React.FC = () => {
                     {isClosedLeadStatus(newLeadData.status) && (
                       <div className="space-y-3 rounded-xl border border-rose-200 bg-rose-50/70 p-4">
                         <div className="flex items-center gap-4">
-                          <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">LÃ½ do</label>
+                          <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Lý do</label>
                           <select
                             className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm outline-none bg-white"
                             value={newLeadData.lossReason}
                             onChange={e => setNewLeadData({ ...newLeadData, lossReason: e.target.value })}
                           >
-                            <option value="">-- Chá»n lÃ½ do --</option>
+                            <option value="">-- Chọn lý do --</option>
                             {newCloseReasonOptions.map(reason => (
                               <option key={reason} value={reason}>{reason}</option>
                             ))}
@@ -3943,10 +3834,10 @@ const Leads: React.FC = () => {
                         </div>
                         {newLeadData.lossReason === CUSTOM_CLOSE_REASON && (
                           <div className="flex items-start gap-4">
-                            <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold mt-2">Chi tiáº¿t</label>
+                            <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold mt-2">Chi tiết</label>
                             <textarea
                               className="flex-1 min-h-[88px] rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none"
-                              placeholder="Nháº­p lÃ½ do cá»¥ thá»ƒ..."
+                              placeholder="Nhập lý do cụ thể..."
                               value={newLeadData.lossReasonCustom}
                               onChange={e => setNewLeadData({ ...newLeadData, lossReasonCustom: e.target.value })}
                             />
@@ -3986,19 +3877,19 @@ const Leads: React.FC = () => {
                       onClick={() => setCreateModalActiveTab('notes')}
                       className={`px-4 py-2 text-sm font-medium border-b-2 transition-all ${createModalActiveTab === 'notes' ? 'border-purple-600 text-purple-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
                     >
-                      Ghi chÃƒÂº nÃ¡Â»â„¢i bÃ¡Â»â„¢
+                      Ghi chú nội bộ
                     </button>
                     <button
                       onClick={() => setCreateModalActiveTab('student')}
                       className={`px-4 py-2 text-sm font-medium border-b-2 transition-all ${createModalActiveTab === 'student' ? 'border-purple-600 text-purple-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
                     >
-                      ThÃƒÂ´ng tin hÃ¡Â»Âc sinh
+                      Thông tin học sinh
                     </button>
                     <button
                       onClick={() => setCreateModalActiveTab('extra')}
                       className={`px-4 py-2 text-sm font-medium border-b-2 transition-all ${createModalActiveTab === 'extra' ? 'border-purple-600 text-purple-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
                     >
-                      ThÃƒÂ´ng tin thÃƒÂªm (Marketing)
+                      Thông tin thêm (Marketing)
                     </button>
                   </div>
 
@@ -4009,7 +3900,7 @@ const Leads: React.FC = () => {
                       <div className="animate-in fade-in duration-200">
                         <textarea
                           className="w-full p-3 border border-slate-200 rounded text-sm focus:border-purple-500 outline-none text-slate-700 h-40"
-                          placeholder="ViÃ¡ÂºÂ¿t ghi chÃƒÂº..."
+                          placeholder="Viết ghi chú..."
                           value={newLeadData.notes}
                           onChange={e => setNewLeadData({ ...newLeadData, notes: e.target.value })}
                         />
@@ -4024,7 +3915,7 @@ const Leads: React.FC = () => {
                     {createModalActiveTab === 'extra' && (
                       <div className="grid grid-cols-2 gap-x-12 gap-y-4 animate-in fade-in duration-200">
                         <div className="flex items-center gap-4">
-                          <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">ChiÃ¡ÂºÂ¿n dÃ¡Â»â€¹ch</label>
+                          <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Chiến dịch</label>
                           <select
                             className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
                             value={newLeadData.campaign}
@@ -4037,33 +3928,33 @@ const Leads: React.FC = () => {
                           </select>
                         </div>
                         <div className="flex items-center gap-4">
-                          <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">NguÃ¡Â»â€œn</label>
+                          <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Nguồn</label>
                           <select
                             className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
                             value={newLeadData.source}
                             onChange={e => setNewLeadData({ ...newLeadData, source: e.target.value })}
                           >
-                            <option value="hotline">Hotline</option>
-                            <option value="facebook">Facebook</option>
-                            <option value="google">Google Ads</option>
-                            <option value="referral">GiÃ¡Â»â€ºi thiÃ¡Â»â€¡u</option>
+                            <option value="">-- Chọn nguồn --</option>
+                            {LEAD_SOURCE_OPTIONS.map(opt => (
+                              <option key={opt.value} value={opt.value}>{opt.label}</option>
+                            ))}
                           </select>
                         </div>
                         <div className="flex items-center gap-4">
-                          <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">KÃƒÂªnh</label>
+                          <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Kênh</label>
                           <select
                             className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
                             value={newLeadData.channel}
                             onChange={e => setNewLeadData({ ...newLeadData, channel: e.target.value })}
                           >
-                            <option value="">-- ChÃ¡Â»Ân kÃƒÂªnh --</option>
+                            <option value="">-- Chọn kênh --</option>
                             {LEAD_CHANNEL_OPTIONS.map(option => (
                               <option key={option.value} value={option.value}>{option.label}</option>
                             ))}
                           </select>
                         </div>
                         <div className="flex items-center gap-4">
-                          <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">NgÃ†Â°Ã¡Â»Âi GT</label>
+                          <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Người GT</label>
                           <select
                             className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
                             value={newLeadData.referredBy}
@@ -4082,8 +3973,8 @@ const Leads: React.FC = () => {
               </div>
 
               <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-3 shrink-0">
-                <button onClick={() => setShowCreateModal(false)} className="px-4 py-2 text-slate-600 font-medium hover:bg-slate-200 rounded-lg">HÃ¡Â»Â§y bÃ¡Â»Â</button>
-                <button onClick={handleCreateSubmit} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg flex items-center gap-2 shadow-sm"><Save size={18} /> LÃ†Â°u Lead mÃ¡Â»â€ºi</button>
+                <button onClick={() => setShowCreateModal(false)} className="px-4 py-2 text-slate-600 font-medium hover:bg-slate-200 rounded-lg">Hủy bỏ</button>
+                <button onClick={handleCreateSubmit} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg flex items-center gap-2 shadow-sm"><Save size={18} /> Lưu Lead mới</button>
               </div>
             </div>
           </div>
@@ -4273,8 +4164,8 @@ const Leads: React.FC = () => {
               {/* Header */}
               <div className="p-6 border-b border-slate-200 flex justify-between items-center bg-slate-50">
                 <div>
-                  <h2 className="text-xl font-bold text-slate-900">NhÃ¡ÂºÂ­p dÃ¡Â»Â¯ liÃ¡Â»â€¡u Lead tÃ¡Â»Â« Excel</h2>
-                  <p className="text-slate-500 text-sm mt-1">HÃ¡Â»â€” trÃ¡Â»Â£ Ã„â€˜Ã¡Â»â€¹nh dÃ¡ÂºÂ¡ng .xlsx, .csv</p>
+                  <h2 className="text-xl font-bold text-slate-900">Nhập dữ liệu Lead từ Excel</h2>
+                  <p className="text-slate-500 text-sm mt-1">Hỗ trợ định dạng .xlsx, .csv</p>
                 </div>
                 <button onClick={() => setShowImportModal(false)} className="text-slate-400 hover:text-slate-600 p-2 hover:bg-slate-200 rounded-full"><X size={24} /></button>
               </div>
@@ -4661,7 +4552,7 @@ const Leads: React.FC = () => {
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95">
             <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
-              <h3 className="text-lg font-bold text-red-600 flex items-center gap-2"><Ban size={20} /> XÃƒÂ¡c nhÃ¡ÂºÂ­n thÃ¡ÂºÂ¥t bÃ¡ÂºÂ¡i</h3>
+              <h3 className="text-lg font-bold text-red-600 flex items-center gap-2"><Ban size={20} /> Xác nhận thất bại</h3>
               <button
                 onClick={() => { setShowLossModal(false); setLossModalLeadIds([]); setLossStatus(STANDARD_LEAD_STATUS.LOST); setLossReason(''); setCustomLossReason(''); }}
                 className="text-slate-400 hover:text-slate-600 transition-colors"
@@ -4672,8 +4563,8 @@ const Leads: React.FC = () => {
 
             <div className="p-6">
               <p className="text-sm text-slate-600 mb-4">
-                BÃ¡ÂºÂ¡n Ã„â€˜ang Ã„â€˜ÃƒÂ¡nh dÃ¡ÂºÂ¥u <strong>{lossModalLeadIds.length}</strong> lead lÃƒÂ  thÃ¡ÂºÂ¥t bÃ¡ÂºÂ¡i.
-                Vui lÃƒÂ²ng chÃ¡Â»Ân lÃƒÂ½ do Ã„â€˜Ã¡Â»Æ’ hÃ¡Â»â€¡ thÃ¡Â»â€˜ng ghi nhÃ¡ÂºÂ­n:
+                Bạn đang đánh dấu <strong>{lossModalLeadIds.length}</strong> lead là thất bại.
+                Vui lòng chọn lý do để hệ thống ghi nhận:
               </p>
 
               <select
@@ -4697,16 +4588,16 @@ const Leads: React.FC = () => {
                 value={lossReason}
                 onChange={e => setLossReason(e.target.value)}
               >
-                <option value="">-- ChÃ¡Â»Ân lÃƒÂ½ do --</option>
+                <option value="">-- Chọn lý do --</option>
                 {bulkCloseReasonOptions.map(reason => (
                   <option key={reason} value={reason}>{reason}</option>
                 ))}
               </select>
 
-              {lossReason === 'LÃƒÂ½ do khÃƒÂ¡c' && (
+              {lossReason === 'Lý do khác' && (
                 <textarea
                   className="w-full p-3 border border-slate-300 rounded-lg text-sm mb-4 h-24 outline-none focus:ring-2 focus:ring-blue-500 animate-in slide-in-from-top-2"
-                  placeholder="Vui lÃƒÂ²ng nhÃ¡ÂºÂ­p lÃƒÂ½ do cÃ¡Â»Â¥ thÃ¡Â»Æ’..."
+                  placeholder="Vui lòng nhập lý do cụ thể..."
                   value={customLossReason}
                   onChange={e => setCustomLossReason(e.target.value)}
                 ></textarea>
@@ -4715,7 +4606,7 @@ const Leads: React.FC = () => {
               {lossReason === CUSTOM_CLOSE_REASON && (
                 <textarea
                   className="w-full p-3 border border-slate-300 rounded-lg text-sm mb-4 h-24 outline-none focus:ring-2 focus:ring-blue-500 animate-in slide-in-from-top-2"
-                  placeholder="Nháº­p lÃ½ do cá»¥ thá»ƒ..."
+                  placeholder="Nhập lý do cụ thể..."
                   value={customLossReason}
                   onChange={e => setCustomLossReason(e.target.value)}
                 ></textarea>
@@ -4723,14 +4614,14 @@ const Leads: React.FC = () => {
 
               <div className="hidden items-center gap-2 p-3 bg-red-50 text-red-700 rounded-lg border border-red-100 text-xs italic">
                 <AlertTriangle size={14} className="shrink-0" />
-                <span>HÃƒÂ nh Ã„â€˜Ã¡Â»â„¢ng nÃƒÂ y sÃ¡ÂºÂ½ cÃ¡ÂºÂ­p nhÃ¡ÂºÂ­t trÃ¡ÂºÂ¡ng thÃƒÂ¡i cÃ¡Â»Â§a lead sang <strong>LOST</strong>.</span>
+                <span>Hành động này sẽ cập nhật trạng thái của lead sang <strong>LOST</strong>.</span>
               </div>
             </div>
 
             <div className="px-6 pt-0 pb-4">
               <div className="flex items-center gap-2 p-3 bg-red-50 text-red-700 rounded-lg border border-red-100 text-xs italic">
                 <AlertTriangle size={14} className="shrink-0" />
-                <span>Lead sáº½ Ä‘Æ°á»£c chuyá»ƒn sang <strong>{getLeadStatusLabel(lossStatus).toUpperCase()}</strong> vÃ  báº¯t buá»™c lÆ°u lÃ½ do.</span>
+                <span>Lead sẽ được chuyển sang <strong>{getLeadStatusLabel(lossStatus).toUpperCase()}</strong> và bắt buộc lưu lý do.</span>
               </div>
             </div>
 
@@ -4739,13 +4630,13 @@ const Leads: React.FC = () => {
                 onClick={() => { setShowLossModal(false); setLossModalLeadIds([]); setLossStatus(STANDARD_LEAD_STATUS.LOST); setLossReason(''); setCustomLossReason(''); }}
                 className="px-5 py-2 font-bold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
               >
-                HÃ¡Â»Â§y
+                Hủy
               </button>
               <button
                 onClick={handleConfirmLoss}
                 className="px-5 py-2 font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg shadow-lg shadow-red-200 transition-all font-bold"
               >
-                XÃƒÂ¡c nhÃ¡ÂºÂ­n LOST
+                Xác nhận LOST
               </button>
             </div>
           </div>

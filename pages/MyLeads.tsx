@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { getCollaborators, getDeals, getLeads, saveLead, saveDeals, saveLeads, getClosedLeadReasons, getTags, saveTags, getSalesTeams } from '../utils/storage';
@@ -44,9 +44,11 @@ import {
    createLeadInitialState,
    filterLeadSalesRepOptionsByCampus,
    getLeadGuardianRelation,
+   getLeadSourceLabel,
    LEAD_CAMPUS_OPTIONS,
    LEAD_PRODUCT_OPTIONS,
    LEAD_RELATION_OPTIONS,
+   LEAD_SOURCE_OPTIONS,
    LEAD_TARGET_COUNTRY_OPTIONS,
    LeadCreateFormData,
    LeadCreateModalTab,
@@ -116,7 +118,7 @@ const MyLeads: React.FC = () => {
    const isSalesLeader = salesTestRole === UserRole.SALES_LEADER;
 
    const SALES_REPS = [
-      { id: 'u1', name: 'Tráº§n VÄƒn Quáº£n Trá»‹' },
+      { id: 'u1', name: 'Trần Văn Quản Trị' },
       { id: 'u2', name: 'Sarah Miller' },
       { id: 'u3', name: 'David Clark' },
       { id: 'u4', name: 'Alex Rivera' },
@@ -153,7 +155,7 @@ const MyLeads: React.FC = () => {
       phone: '',
       email: '',
       source: 'hotline',
-      program: 'Tiáº¿ng Äá»©c',
+      program: 'Tiếng Đức',
       notes: '',
       title: '',
       company: '',
@@ -170,7 +172,7 @@ const MyLeads: React.FC = () => {
       channel: '',
       status: 'NEW'
    }; */
-   const CUSTOM_CLOSE_REASON = 'LÃ½ do khÃ¡c';
+   const CUSTOM_CLOSE_REASON = 'Lý do khác';
    const isClosedLeadStatus = isClosedLeadStatusKey;
 
    const resolveCloseReason = (reason: string, customReason?: string) =>
@@ -178,9 +180,9 @@ const MyLeads: React.FC = () => {
 
    const validateCloseReason = (status: string, reason: string, customReason?: string) => {
       if (!isClosedLeadStatus(status)) return null;
-      if (!reason) return 'Vui lÃ²ng chá»n lÃ½ do.';
+      if (!reason) return 'Vui lòng chọn lý do.';
       if (reason === CUSTOM_CLOSE_REASON && !customReason?.trim()) {
-         return 'Vui lÃ²ng nháº­p lÃ½ do cá»¥ thá»ƒ.';
+         return 'Vui lòng nhập lý do cụ thể.';
       }
       return null;
    };
@@ -329,8 +331,8 @@ const MyLeads: React.FC = () => {
    const timePresets = LEAD_TOOLBAR_TIME_PRESETS;
 
    const filterTypeLabels: Record<string, string> = {
-      'no-activity': 'ChÆ°a cÃ³ hoáº¡t Ä‘á»™ng',
-      'high-value': 'CÆ¡ há»™i giÃ¡ trá»‹ cao',
+      'no-activity': 'Chưa có hoạt động',
+      'high-value': 'Cơ hội giá trị cao',
    };
 
    const groupByLabels = LEAD_TOOLBAR_FIELD_LABELS;
@@ -405,21 +407,21 @@ const MyLeads: React.FC = () => {
    // Search Field Configurations (Odoo-style)
    const searchFields: SearchFieldConfig[] = [
       // Filters
-      { field: 'name', label: 'TÃªn khÃ¡ch hÃ ng', category: 'ThÃ´ng tin cÆ¡ báº£n', type: 'filter' },
-      { field: 'phone', label: 'Sá»‘ Ä‘iá»‡n thoáº¡i', category: 'ThÃ´ng tin cÆ¡ báº£n', type: 'filter' },
-      { field: 'email', label: 'Email', category: 'ThÃ´ng tin cÆ¡ báº£n', type: 'filter' },
-      { field: 'city', label: 'ThÃ nh phá»‘', category: 'Äá»‹a Ä‘iá»ƒm', type: 'filter' },
-      { field: 'program', label: 'ChÆ°Æ¡ng trÃ¬nh', category: 'ChÆ°Æ¡ng trÃ¬nh há»c', type: 'filter' },
-      { field: 'source', label: 'Nguá»“n', category: 'Marketing', type: 'filter' },
-      { field: 'status', label: 'Giai Ä‘oáº¡n', category: 'Tráº¡ng thÃ¡i', type: 'filter' },
-      { field: 'ownerId', label: 'NgÆ°á»i phá»¥ trÃ¡ch', category: 'PhÃ¢n cÃ´ng', type: 'filter' },
+      { field: 'name', label: 'Tên khách hàng', category: 'Thông tin cơ bản', type: 'filter' },
+      { field: 'phone', label: 'Số điện thoại', category: 'Thông tin cơ bản', type: 'filter' },
+      { field: 'email', label: 'Email', category: 'Thông tin cơ bản', type: 'filter' },
+      { field: 'city', label: 'Thành phố', category: 'Địa điểm', type: 'filter' },
+      { field: 'program', label: 'Chương trình', category: 'Chương trình học', type: 'filter' },
+      { field: 'source', label: 'Nguồn', category: 'Marketing', type: 'filter' },
+      { field: 'status', label: 'Giai đoạn', category: 'Trạng thái', type: 'filter' },
+      { field: 'ownerId', label: 'Người phụ trách', category: 'Phân công', type: 'filter' },
 
       // Group By
-      { field: 'ownerId', label: 'NhÃ³m theo NgÆ°á»i phá»¥ trÃ¡ch', category: 'NhÃ³m dá»¯ liá»‡u', type: 'groupby' },
-      { field: 'status', label: 'NhÃ³m theo Giai Ä‘oáº¡n', category: 'NhÃ³m dá»¯ liá»‡u', type: 'groupby' },
-      { field: 'source', label: 'NhÃ³m theo Nguá»“n', category: 'NhÃ³m dá»¯ liá»‡u', type: 'groupby' },
-      { field: 'program', label: 'NhÃ³m theo ChÆ°Æ¡ng trÃ¬nh', category: 'NhÃ³m dá»¯ liá»‡u', type: 'groupby' },
-      { field: 'city', label: 'NhÃ³m theo ThÃ nh phá»‘', category: 'NhÃ³m dá»¯ liá»‡u', type: 'groupby' },
+      { field: 'ownerId', label: 'Nhóm theo Người phụ trách', category: 'Nhóm dữ liệu', type: 'groupby' },
+      { field: 'status', label: 'Nhóm theo Giai đoạn', category: 'Nhóm dữ liệu', type: 'groupby' },
+      { field: 'source', label: 'Nhóm theo Nguồn', category: 'Nhóm dữ liệu', type: 'groupby' },
+      { field: 'program', label: 'Nhóm theo Chương trình', category: 'Nhóm dữ liệu', type: 'groupby' },
+      { field: 'city', label: 'Nhóm theo Thành phố', category: 'Nhóm dữ liệu', type: 'groupby' },
    ];
 
    const reloadMyLeads = useCallback(() => {
@@ -427,7 +429,7 @@ const MyLeads: React.FC = () => {
       applyLeadScope(allLeads);
    }, [applyLeadScope]);
 
-   const resolveCreatedLeadAssignment = (requestedStatus: ILead['status'], selectedOwnerId: string, nowIso: string) => {
+   const resolveCreatedLeadAssignment = (requestedStatus: ILead[ 'status' ], selectedOwnerId: string, nowIso: string) => {
       const isSelfOwnedLead = selectedOwnerId === user?.id;
 
       const effectiveStatus =
@@ -446,16 +448,16 @@ const MyLeads: React.FC = () => {
 
    const handleCreateMyLeadLegacy = () => {
       if (!user?.id) {
-         alert('KhÃ´ng xÃ¡c Ä‘á»‹nh Ä‘Æ°á»£c tÃ i khoáº£n sale.');
+         alert('Không xác định được tài khoản sale.');
          return;
       }
 
       if (!newLeadData.name?.trim()) {
-         alert('Vui lÃ²ng nháº­p tÃªn khÃ¡ch hÃ ng.');
+         alert('Vui lòng nhập tên khách hàng.');
          return;
       }
       if (!newLeadData.phone?.trim()) {
-         alert('Vui lÃ²ng nháº­p sá»‘ Ä‘iá»‡n thoáº¡i.');
+         alert('Vui lòng nhập số điện thoại.');
          return;
       }
       const normalizedPhone = normalizeLeadPhone(newLeadData.phone);
@@ -492,8 +494,8 @@ const MyLeads: React.FC = () => {
       const selectedOwnerId = newLeadData.salesperson;
 
       const program = (newLeadData.product && LEAD_PRODUCT_OPTIONS.some((option) => option.value === newLeadData.product))
-         ? newLeadData.product as ILead['program']
-         : newLeadData.program as ILead['program'];
+         ? newLeadData.product as ILead[ 'program' ]
+         : newLeadData.program as ILead[ 'program' ];
 
       const nowIso = new Date().toISOString();
       const { isSelfOwnedLead, effectiveStatus, pickUpDate } = resolveCreatedLeadAssignment(mappedStatus, selectedOwnerId, nowIso);
@@ -523,8 +525,8 @@ const MyLeads: React.FC = () => {
             buildLeadActivityLog({
                type: 'system',
                timestamp: nowIso,
-               title: 'Táº¡o lead',
-               description: `Lead Ä‘Æ°á»£c táº¡o bá»Ÿi ${user.name || 'TÃ´i'} tá»« My Leads.`,
+               title: 'Tạo lead',
+               description: `Lead được tạo bởi ${user.name || 'Tôi'} từ My Leads.`,
                user: user.name || 'System'
             }),
             ...(isSelfOwnedLead ? [
@@ -544,11 +546,11 @@ const MyLeads: React.FC = () => {
                actorType: 'user',
                timestamp: nowIso,
                changes: [
-                  buildLeadAuditChange('name', '', newLeadData.name.trim(), 'TÃªn lead'),
-                  buildLeadAuditChange('phone', '', newLeadData.phone.trim(), 'Sá»‘ Ä‘iá»‡n thoáº¡i'),
-                  buildLeadAuditChange('ownerId', '', selectedOwnerId, 'Sale phá»¥ trÃ¡ch'),
-                  buildLeadAuditChange('status', '', effectiveStatus, 'Tráº¡ng thÃ¡i'),
-                  ...(pickUpDate ? [buildLeadAuditChange('pickUpDate', '', pickUpDate, 'Thá»i gian nháº­n lead')] : [])
+                  buildLeadAuditChange('name', '', newLeadData.name.trim(), 'Tên lead'),
+                  buildLeadAuditChange('phone', '', newLeadData.phone.trim(), 'Số điện thoại'),
+                  buildLeadAuditChange('ownerId', '', selectedOwnerId, 'Sale phụ trách'),
+                  buildLeadAuditChange('status', '', effectiveStatus, 'Trạng thái'),
+                  ...(pickUpDate ? [buildLeadAuditChange('pickUpDate', '', pickUpDate, 'Thời gian nhận lead')] : [])
                ]
             })
          ]
@@ -562,21 +564,21 @@ const MyLeads: React.FC = () => {
          ...NEW_LEAD_INITIAL_STATE,
          salesperson: ''
       });
-      alert('Táº¡o Lead thÃ nh cÃ´ng!');
+      alert('Tạo Lead thành công!');
    };
 
    const handleCreateMyLead = () => {
       if (!user?.id) {
-         alert('KhÃ´ng xÃ¡c Ä‘á»‹nh Ä‘Æ°á»£c tÃ i khoáº£n sale.');
+         alert('Không xác định được tài khoản sale.');
          return;
       }
 
       if (!newLeadData.name.trim()) {
-         alert('Vui lÃ²ng nháº­p tÃªn khÃ¡ch hÃ ng.');
+         alert('Vui lòng nhập tên khách hàng.');
          return;
       }
       if (!newLeadData.phone.trim()) {
-         alert('Vui lÃ²ng nháº­p sá»‘ Ä‘iá»‡n thoáº¡i.');
+         alert('Vui lòng nhập số điện thoại.');
          return;
       }
       const normalizedPhone = normalizeLeadPhone(newLeadData.phone);
@@ -586,7 +588,7 @@ const MyLeads: React.FC = () => {
          return;
       }
       if (!newLeadData.targetCountry) {
-         alert('Vui lÃ²ng chá»n Quá»‘c gia má»¥c tiÃªu');
+         alert('Vui lòng chọn Quốc gia mục tiêu');
          return;
       }
       const campus = resolveLeadCampus(newLeadData);
@@ -614,8 +616,8 @@ const MyLeads: React.FC = () => {
          newLeadData.product &&
          LEAD_PRODUCT_OPTIONS.some((option) => option.value === newLeadData.product)
       )
-         ? newLeadData.product as ILead['program']
-         : newLeadData.program as ILead['program'];
+         ? newLeadData.product as ILead[ 'program' ]
+         : newLeadData.program as ILead[ 'program' ];
 
       const nowIso = new Date().toISOString();
       const { isSelfOwnedLead, effectiveStatus, pickUpDate } = resolveCreatedLeadAssignment(mappedStatus, selectedOwnerId, nowIso);
@@ -662,8 +664,8 @@ const MyLeads: React.FC = () => {
             buildLeadActivityLog({
                type: 'system',
                timestamp: nowIso,
-               title: 'Táº¡o lead',
-               description: `Lead Ä‘Æ°á»£c táº¡o bá»Ÿi ${user.name || 'TÃ´i'} tá»« My Leads.`,
+               title: 'Tạo lead',
+               description: `Lead được tạo bởi ${user.name || 'Tôi'} từ My Leads.`,
                user: user.name || 'System'
             }),
             ...(isSelfOwnedLead ? [
@@ -683,11 +685,11 @@ const MyLeads: React.FC = () => {
                actorType: 'user',
                timestamp: nowIso,
                changes: [
-                  buildLeadAuditChange('name', '', newLeadData.name.trim(), 'TÃªn lead'),
-                  buildLeadAuditChange('phone', '', newLeadData.phone.trim(), 'Sá»‘ Ä‘iá»‡n thoáº¡i'),
-                  buildLeadAuditChange('ownerId', '', selectedOwnerId, 'Sale phá»¥ trÃ¡ch'),
-                  buildLeadAuditChange('status', '', effectiveStatus, 'Tráº¡ng thÃ¡i'),
-                  ...(pickUpDate ? [buildLeadAuditChange('pickUpDate', '', pickUpDate, 'Thá»i gian nháº­n lead')] : [])
+                  buildLeadAuditChange('name', '', newLeadData.name.trim(), 'Tên lead'),
+                  buildLeadAuditChange('phone', '', newLeadData.phone.trim(), 'Số điện thoại'),
+                  buildLeadAuditChange('ownerId', '', selectedOwnerId, 'Sale phụ trách'),
+                  buildLeadAuditChange('status', '', effectiveStatus, 'Trạng thái'),
+                  ...(pickUpDate ? [buildLeadAuditChange('pickUpDate', '', pickUpDate, 'Thời gian nhận lead')] : [])
                ]
             })
          ]
@@ -701,7 +703,7 @@ const MyLeads: React.FC = () => {
          ...NEW_LEAD_INITIAL_STATE,
          salesperson: ''
       });
-      alert('Táº¡o Lead thÃ nh cÃ´ng!');
+      alert('Tạo Lead thành công!');
    };
 
    const openCreateLeadModal = () => {
@@ -819,10 +821,10 @@ const MyLeads: React.FC = () => {
       [leads]
    );
    const statusTabs = useMemo(() => ([
-      { id: 'all', label: 'Táº¥t cáº£', count: leads.length },
-      { id: LEAD_STATUS_KEYS.ASSIGNED, label: 'Chá» tiáº¿p nháº­n', count: assignedLeadsCount },
-      { id: 'overdue', label: 'DS quÃ¡ háº¡n', count: overdueLeadsCount },
-      { id: 'today_care', label: 'ChÄƒm sÃ³c hÃ´m nay', count: todayCareLeadsCount },
+      { id: 'all', label: 'Tất cả', count: leads.length },
+      { id: LEAD_STATUS_KEYS.ASSIGNED, label: 'Chờ tiếp nhận', count: assignedLeadsCount },
+      { id: 'overdue', label: 'DS quá hạn', count: overdueLeadsCount },
+      { id: 'today_care', label: 'Chăm sóc hôm nay', count: todayCareLeadsCount },
    ]), [assignedLeadsCount, leads.length, overdueLeadsCount, todayCareLeadsCount]);
 
    const resolvedTimeFilterField =
@@ -924,13 +926,13 @@ const MyLeads: React.FC = () => {
    const getTodayCareActionLabel = (activity: any) => {
       const rawType = String(activity?.activityType || activity?.type || '').toLowerCase();
 
-      if (rawType === 'call') return 'Gá»i Ä‘iá»‡n';
-      if (rawType === 'meeting') return 'Há»p trá»±c tiáº¿p';
-      if (rawType === 'message' || rawType === 'chat') return 'Gá»­i tin';
-      if (rawType === 'todo' || rawType === 'task') return 'Viá»‡c cáº§n lÃ m';
-      if (rawType === 'activity') return String(activity?.title || 'Lá»‹ch chÄƒm sÃ³c');
+      if (rawType === 'call') return 'Gọi điện';
+      if (rawType === 'meeting') return 'Họp trực tiếp';
+      if (rawType === 'message' || rawType === 'chat') return 'Gửi tin';
+      if (rawType === 'todo' || rawType === 'task') return 'Việc cần làm';
+      if (rawType === 'activity') return String(activity?.title || 'Lịch chăm sóc');
 
-      return String(activity?.title || 'Lá»‹ch chÄƒm sÃ³c');
+      return String(activity?.title || 'Lịch chăm sóc');
    };
 
    const getTodayCareActionBadgeClass = (activity: any) => {
@@ -948,20 +950,20 @@ const MyLeads: React.FC = () => {
 
       if (rawStatus === 'completed') {
          return {
-            label: 'HoÃ n thÃ nh',
+            label: 'Hoàn thành',
             className: 'bg-emerald-100 text-emerald-700'
          };
       }
 
       if (rawStatus === 'scheduled') {
          return {
-            label: 'ÄÃ£ lÃªn lá»‹ch',
+            label: 'Đã lên lịch',
             className: 'bg-amber-100 text-amber-700'
          };
       }
 
       return {
-         label: rawStatus ? rawStatus : 'Äang xá»­ lÃ½',
+         label: rawStatus ? rawStatus : 'Đang xử lý',
          className: 'bg-slate-100 text-slate-700'
       };
    };
@@ -1004,8 +1006,8 @@ const MyLeads: React.FC = () => {
             buildLeadActivityLog({
                type: 'system',
                timestamp: nowIso,
-               title: 'Tiáº¿p nháº­n Lead',
-               description: `Sale ${user?.name || 'TÃ´i'} Ä‘Ã£ tiáº¿p nháº­n lead. SLA Pick-up: ${slaMet ? 'Äáº T' : 'VI PHáº M'} (pháº£n há»“i sau ${diffMins} phÃºt).`,
+               title: 'Tiếp nhận Lead',
+               description: `Sale ${user?.name || 'Tôi'} đã tiếp nhận lead. SLA Pick-up: ${slaMet ? 'ĐẠT' : 'VI PHẠM'} (phản hồi sau ${diffMins} phút).`,
                user: user?.name || 'System'
             })
          ],
@@ -1016,16 +1018,16 @@ const MyLeads: React.FC = () => {
                actorType: 'user',
                timestamp: nowIso,
                changes: [
-                  buildLeadAuditChange('status', lead.status, LeadStatus.PICKED, 'Tráº¡ng thÃ¡i'),
-                  buildLeadAuditChange('ownerId', lead.ownerId, nextOwnerId, 'Sale phá»¥ trÃ¡ch'),
-                  buildLeadAuditChange('pickUpDate', lead.pickUpDate, nowIso, 'Thá»i gian nháº­n lead')
+                  buildLeadAuditChange('status', lead.status, LeadStatus.PICKED, 'Trạng thái'),
+                  buildLeadAuditChange('ownerId', lead.ownerId, nextOwnerId, 'Sale phụ trách'),
+                  buildLeadAuditChange('pickUpDate', lead.pickUpDate, nowIso, 'Thời gian nhận lead')
                ]
             })
          ]
       });
 
       handleLeadUpdate(updated);
-      alert(`Tiáº¿p nháº­n Lead: ${lead.name}. SLA: ${slaMet ? 'Äáº¡t' : 'QuÃ¡ háº¡n'}`);
+      alert(`Tiếp nhận Lead: ${lead.name}. SLA: ${slaMet ? 'Đạt' : 'Quá hạn'}`);
    };
 
    const handleCall = (e: React.MouseEvent, lead: ILead) => {
@@ -1044,8 +1046,8 @@ const MyLeads: React.FC = () => {
                buildLeadActivityLog({
                   type: 'system',
                   timestamp: nowIso,
-                  title: 'ÄÃ£ gá»i khÃ¡ch hÃ ng',
-                  description: `Sale ${user?.name || 'TÃ´i'} Ä‘Ã£ thá»±c hiá»‡n gá»i Ä‘iá»‡n cho khÃ¡ch hÃ ng.`,
+                  title: 'Đã gọi khách hàng',
+                  description: `Sale ${user?.name || 'Tôi'} đã thực hiện gọi điện cho khách hàng.`,
                   user: user?.name || 'System'
                })
             ],
@@ -1056,8 +1058,8 @@ const MyLeads: React.FC = () => {
                   actorType: 'user',
                   timestamp: nowIso,
                   changes: [
-                     buildLeadAuditChange('status', lead.status, LeadStatus.CONTACTED, 'Tráº¡ng thÃ¡i'),
-                     buildLeadAuditChange('lastInteraction', lead.lastInteraction, nowIso, 'Láº§n tÆ°Æ¡ng tÃ¡c cuá»‘i')
+                     buildLeadAuditChange('status', lead.status, LeadStatus.CONTACTED, 'Trạng thái'),
+                     buildLeadAuditChange('lastInteraction', lead.lastInteraction, nowIso, 'Lần tương tác cuối')
                   ]
                })
             ]
@@ -1072,8 +1074,8 @@ const MyLeads: React.FC = () => {
                buildLeadActivityLog({
                   type: 'system',
                   timestamp: nowIso,
-                  title: 'ÄÃ£ gá»i khÃ¡ch hÃ ng',
-                  description: `Sale ${user?.name || 'TÃ´i'} Ä‘Ã£ thá»±c hiá»‡n gá»i Ä‘iá»‡n cho khÃ¡ch hÃ ng.`,
+                  title: 'Đã gọi khách hàng',
+                  description: `Sale ${user?.name || 'Tôi'} đã thực hiện gọi điện cho khách hàng.`,
                   user: user?.name || 'System'
                })
             ],
@@ -1083,7 +1085,7 @@ const MyLeads: React.FC = () => {
                   actor: user?.name || 'System',
                   actorType: 'user',
                   timestamp: nowIso,
-                  changes: [buildLeadAuditChange('lastInteraction', lead.lastInteraction, nowIso, 'Láº§n tÆ°Æ¡ng tÃ¡c cuá»‘i')]
+                  changes: [buildLeadAuditChange('lastInteraction', lead.lastInteraction, nowIso, 'Lần tương tác cuối')]
                })
             ]
          });
@@ -1094,7 +1096,7 @@ const MyLeads: React.FC = () => {
 
    const handleMarkLost = (e: React.MouseEvent, lead: ILead) => {
       e.stopPropagation();
-      if (confirm("XÃ¡c nháº­n Ä‘Ã¡nh dáº¥u Lead nÃ y lÃ  Tháº¥t báº¡i/Lost?")) {
+      if (confirm("Xác nhận đánh dấu Lead này là Thất bại/Lost?")) {
          const nowIso = new Date().toISOString();
          const updated = appendLeadLogs({
             ...lead,
@@ -1104,8 +1106,8 @@ const MyLeads: React.FC = () => {
                buildLeadActivityLog({
                   type: 'system',
                   timestamp: nowIso,
-                  title: 'Äá»•i tráº¡ng thÃ¡i',
-                  description: `Tráº¡ng thÃ¡i: ${getLeadStatusLabel(String(lead.status || ''))} â†’ ${getLeadStatusLabel(String(LeadStatus.LOST))}`,
+                  title: 'Đổi trạng thái',
+                  description: `Trạng thái: ${getLeadStatusLabel(String(lead.status || ''))} → ${getLeadStatusLabel(String(LeadStatus.LOST))}`,
                   user: user?.name || 'System'
                })
             ],
@@ -1115,7 +1117,7 @@ const MyLeads: React.FC = () => {
                   actor: user?.name || 'System',
                   actorType: 'user',
                   timestamp: nowIso,
-                  changes: [buildLeadAuditChange('status', lead.status, LeadStatus.LOST, 'Tráº¡ng thÃ¡i')]
+                  changes: [buildLeadAuditChange('status', lead.status, LeadStatus.LOST, 'Trạng thái')]
                })
             ]
          });
@@ -1124,7 +1126,7 @@ const MyLeads: React.FC = () => {
    };
 
    const handleBulkMarkLost = () => {
-      if (confirm(`ÄÃ¡nh dáº¥u ${selectedIds.length} lead lÃ  Tháº¥t báº¡i?`)) {
+      if (confirm(`Đánh dấu ${selectedIds.length} lead là Thất bại?`)) {
          const nowIso = new Date().toISOString();
          const allLeads = getLeads();
          const updatedAllLeads = allLeads.map(l => selectedIds.includes(l.id)
@@ -1136,8 +1138,8 @@ const MyLeads: React.FC = () => {
                   buildLeadActivityLog({
                      type: 'system',
                      timestamp: nowIso,
-                     title: 'Äá»•i tráº¡ng thÃ¡i',
-                     description: `Tráº¡ng thÃ¡i: ${getLeadStatusLabel(String(l.status || ''))} â†’ ${getLeadStatusLabel(String(LeadStatus.LOST))}`,
+                     title: 'Đổi trạng thái',
+                     description: `Trạng thái: ${getLeadStatusLabel(String(l.status || ''))} → ${getLeadStatusLabel(String(LeadStatus.LOST))}`,
                      user: user?.name || 'System'
                   })
                ],
@@ -1147,7 +1149,7 @@ const MyLeads: React.FC = () => {
                      actor: user?.name || 'System',
                      actorType: 'user',
                      timestamp: nowIso,
-                     changes: [buildLeadAuditChange('status', l.status, LeadStatus.LOST, 'Tráº¡ng thÃ¡i')]
+                     changes: [buildLeadAuditChange('status', l.status, LeadStatus.LOST, 'Trạng thái')]
                   })
                ]
             })
@@ -1160,7 +1162,7 @@ const MyLeads: React.FC = () => {
 
    // Mock Assign (Handover)
    const handleBulkAssign = () => {
-      const target = prompt("Nháº­p tÃªn ngÆ°á»i nháº­n bÃ n giao:");
+      const target = prompt("Nhập tên người nhận bàn giao:");
       if (target) {
          const nowIso = new Date().toISOString();
          const allLeads = getLeads();
@@ -1173,10 +1175,10 @@ const MyLeads: React.FC = () => {
                      buildLeadActivityLog({
                         type: 'system',
                         timestamp: nowIso,
-                        title: l.ownerId ? 'Chia láº¡i Lead' : 'PhÃ¢n bá»• Lead',
+                        title: l.ownerId ? 'Chia lại Lead' : 'Phân bổ Lead',
                         description: l.ownerId
-                           ? `Lead Ä‘Æ°á»£c chia láº¡i tá»« ${l.ownerId} sang ${target}.`
-                           : `Lead Ä‘Æ°á»£c giao cho ${target}.`,
+                           ? `Lead được chia lại từ ${l.ownerId} sang ${target}.`
+                           : `Lead được giao cho ${target}.`,
                         user: user?.name || 'System'
                      })
                   ],
@@ -1187,8 +1189,8 @@ const MyLeads: React.FC = () => {
                         actorType: 'user',
                         timestamp: nowIso,
                         changes: [
-                           buildLeadAuditChange('ownerId', l.ownerId, target, 'Sale phá»¥ trÃ¡ch'),
-                           buildLeadAuditChange('status', l.status, LeadStatus.ASSIGNED, 'Tráº¡ng thÃ¡i')
+                           buildLeadAuditChange('ownerId', l.ownerId, target, 'Sale phụ trách'),
+                           buildLeadAuditChange('status', l.status, LeadStatus.ASSIGNED, 'Trạng thái')
                         ]
                      })
                   ]
@@ -1389,14 +1391,14 @@ const MyLeads: React.FC = () => {
    // Handle Bulk Convert
    const handleBulkConvert = () => {
       if (selectedIds.length === 0) {
-         alert("ChÆ°a chá»n lead!");
+         alert("Chưa chọn lead!");
          return;
       }
 
       setShowActionDropdown(false);
       const nextBulkLeads = filteredLeads.filter((lead) => selectedIds.includes(lead.id));
       if (nextBulkLeads.length === 0) {
-         alert('KhÃ´ng cÃ³ lead há»£p lá»‡ trong danh sÃ¡ch hiá»‡n táº¡i Ä‘á»ƒ convert.');
+         alert('Không có lead hợp lệ trong danh sách hiện tại để convert.');
          return;
       }
 
@@ -1405,22 +1407,22 @@ const MyLeads: React.FC = () => {
 
    const handleBulkWon = () => {
       if (selectedIds.length > 0) {
-         if (confirm(`XÃ¡c nháº­n Ä‘Ã¡nh dáº¥u tháº¯ng (Won) cho ${selectedIds.length} lead?`)) {
+         if (confirm(`Xác nhận đánh dấu thắng (Won) cho ${selectedIds.length} lead?`)) {
             const allLeads = getLeads();
             const updatedAllLeads = allLeads.map(l => selectedIds.includes(l.id) ? { ...l, status: DealStage.WON } : l);
             applyLeadScope(updatedAllLeads);
             saveLeads(updatedAllLeads);
             setSelectedIds([]);
-            alert("Cáº­p nháº­t thÃ nh cÃ´ng!");
+            alert("Cập nhật thành công!");
          }
       } else {
-         alert("ChÆ°a chá»n lead!");
+         alert("Chưa chọn lead!");
       }
    };
 
    const handleBulkDelete = () => {
       if (selectedIds.length > 0) {
-         if (confirm(`XÃ³a ${selectedIds.length} lead Ä‘Ã£ chá»n?`)) {
+         if (confirm(`Xóa ${selectedIds.length} lead đã chọn?`)) {
             const allLeads = getLeads();
             const filteredAllLeads = allLeads.filter((l) => !selectedIds.includes(l.id));
             applyLeadScope(filteredAllLeads);
@@ -1428,7 +1430,7 @@ const MyLeads: React.FC = () => {
             setSelectedIds([]);
          }
       } else {
-         alert("ChÆ°a chá»n lead!");
+         alert("Chưa chọn lead!");
       }
    };
 
@@ -1437,7 +1439,7 @@ const MyLeads: React.FC = () => {
          const lead = leads.find(l => l.id === selectedIds[0]);
          if (lead) setSelectedLead(lead);
       } else {
-         alert("ChÆ°a chá»n lead!");
+         alert("Chưa chọn lead!");
       }
    };
 
@@ -1561,7 +1563,7 @@ const MyLeads: React.FC = () => {
       if (filterType !== 'all' && filterTypeLabels[filterType]) {
          chips.push({
             field: 'advanced_filter',
-            label: 'Bá»™ lá»c',
+            label: 'Bộ lọc',
             value: filterTypeLabels[filterType],
             type: 'filter',
             origin: 'synthetic',
@@ -1599,7 +1601,7 @@ const MyLeads: React.FC = () => {
       groupBy.forEach((groupKey) => {
          chips.push({
             field: `group_by_${groupKey}`,
-            label: 'NhÃ³m theo',
+            label: 'Nhóm theo',
             value: groupByLabels[groupKey] || groupKey,
             type: 'groupby',
             origin: 'synthetic',
@@ -1613,7 +1615,7 @@ const MyLeads: React.FC = () => {
 
          chips.push({
             field: 'advanced_time',
-            label: 'Thá»i gian',
+            label: 'Thời gian',
             value: `${timeFieldLabel}: ${getTimeRangeSummaryLabel(timePresets, timeRangeType, customRange)}`,
             type: 'filter',
             origin: 'synthetic',
@@ -1835,10 +1837,9 @@ const MyLeads: React.FC = () => {
          const normalizedStatus = normalizeLeadStatusKey(String(lead.status || ''));
          const potentialValue = String((lead as any).potential || lead.internalNotes?.potential || '').trim();
          const potentialClassName =
-            potentialValue === 'Nóng' || potentialValue === 'NÃ³ng' ? 'bg-red-100 text-red-700 border-red-200' :
-               potentialValue === 'Tiềm năng' || potentialValue === 'Tiá»m nÄƒng' ? 'bg-amber-100 text-amber-700 border-amber-200' :
-                  potentialValue === 'Tham khảo' || potentialValue === 'Tham kháº£o' ? 'bg-slate-100 text-slate-700 border-slate-200' :
-                     'bg-slate-50 text-slate-500 border-slate-200';
+            potentialValue === 'Nóng' || potentialValue === 'Nóng' ? 'bg-red-100 text-red-700 border-red-200' :
+               potentialValue === 'Tiềm năng' || potentialValue === 'Tiềm năng' ? 'bg-amber-100 text-amber-700 border-amber-200' :
+                  potentialValue === 'Tham khảo' || potentialValue === 'Tham khảo' ? 'bg-slate-100 text-slate-700 border-slate-200' : 'bg-slate-50 text-slate-500 border-slate-200';
          const salesRep = SALES_REPS.find((rep) => rep.id === lead.ownerId);
          const addressValue = [
             (lead as any).street,
@@ -1848,7 +1849,7 @@ const MyLeads: React.FC = () => {
          const campaignValue = lead.marketingData?.campaign || (lead as any).campaign || '-';
          const marketValue = (lead as any).marketingData?.market || '-';
          const productValue = (lead as any).product || lead.program || '-';
-         const nextActivityLabel = nextActivity?.description?.split(':')[0] || nextActivity?.title || '-';
+         const nextActivityLabel = nextActivity?.description?.split(': ')[0] || nextActivity?.title || '-';
          const nextActivityTitle = nextActivity?.description || nextActivity?.title || '';
          const slaText = lead.slaStatus === 'danger' || lead.slaStatus === 'warning'
             ? (lead.slaReason || (lead.slaStatus === 'danger' ? 'Quá hạn' : 'Chú ý'))
@@ -1861,8 +1862,7 @@ const MyLeads: React.FC = () => {
                         normalizedStatus === LEAD_STATUS_KEYS.NURTURING ? 'bg-teal-100 text-teal-700' :
                            normalizedStatus === LEAD_STATUS_KEYS.CONVERTED ? 'bg-cyan-100 text-cyan-700' :
                               normalizedStatus === LEAD_STATUS_KEYS.UNVERIFIED ? 'bg-slate-200 text-slate-700' :
-                                 normalizedStatus === LEAD_STATUS_KEYS.LOST ? 'bg-red-100 text-red-700' :
-                                    'bg-slate-100 text-slate-600';
+                                 normalizedStatus === LEAD_STATUS_KEYS.LOST ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-600';
 
          return (
             <tr key={lead.id}
@@ -1885,7 +1885,7 @@ const MyLeads: React.FC = () => {
                   <button
                      onClick={(e) => handleCall(e, lead)}
                      className="inline-flex items-center justify-center p-1 rounded bg-green-100 text-green-700 hover:bg-green-200"
-                     title="Gá»i ngay"
+                     title="Gọi ngay"
                   >
                      <Phone size={12} />
                   </button>
@@ -1932,8 +1932,8 @@ const MyLeads: React.FC = () => {
                {visibleColumns.includes('campaign') && <td className="p-3 align-middle text-slate-600 text-xs truncate max-w-[120px]" title={campaignValue}>{campaignValue}</td>}
                {visibleColumns.includes('source') && (
                   <td className="p-3 align-middle text-xs">
-                     <span className="inline-flex max-w-[110px] items-center rounded-sm border border-teal-100 bg-teal-50/70 px-1.5 py-0 text-[10px] font-semibold text-teal-700" title={lead.source}>
-                        <span className="truncate">{lead.source || '-'}</span>
+                     <span className="inline-flex max-w-[110px] items-center rounded-sm border border-teal-100 bg-teal-50/70 px-1.5 py-0 text-[10px] font-semibold text-teal-700" title={getLeadSourceLabel(lead.source)}>
+                        <span className="truncate">{getLeadSourceLabel(lead.source)}</span>
                      </span>
                   </td>
                )}
@@ -2004,7 +2004,7 @@ const MyLeads: React.FC = () => {
                      <div className="flex flex-col items-center gap-1">
                         <span
                            className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase cursor-pointer hover:opacity-80 whitespace-nowrap ${statusClassName}`}
-                           onClick={(e) => handleClickableField(e, 'status', 'Tráº¡ng thÃ¡i', lead.status as string)}
+                           onClick={(e) => handleClickableField(e, 'status', 'Trạng thái', lead.status as string)}
                         >
                            {getLeadStatusLabel(lead.status as string)}
                         </span>
@@ -2013,12 +2013,12 @@ const MyLeads: React.FC = () => {
                               onClick={(e) => handlePickUp(e, lead)}
                               className="px-2 py-0.5 bg-blue-600 text-white text-[10px] font-bold rounded hover:bg-blue-700 transition-colors shadow-sm animate-pulse"
                            >
-                              Tiáº¿p nháº­n
+                              Tiếp nhận
                            </button>
                         )}
                         {normalizedStatus === LEAD_STATUS_KEYS.PICKED && lead.pickUpDate && (
                            <div className="flex items-center gap-1 text-[9px] text-green-600 font-bold">
-                              <CheckCircle2 size={10} /> ÄÃ£ nháº­n
+                              <CheckCircle2 size={10} /> Đã nhận
                            </div>
                         )}
                      </div>
@@ -2063,11 +2063,11 @@ const MyLeads: React.FC = () => {
 
    const actionDropdownItems = [
       {
-         label: 'PhÃ¢n bá»•',
+         label: 'Phân bổ',
          icon: Shuffle,
          onClick: () => {
             if (selectedIds.length === 0) {
-               alert('HÃ£y chá»n Ã­t nháº¥t 1 lead.');
+               alert('Hãy chọn ít nhất 1 lead.');
                return;
             }
             handleBulkAssign();
@@ -2078,7 +2078,7 @@ const MyLeads: React.FC = () => {
          icon: XCircle,
          onClick: () => {
             if (selectedIds.length === 0) {
-               alert('HÃ£y chá»n Ã­t nháº¥t 1 lead.');
+               alert('Hãy chọn ít nhất 1 lead.');
                return;
             }
             handleBulkMarkLost();
@@ -2089,7 +2089,7 @@ const MyLeads: React.FC = () => {
          icon: CheckCircle2,
          onClick: () => {
             if (selectedIds.length === 0) {
-               alert('HÃ£y chá»n Ã­t nháº¥t 1 lead.');
+               alert('Hãy chọn ít nhất 1 lead.');
                return;
             }
             handleBulkWon();
@@ -2100,7 +2100,7 @@ const MyLeads: React.FC = () => {
          icon: Settings,
          onClick: () => {
             if (selectedIds.length === 0) {
-               alert('HÃ£y chá»n Ã­t nháº¥t 1 lead.');
+               alert('Hãy chọn ít nhất 1 lead.');
                return;
             }
             handleBulkEdit();
@@ -2111,7 +2111,7 @@ const MyLeads: React.FC = () => {
          icon: Trash2,
          onClick: () => {
             if (selectedIds.length === 0) {
-               alert('HÃ£y chá»n Ã­t nháº¥t 1 lead.');
+               alert('Hãy chọn ít nhất 1 lead.');
                return;
             }
             handleBulkDelete();
@@ -2127,16 +2127,16 @@ const MyLeads: React.FC = () => {
          icon: Archive,
          onClick: () => {
             if (selectedIds.length === 0) {
-               alert('HÃ£y chá»n Ã­t nháº¥t 1 lead Ä‘á»ƒ convert.');
+               alert('Hãy chọn ít nhất 1 lead để convert.');
                return;
             }
             handleBulkConvert();
          }
       },
       {
-         label: 'Gá»­i tin',
+         label: 'Gửi tin',
          icon: MessageSquare,
-         onClick: () => alert('Chá»©c nÄƒng gá»­i tin hÃ ng loáº¡t Ä‘ang phÃ¡t triá»ƒn.')
+         onClick: () => alert('Chức năng gửi tin hàng loạt đang phát triển.')
       }
    ];
 
@@ -2162,7 +2162,7 @@ const MyLeads: React.FC = () => {
                               onChange={(e) => setCustomRange(prev => ({ start: e.target.value, end: prev?.end || '' }))}
                               className="border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-600 outline-none focus:border-blue-300"
                            />
-                           <span className="text-xs font-semibold text-slate-500">Ã„â€˜Ã¡ÂºÂ¿n</span>
+                           <span className="text-xs font-semibold text-slate-500">đến</span>
                            <input
                               type="date"
                               value={customRange?.end || ''}
@@ -2177,7 +2177,7 @@ const MyLeads: React.FC = () => {
                               }}
                               className="px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-50"
                            >
-                              XÃƒÂ³a
+                              Xóa
                            </button>
                         </div>
                      )}
@@ -2213,7 +2213,7 @@ const MyLeads: React.FC = () => {
                         onClick={openCreateLeadModal}
                         className="flex items-center gap-1 px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white border border-blue-600 rounded-lg text-xs font-bold transition-all whitespace-nowrap shrink-0 shadow-sm"
                      >
-                        <UserPlus size={13} /> Táº¡o lead
+                        <UserPlus size={13} /> Tạo lead
                      </button>
 
                      <div className="relative shrink-0">
@@ -2303,9 +2303,9 @@ const MyLeads: React.FC = () => {
 
                      <div className="flex items-center justify-end gap-2">
                         <div className="flex bg-white px-1 py-0.5 rounded-lg border border-slate-200 shadow-sm">
-                           <button onClick={() => setViewMode('list')} className={`p-1 rounded ${viewMode === 'list' ? 'bg-blue-50 text-blue-600 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-700'}`} title="Dáº¡ng danh sÃ¡ch"><ListIcon size={15} /></button>
-                           <button onClick={() => setViewMode('kanban')} className={`p-1 rounded ${viewMode === 'kanban' ? 'bg-blue-50 text-blue-600 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-700'}`} title="Dáº¡ng kanban"><Layout size={15} /></button>
-                           <button onClick={() => setViewMode('pivot')} className={`p-1 rounded ${viewMode === 'pivot' ? 'bg-blue-50 text-blue-600 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-700'}`} title="BÃ¡o cÃ¡o pivot"><LayoutGrid size={15} /></button>
+                           <button onClick={() => setViewMode('list')} className={`p-1 rounded ${viewMode === 'list' ? 'bg-blue-50 text-blue-600 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-700'}`} title="Dạng danh sách"><ListIcon size={15} /></button>
+                           <button onClick={() => setViewMode('kanban')} className={`p-1 rounded ${viewMode === 'kanban' ? 'bg-blue-50 text-blue-600 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-700'}`} title="Dạng kanban"><Layout size={15} /></button>
+                           <button onClick={() => setViewMode('pivot')} className={`p-1 rounded ${viewMode === 'pivot' ? 'bg-blue-50 text-blue-600 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-700'}`} title="Báo cáo pivot"><LayoutGrid size={15} /></button>
                         </div>
 
                         {statusFilter !== 'today_care' && (
@@ -2317,13 +2317,13 @@ const MyLeads: React.FC = () => {
                                  }}
                                  className="flex items-center gap-1.5 px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs font-bold hover:bg-white text-slate-600 bg-slate-100 shadow-sm transition-all whitespace-nowrap"
                               >
-                                 <Settings size={13} /> Cá»™t
+                                 <Settings size={13} /> Cột
                               </button>
                               {showColumnDropdown && (
                                  <>
                                     <div className="fixed inset-0 z-30" onClick={() => setShowColumnDropdown(false)}></div>
                                     <div className="absolute right-0 top-full mt-2 w-[400px] max-w-[calc(100vw-2rem)] bg-white border border-slate-200 rounded-xl shadow-xl z-40 p-3 animate-in fade-in zoom-in-95">
-                                       <div className="text-xs font-bold text-slate-500 uppercase px-2 py-1 mb-2 border-b border-slate-100 pb-2">Hiá»ƒn thá»‹ cá»™t</div>
+                                       <div className="text-xs font-bold text-slate-500 uppercase px-2 py-1 mb-2 border-b border-slate-100 pb-2">Hiển thị cột</div>
                                        <div className="grid grid-cols-2 gap-x-2 gap-y-1 max-h-[300px] overflow-y-auto custom-scrollbar">
                                           {ALL_COLUMNS.map(col => (
                                              <div key={col.id} onClick={() => toggleColumn(col.id)} className="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-50 rounded cursor-pointer text-sm">
@@ -2341,7 +2341,7 @@ const MyLeads: React.FC = () => {
                         )}
 
                         <div className="text-xs text-slate-500 font-mono whitespace-nowrap shrink-0">
-                           Tá»•ng sá»‘: <span className="font-bold text-slate-900">{filteredLeads.length}</span> bản ghi
+                           Tổng số: <span className="font-bold text-slate-900">{filteredLeads.length}</span> bản ghi
                         </div>
                      </div>
                   </div>
@@ -2391,7 +2391,7 @@ const MyLeads: React.FC = () => {
                                           <button
                                              onClick={(e) => handleCall(e, lead)}
                                              className="p-1 rounded bg-green-100 text-green-700 hover:bg-green-200 shrink-0"
-                                             title="Gá»i ngay"
+                                             title="Gọi ngay"
                                           >
                                              <Phone size={13} />
                                           </button>
@@ -2426,20 +2426,20 @@ const MyLeads: React.FC = () => {
                            />
                         </th>
                         <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider w-16 text-center">STT</th>
-                        <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Há»c viÃªn</th>
-                        <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Äiá»‡n thoáº¡i</th>
-                        <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Sale phá»¥ trÃ¡ch</th>
-                        <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">HÃ nh Ä‘á»™ng</th>
-                        <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Thá»i gian</th>
-                        <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Ná»™i dung</th>
-                        <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Tráº¡ng thÃ¡i</th>
+                        <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Học viên</th>
+                        <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Điện thoại</th>
+                        <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Sale phụ trách</th>
+                        <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Hành động</th>
+                        <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Thời gian</th>
+                        <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Nội dung</th>
+                        <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Trạng thái</th>
                      </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                      {todayCareRows.length === 0 ? (
                         <tr>
                            <td colSpan={todayCareTableColumnCount} className="px-6 py-12 text-center text-slate-400">
-                              ChÆ°a cÃ³ lá»‹ch chÄƒm sÃ³c nÃ o trong hÃ´m nay.
+                              Chưa có lịch chăm sóc nào trong hôm nay.
                            </td>
                         </tr>
                      ) : (
@@ -2602,11 +2602,11 @@ const MyLeads: React.FC = () => {
                   <div className="p-5 border-b border-slate-200 flex justify-between items-center bg-slate-50 shrink-0">
                      <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
                         <UserPlus size={20} className="text-blue-600" />
-                        ThÃªm CÆ¡ há»™i / Lead Má»›i
+                        Thêm Cơ hội / Lead Mới
                      </h3>
                      <div className="flex items-center gap-3">
                         <button className="px-3 py-1.5 bg-white border border-slate-300 rounded text-slate-600 flex items-center gap-2 text-sm font-semibold hover:bg-slate-50">
-                           <Phone size={16} /> Cuá»™c gá»i
+                           <Phone size={16} /> Cuộc gọi
                         </button>
                         <button onClick={() => setShowCreateLeadModal(false)} className="text-slate-400 hover:text-slate-600"><X size={24} /></button>
                      </div>
@@ -2647,14 +2647,14 @@ const MyLeads: React.FC = () => {
 
                   <div className="flex-1 overflow-y-auto bg-white p-6 md:p-8 custom-scrollbar">
                      <div className="mb-6">
-                        <label className="block text-slate-700 text-sm font-bold mb-2">MÃ´ táº£ / TÃªn khÃ¡ch hÃ ng <span className="text-red-500">*</span></label>
+                        <label className="block text-slate-700 text-sm font-bold mb-2">Mô tả / Tên khách hàng <span className="text-red-500">*</span></label>
                         <div className="flex gap-3">
                            <select
                               className="w-28 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white font-medium text-slate-700"
                               value={newLeadData.title}
                               onChange={e => setNewLeadData({ ...newLeadData, title: e.target.value })}
                            >
-                              <option value="">Danh xÆ°ng</option>
+                              <option value="">Danh xưng</option>
                               {LEAD_RELATION_OPTIONS.map((option) => (
                                  <option key={option.value} value={option.value}>
                                     {option.label}
@@ -2662,11 +2662,11 @@ const MyLeads: React.FC = () => {
                               ))}
                               {false && (
                                  <>
-                              <option value="">Danh xÆ°ng</option>
+                              <option value="">Danh xưng</option>
                               <option value="Mr.">Anh</option>
-                              <option value="Ms.">Chá»‹</option>
-                              <option value="Phá»¥ huynh">Phá»¥ huynh</option>
-                              <option value="Há»c sinh">Há»c sinh</option>
+                              <option value="Ms.">Chị</option>
+                              <option value="Phụ huynh">Phụ huynh</option>
+                              <option value="Học sinh">Học sinh</option>
                                  </>
                               )}
                            </select>
@@ -2682,13 +2682,13 @@ const MyLeads: React.FC = () => {
                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-12 gap-y-5">
                         <div className="space-y-4">
                            <div className="flex items-center gap-4">
-                              <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Quá»‘c gia má»¥c tiÃªu <span className="text-red-500">*</span></label>
+                              <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Quốc gia mục tiêu <span className="text-red-500">*</span></label>
                               <select
                                  className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
                                  value={newLeadData.targetCountry}
                                  onChange={e => setNewLeadData({ ...newLeadData, targetCountry: e.target.value })}
                               >
-                                 <option value="">-- Chá»n quá»‘c gia má»¥c tiÃªu --</option>
+                                 <option value="">-- Chọn quốc gia mục tiêu --</option>
                                  {LEAD_TARGET_COUNTRY_OPTIONS.map((option) => (
                                     <option key={option.value} value={option.value}>
                                        {option.label}
@@ -2700,13 +2700,13 @@ const MyLeads: React.FC = () => {
                            {false && (
                               <>
                            <div className="flex items-center gap-4">
-                              <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Quá»‘c gia má»¥c tiÃªu <span className="text-red-500">*</span></label>
+                              <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Quốc gia mục tiêu <span className="text-red-500">*</span></label>
                               <select
                                  className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
                                  value={newLeadData.targetCountry}
                                  onChange={e => setNewLeadData({ ...newLeadData, targetCountry: e.target.value })}
                               >
-                                 <option value="">-- Chá»n quá»‘c gia má»¥c tiÃªu --</option>
+                                 <option value="">-- Chọn quốc gia mục tiêu --</option>
                                  {LEAD_TARGET_COUNTRY_OPTIONS.map((option) => (
                                     <option key={option.value} value={option.value}>
                                        {option.label}
@@ -2716,17 +2716,17 @@ const MyLeads: React.FC = () => {
                            </div>
 
                            <div className="flex items-center gap-4">
-                              <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">CÆ¡ sá»Ÿ</label>
+                              <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Cơ sở</label>
                               <select
                                  className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
                                  value={newLeadData.company}
                                  onChange={e => setNewLeadData({ ...newLeadData, company: e.target.value })}
                               >
-                                 <option value="">-- Chá»n cÆ¡ sá»Ÿ --</option>
-                                 <option value="Hanoi">HÃ  Ná»™i</option>
+                                 <option value="">-- Chọn cơ sở --</option>
+                                 <option value="Hanoi">Hà Nội</option>
                                  <option value="HCMC">TP. HCM</option>
-                                 <option value="DaNang">ÄÃ  Náºµng</option>
-                                 <option value="HaiPhong">Háº£i PhÃ²ng</option>
+                                 <option value="DaNang">Đà Nẵng</option>
+                                 <option value="HaiPhong">Hải Phòng</option>
                               </select>
                            </div>
 
@@ -2734,30 +2734,30 @@ const MyLeads: React.FC = () => {
                            )}
 
                            <div className="flex items-start gap-4">
-                              <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold pt-2">Äá»‹a chá»‰</label>
+                              <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold pt-2">Địa chỉ</label>
                               <div className="flex-1 space-y-2">
                                  <input
                                     className="w-full px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none text-slate-700 placeholder:text-slate-400"
-                                    placeholder="Sá»‘ nhÃ , Ä‘Æ°á»ng..."
+                                    placeholder="Số nhà, đường..."
                                     value={newLeadData.street}
                                     onChange={e => setNewLeadData({ ...newLeadData, street: e.target.value })}
                                  />
                                  <div className="grid grid-cols-3 gap-2">
                                     <input
                                        className="px-2 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none text-slate-700 placeholder:text-slate-400"
-                                       placeholder="Tá»‰nh/TP"
+                                       placeholder="Tỉnh/TP"
                                        value={newLeadData.province}
                                        onChange={e => setNewLeadData({ ...newLeadData, province: e.target.value })}
                                     />
                                     <input
                                        className="px-2 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none text-slate-700 placeholder:text-slate-400"
-                                       placeholder="Quáº­n/Huyá»‡n"
+                                       placeholder="Quận/Huyện"
                                        value={newLeadData.city}
                                        onChange={e => setNewLeadData({ ...newLeadData, city: e.target.value })}
                                     />
                                     <input
                                        className="px-2 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none text-slate-700 placeholder:text-slate-400"
-                                       placeholder="P/XÃ£"
+                                       placeholder="P/Xã"
                                        value={newLeadData.ward}
                                        onChange={e => setNewLeadData({ ...newLeadData, ward: e.target.value })}
                                     />
@@ -2766,7 +2766,7 @@ const MyLeads: React.FC = () => {
                            </div>
 
                            <div className="flex items-center gap-4">
-                              <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Sáº£n pháº©m</label>
+                              <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Sản phẩm</label>
                               <select
                                  className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
                                  value={newLeadData.product}
@@ -2782,13 +2782,13 @@ const MyLeads: React.FC = () => {
                            </div>
 
                            <div className="flex items-center gap-4">
-                              <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">CÆ¡ sá»Ÿ</label>
+                              <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Cơ sở</label>
                               <select
                                  className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
                                  value={newLeadData.market}
                                  onChange={e => setNewLeadData({ ...newLeadData, market: e.target.value, salesperson: '' })}
                               >
-                                 <option value="">-- Chá»n cÆ¡ sá»Ÿ --</option>
+                                 <option value="">-- Chọn cơ sở --</option>
                                  {LEAD_CAMPUS_OPTIONS.map((option) => (
                                     <option key={option.value} value={option.value}>
                                        {option.label}
@@ -2800,7 +2800,7 @@ const MyLeads: React.FC = () => {
 
                         <div className="space-y-4">
                            <div className="flex items-center gap-4">
-                              <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Äiá»‡n thoáº¡i <span className="text-red-500">*</span></label>
+                              <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Điện thoại <span className="text-red-500">*</span></label>
                               <input
                                  className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none text-slate-800 font-medium"
                                  placeholder="0912..."
@@ -2820,7 +2820,7 @@ const MyLeads: React.FC = () => {
                            </div>
 
                             <div className="flex items-center gap-4">
-                               <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Phá»¥ trÃ¡ch</label>
+                               <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Phụ trách</label>
                                <select
                                   className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700 disabled:bg-slate-100 disabled:text-slate-400"
                                   disabled={!createLeadCampus || createLeadSalesOptions.length === 0}
@@ -2829,10 +2829,10 @@ const MyLeads: React.FC = () => {
                                >
                                   <option value="">
                                      {!createLeadCampus
-                                        ? 'Chá»n cÆ¡ sá»Ÿ trÆ°á»›c'
+                                        ? 'Chọn cơ sở trước'
                                         : !createLeadSalesOptions.length
-                                           ? 'ChÆ°a cÃ³ phá»¥ trÃ¡ch cho cÆ¡ sá»Ÿ nÃ y'
-                                           : 'Chá»n sale phá»¥ trÃ¡ch'}
+                                           ? 'Chưa có phụ trách cho cơ sở này'
+                                           : 'Chọn sale phụ trách'}
                                   </option>
                                   {createLeadSalesOptions.map(rep => (
                                      <option key={rep.id} value={rep.value}>{rep.label}</option>
@@ -2841,7 +2841,7 @@ const MyLeads: React.FC = () => {
                             </div>
 
                            <div className="flex items-center gap-4">
-                              <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Tráº¡ng thÃ¡i</label>
+                              <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Trạng thái</label>
                               <select
                                  className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
                                  value={newLeadData.status}
@@ -2882,19 +2882,19 @@ const MyLeads: React.FC = () => {
                               onClick={() => setCreateModalActiveTab('notes')}
                               className={`px-4 py-2 text-sm font-medium border-b-2 transition-all ${createModalActiveTab === 'notes' ? 'border-purple-600 text-purple-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
                            >
-                              Ghi chÃº ná»™i bá»™
+                              Ghi chú nội bộ
                            </button>
                            <button
                               onClick={() => setCreateModalActiveTab('student')}
                               className={`px-4 py-2 text-sm font-medium border-b-2 transition-all ${createModalActiveTab === 'student' ? 'border-purple-600 text-purple-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
                            >
-                              ThÃ´ng tin há»c sinh
+                              Thông tin học sinh
                            </button>
                            <button
                               onClick={() => setCreateModalActiveTab('extra')}
                               className={`px-4 py-2 text-sm font-medium border-b-2 transition-all ${createModalActiveTab === 'extra' ? 'border-purple-600 text-purple-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
                            >
-                              ThÃ´ng tin thÃªm (Marketing)
+                              Thông tin thêm (Marketing)
                            </button>
                         </div>
 
@@ -2903,7 +2903,7 @@ const MyLeads: React.FC = () => {
                               <div className="animate-in fade-in duration-200">
                                  <textarea
                                     className="w-full p-3 border border-slate-200 rounded text-sm focus:border-purple-500 outline-none text-slate-700 h-40"
-                                    placeholder="Viáº¿t ghi chÃº..."
+                                    placeholder="Viết ghi chú..."
                                     value={newLeadData.notes}
                                     onChange={e => setNewLeadData({ ...newLeadData, notes: e.target.value })}
                                  />
@@ -2917,7 +2917,7 @@ const MyLeads: React.FC = () => {
                            {createModalActiveTab === 'extra' && (
                               <div className="grid grid-cols-2 gap-x-12 gap-y-4 animate-in fade-in duration-200">
                                  <div className="flex items-center gap-4">
-                                    <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Chiáº¿n dá»‹ch</label>
+                                    <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Chiến dịch</label>
                                     <select
                                        className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
                                        value={newLeadData.campaign}
@@ -2930,33 +2930,32 @@ const MyLeads: React.FC = () => {
                                     </select>
                                  </div>
                                  <div className="flex items-center gap-4">
-                                    <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Nguá»“n</label>
+                                    <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Nguồn</label>
                                     <select
                                        className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
                                        value={newLeadData.source}
                                        onChange={e => setNewLeadData({ ...newLeadData, source: e.target.value })}
                                     >
-                                       <option value="hotline">Hotline</option>
-                                       <option value="facebook">Facebook</option>
-                                       <option value="google">Google Ads</option>
-                                       <option value="referral">Giá»›i thiá»‡u</option>
+                                       {LEAD_SOURCE_OPTIONS.map(option => (
+                                          <option key={option.value} value={option.value}>{option.label}</option>
+                                       ))}
                                     </select>
                                  </div>
                                  <div className="flex items-center gap-4">
-                                    <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">KÃªnh</label>
+                                    <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Kênh</label>
                                     <select
                                        className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
                                        value={newLeadData.channel}
                                        onChange={e => setNewLeadData({ ...newLeadData, channel: e.target.value })}
                                     >
-                                       <option value="">-- Chá»n kÃªnh --</option>
+                                       <option value="">-- Chọn kênh --</option>
                                        {LEAD_CHANNEL_OPTIONS.map(option => (
                                           <option key={option.value} value={option.value}>{option.label}</option>
                                        ))}
                                     </select>
                                  </div>
                                  <div className="flex items-center gap-4">
-                                    <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">NgÆ°á»i GT</label>
+                                    <label className="w-24 shrink-0 text-slate-600 text-sm font-semibold">Người GT</label>
                                     <select
                                        className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none bg-white text-slate-700"
                                        value={newLeadData.referredBy}
@@ -2975,8 +2974,8 @@ const MyLeads: React.FC = () => {
                   </div>
 
                   <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-3 shrink-0">
-                     <button onClick={() => setShowCreateLeadModal(false)} className="px-4 py-2 text-slate-600 font-medium hover:bg-slate-200 rounded-lg">Há»§y bá»</button>
-                     <button onClick={handleCreateMyLead} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg flex items-center gap-2 shadow-sm"><Save size={18} /> LÆ°u Lead má»›i</button>
+                     <button onClick={() => setShowCreateLeadModal(false)} className="px-4 py-2 text-slate-600 font-medium hover:bg-slate-200 rounded-lg">Hủy bỏ</button>
+                     <button onClick={handleCreateMyLead} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg flex items-center gap-2 shadow-sm"><Save size={18} /> Lưu Lead mới</button>
                   </div>
                </div>
             </div>

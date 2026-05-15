@@ -4,6 +4,8 @@ import LeadTagManager from '../components/LeadTagManager';
 import { FIXED_LEAD_TAGS, getLeadById, saveLead, getTags, saveTags } from '../utils/storage';
 import { useAuth } from '../contexts/AuthContext';
 import { getLeadStatusLabel, LEAD_STATUS_OPTIONS, normalizeLeadStatusKey, toLeadStatusValue } from '../utils/leadStatus';
+import { LEAD_SOURCE_OPTIONS, LEAD_CAMPUS_OPTIONS } from '../utils/leadCreateForm';
+import { getCampaignNameOptions } from '../utils/campaignCatalog';
 import {
     ArrowLeft, Phone, Mail, MessageCircle, Clock,
     Tag, MapPin, TrendingUp, Database, Calendar,
@@ -271,10 +273,9 @@ const MarketingLeadDetails: React.FC = () => {
                                     onChange={e => setEditData({ ...editData, company: e.target.value })}
                                 >
                                     <option value="">-- Chọn cơ sở --</option>
-                                    <option value="Hanoi">Hà Nội</option>
-                                    <option value="HCMC">TP. HCM</option>
-                                    <option value="DaNang">Đà Nẵng</option>
-                                    <option value="HaiPhong">Hải Phòng</option>
+                                    {LEAD_CAMPUS_OPTIONS.map(option => (
+                                        <option key={option.value} value={option.value}>{option.label}</option>
+                                    ))}
                                 </select>
                             </div>
 
@@ -444,11 +445,16 @@ const MarketingLeadDetails: React.FC = () => {
                                 <div className="grid grid-cols-2 gap-x-12 gap-y-6 animate-in fade-in slide-in-from-top-2">
                                     <div className="flex items-center gap-6">
                                         <label className="w-28 shrink-0 text-slate-500 text-sm font-medium">Chiến dịch</label>
-                                        <input
+                                        <select
                                             className="flex-1 px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-bold text-slate-800 outline-none focus:border-blue-500"
                                             value={editData.campaign}
                                             onChange={e => setEditData({ ...editData, campaign: e.target.value })}
-                                        />
+                                        >
+                                            <option value="">-- Chọn chiến dịch --</option>
+                                            {getCampaignNameOptions().map(option => (
+                                                <option key={option.value} value={option.value}>{option.label}</option>
+                                            ))}
+                                        </select>
                                     </div>
                                     <div className="flex items-center gap-6">
                                         <label className="w-28 shrink-0 text-slate-500 text-sm font-medium">Nguồn</label>
@@ -457,11 +463,10 @@ const MarketingLeadDetails: React.FC = () => {
                                             value={editData.source}
                                             onChange={e => setEditData({ ...editData, source: e.target.value })}
                                         >
-                                            <option value="facebook">Facebook Ads</option>
-                                            <option value="google">Google Search</option>
-                                            <option value="hotline">Hotline</option>
-                                            <option value="referral">Giới thiệu</option>
-                                            <option value="tiktok">TikTok</option>
+                                            <option value="">-- Chọn nguồn --</option>
+                                            {LEAD_SOURCE_OPTIONS.map(option => (
+                                                <option key={option.value} value={option.value}>{option.label}</option>
+                                            ))}
                                         </select>
                                     </div>
                                     <div className="flex items-center gap-6">

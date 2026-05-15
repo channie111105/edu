@@ -1,4 +1,4 @@
-﻿
+
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getLeadById, saveLead, deleteLead } from '../utils/storage';
@@ -12,6 +12,8 @@ import {
 } from 'lucide-react';
 import { LeadStatus, ILead, DealStage } from '../types';
 import Toast from '../components/Toast';
+import { LEAD_SOURCE_OPTIONS, LEAD_PRODUCT_OPTIONS, LEAD_TARGET_COUNTRY_OPTIONS, LEAD_CAMPUS_OPTIONS } from '../utils/leadCreateForm';
+import { getCampaignNameOptions } from '../utils/campaignCatalog';
 
 interface ITimelineEvent {
     id: string;
@@ -364,16 +366,12 @@ const SalesLeadQuickProcess: React.FC = () => {
                                     <select
                                         value={lead?.program || ''}
                                         onChange={(e) => setLead(lead ? { ...lead, program: e.target.value as any } : null)}
-                                        className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                        className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-bold text-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
                                     >
                                         <option value="">-- Chọn chương trình --</option>
-                                        <option value="App Tiếng Đức">App Tiếng Đức</option>
-                                        <option value="App Tiếng Trung">App Tiếng Trung</option>
-                                        <option value="Tiếng Đức Off">Tiếng Đức Off</option>
-                                        <option value="Tiếng Trung Off">Tiếng Trung Off</option>
-                                        <option value="Du Học Nghề">Du Học Nghề</option>
-                                        <option value="Du Học Đức">Du Học Đức</option>
-                                        <option value="Du Học Trung">Du Học Trung</option>
+                                        {LEAD_PRODUCT_OPTIONS.map(option => (
+                                            <option key={option.value} value={option.value}>{option.label}</option>
+                                        ))}
                                     </select>
                                 </div>
 
@@ -388,9 +386,10 @@ const SalesLeadQuickProcess: React.FC = () => {
                                             } : null)}
                                             className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                                         >
-                                            <option value="">-- Chọn --</option>
-                                            <option value="Đức">🇩🇪 Đức</option>
-                                            <option value="Trung">🇨🇳 Trung</option>
+                                            <option value="">-- Chọn quốc gia --</option>
+                                            {LEAD_TARGET_COUNTRY_OPTIONS.map(option => (
+                                                <option key={option.value} value={option.value}>{option.label}</option>
+                                            ))}
                                         </select>
                                     </div>
                                     <div>
@@ -494,32 +493,37 @@ const SalesLeadQuickProcess: React.FC = () => {
                                         className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                                     >
                                         <option value="">-- Chọn nguồn --</option>
-                                        <option value="fb_lead_form">Facebook Ads</option>
-                                        <option value="hotline">Hotline</option>
-                                        <option value="landing_page">Website</option>
-                                        <option value="referral">Giới thiệu</option>
-                                        <option value="event">Sự kiện</option>
+                                        {LEAD_SOURCE_OPTIONS.map(option => (
+                                            <option key={option.value} value={option.value}>{option.label}</option>
+                                        ))}
                                     </select>
                                 </div>
 
                                 <div>
                                     <label className="text-xs text-slate-500 font-medium block mb-1">Chiến dịch</label>
-                                    <input
-                                        type="text"
+                                    <select
                                         value={lead?.campaign || ''}
                                         onChange={(e) => setLead(lead ? { ...lead, campaign: e.target.value } : null)}
                                         className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm focus:outline-none"
-                                        placeholder="VD: Tuyển sinh Du học Nghề 2024"
-                                    />
+                                    >
+                                        <option value="">-- Chọn chiến dịch --</option>
+                                        {getCampaignNameOptions().map(option => (
+                                            <option key={option.value} value={option.value}>{option.label}</option>
+                                        ))}
+                                    </select>
                                 </div>
 
                                 <div>
                                     <label className="text-xs text-slate-500 font-medium block mb-1">Chi nhánh (Branch)</label>
-                                    <select className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm focus:outline-none">
-                                        <option value="">-- Chọn chi nhánh --</option>
-                                        <option value="HN">Hà Nội</option>
-                                        <option value="HCM">TP. Hồ Chí Minh</option>
-                                        <option value="DN">Đà Nẵng</option>
+                                    <select 
+                                        className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm focus:outline-none"
+                                        value={lead?.company || ''}
+                                        onChange={(e) => setLead(lead ? { ...lead, company: e.target.value } : null)}
+                                    >
+                                        <option value="">-- Chọn cơ sở --</option>
+                                        {LEAD_CAMPUS_OPTIONS.map(option => (
+                                            <option key={option.value} value={option.value}>{option.label}</option>
+                                        ))}
                                     </select>
                                 </div>
 

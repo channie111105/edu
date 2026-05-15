@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { ILead } from '../types';
 import {
   Activity,
   Building2,

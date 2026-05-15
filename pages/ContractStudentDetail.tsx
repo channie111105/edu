@@ -77,8 +77,8 @@ type StudentLifecycleStatus =
   | 'DUNG';
 
 const DETAIL_TABS: Array<{ key: DetailTabKey; label: string }> = [
-  { key: 'overview', label: '\u0054\u1ed5ng quan' },
-  { key: 'classroom', label: '\u0047hi danh \u0026 l\u1edbp h\u1ecdc' }
+  { key: 'overview', label: 'Tổng quan' },
+  { key: 'classroom', label: 'Ghi danh & lớp học' }
 ];
 
 const LEGACY_STUDENT_STATUS_LABELS: Record<StudentLifecycleStatus, string> = {
@@ -102,13 +102,13 @@ const STUDENT_STATUS_LABELS_MOJIBAKE: Record<StudentLifecycleStatus, string> = {
 };
 
 const STUDENT_STATUS_LABELS: Record<StudentLifecycleStatus, string> = {
-  MOI_TAO: '\u004d\u1edbi t\u1ea1o',
-  CHO_GHI_DANH: '\u0043h\u1edd ghi danh',
-  DA_GHI_DANH: '\u0110\u00e3 ghi danh',
-  DANG_HOC: '\u0110ang h\u1ecdc',
-  TAM_DUNG: '\u0054\u1ea1m d\u1eebng',
-  HOAN_THANH: '\u0048o\u00e0n th\u00e0nh',
-  DUNG: '\u0044\u1eebng'
+  MOI_TAO: 'Mới tạo',
+  CHO_GHI_DANH: 'Chờ ghi danh',
+  DA_GHI_DANH: 'Đã ghi danh',
+  DANG_HOC: 'Đang học',
+  TAM_DUNG: 'Tạm dừng',
+  HOAN_THANH: 'Hoàn thành',
+  DUNG: 'Dừng'
 };
 
 const STUDENT_STATUS_OPTIONS: StudentLifecycleStatus[] = [
@@ -202,9 +202,9 @@ const formatMoney = (value?: number) =>
 
 const normalizeEnrollmentText = (value?: string) =>
   decodeMojibakeText(String(value || ''))
-    .replace(/Sáº£n pháº©m/g, 'Sản phẩm')
-    .replace(/Lá»›p dá»± kiáº¿n/g, 'Lớp dự kiến')
-    .replace(/Chuyá»ƒn lá»›p/g, 'Chuyển lớp');
+    .replace(/Sản phẩm/g, 'Sản phẩm')
+    .replace(/Lớp dự kiến/g, 'Lớp dự kiến')
+    .replace(/Chuyển lớp/g, 'Chuyển lớp');
 
 const compactBadgeClassByStatus = (status?: string) => {
   if (status === 'DA_DUYET' || status === 'DANG_HOC' || status === 'DA_GHI_DANH') return 'bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-100';

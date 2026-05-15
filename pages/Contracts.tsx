@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { RotateCcw, Search, Settings } from 'lucide-react';
 import ClassCodeLookupInput from '../components/ClassCodeLookupInput';
 import { AdvancedFilterDropdown, ToolbarTimeFilter } from '../components/filters';
@@ -46,10 +46,11 @@ import { approveAdmission, cancelAdmission, createAdmission } from '../services/
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { decodeMojibakeReactNode, decodeMojibakeText } from '../utils/mojibake';
+import { LEAD_TARGET_COUNTRY_OPTIONS, PROGRAM_OPTIONS } from '../utils/systemConfig';
 
 type EnrollmentTabKey = 'waiting_enrollment' | 'waiting_approval' | 'enrolled' | 'processing' | 'students' | 'all';
-type EnrollmentMarketValue = 'Đức' | 'Trung';
-type EnrollmentProgramValue = 'A1' | 'A2';
+type EnrollmentMarketValue = string;
+type EnrollmentProgramValue = string;
 type EnrollmentAdvancedFieldKey =
   | 'market'
   | 'campus'
@@ -97,9 +98,9 @@ type StudentEnrollmentRow = {
   admissionStatusLabel: string;
   claimStatusKey: StudentClaimStatus;
   claimStatusLabel: string;
-  debtStatusKey?: NonNullable<IClassStudent['debtStatus']>;
+  debtStatusKey?: NonNullable<IClassStudent[ 'debtStatus' ]>;
   debtStatusLabel: string;
-  classStatusKey?: ITrainingClass['status'];
+  classStatusKey?: ITrainingClass[ 'status' ];
   classStatusLabel: string;
   studyStartDateValue?: string;
   expectedEndDateValue?: string;
@@ -112,27 +113,27 @@ type StudentEnrollmentRow = {
 };
 
 const TAB_CONFIG: Array<{ key: EnrollmentTabKey; label: string }> = [
-  { key: 'all', label: 'Tá»•ng' },
-  { key: 'waiting_enrollment', label: 'Chá» ghi danh' },
-  { key: 'waiting_approval', label: 'Chá» duyá»‡t' },
-  { key: 'enrolled', label: 'ÄÃ£ ghi danh' },
+  { key: 'all', label: 'Tổng' },
+  { key: 'waiting_enrollment', label: 'Chờ ghi danh' },
+  { key: 'waiting_approval', label: 'Chờ duyệt' },
+  { key: 'enrolled', label: 'Đã ghi danh' },
   { key: 'students', label: 'Cần xử lý' }
 ];
 
 const STUDENT_STATUS_LABELS: Record<StudentLifecycleStatus, string> = {
-  MOI_TAO: 'Má»›i táº¡o',
-  CHO_GHI_DANH: 'Chá» ghi danh',
-  DA_GHI_DANH: 'ÄÃ£ ghi danh',
-  DANG_HOC: 'Äang há»c',
-  TAM_DUNG: 'Táº¡m dá»«ng',
-  HOAN_THANH: 'HoÃ n thÃ nh',
-  DUNG: 'Dá»«ng'
+  MOI_TAO: 'Mới tạo',
+  CHO_GHI_DANH: 'Chờ ghi danh',
+  DA_GHI_DANH: 'Đã ghi danh',
+  DANG_HOC: 'Đang học',
+  TAM_DUNG: 'Tạm dừng',
+  HOAN_THANH: 'Hoàn thành',
+  DUNG: 'Dừng'
 };
 
 const ADMISSION_STATUS_LABELS: Record<AdmissionDisplayStatus, string> = {
-  CHUA_TAO: 'CHÆ¯A Táº O',
-  CHO_DUYET: 'CHá»œ DUYá»†T',
-  DA_DUYET: 'ÄÃƒ DUYá»†T'
+  CHUA_TAO: 'CHƯA TẠO',
+  CHO_DUYET: 'CHỜ DUYỆT',
+  DA_DUYET: 'ĐÃ DUYỆT'
 };
 
 const CLAIM_TYPE_LABELS: Record<string, string> = {
@@ -152,21 +153,21 @@ const CLAIM_STATUS_LABELS: Record<string, string> = {
   DA_HUY: 'Đã hủy'
 };
 
-const DEBT_STATUS_LABELS: Record<NonNullable<IClassStudent['debtStatus']>, string> = {
+const DEBT_STATUS_LABELS: Record<NonNullable<IClassStudent[ 'debtStatus' ]>, string> = {
   DA_DONG: 'Đã đóng',
   THIEU: 'Thiếu',
   QUA_HAN: 'Quá hạn'
 };
 
-const CLASS_STATUS_LABELS: Record<ITrainingClass['status'], string> = {
+const CLASS_STATUS_LABELS: Record<ITrainingClass[ 'status' ], string> = {
   DRAFT: 'Nháp',
   ACTIVE: 'Đang học',
   DONE: 'Đã kết thúc',
   CANCELED: 'Đã hủy'
 };
 
-const ENROLLMENT_MARKET_OPTIONS = ['Đức', 'Trung'] as const satisfies ReadonlyArray<EnrollmentMarketValue>;
-const ENROLLMENT_PROGRAM_OPTIONS = ['A1', 'A2'] as const satisfies ReadonlyArray<EnrollmentProgramValue>;
+const ENROLLMENT_MARKET_OPTIONS = LEAD_TARGET_COUNTRY_OPTIONS.map(opt => opt.value);
+const ENROLLMENT_PROGRAM_OPTIONS = PROGRAM_OPTIONS.map(opt => opt.value);
 const ENROLLMENT_ADMISSION_STATUS_ORDER = ['CHUA_TAO', 'CHO_DUYET', 'DA_DUYET'] as const;
 const ENROLLMENT_CLAIM_STATUS_ORDER = ['KHONG_CO', 'CHO_XU_LY', 'DA_XU_LY', 'TU_CHOI', 'DA_HUY'] as const;
 const ENROLLMENT_DEBT_STATUS_ORDER = ['DA_DONG', 'THIEU', 'QUA_HAN'] as const;
@@ -246,7 +247,7 @@ const detectEnrollmentMarket = (...values: Array<string | undefined>) => {
   const normalized = normalizeText(values.filter(Boolean).join(' '));
   if (!normalized) return '';
   if (['duc', 'german', 'deutsch'].some((keyword) => normalized.includes(keyword))) return 'Đức';
-  if (['trung', 'china', 'chinese', 'hsk'].some((keyword) => normalized.includes(keyword))) return 'Trung';
+  if (['trung', 'china', 'chinese', 'hsk'].some((keyword) => normalized.includes(keyword))) return 'Trung Quốc';
   return '';
 };
 
@@ -279,7 +280,7 @@ const Contracts: React.FC = () => {
   const [search, setSearch] = useState('');
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [timeFilterField, setTimeFilterField] = useState<EnrollmentTimeFieldSelection>(ENROLLMENT_TOOLBAR_TIME_PLACEHOLDER);
-  const [timeRangeType, setTimeRangeType] = useState<(typeof ENROLLMENT_TOOLBAR_TIME_PRESETS)[number]['id']>('all');
+  const [timeRangeType, setTimeRangeType] = useState<(typeof ENROLLMENT_TOOLBAR_TIME_PRESETS)[number][ 'id' ]>('all');
   const [customRange, setCustomRange] = useState<CustomDateRange | null>(null);
   const [showFilterDropdown, setShowFilterDropdown] = useState(false);
   const [selectedAdvancedFilterFields, setSelectedAdvancedFilterFields] = useState<EnrollmentAdvancedFieldKey[]>([]);
@@ -295,12 +296,12 @@ const Contracts: React.FC = () => {
   const [form, setForm] = useState({
     studentId: '',
     quotationId: '',
-    campusId: text('HÃ  Ná»™i'),
+    campusId: text('Hà Nội'),
     classId: '',
     classCode: '',
     note: ''
   });
-  const [assignForm, setAssignForm] = useState({ campusId: text('HÃ  Ná»™i'), classId: '', classCode: '', note: '' });
+  const [assignForm, setAssignForm] = useState({ campusId: text('Hà Nội'), classId: '', classCode: '', note: '' });
 
   const loadData = () => {
     setAdmissions(getAdmissions());
@@ -830,7 +831,7 @@ const Contracts: React.FC = () => {
 
   const groupedRows = useMemo(() => {
     if (!selectedAdvancedGroupFields.length) {
-      return [{ key: 'all', label: `Táº¥t cáº£ (${filteredRows.length})`, rows: filteredRows }];
+      return [{ key: 'all', label: `Tất cả (${filteredRows.length})`, rows: filteredRows }];
     }
 
     const buildGroups = (
@@ -913,7 +914,7 @@ const Contracts: React.FC = () => {
   };
 
   const handleTimePresetSelect = (presetId: string) => {
-    setTimeRangeType(presetId as (typeof ENROLLMENT_TOOLBAR_TIME_PRESETS)[number]['id']);
+    setTimeRangeType(presetId as (typeof ENROLLMENT_TOOLBAR_TIME_PRESETS)[number][ 'id' ]);
     if (presetId !== 'custom') {
       setShowTimePicker(false);
     }
@@ -982,7 +983,7 @@ const Contracts: React.FC = () => {
     setForm({
       studentId: '',
       quotationId: '',
-      campusId: activeClassCampusOptions[0] || text('HÃ  Ná»™i'),
+      campusId: activeClassCampusOptions[0] || text('Hà Nội'),
       classId: '',
       classCode: '',
       note: ''
@@ -992,7 +993,7 @@ const Contracts: React.FC = () => {
   const closeAssignModal = () => {
     setShowAssignModal(false);
     setSelectedAssignRow(null);
-    setAssignForm({ campusId: activeClassCampusOptions[0] || text('HÃ  Ná»™i'), classId: '', classCode: '', note: '' });
+    setAssignForm({ campusId: activeClassCampusOptions[0] || text('Hà Nội'), classId: '', classCode: '', note: '' });
   };
 
   const admissionEligibleStudents = useMemo(
@@ -1039,7 +1040,7 @@ const Contracts: React.FC = () => {
 
   const openEnroll = (row?: StudentEnrollmentRow) => {
     if (!canEnrollBySales) {
-      notify('Chá»‰ Sale/Admin Ä‘Æ°á»£c táº¡o ghi danh');
+      notify('Chỉ Sale/Admin được tạo ghi danh');
       return;
     }
     setSelectedEnrollRow(row || null);
@@ -1047,7 +1048,7 @@ const Contracts: React.FC = () => {
     setForm({
       studentId: row?.student.id || '',
       quotationId: row?.lockedQuotation?.id || '',
-      campusId: initialClass?.campus || row?.desiredCampus || row?.student.campus || activeClassCampusOptions[0] || text('HÃ  Ná»™i'),
+      campusId: initialClass?.campus || row?.desiredCampus || row?.student.campus || activeClassCampusOptions[0] || text('Hà Nội'),
       classId: initialClass?.id || '',
       classCode: initialClass?.code || '',
       note: ''
@@ -1057,20 +1058,20 @@ const Contracts: React.FC = () => {
 
   const handleCreate = () => {
     if (!canEnrollBySales) {
-      notify('Chá»‰ Sale/Admin Ä‘Æ°á»£c táº¡o ghi danh');
+      notify('Chỉ Sale/Admin được tạo ghi danh');
       return;
     }
     const targetStudentId = selectedEnrollRow?.student.id || form.studentId;
     if (!targetStudentId) {
-      notify('KhÃ´ng tÃ¬m tháº¥y há»c viÃªn Ä‘á»ƒ ghi danh');
+      notify('Không tìm thấy học viên để ghi danh');
       return;
     }
     if (!selectedDesiredClass) {
-      notify('Vui lÃ²ng chá»n há»c viÃªn, cÆ¡ sá»Ÿ vÃ  lá»›p');
+      notify('Vui lòng chọn học viên, cơ sở và lớp');
       return;
     }
     if (!form.quotationId) {
-      notify('KhÃ´ng tÃ¬m tháº¥y SO Ä‘Ã£ khÃ³a Ä‘á»ƒ ghi danh');
+      notify('Không tìm thấy SO đã khóa để ghi danh');
       return;
     }
     const eligibilityError = getEligibilityErrorMessage([selectedEnrollRow?.student || students.find((item) => item.id === targetStudentId)].filter(Boolean) as IStudent[], selectedDesiredClass);
@@ -1091,30 +1092,30 @@ const Contracts: React.FC = () => {
       closeCreateModal();
       setActiveTab('waiting_approval');
       loadData();
-      notify('ÄÃ£ táº¡o ghi danh vÃ  chuyá»ƒn sang tab Chá» duyá»‡t.');
+      notify('Đã tạo ghi danh và chuyển sang tab Chờ duyệt.');
     } catch (error: any) {
-      notify(error?.message || 'KhÃ´ng thá»ƒ táº¡o ghi danh');
+      notify(error?.message || 'Không thể tạo ghi danh');
     }
   };
 
   const handleCancelAdmission = (row: StudentEnrollmentRow) => {
     if (!canEnrollBySales || !row.latestAdmission) {
-      notify('Báº¡n khÃ´ng cÃ³ quyá»n há»§y ghi danh');
+      notify('Bạn không có quyền hủy ghi danh');
       return;
     }
     const result = cancelAdmission(row.latestAdmission.id, user?.id || 'system');
     if (!result.ok) {
-      notify('KhÃ´ng thá»ƒ há»§y ghi danh nÃ y');
+      notify('Không thể hủy ghi danh này');
       return;
     }
     loadData();
     setActiveTab('waiting_enrollment');
-    notify('ÄÃ£ há»§y ghi danh vÃ  chuyá»ƒn há»c viÃªn vá» tab Chá» ghi danh');
+    notify('Đã hủy ghi danh và chuyển học viên về tab Chờ ghi danh');
   };
 
   const submitSelectedEnroll = () => {
     if (!canEnrollBySales) {
-      notify('Chá»‰ Sale/Admin Ä‘Æ°á»£c táº¡o ghi danh');
+      notify('Chỉ Sale/Admin được tạo ghi danh');
       return;
     }
 
@@ -1125,15 +1126,15 @@ const Contracts: React.FC = () => {
         : studentRows.filter((row) => row.student.id === form.studentId && row.canEnroll && row.lockedQuotation);
 
     if (!targetRows.length) {
-      notify('Vui lÃ²ng chá»n há»c viÃªn Ä‘á»ƒ ghi danh');
+      notify('Vui lòng chọn học viên để ghi danh');
       return;
     }
     if (!selectedDesiredClass) {
-      notify('Vui lÃ²ng chá»n lá»›p há»c mong muá»‘n tá»« danh sÃ¡ch tra cá»©u');
+      notify('Vui lòng chọn lớp học mong muốn từ danh sách tra cứu');
       return;
     }
     if (!selectedEnrollRow && !selectedStudentIds.length && !form.quotationId) {
-      notify('KhÃ´ng tÃ¬m tháº¥y SO Ä‘Ã£ khÃ³a Ä‘á»ƒ ghi danh');
+      notify('Không tìm thấy SO đã khóa để ghi danh');
       return;
     }
     const eligibilityError = getEligibilityErrorMessage(targetRows.map((row) => row.student), selectedDesiredClass);
@@ -1161,14 +1162,14 @@ const Contracts: React.FC = () => {
         const skippedCount = selectedStudentIds.length - targetRows.length;
         notify(
           skippedCount > 0
-            ? `ÃÃ£ x? lÃ½ ${selectedStudentIds.length} h?c viÃªn dÃ£ ch?n. T?o admission cho ${targetRows.length} h?c viÃªn d? di?u ki?n, b? qua ${skippedCount} h?c viÃªn vÃ  chuy?n sang tab Ch? duy?t.`
-            : `ÃÃ£ x? lÃ½ ghi danh cho ${selectedStudentIds.length} h?c viÃªn vÃ  chuy?n sang tab Ch? duy?t.`
+            ? `Ðã x? lý ${selectedStudentIds.length} h?c viên dã ch?n. T?o admission cho ${targetRows.length} h?c viên d? di?u ki?n, b? qua ${skippedCount} h?c viên và chuy?n sang tab Ch? duy?t.`
+            : `Ðã x? lý ghi danh cho ${selectedStudentIds.length} h?c viên và chuy?n sang tab Ch? duy?t.`
         );
       } else {
-        notify(`ÄÃ£ táº¡o ghi danh cho ${targetRows.length} há»c viÃªn vÃ  chuyá»ƒn sang tab Chá» duyá»‡t.`);
+        notify(`Đã tạo ghi danh cho ${targetRows.length} học viên và chuyển sang tab Chờ duyệt.`);
       }
     } catch (error: any) {
-      notify(error?.message || 'KhÃ´ng thá»ƒ táº¡o ghi danh');
+      notify(error?.message || 'Không thể tạo ghi danh');
     }
   };
 
@@ -1245,15 +1246,15 @@ const Contracts: React.FC = () => {
 
   const openActionEnroll = () => {
     if (!canEnrollBySales) {
-      notify('Chá»‰ Sale/Admin Ä‘Æ°á»£c táº¡o ghi danh');
+      notify('Chỉ Sale/Admin được tạo ghi danh');
       return;
     }
     if (!selectedStudentIds.length) {
-      notify('Vui lÃ²ng chá»n Ã­t nháº¥t 1 há»c viÃªn');
+      notify('Vui lòng chọn ít nhất 1 học viên');
       return;
     }
     if (!selectedEnrollRows.length) {
-      notify('KhÃ´ng cÃ³ há»c viÃªn phÃ¹ há»£p Ä‘á»ƒ ghi danh trong danh sÃ¡ch Ä‘Ã£ chá»n');
+      notify('Không có học viên phù hợp để ghi danh trong danh sách đã chọn');
       return;
     }
     setShowActionMenu(false);
@@ -1261,7 +1262,7 @@ const Contracts: React.FC = () => {
     setForm({
       studentId: '',
       quotationId: '',
-      campusId: activeClassCampusOptions[0] || text('HÃ  Ná»™i'),
+      campusId: activeClassCampusOptions[0] || text('Hà Nội'),
       classId: '',
       classCode: '',
       note: ''
@@ -1271,11 +1272,11 @@ const Contracts: React.FC = () => {
 
   const handleCancelSelectedAdmissions = () => {
     if (!canEnrollBySales) {
-      notify('Báº¡n khÃ´ng cÃ³ quyá»n há»§y ghi danh');
+      notify('Bạn không có quyền hủy ghi danh');
       return;
     }
     if (!selectedCancelableRows.length) {
-      notify('KhÃ´ng cÃ³ há»“ sÆ¡ chá» duyá»‡t phÃ¹ há»£p Ä‘á»ƒ há»§y ghi danh');
+      notify('Không có hồ sơ chờ duyệt phù hợp để hủy ghi danh');
       return;
     }
 
@@ -1291,30 +1292,30 @@ const Contracts: React.FC = () => {
     loadData();
 
     if (!cancelledCount) {
-      notify('KhÃ´ng thá»ƒ há»§y ghi danh cho danh sÃ¡ch Ä‘Ã£ chá»n');
+      notify('Không thể hủy ghi danh cho danh sách đã chọn');
       return;
     }
 
     setActiveTab('waiting_enrollment');
     notify(
       cancelledCount === 1
-        ? 'ÄÃ£ há»§y ghi danh cho 1 há»c viÃªn vÃ  chuyá»ƒn vá» tab Chờ ghi danh'
-        : `ÄÃ£ há»§y ghi danh cho ${cancelledCount} há»c viÃªn vÃ  chuyá»ƒn vá» tab Chờ ghi danh`
+        ? 'Đã hủy ghi danh cho 1 học viên và chuyển về tab Chờ ghi danh'
+        : `Đã hủy ghi danh cho ${cancelledCount} học viên và chuyển về tab Chờ ghi danh`
     );
   };
 
   const openActionAssign = () => {
     if (!selectedStudentIds.length) {
-      notify('Vui lÃ²ng chá»n Ã­t nháº¥t 1 há»c viÃªn');
+      notify('Vui lòng chọn ít nhất 1 học viên');
       return;
     }
     if (!selectedAssignableRows.length) {
-      notify('KhÃ´ng cÃ³ há»c viÃªn phÃ¹ há»£p Ä‘á»ƒ gÃ¡n lá»›p trong danh sÃ¡ch Ä‘Ã£ chá»n');
+      notify('Không có học viên phù hợp để gán lớp trong danh sách đã chọn');
       return;
     }
     setShowActionMenu(false);
     setSelectedAssignRow(null);
-    setAssignForm({ campusId: activeClassCampusOptions[0] || text('HÃ  Ná»™i'), classId: '', classCode: '', note: '' });
+    setAssignForm({ campusId: activeClassCampusOptions[0] || text('Hà Nội'), classId: '', classCode: '', note: '' });
     setShowAssignModal(true);
   };
 
@@ -1324,7 +1325,7 @@ const Contracts: React.FC = () => {
 
     setSelectedAssignRow(row || null);
     setAssignForm({
-      campusId: initialClass?.campus || row?.latestAdmission?.campusId || row?.student.campus || activeClassCampusOptions[0] || text('HÃ  Ná»™i'),
+      campusId: initialClass?.campus || row?.latestAdmission?.campusId || row?.student.campus || activeClassCampusOptions[0] || text('Hà Nội'),
       classId: initialClass?.id || row?.latestAdmission?.classId || row?.currentClass?.id || '',
       classCode: initialClass?.code || row?.latestAdmission?.classId || row?.currentClass?.code || '',
       note: ''
@@ -1342,29 +1343,29 @@ const Contracts: React.FC = () => {
 
   const handleApproveAdmission = (row: StudentEnrollmentRow) => {
     if (!row.latestAdmission) {
-      notify('KhÃ´ng tÃ¬m tháº¥y há»“ sÆ¡ chá» duyá»‡t');
+      notify('Không tìm thấy hồ sơ chờ duyệt');
       return;
     }
 
     const result = approveAdmission(row.latestAdmission.id, user?.id || 'training');
     if (!result.ok) {
-      notify(result.error || 'KhÃ´ng thá»ƒ duyá»‡t ghi danh');
+      notify(result.error || 'Không thể duyệt ghi danh');
       return;
     }
 
     setSelectedStudentIds((prev) => prev.filter((id) => id !== row.student.id));
     loadData();
-    notify(`ÄÃ£ duyá»‡t ghi danh cho ${row.student.name}.`);
+    notify(`Đã duyệt ghi danh cho ${row.student.name}.`);
   };
 
   const submitSelectedAssign = () => {
     if (!selectedAssignClass) {
-      notify('Vui lÃ²ng chá»n lá»›p Ä‘Ã­ch tá»« danh sÃ¡ch tra cá»©u');
+      notify('Vui lòng chọn lớp đích từ danh sách tra cứu');
       return;
     }
     const targetRows = selectedAssignRow ? [selectedAssignRow] : selectedAssignableRows;
     if (!targetRows.length) {
-      notify('KhÃ´ng cÃ³ há»c viÃªn phÃ¹ há»£p Ä‘á»ƒ gÃ¡n lá»›p');
+      notify('Không có học viên phù hợp để gán lớp');
       return;
     }
     const eligibilityError = getEligibilityErrorMessage(targetRows.map((row) => row.student), selectedAssignClass);
@@ -1401,7 +1402,7 @@ const Contracts: React.FC = () => {
       );
       closeAssignModal();
       loadData();
-      notify(`ÄÃ£ cáº­p nháº­t lá»›p ${selectedAssignClass.code} cho há»“ sÆ¡ chá» duyá»‡t.`);
+      notify(`Đã cập nhật lớp ${selectedAssignClass.code} cho hồ sơ chờ duyệt.`);
       return;
     }
 
@@ -1421,19 +1422,19 @@ const Contracts: React.FC = () => {
           className: targetClass.code,
           enrollmentStatus: 'DA_GHI_DANH',
           status: StudentStatus.ENROLLED,
-          note: assignForm.note ? [row.student.note, text(`GÃ¡n lá»›p hÃ ng loáº¡t: ${assignForm.note}`)].filter(Boolean).join('\n') : row.student.note
+          note: assignForm.note ? [row.student.note, text(`Gán lớp hàng loạt: ${assignForm.note}`)].filter(Boolean).join('\n') : row.student.note
         });
-        addStudentLog(row.student.id, 'BULK_ASSIGN_CLASS', text(`GÃ¡n vÃ o lá»›p ${targetClass.code}${assignForm.note ? `: ${assignForm.note}` : ''}`), user?.id || 'system', 'SYSTEM');
-        addClassLog(targetClass.id, 'BULK_ASSIGN_CLASS', text(`GÃ¡n há»c viÃªn ${row.student.name} tá»« mÃ n danh sÃ¡ch`), user?.id || 'system');
+        addStudentLog(row.student.id, 'BULK_ASSIGN_CLASS', text(`Gán vào lớp ${targetClass.code}${assignForm.note ? `: ${assignForm.note}` : ''}`), user?.id || 'system', 'SYSTEM');
+        addClassLog(targetClass.id, 'BULK_ASSIGN_CLASS', text(`Gán học viên ${row.student.name} từ màn danh sách`), user?.id || 'system');
       });
     } catch (error: any) {
-      notify(error?.message || 'KhÃ´ng thá»ƒ gÃ¡n lá»›p');
+      notify(error?.message || 'Không thể gán lớp');
       return;
     }
     closeAssignModal();
     setSelectedStudentIds([]);
     loadData();
-    notify(`ÄÃ£ gÃ¡n lá»›p ${targetClass.code} cho ${targetRows.length} há»c viÃªn.`);
+    notify(`Đã gán lớp ${targetClass.code} cho ${targetRows.length} học viên.`);
   };
 
   return decodeMojibakeReactNode(
@@ -1493,7 +1494,7 @@ const Contracts: React.FC = () => {
               type="text"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="TÃ¬m kiáº¿m theo mÃ£ há»c viÃªn, SO, chÆ°Æ¡ng trÃ¬nh, lá»›p..."
+              placeholder="Tìm kiếm theo mã học viên, SO, chương trình, lớp..."
               className="h-9 w-full rounded-xl border border-slate-300 pl-10 pr-4 text-[13px] outline-none transition focus:border-slate-500"
             />
           </div>
@@ -1530,7 +1531,7 @@ const Contracts: React.FC = () => {
         </div>
 
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-3">
-          <div className="text-xs font-medium text-slate-500">Äang hiá»ƒn thá»‹ {filteredRows.length} há»“ sÆ¡ sau khi lá»c.{selectedStudentIds.length ? ` ÄÃ£ chá»n ${selectedStudentIds.length} há»c viÃªn.` : ''}</div>
+          <div className="text-xs font-medium text-slate-500">Đang hiển thị {filteredRows.length} hồ sơ sau khi lọc.{selectedStudentIds.length ? ` Đã chọn ${selectedStudentIds.length} học viên.` : ''}</div>
           {search.trim() || timeRangeType !== 'all' || hasAdvancedToolbarFilters ? (
             <button type="button" onClick={clearAllFilters} className="text-xs font-semibold text-blue-700 hover:text-blue-800">
               Đặt lại bộ lọc
@@ -1562,8 +1563,8 @@ const Contracts: React.FC = () => {
             <div ref={actionMenuRef} className="relative mb-2 ml-auto">
               <button
                 type="button"
-                aria-label={selectedStudentIds.length ? `Action cho ${selectedStudentIds.length} há»c viÃªn` : 'Action'}
-                title={selectedStudentIds.length ? `Action cho ${selectedStudentIds.length} há»c viÃªn` : 'Action'}
+                aria-label={selectedStudentIds.length ? `Action cho ${selectedStudentIds.length} học viên` : 'Action'}
+                title={selectedStudentIds.length ? `Action cho ${selectedStudentIds.length} học viên` : 'Action'}
                 onClick={() => setShowActionMenu((prev) => !prev)}
                 disabled={!selectedStudentIds.length}
                 className="relative inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-700 transition hover:border-slate-400 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-40"
@@ -1686,13 +1687,13 @@ const Contracts: React.FC = () => {
                       />
                     </th>
                     <th className="w-[6%] px-4 py-3 text-center">STT</th>
-                    <th className="w-[9%] px-4 py-3">MÃ£ HV</th>
-                    <th className="w-[16%] px-4 py-3">Há»c viÃªn</th>
-                    <th className="w-[22%] px-4 py-3">SO / ChÆ°Æ¡ng trÃ¬nh</th>
-                    <th className="w-[18%] px-4 py-3">CÆ¡ sá»Ÿ / Lá»›p</th>
-                    <th className="w-[11%] px-4 py-3">Tráº¡ng thÃ¡i há»c viÃªn</th>
-                    <th className="w-[12%] px-4 py-3">Tráº¡ng thÃ¡i ghi danh</th>
-                    <th className="w-[12%] px-4 py-3 text-right">Thao tÃ¡c</th>
+                    <th className="w-[9%] px-4 py-3">Mã HV</th>
+                    <th className="w-[16%] px-4 py-3">Học viên</th>
+                    <th className="w-[22%] px-4 py-3">SO / Chương trình</th>
+                    <th className="w-[18%] px-4 py-3">Cơ sở / Lớp</th>
+                    <th className="w-[11%] px-4 py-3">Trạng thái học viên</th>
+                    <th className="w-[12%] px-4 py-3">Trạng thái ghi danh</th>
+                    <th className="w-[12%] px-4 py-3 text-right">Thao tác</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -1724,7 +1725,7 @@ const Contracts: React.FC = () => {
                       </td>
                       <td className="px-4 py-3 align-top">
                         <div className="font-semibold text-slate-900">{row.lockedQuotation?.soCode || '--'}</div>
-                        <div className="text-xs text-slate-500">{row.contract?.code || 'ChÆ°a cÃ³ há»£p Ä‘á»“ng'}</div>
+                        <div className="text-xs text-slate-500">{row.contract?.code || 'Chưa có hợp đồng'}</div>
                         <div className="mt-1 break-words font-medium text-slate-800">{row.lockedQuotation?.product || '--'}</div>
                         <div className="text-xs text-slate-500">{row.lockedQuotation?.serviceType || '--'}</div>
                       </td>
@@ -1788,12 +1789,12 @@ const Contracts: React.FC = () => {
                               </button>
                             </>
                           ) : null}
-                          {row.canCancelAdmission && activeTab !== 'waiting_approval' ? <button onClick={(event) => { event.stopPropagation(); handleCancelAdmission(row); }} disabled={!canEnrollBySales} className="w-full rounded-lg border border-rose-200 px-2.5 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40">Há»§y ghi danh</button> : null}
+                          {row.canCancelAdmission && activeTab !== 'waiting_approval' ? <button onClick={(event) => { event.stopPropagation(); handleCancelAdmission(row); }} disabled={!canEnrollBySales} className="w-full rounded-lg border border-rose-200 px-2.5 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40">Hủy ghi danh</button> : null}
                         </div>
                       </td>
                     </tr>
                   )) : (
-                    <tr><td colSpan={9} className="px-4 py-12 text-center text-slate-500">KhÃ´ng cÃ³ há»c viÃªn phÃ¹ há»£p vá»›i bá»™ lá»c hiá»‡n táº¡i.</td></tr>
+                    <tr><td colSpan={9} className="px-4 py-12 text-center text-slate-500">Không có học viên phù hợp với bộ lọc hiện tại.</td></tr>
                   )}
                 </tbody>
               </table>
@@ -1808,49 +1809,49 @@ const Contracts: React.FC = () => {
           <div className="w-full max-w-xl rounded-2xl bg-white p-5 shadow-2xl">
             <div className="mb-4 flex items-center justify-between">
               <div>
-                <h3 className="text-lg font-bold text-slate-900">Ghi danh há»c viÃªn</h3>
-                <p className="text-sm text-slate-500">Táº¡o admission chá» duyá»‡t tá»« danh sÃ¡ch há»c viÃªn. Sau khi lÆ°u, mÃ n hÃ¬nh sáº½ chuyá»ƒn sang tab Chá» duyá»‡t.</p>
+                <h3 className="text-lg font-bold text-slate-900">Ghi danh học viên</h3>
+                <p className="text-sm text-slate-500">Tạo admission chờ duyệt từ danh sách học viên. Sau khi lưu, màn hình sẽ chuyển sang tab Chờ duyệt.</p>
               </div>
-              <button onClick={closeCreateModal} className="text-sm font-medium text-slate-500 hover:text-slate-800">ÄÃ³ng</button>
+              <button onClick={closeCreateModal} className="text-sm font-medium text-slate-500 hover:text-slate-800">Đóng</button>
             </div>
             <div className="space-y-3">
               {selectedEnrollRow ? (
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Há»“ sÆ¡</div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Hồ sơ</div>
                   <div className="mt-1 text-sm font-semibold text-slate-900">{selectedEnrollRow.student.name}</div>
                   <div className="text-xs text-slate-500">
                     {selectedEnrollRow.student.code}
-                    {selectedEnrollRow.lockedQuotation?.soCode ? ` â€¢ ${selectedEnrollRow.lockedQuotation.soCode}` : ''}
+                    {selectedEnrollRow.lockedQuotation?.soCode ? ` • ${selectedEnrollRow.lockedQuotation.soCode}` : ''}
                   </div>
                 </div>
               ) : isBatchEnrollMode ? (
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Ghi danh hÃ ng loáº¡t</div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Ghi danh hàng loạt</div>
                   <div className="mt-1 text-sm text-slate-700">
-                    ÄÃ£ chá»n <span className="font-semibold text-slate-900">{selectedStudentIds.length}</span> há»c viÃªn.
+                    Đã chọn <span className="font-semibold text-slate-900">{selectedStudentIds.length}</span> học viên.
                   </div>
                   <div className="text-sm text-slate-700">
-                    CÃ³ thá»ƒ táº¡o admission cho <span className="font-semibold text-slate-900">{selectedEnrollRows.length}</span> há»c viÃªn Ä‘á»§ Ä‘iá»u kiá»‡n.
+                    Có thể tạo admission cho <span className="font-semibold text-slate-900">{selectedEnrollRows.length}</span> học viên đủ điều kiện.
                   </div>
                   {selectedEnrollRows.length !== selectedStudentIds.length ? (
                     <div className="mt-2 text-xs text-amber-700">
-                      CÃ¡c há»c viÃªn khÃ´ng Ä‘á»§ Ä‘iá»u kiá»‡n ghi danh sáº½ Ä‘Æ°á»£c bá» qua khi lÆ°u.
+                      Các học viên không đủ điều kiện ghi danh sẽ được bỏ qua khi lưu.
                     </div>
                   ) : null}
                 </div>
               ) : (
                 <>
                   <div>
-                    <label className="mb-1 block text-sm font-semibold text-slate-700">Há»c viÃªn</label>
+                    <label className="mb-1 block text-sm font-semibold text-slate-700">Học viên</label>
                     <select value={form.studentId} onChange={(event) => onStudentChange(event.target.value)} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm">
-                      <option value="">-- Chá»n há»c viÃªn --</option>
+                      <option value="">-- Chọn học viên --</option>
                       {admissionEligibleStudents.map((student) => <option key={student.id} value={student.id}>{student.code} - {student.name}</option>)}
                     </select>
                   </div>
                   <div>
-                    <label className="mb-1 block text-sm font-semibold text-slate-700">SO liÃªn quan</label>
+                    <label className="mb-1 block text-sm font-semibold text-slate-700">SO liên quan</label>
                     <select value={form.quotationId} onChange={(event) => setForm((prev) => ({ ...prev, quotationId: event.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm">
-                      <option value="">-- Chá»n SO --</option>
+                      <option value="">-- Chọn SO --</option>
                       {linkedQuotationsForStudent.map((quotation) => <option key={quotation.id} value={quotation.id}>{quotation.soCode} - {quotation.customerName}</option>)}
                     </select>
                   </div>
@@ -1901,14 +1902,14 @@ const Contracts: React.FC = () => {
               {selectedDesiredClass ? (
                 <div className="mt-2 rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
                   <span className="font-semibold text-slate-900">{selectedDesiredClass.code}</span>
-                  {selectedDesiredClass.campus ? ` â€¢ ${selectedDesiredClass.campus}` : ''}
-                  {selectedDesiredClass.level ? ` â€¢ ${selectedDesiredClass.level}` : ''}
+                  {selectedDesiredClass.campus ? ` • ${selectedDesiredClass.campus}` : ''}
+                  {selectedDesiredClass.level ? ` • ${selectedDesiredClass.level}` : ''}
                   {selectedDesiredClass.schedule ? <span className="block">{selectedDesiredClass.schedule}</span> : null}
                 </div>
               ) : null}
               {!desiredClassOptions.length ? <div className="text-xs text-amber-700">Cơ sở này hiện chưa có lớp đang mở phù hợp.</div> : null}
               <div>
-                <label className="mb-1 block text-sm font-semibold text-slate-700">Ghi chÃº</label>
+                <label className="mb-1 block text-sm font-semibold text-slate-700">Ghi chú</label>
                 <textarea
                   value={form.note}
                   onChange={(event) => setForm((prev) => ({ ...prev, note: event.target.value }))}
@@ -1917,9 +1918,9 @@ const Contracts: React.FC = () => {
               </div>
             </div>
             <div className="mt-5 flex justify-end gap-2">
-              <button onClick={closeCreateModal} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700">Há»§y</button>
+              <button onClick={closeCreateModal} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700">Hủy</button>
               <button onClick={submitSelectedEnroll} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">
-                {isBatchEnrollMode ? 'LÆ°u ghi danh hÃ ng loáº¡t' : 'LÆ°u ghi danh'}
+                {isBatchEnrollMode ? 'Lưu ghi danh hàng loạt' : 'Lưu ghi danh'}
               </button>
             </div>
           </div>
@@ -2026,51 +2027,51 @@ const Contracts: React.FC = () => {
           <div className="w-full max-w-xl rounded-2xl bg-white p-5 shadow-2xl">
             <div className="mb-4 flex items-center justify-between">
               <div>
-                <h3 className="text-lg font-bold text-slate-900">Ghi danh há»c viÃªn</h3>
-                <p className="text-sm text-slate-500">Táº¡o admission chá» duyá»‡t. Sau khi lÆ°u, há»c viÃªn váº«n hiá»ƒn thá»‹ á»Ÿ tab Tá»•ng Ä‘á»ƒ cÃ³ thá»ƒ há»§y ghi danh ngay.</p>
+                <h3 className="text-lg font-bold text-slate-900">Ghi danh học viên</h3>
+                <p className="text-sm text-slate-500">Tạo admission chờ duyệt. Sau khi lưu, học viên vẫn hiển thị ở tab Tổng để có thể hủy ghi danh ngay.</p>
               </div>
-              <button onClick={closeCreateModal} className="text-sm font-medium text-slate-500 hover:text-slate-800">ÄÃ³ng</button>
+              <button onClick={closeCreateModal} className="text-sm font-medium text-slate-500 hover:text-slate-800">Đóng</button>
             </div>
 
             <div className="space-y-3">
               <div>
-                <label className="mb-1 block text-sm font-semibold text-slate-700">Há»c viÃªn</label>
+                <label className="mb-1 block text-sm font-semibold text-slate-700">Học viên</label>
                 <select value={form.studentId} onChange={(event) => onStudentChange(event.target.value)} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm">
-                  <option value="">-- Chá»n há»c viÃªn --</option>
+                  <option value="">-- Chọn học viên --</option>
                   {admissionEligibleStudents.map((student) => <option key={student.id} value={student.id}>{student.code} - {student.name}</option>)}
                 </select>
               </div>
               <div>
-                <label className="mb-1 block text-sm font-semibold text-slate-700">SO liÃªn quan</label>
+                <label className="mb-1 block text-sm font-semibold text-slate-700">SO liên quan</label>
                 <select value={form.quotationId} onChange={(event) => setForm((prev) => ({ ...prev, quotationId: event.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm">
-                  <option value="">-- Chá»n SO --</option>
+                  <option value="">-- Chọn SO --</option>
                   {linkedQuotationsForStudent.map((quotation) => <option key={quotation.id} value={quotation.id}>{quotation.soCode} - {quotation.customerName}</option>)}
                 </select>
               </div>
               <div className="grid gap-3 md:grid-cols-2">
                 <div>
-                  <label className="mb-1 block text-sm font-semibold text-slate-700">CÆ¡ sá»Ÿ mong muá»‘n</label>
+                  <label className="mb-1 block text-sm font-semibold text-slate-700">Cơ sở mong muốn</label>
                   <select value={form.campusId} onChange={(event) => setForm((prev) => ({ ...prev, campusId: event.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm">
                     {campusOptions.map((campus) => <option key={campus} value={campus}>{campus}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-semibold text-slate-700">LÃ¡Â»â€ºp</label>
+                  <label className="mb-1 block text-sm font-semibold text-slate-700">Lớp</label>
                   <select value={form.classId} onChange={(event) => setForm((prev) => ({ ...prev, classId: event.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm">
-                    <option value="">-- Chá»n lá»›p --</option>
+                    <option value="">-- Chọn lớp --</option>
                     {activeClasses.map((item) => <option key={item.id} value={item.id}>{item.code} - {item.campus}</option>)}
                   </select>
                 </div>
               </div>
               <div>
-                <label className="mb-1 block text-sm font-semibold text-slate-700">Ghi chÃº</label>
+                <label className="mb-1 block text-sm font-semibold text-slate-700">Ghi chú</label>
                 <textarea value={form.note} onChange={(event) => setForm((prev) => ({ ...prev, note: event.target.value }))} className="h-24 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" />
               </div>
             </div>
 
             <div className="mt-5 flex justify-end gap-2">
-              <button onClick={() => setShowCreateModal(false)} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700">Há»§y</button>
-              <button onClick={handleCreate} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">LÆ°u ghi danh</button>
+              <button onClick={() => setShowCreateModal(false)} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700">Hủy</button>
+              <button onClick={handleCreate} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">Lưu ghi danh</button>
             </div>
           </div>
         </div>
@@ -2080,3 +2081,6 @@ const Contracts: React.FC = () => {
 };
 
 export default Contracts;
+
+
+

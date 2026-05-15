@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+﻿import React, { useEffect, useMemo, useState } from 'react';
 import {
   Calendar,
   CheckCircle2,
@@ -55,8 +55,8 @@ type InterviewResolvedMeta = {
   market: Exclude<InterviewMarketFilter, 'ALL'> | '';
   program: Exclude<InterviewProgramFilter, 'ALL'> | '';
 };
-type InterviewMarketFilter = 'ALL' | 'Đức' | 'Trung Quốc';
-type InterviewProgramFilter = 'ALL' | 'Du học đại học' | 'Du học thạc sĩ';
+type InterviewMarketFilter = string;
+type InterviewProgramFilter = string;
 type InterviewTimeField = 'interviewDate';
 
 const INTERVIEW_MARKET_OPTIONS = [
@@ -76,15 +76,15 @@ const INTERVIEW_TIME_FIELD_OPTIONS = [
 ] as const satisfies ReadonlyArray<ToolbarOption>;
 
 const INTERVIEW_ADVANCED_FILTER_OPTIONS = [
-  { id: 'market', label: 'Th\u1ecb tr\u01b0\u1eddng' },
-  { id: 'program', label: 'Ch\u01b0\u01a1ng tr\xECnh' },
-  { id: 'status', label: 'Tr\u1ea1ng th\xE1i' }
+  { id: 'market', label: 'Thị trường' },
+  { id: 'program', label: 'Chương tr\xECnh' },
+  { id: 'status', label: 'Trạng th\xE1i' }
 ] as const satisfies ReadonlyArray<ToolbarOption>;
 
 const INTERVIEW_ADVANCED_FILTER_LABELS: Record<InterviewAdvancedFieldKey, string> = {
-  market: 'Th\u1ecb tr\u01b0\u1eddng',
-  program: 'Ch\u01b0\u01a1ng tr\xECnh',
-  status: 'Tr\u1ea1ng th\xE1i'
+  market: 'Thị trường',
+  program: 'Chương tr\xECnh',
+  status: 'Trạng th\xE1i'
 };
 
 const INTERVIEW_ADVANCED_SELECTABLE_VALUES = {
@@ -887,3 +887,6 @@ const StudyAbroadInterviews: React.FC = () => {
 };
 
 export default StudyAbroadInterviews;
+
+
+

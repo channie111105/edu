@@ -97,7 +97,7 @@ const NEXT_ACTIVITY_TYPES: { id: ActivityType; label: string }[] = [
   { id: 'email', label: 'Email' }
 ];
 
-const PIPELINE_MULTI_FILTER_PREFIX = '__pipeline_multi__:';
+const PIPELINE_MULTI_FILTER_PREFIX = '__pipeline_multi__: ';
 
 type PipelineAdvancedFieldKey =
   | 'status'
@@ -425,7 +425,7 @@ const Pipeline: React.FC = () => {
       updatedAt: lead.updatedAt,
       notes: lead.notes,
       activities: lead.activities || [],
-      marketingData: lead.marketingData as IContact['marketingData'],
+      marketingData: lead.marketingData as IContact[ 'marketingData' ],
     };
   };
 
@@ -657,7 +657,7 @@ const Pipeline: React.FC = () => {
       email: linkedLead?.email || contact?.email || '',
       source: linkedLead?.source || contact?.source || mergedMarketingData.source || '',
       campaign: linkedLead?.campaign || mergedMarketingData.campaign || '',
-      program: (linkedLead?.program || fallbackProgram) as ILead['program'],
+      program: (linkedLead?.program || fallbackProgram) as ILead[ 'program' ],
       status: linkedLead?.status || '',
       ownerId: linkedLead?.ownerId || deal.ownerId || contact?.ownerId || '',
       createdAt,
@@ -815,12 +815,12 @@ const Pipeline: React.FC = () => {
     contact: IContact | undefined,
     field: string,
     value: string,
-    matchMode: SearchFilter['matchMode'] = 'includes'
+    matchMode: SearchFilter[ 'matchMode' ] = 'includes'
   ) => {
     const normalizedValue = normalizeText(value);
     if (!normalizedValue) return true;
 
-    const matchesFieldValues = (fieldId: string, mode: SearchFilter['matchMode'] = matchMode) =>
+    const matchesFieldValues = (fieldId: string, mode: SearchFilter[ 'matchMode' ] = matchMode) =>
       getDealFieldValues(deal, contact, fieldId).some((item) => {
         const normalizedItem = normalizeText(item);
         if (!normalizedItem) return false;
@@ -923,7 +923,7 @@ const Pipeline: React.FC = () => {
     label: string,
     value: string,
     color?: string,
-    matchMode: SearchFilter['matchMode'] = 'includes'
+    matchMode: SearchFilter[ 'matchMode' ] = 'includes'
   ) => {
     setSearchFilters((prev) => appendUniqueSearchFilter(prev, {
       field,
@@ -936,7 +936,7 @@ const Pipeline: React.FC = () => {
 
   const applySelectedAdvancedFilter = (
     rawValue: string,
-    options?: { matchMode?: SearchFilter['matchMode']; closeDropdown?: boolean }
+    options?: { matchMode?: SearchFilter[ 'matchMode' ]; closeDropdown?: boolean }
   ) => {
     const normalizedValue = String(rawValue || '').trim();
     const matchMode = options?.matchMode || 'includes';
@@ -1439,7 +1439,7 @@ const Pipeline: React.FC = () => {
         phone: updatedLead.phone || linkedLead?.phone || existingContact?.phone || drawerLead.phone,
         email: updatedLead.email || linkedLead?.email || existingContact?.email || drawerLead.email || '',
         source: updatedLead.source || linkedLead?.source || existingContact?.source || drawerLead.source || 'Unknown',
-        program: (updatedLead.program || linkedLead?.program || drawerLead.program) as ILead['program'],
+        program: (updatedLead.program || linkedLead?.program || drawerLead.program) as ILead[ 'program' ],
         ownerId: updatedLead.ownerId || linkedLead?.ownerId || selectedDeal.ownerId || drawerLead.ownerId,
         createdAt: linkedLead?.createdAt || updatedLead.createdAt || drawerLead.createdAt || selectedDeal.createdAt,
         lastInteraction: updatedLead.lastInteraction || linkedLead?.lastInteraction || drawerLead.lastInteraction || selectedDeal.createdAt,

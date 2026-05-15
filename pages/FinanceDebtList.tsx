@@ -635,7 +635,7 @@ const FinanceDebtList: React.FC = () => {
     if (ownerFilter !== 'ALL') chips.push({ key: 'owner', label: `Phụ trách: ${ownerFilter}` });
     if (branchFilter !== 'ALL') chips.push({ key: 'branch', label: `Chi nhánh: ${branchFilter}` });
 
-    groupByFields.forEach((field) => chips.push({ key: `group:${field}`, label: `NhÃ³m: ${ADVANCED_GROUP_LABEL_MAP[field]}` }));
+    groupByFields.forEach((field) => chips.push({ key: `group:${field}`, label: `Nhóm: ${ADVANCED_GROUP_LABEL_MAP[field]}` }));
 
     return chips;
   }, [branchFilter, chargeNameFilter, customEndDate, customStartDate, groupByFields, ownerFilter, programFilter, quickFilter, servicePackageFilter, timeRangeType]);
@@ -644,48 +644,48 @@ const FinanceDebtList: React.FC = () => {
     () => [
       {
         id: 'paymentStatus' as DebtAdvancedFieldId,
-        label: 'Tráº¡ng thÃ¡i thanh toÃ¡n',
-        allLabel: 'Táº¥t cáº£ tráº¡ng thÃ¡i thanh toÃ¡n',
+        label: 'Trạng thái thanh toán',
+        allLabel: 'Tất cả trạng thái thanh toán',
         value: quickFilter,
         onChange: setQuickFilter,
         options: quickFilterOptions.map((option) => ({ value: option.value, label: option.label }))
       },
       {
         id: 'programName' as DebtAdvancedFieldId,
-        label: 'ChÆ°Æ¡ng trÃ¬nh',
-        allLabel: 'Táº¥t cáº£ chÆ°Æ¡ng trÃ¬nh',
+        label: 'Chương trình',
+        allLabel: 'Tất cả chương trình',
         value: programFilter,
         onChange: setProgramFilter,
         options: programOptions.map((item) => ({ value: item, label: item }))
       },
       {
         id: 'servicePackage' as DebtAdvancedFieldId,
-        label: 'GÃ³i dá»‹ch vá»¥',
-        allLabel: 'Táº¥t cáº£ gÃ³i dá»‹ch vá»¥',
+        label: 'Gói dịch vụ',
+        allLabel: 'Tất cả gói dịch vụ',
         value: servicePackageFilter,
         onChange: setServicePackageFilter,
         options: servicePackageOptions.map((item) => ({ value: item, label: item }))
       },
       {
         id: 'chargeName' as DebtAdvancedFieldId,
-        label: 'Khoáº£n thu',
-        allLabel: 'Táº¥t cáº£ khoáº£n thu',
+        label: 'Khoản thu',
+        allLabel: 'Tất cả khoản thu',
         value: chargeNameFilter,
         onChange: setChargeNameFilter,
         options: chargeNameOptions.map((item) => ({ value: item, label: item }))
       },
       {
         id: 'ownerName' as DebtAdvancedFieldId,
-        label: 'NgÆ°á»i phá»¥ trÃ¡ch',
-        allLabel: 'Táº¥t cáº£ ngÆ°á»i phá»¥ trÃ¡ch',
+        label: 'Người phụ trách',
+        allLabel: 'Tất cả người phụ trách',
         value: ownerFilter,
         onChange: setOwnerFilter,
         options: ownerOptions.map((item) => ({ value: item, label: item }))
       },
       {
         id: 'branchName' as DebtAdvancedFieldId,
-        label: 'Chi nhÃ¡nh/CÆ¡ sá»Ÿ',
-        allLabel: 'Táº¥t cáº£ chi nhÃ¡nh/cÆ¡ sá»Ÿ',
+        label: 'Chi nhánh/Cơ sở',
+        allLabel: 'Tất cả chi nhánh/cơ sở',
         value: branchFilter,
         onChange: setBranchFilter,
         options: branchOptions.map((item) => ({ value: item, label: item }))
@@ -956,7 +956,7 @@ const FinanceDebtList: React.FC = () => {
       {effectiveVisibleColumns.includes('amountDue') && <td className={`${getColumnWidthClass('amountDue')} px-3 py-4 whitespace-nowrap text-right text-sm font-bold text-slate-800`}>{money(item.amountDue)}</td>}
       {effectiveVisibleColumns.includes('overdueDays') && (
         <td className={`${getColumnWidthClass('overdueDays')} px-3 py-4 whitespace-nowrap text-sm`}>
-          {item.overdueDays > 0 ? <span className="font-bold text-red-600">{item.overdueDays} ngÃ y</span> : <span className="text-slate-400">0 ngÃ y</span>}
+          {item.overdueDays > 0 ? <span className="font-bold text-red-600">{item.overdueDays} ngày</span> : <span className="text-slate-400">0 ngày</span>}
         </td>
       )}
       {effectiveVisibleColumns.includes('paidAmount') && <td className={`${getColumnWidthClass('paidAmount')} px-3 py-4 whitespace-nowrap text-right text-sm font-semibold text-emerald-700`}>{money(item.paidAmount)}</td>}

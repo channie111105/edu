@@ -202,32 +202,32 @@ const normalizeDepartment = (value: string) => {
     if (value.includes('Kinh doanh')) return 'Kinh doanh';
     if (value.includes('Marketing')) return 'Marketing';
     if (value.includes('o t') || value.includes('Đào tạo')) return 'Đào tạo';
-    if (value.includes('TÃ') || value.includes('Tài chính')) return 'Tài chính';
-    if (value.includes('NhÃ¢n') || value.includes('Nhân sự')) return 'Nhân sự';
+    if (value.includes('Tài chính')) return 'Tài chính';
+    if (value.includes('Nhân') || value.includes('Nhân sự')) return 'Nhân sự';
     return value;
 };
 
 const normalizeCategory = (value: string) => {
     if (value.includes('Quy tr')) return 'Quy trình';
-    if (value.includes('Quy Ä') || value.includes('Quy định')) return 'Quy định';
-    if (value.includes('ChÃ') || value.includes('Chính sách')) return 'Chính sách';
+    if (value.includes('Quy định')) return 'Quy định';
+    if (value.includes('Chính sách')) return 'Chính sách';
     if (value.includes('Biá') || value.includes('Biểu mẫu')) return 'Biểu mẫu';
-    if (value.includes('HÆ°') || value.includes('Hướng dẫn')) return 'Hướng dẫn';
-    if (value.includes('Quyáº¿t')) return 'Quy định';
+    if (value.includes('Hư') || value.includes('Hướng dẫn')) return 'Hướng dẫn';
+    if (value.includes('Quyết')) return 'Quy định';
     return value;
 };
 
 const normalizeText = (value: string) =>
     value
-        .replace('Quy trÃ¬nh', 'Quy trình')
-        .replace('thu há»c phÃ­', 'thu học phí')
-        .replace('Quy Ä‘á»‹nh', 'Quy định')
-        .replace('Ä‘Ã o táº¡o', 'đào tạo')
-        .replace('Biá»ƒu máº«u', 'Biểu mẫu')
-        .replace('nháº­p há»c', 'nhập học')
-        .replace('ChÃ­nh sÃ¡ch', 'Chính sách')
-        .replace('hoa há»“ng', 'hoa hồng')
-        .replace('Quyáº¿t Ä‘á»‹nh bá»• nhiá»‡m TPKD', 'Hướng dẫn onboard nhân sự mới');
+        .replace('Quy trình', 'Quy trình')
+        .replace('thu học phí', 'thu học phí')
+        .replace('Quy định', 'Quy định')
+        .replace('đào tạo', 'đào tạo')
+        .replace('Biểu mẫu', 'Biểu mẫu')
+        .replace('nhập học', 'nhập học')
+        .replace('Chính sách', 'Chính sách')
+        .replace('hoa hồng', 'hoa hồng')
+        .replace('Quyết định bổ nhiệm TPKD', 'Hướng dẫn onboard nhân sự mới');
 
 const NORMALIZED_DOCUMENTS: Document[] = [
     ...MOCK_DOCUMENTS.map((doc): Document => ({

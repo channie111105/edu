@@ -61,7 +61,8 @@ const COUNTRIES = ['Trung Quốc', 'Đức'];
 const SERVICE_TYPES = ['Onl', 'off', 'APp', 'Blended'];
 const CURRENCIES = ['Eur', 'VNĐ', 'tệ', 'won'];
 const PROGRAM_TYPES = ['Đào tạo', 'Du học', 'Loại khác'];
-const PROGRAM_OPTIONS = ['A1', 'A2', 'B1', 'ôn B1', 'HSK 1', 'HSK 2', 'HSK 3', 'HSK 4', 'HSK 5', 'HSK 6', 'Dv hồ sơ'];
+import { PROGRAM_OPTIONS as SYSTEM_PROGRAM_OPTIONS } from '../utils/systemConfig';
+const PROGRAM_OPTIONS = SYSTEM_PROGRAM_OPTIONS.map(opt => opt.value);
 
 const PRODUCTS: ServicePackage[] = [
   {
@@ -316,6 +317,7 @@ const AdminFinancialConfig: React.FC = () => {
       name: draft.name.trim(),
       price: Number(draft.price) || 0,
       country: draft.country,
+      programTypes: draft.programTypes || ['Đào tạo'],
       programs: draft.programs,
       type: draft.type,
       currency: draft.currency,
@@ -846,3 +848,5 @@ const AdminFinancialConfig: React.FC = () => {
 };
 
 export default AdminFinancialConfig;
+
+

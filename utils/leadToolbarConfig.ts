@@ -126,29 +126,11 @@ const mergeToolbarValueOptions = (
   return Array.from(optionMap.values()).sort((left, right) => left.label.localeCompare(right.label, 'vi'));
 };
 
-export const getLeadToolbarSourceLabel = (source?: string) => {
-  const rawValue = normalizeToolbarText(source);
-  const token = normalizeToolbarToken(rawValue);
+export const getLeadToolbarSourceLabel = (source?: string) =>
+  getCatalogLabel(LEAD_SOURCE_OPTIONS, source);
 
-  if (!token) return '';
-  if (['facebook', 'fb', 'fbleadform', 'facebookads'].includes(token)) return 'Facebook';
-  if (['tiktok', 'tik', 'tiktokads'].includes(token)) return 'TikTok';
-  if (['google', 'gg', 'googleads', 'googlesearch'].includes(token)) return 'Google Search';
-  if (['hotline'].includes(token)) return 'Hotline';
-  if (['referral', 'gioithieu', 'ref'].includes(token)) return 'Giới thiệu';
-  return rawValue;
-};
-
-export const getLeadToolbarPotentialLabel = (potential?: string) => {
-  const rawValue = normalizeToolbarText(potential);
-  const token = normalizeToolbarToken(rawValue);
-
-  if (!token) return '';
-  if (['nong', 'hot'].includes(token)) return 'Nóng';
-  if (['tiemnang', 'potential'].includes(token)) return 'Tiềm năng';
-  if (['thamkhao', 'reference', 'cold'].includes(token)) return 'Tham khảo';
-  return rawValue;
-};
+export const getLeadToolbarPotentialLabel = (potential?: string) =>
+  getCatalogLabel(LEAD_POTENTIAL_OPTIONS, potential);
 
 const getCatalogLabel = (
   options: ReadonlyArray<string | { value: string; label: string }>,

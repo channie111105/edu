@@ -236,3 +236,8 @@ export const buildLeadStudentInfo = (formData: LeadCreateFormData): IStudentInfo
     parentPhone: guardianRelation ? formData.phone.trim() || undefined : undefined,
   };
 };
+
+export const getLeadSourceLabel = (source?: string): string => {
+  const option = LEAD_SOURCE_OPTIONS.find((opt) => opt.value === source);
+  return option?.label || source || '-';
+};

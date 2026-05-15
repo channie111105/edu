@@ -135,7 +135,7 @@ interface ISlaSlowHistoryItem {
    latestDelayMinutes: number;
    maxDelayMinutes: number;
    latestDelayText: string;
-   severity: SLAWarning['severity'];
+   severity: SLAWarning[ 'severity' ];
    resolvedAt?: string;
 }
 
@@ -154,7 +154,7 @@ interface ISlaSlowLeadRow {
    latestDelayMinutes: number;
    maxDelayMinutes: number;
    latestDelayText: string;
-   severity: SLAWarning['severity'];
+   severity: SLAWarning[ 'severity' ];
    resolvedAt?: string;
    slowTypes: SlowType[];
    items: ISlaSlowHistoryItem[];
@@ -677,7 +677,7 @@ const SLALeadList: React.FC = () => {
 
             return [{
                lead,
-               reclaimType: (lead.reclaimReason === 'slow_care' ? 'slow_care' : 'picked_no_action') as ReclaimLeadItem['reclaimType'],
+               reclaimType: (lead.reclaimReason === 'slow_care' ? 'slow_care' : 'picked_no_action') as ReclaimLeadItem[ 'reclaimType' ],
                message: lead.reclaimReason === 'slow_care'
                   ? 'Lead da bi thu hoi do cham cham soc qua 3 ngay va dang cho phan bo lai.'
                   : 'Lead da bi thu hoi do da nhan nhung khong co cap nhat theo SLA va dang cho phan bo lai.',
@@ -1478,20 +1478,20 @@ const SLALeadList: React.FC = () => {
          return;
       }
 
-      if (chipKey.startsWith('status:')) {
-         const target = chipKey.slice('status:'.length);
+      if (chipKey.startsWith('status: ')) {
+         const target = chipKey.slice('status: '.length);
          setAdvancedFilters(prev => ({ ...prev, status: prev.status.filter(item => item !== target) }));
          return;
       }
 
-      if (chipKey.startsWith('source:')) {
-         const target = chipKey.slice('source:'.length);
+      if (chipKey.startsWith('source: ')) {
+         const target = chipKey.slice('source: '.length);
          setAdvancedFilters(prev => ({ ...prev, source: prev.source.filter(item => item !== target) }));
          return;
       }
 
-      if (chipKey.startsWith('owner:')) {
-         const target = chipKey.slice('owner:'.length);
+      if (chipKey.startsWith('owner: ')) {
+         const target = chipKey.slice('owner: '.length);
          setAdvancedFilters(prev => ({ ...prev, ownerId: prev.ownerId.filter(item => item !== target) }));
       }
    };
@@ -1561,10 +1561,10 @@ const SLALeadList: React.FC = () => {
                         </div>
                      </div>
                      <div>
-                        <label className="block text-sm font-bold text-slate-700 mb-2">{"Quy t\u1EAFc thu h\u1ED3i"}</label>
+                        <label className="block text-sm font-bold text-slate-700 mb-2">{"Quy tắc thu hồi"}</label>
                         <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">
-                           <div>{"Lead \u0111\u00E3 nh\u1EADn: qu\u00E1 2 gi\u1EDD trong gi\u1EDD h\u00E0nh ch\u00EDnh, ho\u1EB7c qu\u00E1 09:00 s\u00E1ng h\u00F4m sau n\u1EBFu nh\u1EADn ngo\u00E0i gi\u1EDD."}</div>
-                           <div>{"Lead ch\u1EADm ch\u0103m s\u00F3c: qu\u00E1 3 ng\u00E0y kh\u00F4ng c\u1EADp nh\u1EADt s\u1EBD v\u00E0o tab thu h\u1ED3i \u0111\u1EC3 ph\u00E2n b\u1ED5 l\u1EA1i."}</div>
+                           <div>{"Lead đã nhận: quá 2 giờ trong giờ hành chính, hoặc quá 09:00 sáng hôm sau nếu nhận ngoài giờ."}</div>
+                           <div>{"Lead chậm chăm sóc: quá 3 ngày không cập nhật sẽ vào tab thu hồi để phân bổ lại."}</div>
                         </div>
                      </div>
                   </div>

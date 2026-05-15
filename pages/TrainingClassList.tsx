@@ -50,19 +50,19 @@ import {
 import { filterByLogAudience, getILogNoteAudience, LogAudienceFilter } from '../utils/logAudience';
 
 const STATUS = ['DRAFT', 'ACTIVE', 'DONE', 'CANCELED'] as const;
-const STATUS_LABEL: Record<ITrainingClass['status'], string> = {
+const STATUS_LABEL: Record<ITrainingClass[ 'status' ], string> = {
   DRAFT: 'Nháp',
   ACTIVE: 'Đang học',
   DONE: 'Đã kết thúc',
   CANCELED: 'Đã hủy'
 };
-const STATUS_BADGE: Record<ITrainingClass['status'], string> = {
+const STATUS_BADGE: Record<ITrainingClass[ 'status' ], string> = {
   DRAFT: 'bg-slate-100 text-slate-700',
   ACTIVE: 'bg-blue-100 text-blue-700',
   DONE: 'bg-emerald-100 text-emerald-700',
   CANCELED: 'bg-rose-100 text-rose-700'
 };
-const CLASS_TYPE_LABEL: Record<NonNullable<ITrainingClass['classType']>, string> = {
+const CLASS_TYPE_LABEL: Record<NonNullable<ITrainingClass[ 'classType' ]>, string> = {
   Offline: 'Offline',
   Online: 'Online',
   App: 'App'
@@ -98,12 +98,12 @@ const truncateText = (value: string, maxLength: number) => {
   const normalized = decodeMojibakeText(value);
   return normalized.length > maxLength ? `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…` : normalized;
 };
-const DEBT_LABEL: Record<NonNullable<IClassStudent['debtStatus']>, string> = {
+const DEBT_LABEL: Record<NonNullable<IClassStudent[ 'debtStatus' ]>, string> = {
   DA_DONG: 'Đã đóng',
   THIEU: 'Thiếu',
   QUA_HAN: 'Quá hạn'
 };
-const DEBT_BADGE: Record<NonNullable<IClassStudent['debtStatus']>, string> = {
+const DEBT_BADGE: Record<NonNullable<IClassStudent[ 'debtStatus' ]>, string> = {
   DA_DONG: 'bg-emerald-100 text-emerald-700',
   THIEU: 'bg-amber-100 text-amber-700',
   QUA_HAN: 'bg-red-100 text-red-700'
@@ -135,7 +135,7 @@ type CreateClassFormState = {
   campus: string;
   room: string;
   level: string;
-  classType: NonNullable<ITrainingClass['classType']>;
+  classType: NonNullable<ITrainingClass[ 'classType' ]>;
   language: string;
   maxStudents: number;
   startDate: string;
@@ -309,7 +309,7 @@ const getNextGerClassCode = (classes: ITrainingClass[]) => {
 const normalizeSessionTitle = (value?: string) => {
   const raw = (value || '').trim();
   if (!raw) return '';
-  if (/[ÃƒÃ‚]/.test(raw) || raw.includes('\uFFFD')) return '';
+  if (/[ÃÂ]/.test(raw) || raw.includes('\uFFFD')) return '';
   return raw;
 };
 
@@ -750,7 +750,7 @@ const TrainingClassList: React.FC = () => {
     return '-';
   };
 
-  const renderDebtBadge = (status?: IClassStudent['debtStatus']) => {
+  const renderDebtBadge = (status?: IClassStudent[ 'debtStatus' ]) => {
     if (!status) return <span>-</span>;
     return <span className={`rounded-full px-2 py-1 text-xs font-bold ${DEBT_BADGE[status]}`}>{DEBT_LABEL[status]}</span>;
   };
@@ -1008,7 +1008,7 @@ const TrainingClassList: React.FC = () => {
     setSelectedClassId(result.data.id);
   };
 
-  const changeMember = (m: IClassStudent, status: IClassStudent['status']) => {
+  const changeMember = (m: IClassStudent, status: IClassStudent[ 'status' ]) => {
     saveClassStudents(members.map((x) => (x.id === m.id ? { ...x, status, studentStatus: status } : x)));
     addClassLog(selected!.id, 'UPDATE_STUDENT_STATUS', `Cập nhật trạng thái ${m.studentId} -> ${status}`, 'training');
   };
@@ -1221,7 +1221,7 @@ const TrainingClassList: React.FC = () => {
                 <td className="border-b py-3 pr-3 align-top">
                   <select
                     value={r.member.status}
-                    onChange={(e) => changeMember(r.member, e.target.value as IClassStudent['status'])}
+                    onChange={(e) => changeMember(r.member, e.target.value as IClassStudent[ 'status' ])}
                     disabled={locked}
                     className="w-full rounded-lg border px-2 py-1 text-xs"
                   >
@@ -1266,10 +1266,10 @@ const TrainingClassList: React.FC = () => {
               {attendanceSaveMessage && <span className="text-xs text-slate-600">{attendanceSaveMessage}</span>}
               <button
                 type="button"
-                title="TODO: thay báº±ng API export Excel backend"
+                title="TODO: thay bằng API export Excel backend"
                 className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-600"
               >
-                <FileSpreadsheet size={13} /> Xuáº¥t Excel (TODO)
+                <FileSpreadsheet size={13} /> Xuất Excel (TODO)
               </button>
             </div>
           </div>
@@ -1702,7 +1702,7 @@ const TrainingClassList: React.FC = () => {
                   <select
                     value={selected.status}
                     onChange={(e) => {
-                      const s = e.target.value as ITrainingClass['status'];
+                      const s = e.target.value as ITrainingClass[ 'status' ];
                       updateClassStatus(selected.id, s);
                       addClassLog(selected.id, 'CLASS_STATUS_CHANGED', `${STATUS_LABEL[selected.status]} -> ${STATUS_LABEL[s]}`, 'training');
                     }}
@@ -1725,7 +1725,7 @@ const TrainingClassList: React.FC = () => {
                   Trình độ hiện tại: <span className="font-semibold text-slate-800">{inferredLevel}</span>
                 </div>
                 <div>
-                  Ca dáº¡y: <span className="font-semibold text-slate-800">{`${studyDaysLabel} • ${timeSlotLabel}`}</span>
+                  Ca dạy: <span className="font-semibold text-slate-800">{`${studyDaysLabel} • ${timeSlotLabel}`}</span>
                 </div>
                 <div>
                   Buổi: <span className="font-semibold text-slate-800">{sessionCountLabel}</span>
@@ -1901,7 +1901,7 @@ const TrainingClassList: React.FC = () => {
                 <span className="mb-1 block font-semibold text-slate-700">Loại lớp</span>
                 <select
                   value={createClassForm.classType}
-                  onChange={(e) => setCreateClassForm((prev) => ({ ...prev, classType: e.target.value as CreateClassFormState['classType'] }))}
+                  onChange={(e) => setCreateClassForm((prev) => ({ ...prev, classType: e.target.value as CreateClassFormState[ 'classType' ] }))}
                   className="w-full rounded-lg border px-3 py-2"
                 >
                   {Object.entries(CLASS_TYPE_LABEL).map(([value, label]) => (

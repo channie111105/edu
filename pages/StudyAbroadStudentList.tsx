@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { GraduationCap, RotateCcw, Search, Settings2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -437,8 +437,8 @@ const StudyAbroadStudentList: React.FC = () => {
     if (fieldId === 'progress') {
       const progressOrder = new Map(STUDY_ABROAD_PROGRESS_ORDER.map((value, index) => [value, index]));
       return [...values].sort((left, right) => {
-        const leftOrder = progressOrder.get(left) ?? Number.MAX_SAFE_INTEGER;
-        const rightOrder = progressOrder.get(right) ?? Number.MAX_SAFE_INTEGER;
+        const leftOrder = progressOrder.get(left as any) ?? Number.MAX_SAFE_INTEGER;
+        const rightOrder = progressOrder.get(right as any) ?? Number.MAX_SAFE_INTEGER;
         if (leftOrder !== rightOrder) return leftOrder - rightOrder;
         return left.localeCompare(right, 'vi');
       });
@@ -1000,3 +1000,4 @@ const StudyAbroadStudentList: React.FC = () => {
 };
 
 export default StudyAbroadStudentList;
+

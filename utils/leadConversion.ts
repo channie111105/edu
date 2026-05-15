@@ -110,7 +110,7 @@ const mergeContactRecords = (existing: IContact, incoming: IContact, nowIso: str
     }
 
     if (hasMeaningfulValue(value)) {
-      (merged as Record<string, unknown>)[key] = value;
+      (merged as unknown as Record<string, unknown>)[key] = value;
     }
   });
 

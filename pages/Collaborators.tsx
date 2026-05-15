@@ -26,6 +26,7 @@ import {
     AlertTriangle
 } from 'lucide-react';
 import { getLeads, getCollaborators, saveCollaborators, getSalesTeams } from '../utils/storage';
+import { PROVINCE_OPTIONS, COOPERATION_MODULE_OPTIONS } from '../utils/systemConfig';
 import { LeadStatus, IActivityLog, UserRole } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import LogAudienceFilterControl from '../components/LogAudienceFilter';
@@ -213,10 +214,10 @@ const normalizeCollaboratorStatus = (status?: ICollaborator['status']): Collabor
     }
 };
 
-const getCollaboratorStatusMeta = (status?: ICollaborator['status']) =>
+const getCollaboratorStatusMeta = (status?: ICollaborator[ 'status' ]) =>
     COLLABORATOR_STATUS_OPTIONS.find((item) => item.id === normalizeCollaboratorStatus(status)) || COLLABORATOR_STATUS_OPTIONS[1];
 
-const getCollaboratorStatusLabel = (status?: ICollaborator['status']) =>
+const getCollaboratorStatusLabel = (status?: ICollaborator[ 'status' ]) =>
     getCollaboratorStatusMeta(status).label;
 
 const normalizeTextToken = (value?: string) =>
@@ -230,25 +231,25 @@ const normalizeTextToken = (value?: string) =>
         .replace(/\s+/g, ' ')
         .trim();
 
-const COLLABORATOR_PROVINCE_ALIAS_GROUPS: Array<{ province: (typeof COLLABORATOR_PROVINCE_OPTIONS)[number]; aliases: string[] }> = [
-    { province: 'Hà Nội', aliases: ['ha noi'] },
-    { province: 'Cao Bằng', aliases: ['cao bang'] },
+const COLLABORATOR_PROVINCE_ALIAS_GROUPS: Array<{ province: string; aliases: string[] }> = [
+    { province: 'Hà Nội', aliases: [ 'ha noi' ] },
+    { province: 'Cao Bằng', aliases: [ 'cao bang' ] },
     { province: 'Tuyên Quang', aliases: ['tuyen quang', 'ha giang'] },
-    { province: 'Điện Biên', aliases: ['dien bien'] },
-    { province: 'Lai Châu', aliases: ['lai chau'] },
-    { province: 'Sơn La', aliases: ['son la'] },
+    { province: 'Điện Biên', aliases: [ 'dien bien' ] },
+    { province: 'Lai Châu', aliases: [ 'lai chau' ] },
+    { province: 'Sơn La', aliases: [ 'son la' ] },
     { province: 'Lào Cai', aliases: ['lao cai', 'yen bai'] },
     { province: 'Thái Nguyên', aliases: ['thai nguyen', 'bac kan', 'bac can'] },
-    { province: 'Lạng Sơn', aliases: ['lang son'] },
-    { province: 'Quảng Ninh', aliases: ['quang ninh'] },
+    { province: 'Lạng Sơn', aliases: [ 'lang son' ] },
+    { province: 'Quảng Ninh', aliases: [ 'quang ninh' ] },
     { province: 'Bắc Ninh', aliases: ['bac ninh', 'bac giang'] },
     { province: 'Phú Thọ', aliases: ['phu tho', 'vinh phuc', 'hoa binh'] },
     { province: 'Hải Phòng', aliases: ['hai phong', 'hai duong'] },
     { province: 'Hưng Yên', aliases: ['hung yen', 'thai binh'] },
     { province: 'Ninh Bình', aliases: ['ninh binh', 'ha nam', 'nam dinh'] },
-    { province: 'Thanh Hóa', aliases: ['thanh hoa'] },
-    { province: 'Nghệ An', aliases: ['nghe an'] },
-    { province: 'Hà Tĩnh', aliases: ['ha tinh'] },
+    { province: 'Thanh Hóa', aliases: [ 'thanh hoa' ] },
+    { province: 'Nghệ An', aliases: [ 'nghe an' ] },
+    { province: 'Hà Tĩnh', aliases: [ 'ha tinh' ] },
     { province: 'Quảng Trị', aliases: ['quang tri', 'quang binh'] },
     { province: 'Huế', aliases: ['hue', 'thua thien hue'] },
     { province: 'Đà Nẵng', aliases: ['da nang', 'quang nam'] },
@@ -284,7 +285,7 @@ const normalizeCollaboratorProvince = (value?: string): string => {
 
 const normalizeCollaboratorLogDescription = (description?: string) => {
     const value = String(description || '');
-    if (!value.includes('Trạng thái CTV:')) return value;
+    if (!value.includes('Trạng thái CTV: ')) return value;
 
     return value
         .replaceAll('Need Support', 'Tạm ngưng')
@@ -294,7 +295,7 @@ const normalizeCollaboratorLogDescription = (description?: string) => {
         .replaceAll('New', 'Tạm ngưng');
 };
 
-const COLLABORATOR_LOG_TYPE_META: Record<IActivityLog['type'], { label: string; badgeClass: string; bodyClass: string }> = {
+const COLLABORATOR_LOG_TYPE_META: Record<IActivityLog[ 'type' ], { label: string; badgeClass: string; bodyClass: string }> = {
     system: {
         label: 'Hệ thống',
         badgeClass: 'bg-slate-100 text-slate-600',
@@ -317,7 +318,7 @@ const COLLABORATOR_LOG_TYPE_META: Record<IActivityLog['type'], { label: string; 
     }
 };
 
-const getCollaboratorLogMeta = (type?: IActivityLog['type']) => COLLABORATOR_LOG_TYPE_META[type || 'note'] || COLLABORATOR_LOG_TYPE_META.note;
+const getCollaboratorLogMeta = (type?: IActivityLog[ 'type' ]) => COLLABORATOR_LOG_TYPE_META[type || 'note'] || COLLABORATOR_LOG_TYPE_META.note;
 
 const normalizeCollaboratorCode = (value?: string) => String(value || '').trim().toUpperCase();
 
@@ -438,7 +439,7 @@ const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, is
     const [interactionType, setInteractionType] = useState('Call');
     const [scheduleNext, setScheduleNext] = useState(false);
     const [showNextActivityModal, setShowNextActivityModal] = useState(false);
-    const [nextActivityType, setNextActivityType] = useState<(typeof COLLABORATOR_SCHEDULE_TYPES)[number]['id']>('call');
+    const [nextActivityType, setNextActivityType] = useState<(typeof COLLABORATOR_SCHEDULE_TYPES)[number][ 'id' ]>('call');
     const [nextActivityDate, setNextActivityDate] = useState('');
     const [nextActivitySummary, setNextActivitySummary] = useState('');
     const [showFollowersModal, setShowFollowersModal] = useState(false);
@@ -537,7 +538,7 @@ const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, is
         }, 2400);
     };
 
-    const getDefaultNextActivityDate = (typeId: (typeof COLLABORATOR_SCHEDULE_TYPES)[number]['id'] = 'call') => {
+    const getDefaultNextActivityDate = (typeId: (typeof COLLABORATOR_SCHEDULE_TYPES)[number][ 'id' ] = 'call') => {
         const matchedType = COLLABORATOR_SCHEDULE_TYPES.find((item) => item.id === typeId);
         const delayHours = matchedType?.defaultDelayHours || 0;
         const now = new Date();
@@ -599,12 +600,12 @@ const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, is
 
         if (scheduleNext) {
             if (!trimmedScheduleSummary) {
-                showToast('Vui lÃ²ng nháº­p ná»™i dung lá»‹ch chÄƒm sÃ³c.', 'error');
+                showToast('Vui lòng nhập nội dung lịch chăm sóc.', 'error');
                 return;
             }
 
             if (!nextActivityDate) {
-                showToast('Vui lÃ²ng chá»n ngÃ y giá» cho lá»‹ch chÄƒm sÃ³c.', 'error');
+                showToast('Vui lòng chọn ngày giờ cho lịch chăm sóc.', 'error');
                 return;
             }
         }
@@ -679,8 +680,8 @@ const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, is
             scheduleNext
                 ? trimmedNote
                     ? '\u0110\u00e3 l\u01b0u ch\u0103m s\u00f3c v\u00e0 t\u1ea1o l\u1ecbch ti\u1ebfp theo cho CTV.'
-                    : '\u0110\u00e3 t\u1ea1o l\u1ecbch ch\u0103m s\u00f3c ti\u1ebfp theo cho CTV.'
-                : '\u0110\u00e3 l\u01b0u nh\u1eadt k\u00fd ch\u0103m s\u00f3c CTV.'
+                    : 'Đã tạo lịch chăm sóc tiếp theo cho CTV.'
+                : 'Đã lưu nhật ký chăm sóc CTV.'
         );
     };
 
@@ -1009,7 +1010,7 @@ const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, is
                                                         </label>
                                                         <select
                                                             value={nextActivityType}
-                                                            onChange={(e) => setNextActivityType(e.target.value as (typeof COLLABORATOR_SCHEDULE_TYPES)[number]['id'])}
+                                                            onChange={(e) => setNextActivityType(e.target.value as (typeof COLLABORATOR_SCHEDULE_TYPES)[number][ 'id' ])}
                                                             className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition-colors focus:border-violet-400"
                                                         >
                                                             {COLLABORATOR_SCHEDULE_TYPES.map((item) => (
@@ -1188,7 +1189,7 @@ const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, is
                                         </label>
                                         <select
                                             value={nextActivityType}
-                                            onChange={(e) => setNextActivityType(e.target.value as (typeof COLLABORATOR_SCHEDULE_TYPES)[number]['id'])}
+                                            onChange={(e) => setNextActivityType(e.target.value as (typeof COLLABORATOR_SCHEDULE_TYPES)[number][ 'id' ])}
                                             className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm text-slate-700 outline-none transition-colors focus:border-violet-400"
                                         >
                                             {COLLABORATOR_SCHEDULE_TYPES.map((item) => (
@@ -1474,7 +1475,7 @@ const Collaborators: React.FC = () => {
         const chips: PinnedSearchChip[] = [];
 
         if (activeTab === 'slow_ctv') {
-            chips.push({ key: 'sla', label: 'SLA: Ch\u1eadm l\u1ecbch h\u1eb9n' });
+            chips.push({ key: 'sla', label: 'SLA: Chậm lịch hẹn' });
         }
 
         if (filterCity !== 'All') {
@@ -2010,13 +2011,16 @@ const Collaborators: React.FC = () => {
                                 </div>
                                 <div className="col-span-1">
                                     <label className="block text-sm font-bold text-slate-700 mb-1">Mảng hợp tác</label>
-                                    <input
-                                        type="text"
+                                    <select
                                         className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition-all"
                                         value={newCtv.segment || ''}
                                         onChange={e => setNewCtv({ ...newCtv, segment: e.target.value })}
-                                        placeholder="VD: Du học..."
-                                    />
+                                    >
+                                        <option value="">Chọn mảng hợp tác</option>
+                                        {COOPERATION_MODULE_OPTIONS.map(opt => (
+                                            <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                        ))}
+                                    </select>
                                 </div>
                             </div>
 
@@ -2039,7 +2043,7 @@ const Collaborators: React.FC = () => {
                                     <select
                                         className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none bg-white focus:border-blue-500 transition-all"
                                         value={newCtv.status || 'Hoạt động'}
-                                        onChange={e => setNewCtv({ ...newCtv, status: e.target.value as ICollaborator['status'] })}
+                                        onChange={e => setNewCtv({ ...newCtv, status: e.target.value as ICollaborator[ 'status' ] })}
                                     >
                                         {COLLABORATOR_STATUS_OPTIONS.map((statusOption) => (
                                             <option key={statusOption.id} value={statusOption.id}>
@@ -2165,12 +2169,16 @@ const Collaborators: React.FC = () => {
                                 </div>
                                 <div className="col-span-1">
                                     <label className="block text-sm font-bold text-slate-700 mb-1">Mảng hợp tác</label>
-                                    <input
-                                        type="text"
+                                    <select
                                         className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition-all"
                                         value={editingCtv.segment || ''}
                                         onChange={e => setEditingCtv({ ...editingCtv, segment: e.target.value })}
-                                    />
+                                    >
+                                        <option value="">Chọn mảng hợp tác</option>
+                                        {COOPERATION_MODULE_OPTIONS.map(opt => (
+                                            <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                        ))}
+                                    </select>
                                 </div>
                             </div>
 
@@ -2216,7 +2224,7 @@ const Collaborators: React.FC = () => {
                                     <select
                                         className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none bg-white focus:border-blue-500 transition-all"
                                         value={editingCtv.status || 'Hoạt động'}
-                                        onChange={e => setEditingCtv({ ...editingCtv, status: e.target.value as ICollaborator['status'] })}
+                                        onChange={e => setEditingCtv({ ...editingCtv, status: e.target.value as ICollaborator[ 'status' ] })}
                                     >
                                         {COLLABORATOR_STATUS_OPTIONS.map((statusOption) => (
                                             <option key={statusOption.id} value={statusOption.id}>
@@ -2297,3 +2305,5 @@ const Collaborators: React.FC = () => {
 };
 
 export default Collaborators;
+
+

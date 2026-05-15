@@ -212,7 +212,7 @@ const FIXED_REQUIRED_QR_FIELDS = QR_LEAD_FIELDS.filter(field => field.fixed && f
 const LEFT_PANEL_CORE_FIELDS = QR_LEAD_FIELDS.filter(field => field.group === 'core');
 const LEFT_PANEL_MARKETING_FIELDS = QR_LEAD_FIELDS.filter(field => field.group === 'marketing');
 const OPTIONAL_QR_FIELDS = QR_LEAD_FIELDS.filter(field => !field.fixed);
-const DEFAULT_SELECTED_OPTIONAL_QR_FIELDS = ['email'];
+const DEFAULT_SELECTED_OPTIONAL_QR_FIELDS = [ 'email' ];
 const CAMPAIGN_QR_FIELDS_STORAGE_KEY = 'educrm_campaign_qr_optional_fields';
 
 type ManualLeadDraft = {
@@ -522,17 +522,17 @@ const CampaignDetails: React.FC = () => {
         const normalized = raw.toLowerCase();
 
         if (LEAD_STATUS_OPTIONS.includes(raw)) return raw;
-        if (['new', 'moi', 'mới', 'má»›i'].includes(normalized)) return LEAD_STATUS_OPTIONS[0];
-        if (['contacted', 'lien he', 'liên hệ', 'da lien he', 'đã liên hệ', 'Ä‘Ã£ liÃªn há»‡'].includes(normalized)) return LEAD_STATUS_OPTIONS[1];
-        if (['qualified', 'dat chuan', 'đạt chuẩn', 'Ä‘áº¡t chuáº©n'].includes(normalized)) return LEAD_STATUS_OPTIONS[2];
-        if (['won', 'chot', 'chốt', 'chá»‘t'].includes(normalized)) return LEAD_STATUS_OPTIONS[3];
-        if (['cancelled', 'canceled', 'huy', 'hủy', 'há»§y'].includes(normalized)) return LEAD_STATUS_OPTIONS[4];
+        if (['new', 'moi', 'mới', 'mới'].includes(normalized)) return LEAD_STATUS_OPTIONS[0];
+        if (['contacted', 'lien he', 'liên hệ', 'da lien he', 'đã liên hệ', 'đã liên hệ'].includes(normalized)) return LEAD_STATUS_OPTIONS[1];
+        if (['qualified', 'dat chuan', 'đạt chuẩn', 'đạt chuẩn'].includes(normalized)) return LEAD_STATUS_OPTIONS[2];
+        if (['won', 'chot', 'chốt', 'chốt'].includes(normalized)) return LEAD_STATUS_OPTIONS[3];
+        if (['cancelled', 'canceled', 'huy', 'hủy', 'hủy'].includes(normalized)) return LEAD_STATUS_OPTIONS[4];
         return LEAD_STATUS_OPTIONS[0];
     };
 
     const parseVerified = (value: string) => {
         const normalized = decodeMojibakeText(value).trim().toLowerCase();
-        return ['1', 'true', 'yes', 'y', 'verified', 'co', 'có', 'cÃ³', 'da', 'đã', 'Ä‘Ã£'].includes(normalized);
+        return ['1', 'true', 'yes', 'y', 'verified', 'co', 'có', 'có', 'da', 'đã', 'đã'].includes(normalized);
     };
 
     const getCellValue = (row: Record<string, unknown>, keys: string[]) => {
@@ -701,7 +701,7 @@ const CampaignDetails: React.FC = () => {
         setManualLead(createManualLeadDraft(campaignMeta.name));
     };
 
-    const getManualFieldOptions = (fieldId: QrLeadField['id']) => {
+    const getManualFieldOptions = (fieldId: QrLeadField[ 'id' ]) => {
         switch (fieldId) {
             case 'targetCountry':
                 return LEAD_TARGET_COUNTRY_OPTIONS.map((option) => ({ value: option.value, label: option.label }));
@@ -736,7 +736,7 @@ const CampaignDetails: React.FC = () => {
         }
     };
 
-    const updateManualLeadField = (fieldId: QrLeadField['id'], value: string) => {
+    const updateManualLeadField = (fieldId: QrLeadField[ 'id' ], value: string) => {
         setManualLead((prev) => ({ ...prev, [fieldId]: value }));
     };
 
@@ -992,8 +992,7 @@ const CampaignDetails: React.FC = () => {
                                                 <span className={`px-2.5 py-1 rounded text-[10px] font-black uppercase tracking-widest border ${lead.status === LEAD_STATUS_OPTIONS[0] ? 'bg-blue-50 text-blue-700 border-blue-100' :
                                                     lead.status === LEAD_STATUS_OPTIONS[1] ? 'bg-orange-50 text-orange-700 border-orange-100' :
                                                         lead.status === LEAD_STATUS_OPTIONS[2] ? 'bg-green-50 text-green-700 border-green-100' :
-                                                            lead.status === LEAD_STATUS_OPTIONS[3] ? 'bg-emerald-50 text-emerald-800 border-emerald-100' :
-                                                                'bg-slate-50 text-slate-500 border-slate-200'
+                                                            lead.status === LEAD_STATUS_OPTIONS[3] ? 'bg-emerald-50 text-emerald-800 border-emerald-100' : 'bg-slate-50 text-slate-500 border-slate-200'
                                                     }`}>
                                                     {lead.status}
                                                 </span>

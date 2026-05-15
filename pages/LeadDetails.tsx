@@ -1,4 +1,4 @@
-﻿
+
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getLeadById, saveLead, addMeeting } from '../utils/storage';
@@ -12,6 +12,8 @@ import {
    ChevronDown, UserPlus, PhoneOutgoing,
    Send, FileText, Save, Layout, Calendar
 } from 'lucide-react';
+import { LEAD_SOURCE_OPTIONS, LEAD_PRODUCT_OPTIONS, LEAD_TARGET_COUNTRY_OPTIONS, LEAD_CAMPUS_OPTIONS } from '../utils/leadCreateForm';
+import { getCampaignNameOptions } from '../utils/campaignCatalog';
 import { LeadStatus, ILead, UserRole, IMeeting, MeetingStatus, MeetingType } from '../types';
 
 interface IActivity {
@@ -333,91 +335,92 @@ const LeadDetails: React.FC = () => {
                      </div>
                   </div>
 
-                  {/* Nguá»“n & PhÃ¢n loáº¡i */}
+                  {/* Nguồn & Phân loại */}
                   <div>
-                     <h4 className="text-xs font-bold text-slate-700 mb-3 uppercase tracking-wide">Nguá»“n & PhÃ¢n loáº¡i</h4>
+                     <h4 className="text-xs font-bold text-slate-700 mb-3 uppercase tracking-wide">Nguồn & Phân loại</h4>
                      <div className="space-y-3">
                         <div>
-                           <label className="text-[10px] text-slate-500 font-bold block mb-1.5">Nguá»“n</label>
+                           <label className="text-[10px] text-slate-500 font-bold block mb-1.5">Nguồn</label>
                            <select
                               className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-900 outline-none focus:border-blue-500"
                               value={formData.source}
                               onChange={(e) => handleInputChange('source', e.target.value)}
                            >
-                              <option value="fb_lead_form">fb_lead_form</option>
-                              <option value="hotline">Hotline</option>
-                              <option value="sale_tu_kiem_ca_nhan">Sale tá»± kiáº¿m</option>
+                              <option value="">-- Chọn nguồn --</option>
+                              {LEAD_SOURCE_OPTIONS.map(option => (
+                                 <option key={option.value} value={option.value}>{option.label}</option>
+                              ))}
                            </select>
                         </div>
                         <div>
-                           <label className="text-[10px] text-slate-500 font-bold block mb-1.5">ChÆ°Æ¡ng trÃ¬nh</label>
+                           <label className="text-[10px] text-slate-500 font-bold block mb-1.5">Chương trình</label>
                            <select
                               className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm font-bold text-blue-600 outline-none focus:border-blue-500"
                               value={formData.program}
                               onChange={(e) => handleInputChange('program', e.target.value)}
                            >
-                              <option value="Tiáº¿ng Äá»©c">Tiáº¿ng Äá»©c</option>
-                              <option value="Tiáº¿ng Trung">Tiáº¿ng Trung</option>
-                              <option value="Du há»c Äá»©c">Du há»c Äá»©c</option>
-                              <option value="Du há»c Trung">Du há»c Trung</option>
+                              <option value="">-- Chọn chương trình --</option>
+                              {LEAD_PRODUCT_OPTIONS.map(option => (
+                                 <option key={option.value} value={option.value}>{option.label}</option>
+                              ))}
                            </select>
                         </div>
                      </div>
                   </div>
 
-                  {/* 2. CHUYÃŠN MÃ”N (QUAN TRá»ŒNG) */}
+                  {/* 2. CHUYÊN MÔN (QUAN TRỌNG) */}
                   <div className="bg-blue-50/50 p-3 rounded-lg border border-blue-100">
                      <h4 className="text-xs font-bold text-blue-700 mb-3 flex items-center gap-1">
-                        <CheckCircle2 size={14} /> 2. Má»¤C TIÃŠU & NHU Cáº¦U
+                        <CheckCircle2 size={14} /> 2. MỤC TIÊU & NHU CẦU
                      </h4>
                      <div className="space-y-3">
                         <div>
-                           <label className="text-[10px] text-slate-500 font-bold block mb-1">Quá»‘c gia má»¥c tiÃªu <span className="text-red-500">*</span></label>
+                           <label className="text-[10px] text-slate-500 font-bold block mb-1">Quốc gia mục tiêu <span className="text-red-500">*</span></label>
                            <select
                               className="w-full px-2 py-2 bg-white border border-slate-200 rounded text-sm text-slate-900 outline-none focus:border-blue-500"
                               value={studentInfo.targetCountry || ''}
                               onChange={(e) => handleStudentInfoChange('targetCountry', e.target.value)}
                            >
-                              <option value="">-- Chá»n quá»‘c gia --</option>
-                              <option value="Äá»©c">ðŸ‡©ðŸ‡ª Äá»©c</option>
-                              <option value="Trung Quá»‘c">ðŸ‡¨ðŸ‡³ Trung Quá»‘c</option>
-                              <option value="KhÃ¡c">ðŸ³ï¸ KhÃ¡c</option>
+                              <option value="">-- Chọn quốc gia --</option>
+                              {LEAD_TARGET_COUNTRY_OPTIONS.map(option => (
+                                 <option key={option.value} value={option.value}>{option.label}</option>
+                              ))}
                            </select>
                         </div>
                         <div>
-                           <label className="text-[10px] text-slate-500 font-bold block mb-1">Sáº£n pháº©m quan tÃ¢m</label>
+                           <label className="text-[10px] text-slate-500 font-bold block mb-1">Sản phẩm quan tâm</label>
                            <select
                               className="w-full px-2 py-2 bg-white border border-slate-200 rounded text-sm font-bold text-slate-900 outline-none focus:border-blue-500"
                               value={formData.program}
                               onChange={(e) => handleInputChange('program', e.target.value)}
                            >
-                              <option value="Tiáº¿ng Äá»©c">Tiáº¿ng Äá»©c</option>
-                              <option value="Tiáº¿ng Trung">Tiáº¿ng Trung</option>
-                              <option value="Du há»c Äá»©c">Du há»c Äá»©c</option>
-                              <option value="Du há»c Trung">Du há»c Trung</option>
+                              <option value="">-- Chọn sản phẩm --</option>
+                              {LEAD_PRODUCT_OPTIONS.map(option => (
+                                 <option key={option.value} value={option.value}>{option.label}</option>
+                              ))}
                            </select>
                         </div>
                      </div>
                   </div>
 
-                  {/* 3. THÃ”NG TIN Bá»” SUNG (CHO Há»’ SÆ ) */}
+                  {/* 3. THÔNG TIN BỔ SUNG (CHO HỒ SƠ) */}
                   <div>
                      <h4 className="text-xs font-bold text-blue-600 mb-3 flex items-center gap-1">
-                        <FileText size={14} /> 3. Há»’ SÆ  CÃ NHÃ‚N
+                        <FileText size={14} /> 3. HỒ SƠ CÁ NHÂN
                      </h4>
                      <div className="space-y-3">
-                        {/* Phá»¥ huynh - Quan trá»ng */}
+                        {/* Phụ huynh - Quan trọng */}
                         <div className="bg-slate-50 p-2 rounded border border-slate-200">
-                           <label className="text-[10px] text-slate-500 font-bold block mb-1">ThÃ´ng tin Phá»¥ huynh</label>
+                           <label className="text-[10px] text-slate-500 font-bold block mb-1">Thông tin Phụ huynh</label>
                            <input
                               className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded text-sm mb-2 outline-none"
-                              placeholder="Há» tÃªn Bá»‘/Máº¹"
+                              placeholder="Họ tên Bố/Mẹ"
                               value={studentInfo.parentName || ''}
                               onChange={(e) => handleStudentInfoChange('parentName', e.target.value)}
                            />
                            <input
                               className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded text-sm outline-none"
-                              placeholder="SÄT Phá»¥ huynh"
+                              placeholder="SĐT Phụ huynh"
                               value={studentInfo.parentPhone || ''}
                               onChange={(e) => handleStudentInfoChange('parentPhone', e.target.value)}
                            />
@@ -425,7 +428,7 @@ const LeadDetails: React.FC = () => {
 
                         <div className="grid grid-cols-2 gap-3">
                            <div>
-                              <label className="text-[10px] text-slate-500 font-bold block mb-1">NgÃ y sinh</label>
+                              <label className="text-[10px] text-slate-500 font-bold block mb-1">Ngày sinh</label>
                               <input
                                  type="date"
                                  className="w-full px-2 py-2 bg-white border border-slate-200 rounded text-sm text-slate-900 outline-none"
@@ -434,13 +437,13 @@ const LeadDetails: React.FC = () => {
                               />
                            </div>
                            <div>
-                              <label className="text-[10px] text-slate-500 font-bold block mb-1">Giá»›i tÃ­nh</label>
+                              <label className="text-[10px] text-slate-500 font-bold block mb-1">Giới tính</label>
                               <select
                                  className="w-full px-2 py-2 bg-white border border-slate-200 rounded text-sm text-slate-900 outline-none"
                                  value={studentInfo.gender || ''}
                                  onChange={(e) => handleStudentInfoChange('gender', e.target.value)}
                               >
-                                 <option value="">-- Chá»n --</option>
+                                 <option value="">-- Chọn --</option>
                                  <option value="Nam">Nam</option>
                                  <option value="Ná»¯">Ná»¯</option>
                               </select>
@@ -463,27 +466,29 @@ const LeadDetails: React.FC = () => {
                      </h4>
                      <div className="grid grid-cols-2 gap-3">
                         <div>
-                           <label className="text-[10px] text-slate-500 font-bold block mb-1">Nguá»“n (Source)</label>
+                           <label className="text-[10px] text-slate-500 font-bold block mb-1">Nguồn (Source)</label>
                            <select
                               className="w-full px-2 py-2 bg-white border border-slate-200 rounded text-sm text-slate-900 outline-none focus:border-blue-500"
                               value={formData.source}
                               onChange={(e) => handleInputChange('source', e.target.value)}
                            >
-                              <option value="fb_lead_form">FB Lead Form</option>
-                              <option value="hotline">Hotline</option>
-                              <option value="sale_tu_kiem_ca_nhan">Sale tá»± kiáº¿m</option>
+                              <option value="">-- Chọn nguồn --</option>
+                              {LEAD_SOURCE_OPTIONS.map(option => (
+                                 <option key={option.value} value={option.value}>{option.label}</option>
+                              ))}
                            </select>
                         </div>
                         <div>
-                           <label className="text-[10px] text-slate-500 font-bold block mb-1">Chiáº¿n dá»‹ch</label>
+                           <label className="text-[10px] text-slate-500 font-bold block mb-1">Chiến dịch</label>
                            <select
                               className="w-full px-2 py-2 bg-white border border-slate-200 rounded text-sm text-slate-900 outline-none focus:border-blue-500"
                               value={formData.campaign || ''}
                               onChange={(e) => handleInputChange('campaign', e.target.value)}
                            >
                               <option value="">(None)</option>
-                              <option value="Referral">Referral</option>
-                              <option value="Summer Camp">Summer Camp</option>
+                              {getCampaignNameOptions().map(option => (
+                                 <option key={option.value} value={option.value}>{option.label}</option>
+                              ))}
                            </select>
                         </div>
                      </div>
