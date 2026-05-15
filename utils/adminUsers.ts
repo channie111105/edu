@@ -295,17 +295,30 @@ export const buildAdminUserRecord = (
 };
 
 export const getAdminUsers = (): AdminUserRecord[] => {
-  if (!canUseStorage()) {
-    return INITIAL_ADMIN_USERS.map(normalizeAdminUser);
+  let users = INITIAL_ADMIN_USERS;
+  if (canUseStorage()) {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          users = parsed;
+        }
+      }
+    } catch {
+      // Fallback to initial
+    }
   }
 
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    const parsed = raw ? (JSON.parse(raw) as AdminUserRecord[]) : INITIAL_ADMIN_USERS;
-    return Array.isArray(parsed) ? parsed.map(normalizeAdminUser) : INITIAL_ADMIN_USERS.map(normalizeAdminUser);
-  } catch {
-    return INITIAL_ADMIN_USERS.map(normalizeAdminUser);
+  const normalizedUsers = users.map(normalizeAdminUser);
+  
+  // Hardcode: Always ensure the root admin is present
+  const hasRootAdmin = normalizedUsers.some(u => u.username === 'admin@abc');
+  if (!hasRootAdmin) {
+    normalizedUsers.unshift(normalizeAdminUser(INITIAL_ADMIN_USERS[0]));
   }
+
+  return normalizedUsers;
 };
 
 export const saveAdminUsers = (users: AdminUserRecord[]) => {

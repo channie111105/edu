@@ -862,6 +862,11 @@ const AdminUserManagement: React.FC = () => {
       return;
     }
 
+    if (deleteTarget.username === 'admin@abc') {
+      setDeleteError('Không thể xóa tài khoản quản trị viên gốc (Root Admin).');
+      return;
+    }
+
     if (deleteTargetLeadCount > 0 && !replacementUserOptions.length) {
       setDeleteError('Không còn user khác để nhận lead. Vui lòng tạo user mới trước khi xóa.');
       return;
