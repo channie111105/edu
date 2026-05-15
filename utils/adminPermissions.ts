@@ -16,6 +16,7 @@ export type PermissionGroupId =
   | 'finance'
   | 'library'
   | 'admin';
+
 export type SystemRoleId =
   | 'sales'
   | 'salesLeader'
@@ -28,6 +29,7 @@ export type SystemRoleId =
   | 'accountant'
   | 'ceo'
   | 'admin';
+
 export type PermissionRoleTone = 'slate' | 'indigo' | 'sky' | 'amber' | 'rose' | 'emerald' | 'cyan' | 'violet';
 
 export interface PermissionAction {
@@ -66,6 +68,38 @@ export interface PermissionSettingsSnapshot {
   roles: PermissionRoleRecord[];
   permissions: PermissionState;
 }
+
+/**
+ * Ánh xạ nhóm quyền RBAC → UserRole tương ứng cho màn hình chọn phân hệ.
+ */
+export const GROUP_TO_ROLE_MAP: Record<string, UserRole> = {
+  marketing: UserRole.MARKETING,
+  sales: UserRole.SALES_REP,
+  enrollment: UserRole.SALES_LEADER,
+  training: UserRole.TRAINING,
+  studyAbroad: UserRole.STUDY_ABROAD,
+  finance: UserRole.ACCOUNTANT,
+  library: UserRole.LIBRARY,
+  admin: UserRole.ADMIN,
+};
+
+/**
+ * Tự động tính toán danh sách UserRole từ trạng thái phân quyền.
+ */
+export const deriveRolesFromPermissionState = (permissionState: GroupPermissionState): UserRole[] => {
+  const derived: UserRole[] = [];
+  
+  Object.entries(permissionState).forEach(([groupId, permissions]) => {
+    if (!permissions) return;
+    const hasActive = Object.values(permissions).some(scope => scope !== 'none');
+    const mappedRole = GROUP_TO_ROLE_MAP[groupId];
+    if (hasActive && mappedRole) {
+      derived.push(mappedRole);
+    }
+  });
+
+  return derived;
+};
 
 export interface PermissionScopeOption {
   id: PermissionScope;
@@ -109,7 +143,7 @@ export const SCOPE_OPTIONS: PermissionScopeOption[] = [
     id: 'team',
     label: 'Đội nhóm',
     badgeClass: 'border border-lime-200 bg-lime-50 text-lime-700',
-    selectClass: 'border-lime-200 bg-lime-50 text-lime-700',
+    selectClass: 'border border-lime-200 bg-lime-50 text-lime-700',
   },
   {
     id: 'branch',
@@ -671,7 +705,7 @@ export const getDefaultScope = (groupId: PermissionGroupId, roleId: string): Per
   }
 };
 
-const buildBasePermissionsForRole = (roleId: string, isSystem: boolean): GroupPermissionState => {
+export const buildBasePermissionsForRole = (roleId: string, isSystem: boolean): GroupPermissionState => {
   const next: GroupPermissionState = {};
 
   PERMISSION_GROUPS.forEach((group) => {
@@ -897,17 +931,17 @@ export const buildRolePermissionSummary = (rolePermissions?: GroupPermissionStat
           groupHasActivePermissions = true;
           sectionHasActivePermissions = true;
           scopeCounts.set(scope, (scopeCounts.get(scope) || 0) + 1);
-        }
 
-        if (getScopeWeight(scope) > getScopeWeight(sectionMaxScope)) {
-          sectionMaxScope = scope;
+          if (getScopeWeight(scope) > getScopeWeight(sectionMaxScope)) {
+            sectionMaxScope = scope;
+          }
         }
       });
 
       if (sectionHasActivePermissions) {
         activeSectionCount += 1;
         sectionHighlights.push({
-          id: `${group.id}.${section.id}`,
+          id: section.id,
           label: section.title,
           scope: sectionMaxScope,
           groupLabel: group.label,
@@ -920,23 +954,38 @@ export const buildRolePermissionSummary = (rolePermissions?: GroupPermissionStat
     }
   });
 
-  const highlights = sectionHighlights
-    .sort((left, right) => {
-      const scopeOrder = getScopeWeight(right.scope) - getScopeWeight(left.scope);
-      if (scopeOrder !== 0) return scopeOrder;
-      return left.label.localeCompare(right.label, 'vi');
-    })
-    .slice(0, 4);
-
-  const scopeBreakdown = Array.from(scopeCounts.entries())
-    .sort((left, right) => getScopeWeight(right[0]) - getScopeWeight(left[0]))
-    .map(([scope, count]) => ({ scope, count }));
+  const scopeBreakdown = SCOPE_OPTIONS.map((option) => ({
+    scope: option.id,
+    count: scopeCounts.get(option.id) || 0,
+  })).filter((item) => item.scope !== 'none' || item.count > 0);
 
   return {
     activePermissionCount,
     activeSectionCount,
     activeGroupCount,
-    highlights,
+    highlights: sectionHighlights,
     scopeBreakdown,
   };
 };
+
+export interface RolePermissionSummary {
+  activePermissionCount: number;
+  activeSectionCount: number;
+  activeGroupCount: number;
+  highlights: RolePermissionHighlight[];
+  scopeBreakdown: Array<{ scope: PermissionScope; count: number }>;
+}
+
+export interface RolePermissionHighlight {
+  id: string;
+  label: string;
+  scope: PermissionScope;
+  groupLabel: string;
+}
+
+export interface PermissionScopeOption {
+  id: PermissionScope;
+  label: string;
+  badgeClass: string;
+  selectClass: string;
+}

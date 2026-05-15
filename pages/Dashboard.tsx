@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { UserRole } from '../types';
@@ -37,6 +37,10 @@ const Dashboard: React.FC = () => {
 
   if (user?.role === UserRole.STUDY_ABROAD) {
     return <StudyAbroadDashboard />;
+  }
+
+  if (user?.role === UserRole.LIBRARY) {
+    return <Navigate to="/library" replace />;
   }
 
   return <SalesDashboard />;

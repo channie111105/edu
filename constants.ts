@@ -110,6 +110,9 @@ export const NAV_ITEMS = [
   // --- THƯ VIỆN TÀI LIỆU (Mới) ---
   {
     label: 'Thư viện & Quy trình', path: '/library', icon: Library, roles: [
+      UserRole.ADMIN,
+      UserRole.FOUNDER,
+      UserRole.LIBRARY,
       UserRole.TEACHER,
     ]
   },

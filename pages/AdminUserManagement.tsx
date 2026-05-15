@@ -32,6 +32,7 @@ import {
   loadAdminPermissionSettings,
   saveAdminPermissionSettings,
   SYSTEM_ROLE_DEFINITIONS,
+  deriveRolesFromPermissionState,
   type GroupPermissionState,
   type PermissionGroupId,
   type PermissionRoleRecord,
@@ -639,23 +640,26 @@ const AdminUserManagement: React.FC = () => {
     const permissionSettings = loadAdminPermissionSettings();
     const linkedPermissionRole = permissionSettings.roles.find((role) => role.label === nextLabel) || null;
     
-    // Find matching functional roles from SYSTEM_ROLE_DEFINITIONS
+    // Load the template permissions for this role from RBAC config
+    const templatePermissions = linkedPermissionRole
+      ? permissionSettings.permissions[linkedPermissionRole.id] || createEmptyPermissionStateForRole()
+      : createEmptyPermissionStateForRole();
+
+    // Automatically derive functional roles (Marketing, Sales, etc.) based on the permissions
+    const nextRoles = deriveRolesFromPermissionState(templatePermissions);
+
+    // If it's a system role and has no permissions but has hardcoded matches, use them
     const systemRoleDef = SYSTEM_ROLE_DEFINITIONS.find(def => def.id === linkedPermissionRole?.id);
-    const nextRoles = systemRoleDef?.matches || [];
+    const finalRoles = nextRoles.length > 0 ? nextRoles : (systemRoleDef?.matches || []);
 
     setFormData((prev) => ({
       ...prev,
       permissionRoleId: linkedPermissionRole?.id || '',
       permissionRoleLabel: nextLabel,
-      roles: nextRoles,
+      roles: finalRoles,
     }));
-    setPermissionDraft(
-      clonePermissionState(
-        linkedPermissionRole
-          ? permissionSettings.permissions[linkedPermissionRole.id] || createEmptyPermissionStateForRole()
-          : createEmptyPermissionStateForRole(),
-      ),
-    );
+    
+    setPermissionDraft(clonePermissionState(templatePermissions));
     setActivePermissionGroupId(PERMISSION_GROUPS[0].id);
   };
 

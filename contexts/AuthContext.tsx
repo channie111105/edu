@@ -7,6 +7,7 @@ import {
   loadAdminPermissionSettings,
   getPermissionKey,
   PERMISSION_GROUPS,
+  deriveRolesFromPermissionState,
   type GroupPermissionState,
   type PermissionGroupId,
   type PermissionScope,
@@ -44,66 +45,6 @@ interface AuthContextType {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const EMPTY_PERMISSION_STATE: GroupPermissionState = {};
-
-/**
- * Load GroupPermissionState từ adminPermissions dựa vào permissionRoleId của user.
- * Nếu user không có permissionRoleId → trả về empty state.
- */
-const loadPermissionStateForUser = (adminUserRecord: AdminUserRecord | null): GroupPermissionState => {
-  if (!adminUserRecord?.permissionRoleId) return EMPTY_PERMISSION_STATE;
-
-  try {
-    const settings = loadAdminPermissionSettings();
-    const rolePermissions = settings.permissions[adminUserRecord.permissionRoleId];
-    return rolePermissions || EMPTY_PERMISSION_STATE;
-  } catch {
-    return EMPTY_PERMISSION_STATE;
-  }
-};
-
-/**
- * Ánh xạ nhóm quyền RBAC → UserRole tương ứng cho màn hình chọn phân hệ.
- */
-const GROUP_TO_ROLE_MAP: Record<string, UserRole> = {
-  marketing: UserRole.MARKETING,
-  sales: UserRole.SALES_REP,
-  enrollment: UserRole.SALES_LEADER,
-  training: UserRole.TRAINING,
-  studyAbroad: UserRole.STUDY_ABROAD,
-  finance: UserRole.ACCOUNTANT,
-  library: UserRole.LIBRARY,
-  admin: UserRole.ADMIN,
-};
-
-/**
- * Tự động tính lại roles[] từ permission settings, tránh data cũ bị stale.
- */
-const deriveRolesFromPermissions = (adminUserRecord: AdminUserRecord): UserRole[] => {
-  if (adminUserRecord.roles.includes(UserRole.ADMIN) || adminUserRecord.roles.includes(UserRole.FOUNDER)) {
-    return adminUserRecord.roles;
-  }
-
-  try {
-    const settings = loadAdminPermissionSettings();
-    const permState = adminUserRecord.permissionRoleId
-      ? settings.permissions[adminUserRecord.permissionRoleId]
-      : null;
-
-    if (!permState) return adminUserRecord.roles;
-
-    const derived: UserRole[] = [];
-    Object.entries(permState).forEach(([groupId, permissions]) => {
-      const hasActive = Object.values(permissions || {}).some(scope => scope !== 'none');
-      if (hasActive && GROUP_TO_ROLE_MAP[groupId]) {
-        derived.push(GROUP_TO_ROLE_MAP[groupId]);
-      }
-    });
-
-    return derived.length > 0 ? derived : adminUserRecord.roles;
-  } catch {
-    return adminUserRecord.roles;
-  }
-};
 
 /**
  * Tạo IUser từ AdminUserRecord để dùng trong context.
@@ -198,9 +139,13 @@ export const AuthProvider = ({ children }: { children?: ReactNode }) => {
       return { success: false, error: 'Mật khẩu không chính xác.' };
     }
 
-    const loadedPermissions = loadPermissionStateForUser(found);
+    const loadedPermissions = loadAdminPermissionSettings().permissions[found.permissionRoleId || ''] || EMPTY_PERMISSION_STATE;
     // Auto-correct stale roles based on current RBAC permissions
-    const correctedRoles = deriveRolesFromPermissions(found);
+    const derivedRoles = deriveRolesFromPermissionState(loadedPermissions);
+    const correctedRoles = (found.roles.includes(UserRole.ADMIN) || found.roles.includes(UserRole.FOUNDER))
+      ? found.roles
+      : (derivedRoles.length > 0 ? derivedRoles : found.roles);
+      
     const correctedUser = { ...found, roles: correctedRoles };
     setAdminUser(correctedUser);
     setUser(toIUser(correctedUser));
