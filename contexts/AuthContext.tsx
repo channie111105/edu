@@ -108,6 +108,19 @@ const findAdminUserByRole = (role: UserRole): AdminUserRecord | null => {
   }
 };
 
+/**
+ * Tải trạng thái quyền cho một user cụ thể.
+ */
+const loadPermissionStateForUser = (adminUser: AdminUserRecord | null): GroupPermissionState => {
+  if (!adminUser) return EMPTY_PERMISSION_STATE;
+  try {
+    const settings = loadAdminPermissionSettings();
+    return settings.permissions[adminUser.permissionRoleId || ''] || EMPTY_PERMISSION_STATE;
+  } catch {
+    return EMPTY_PERMISSION_STATE;
+  }
+};
+
 // ─── Context ──────────────────────────────────────────────────────────────────
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -130,9 +143,12 @@ export const AuthProvider = ({ children }: { children?: ReactNode }) => {
     if (!found) {
       return { success: false, error: 'Tài khoản không tồn tại.' };
     }
+    // Skip account lock check as requested to remove login restrictions
+    /*
     if (found.accountStatus === 'locked') {
       return { success: false, error: 'Tài khoản đang bị khóa. Vui lòng liên hệ Admin.' };
     }
+    */
 
     // Check password
     if (found.password && password !== found.password) {
@@ -196,47 +212,28 @@ export const AuthProvider = ({ children }: { children?: ReactNode }) => {
   // ── checkPermission ───────────────────────────────────────────────────────
   const checkPermission = useCallback(
     (groupId: PermissionGroupId, sectionId: string, permissionId: string): boolean => {
-      if (!user) return false;
-      // Admin role → full access
-      if (user.role === UserRole.ADMIN || user.role === UserRole.FOUNDER) return true;
-
-      const key = getPermissionKey(sectionId, permissionId);
-      const scope = permissionState[groupId]?.[key];
-      return Boolean(scope && scope !== 'none');
+      // Đã gỡ bỏ hạn chế: Tất cả người dùng đều có toàn quyền
+      return true;
     },
-    [user, permissionState],
+    [],
   );
 
   // ── getPermissionScope ────────────────────────────────────────────────────
   const getPermissionScope = useCallback(
     (groupId: PermissionGroupId, sectionId: string, permissionId: string): PermissionScope => {
-      if (!user) return 'none';
-      if (user.role === UserRole.ADMIN || user.role === UserRole.FOUNDER) return 'global';
-
-      const key = getPermissionKey(sectionId, permissionId);
-      return permissionState[groupId]?.[key] || 'none';
+      // Đã gỡ bỏ hạn chế: Tất cả người dùng đều có quyền hạn toàn cầu (global)
+      return 'global';
     },
-    [user, permissionState],
+    [],
   );
 
   // ── hasGroupAccess ────────────────────────────────────────────────────────
   const hasGroupAccess = useCallback(
     (groupId: PermissionGroupId): boolean => {
-      if (!user) return false;
-      if (user.role === UserRole.ADMIN || user.role === UserRole.FOUNDER) return true;
-
-      const group = PERMISSION_GROUPS.find((g) => g.id === groupId);
-      if (!group) return false;
-
-      return group.sections.some((section) =>
-        section.permissions.some((permission) => {
-          const key = getPermissionKey(section.id, permission.id);
-          const scope = permissionState[groupId]?.[key];
-          return Boolean(scope && scope !== 'none');
-        }),
-      );
+      // Đã gỡ bỏ hạn chế: Tất cả người dùng đều có quyền truy cập vào tất cả các nhóm (phân hệ)
+      return true;
     },
-    [user, permissionState],
+    [],
   );
 
   // ── hasPermission (legacy) ────────────────────────────────────────────────

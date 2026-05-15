@@ -83,17 +83,10 @@ const ModuleSelectionPage: React.FC = () => {
   const navigate = useNavigate();
   const copy = MODULE_COPY.vi;
 
-  const handleSelectRole = (role: UserRole, isDisabled: boolean) => {
-    if (isDisabled) return;
+  const handleSelectRole = (role: UserRole) => {
     switchWorkspace(role);
     navigate('/');
   };
-
-  // Admin/Founder → tất cả phân hệ đều mở
-  const isAdmin = adminUser && (
-    adminUser.roles.includes(UserRole.ADMIN) ||
-    adminUser.roles.includes(UserRole.FOUNDER)
-  );
 
   return (
     <div className="min-h-screen bg-[#eef3f9] px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-5">
@@ -110,33 +103,16 @@ const ModuleSelectionPage: React.FC = () => {
         <main className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 lg:gap-5">
           {MODULE_OPTIONS.map((moduleOption) => {
             const moduleCopy = copy.modules[moduleOption.key];
-            // Admin → luôn có quyền
-            // User khác → phải có ít nhất 1 quyền trong nhóm RBAC tương ứng
-            const hasAccess = Boolean(adminUser && (isAdmin || hasGroupAccess(moduleOption.permGroup)));
-
             return (
-              <div key={moduleOption.key} className="relative group w-full">
-                <div className={hasAccess ? 'h-full w-full' : 'h-full w-full opacity-60 saturate-[0.2] pointer-events-none'}>
-                  <ModuleCard
-                    role={moduleOption.role}
-                    icon={moduleOption.icon}
-                    title={moduleCopy.title}
-                    subtitle={moduleCopy.subtitle}
-                    features={moduleCopy.features}
-                    onSelectRole={(role) => handleSelectRole(role, !hasAccess)}
-                  />
-                </div>
-
-                {!hasAccess && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center rounded-xl bg-slate-900/5 backdrop-blur-[1px]">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white/90 shadow-sm border border-slate-200 text-slate-400">
-                      <Shield size={20} />
-                    </div>
-                    <span className="mt-2 text-[10px] font-bold uppercase tracking-widest text-slate-500 bg-white/80 px-2 py-0.5 rounded-full border border-slate-100">
-                      Hạn chế truy cập
-                    </span>
-                  </div>
-                )}
+              <div key={moduleOption.key} className="relative group w-full h-full">
+                <ModuleCard
+                  role={moduleOption.role}
+                  icon={moduleOption.icon}
+                  title={moduleCopy.title}
+                  subtitle={moduleCopy.subtitle}
+                  features={moduleCopy.features}
+                  onSelectRole={handleSelectRole}
+                />
               </div>
             );
           })}

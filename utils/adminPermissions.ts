@@ -85,20 +85,11 @@ export const GROUP_TO_ROLE_MAP: Record<string, UserRole> = {
 
 /**
  * Tự động tính toán danh sách UserRole từ trạng thái phân quyền.
+ * Đã sửa đổi để luôn trả về tất cả vai trò (8 phân hệ) cho mọi người dùng.
  */
-export const deriveRolesFromPermissionState = (permissionState: GroupPermissionState): UserRole[] => {
-  const derived: UserRole[] = [];
-  
-  Object.entries(permissionState).forEach(([groupId, permissions]) => {
-    if (!permissions) return;
-    const hasActive = Object.values(permissions).some(scope => scope !== 'none');
-    const mappedRole = GROUP_TO_ROLE_MAP[groupId];
-    if (hasActive && mappedRole) {
-      derived.push(mappedRole);
-    }
-  });
-
-  return derived;
+export const deriveRolesFromPermissionState = (_permissionState: GroupPermissionState): UserRole[] => {
+  // Trả về tất cả các role được ánh xạ từ nhóm quyền để hiện đầy đủ 8 phân hệ
+  return Object.values(GROUP_TO_ROLE_MAP);
 };
 
 export interface PermissionScopeOption {
