@@ -73,7 +73,7 @@ const ModuleCard: React.FC<ModuleCardProps> = ({ role, icon: Icon, title, subtit
     <button
       type="button"
       onClick={() => onSelectRole(role)}
-      className="group flex flex-col rounded-xl border border-slate-200 bg-white p-5 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-md lg:p-[1.125rem]"
+      className="w-full h-full group flex flex-col rounded-xl border border-slate-200 bg-white p-5 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-md lg:p-[1.125rem]"
     >
       <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-700 transition-colors group-hover:bg-blue-600 group-hover:text-white lg:mb-2.5 lg:h-10 lg:w-10">
         <Icon size={18} />
@@ -126,8 +126,8 @@ const ModuleSelectionPage: React.FC = () => {
                              adminUser.roles.includes(moduleOption.role);
 
             return (
-              <div key={moduleOption.key} className="relative group">
-                <div className={hasAccess ? '' : 'opacity-70 saturate-[0.25] pointer-events-none'}>
+              <div key={moduleOption.key} className="relative group w-full">
+                <div className={hasAccess ? 'h-full w-full' : 'h-full w-full opacity-70 saturate-[0.25] pointer-events-none'}>
                   <ModuleCard
                     role={moduleOption.role}
                     icon={moduleOption.icon}
