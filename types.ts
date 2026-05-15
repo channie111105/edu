@@ -8,6 +8,7 @@ export enum UserRole {
   ACCOUNTANT = 'Kế toán',
   TRAINING = 'Đào tạo',
   TEACHER = 'Giáo viên', // New Role
+  LIBRARY = 'Thư viện',
   STUDY_ABROAD = 'Du học',
   AGENT = 'Cộng tác viên (B2B)', // New Role
 }

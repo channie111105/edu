@@ -474,7 +474,7 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
   },
 ];
 
-const SYSTEM_ROLE_DEFINITIONS: Array<{
+export const SYSTEM_ROLE_DEFINITIONS: Array<{
   id: SystemRoleId;
   label: string;
   description: string;

@@ -64,7 +64,7 @@ const MODULE_OPTIONS: Array<{ key: ModuleKey; role: UserRole; icon: LucideIcon }
   { key: 'training', role: UserRole.TRAINING, icon: GraduationCap },
   { key: 'studyAbroad', role: UserRole.STUDY_ABROAD, icon: Plane },
   { key: 'finance', role: UserRole.ACCOUNTANT, icon: PiggyBank },
-  { key: 'library', role: UserRole.TEACHER, icon: Library },
+  { key: 'library', role: UserRole.LIBRARY, icon: Library },
   { key: 'admin', role: UserRole.ADMIN, icon: Shield },
 ];
 
@@ -120,10 +120,11 @@ const ModuleSelectionPage: React.FC = () => {
         <main className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 lg:gap-5">
           {MODULE_OPTIONS.map((moduleOption) => {
             const moduleCopy = copy.modules[moduleOption.key];
-            const hasAccess = !adminUser || 
+            const hasAccess = adminUser && (
                              adminUser.roles.includes(UserRole.ADMIN) || 
                              adminUser.roles.includes(UserRole.FOUNDER) || 
-                             adminUser.roles.includes(moduleOption.role);
+                             adminUser.roles.includes(moduleOption.role)
+            );
 
             return (
               <div key={moduleOption.key} className="relative group w-full">

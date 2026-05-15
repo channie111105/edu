@@ -31,6 +31,7 @@ import {
   getScopeOption,
   loadAdminPermissionSettings,
   saveAdminPermissionSettings,
+  SYSTEM_ROLE_DEFINITIONS,
   type GroupPermissionState,
   type PermissionGroupId,
   type PermissionRoleRecord,
@@ -190,6 +191,7 @@ const ROLE_BADGE_CLASS: Record<UserRole, string> = {
   [UserRole.ACCOUNTANT]: 'border-purple-200 bg-purple-50 text-purple-700',
   [UserRole.TRAINING]: 'border-cyan-200 bg-cyan-50 text-cyan-700',
   [UserRole.TEACHER]: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+  [UserRole.LIBRARY]: 'border-teal-200 bg-teal-50 text-teal-700',
   [UserRole.STUDY_ABROAD]: 'border-sky-200 bg-sky-50 text-sky-700',
   [UserRole.AGENT]: 'border-orange-200 bg-orange-50 text-orange-700',
 };
@@ -636,11 +638,16 @@ const AdminUserManagement: React.FC = () => {
   const handlePermissionRoleLabelChange = (nextLabel: string) => {
     const permissionSettings = loadAdminPermissionSettings();
     const linkedPermissionRole = permissionSettings.roles.find((role) => role.label === nextLabel) || null;
+    
+    // Find matching functional roles from SYSTEM_ROLE_DEFINITIONS
+    const systemRoleDef = SYSTEM_ROLE_DEFINITIONS.find(def => def.id === linkedPermissionRole?.id);
+    const nextRoles = systemRoleDef?.matches || [];
 
     setFormData((prev) => ({
       ...prev,
       permissionRoleId: linkedPermissionRole?.id || '',
       permissionRoleLabel: nextLabel,
+      roles: nextRoles,
     }));
     setPermissionDraft(
       clonePermissionState(
@@ -788,9 +795,43 @@ const AdminUserManagement: React.FC = () => {
       nextPermissionRoleLabel = selectedPermissionRole.label;
     }
 
+    // Dynamically derive functional roles from permissions
+    const derivedRoles: UserRole[] = [];
+    const groupToRoleMap: Record<string, UserRole> = {
+      marketing: UserRole.MARKETING,
+      sales: UserRole.SALES_REP,
+      enrollment: UserRole.SALES_LEADER,
+      training: UserRole.TRAINING,
+      studyAbroad: UserRole.STUDY_ABROAD,
+      finance: UserRole.ACCOUNTANT,
+      library: UserRole.LIBRARY,
+      admin: UserRole.ADMIN,
+    };
+
+    Object.entries(permissionDraft).forEach(([groupId, permissions]) => {
+      const hasActivePermission = Object.values(permissions).some(scope => scope !== 'none');
+      if (hasActivePermission && groupToRoleMap[groupId]) {
+        derivedRoles.push(groupToRoleMap[groupId]);
+      }
+    });
+
+    // If no roles derived but a system role is selected, use its matches as fallback
+    const linkedPermissionRoleFinal = permissionSettings.roles.find((role) => role.label === nextPermissionRoleLabel) || null;
+    const systemRoleDef = SYSTEM_ROLE_DEFINITIONS.find(def => def.id === linkedPermissionRoleFinal?.id);
+    
+    let finalRoles = derivedRoles;
+    if (finalRoles.length === 0 && systemRoleDef?.matches) {
+      finalRoles = systemRoleDef.matches;
+    }
+    // Final fallback to Sales Rep if absolutely empty
+    if (finalRoles.length === 0) {
+      finalRoles = [UserRole.SALES_REP];
+    }
+
     const nextUser = buildAdminUserRecord(
       {
         ...formData,
+        roles: finalRoles,
         name: displayName,
         email: trimmedEmail,
         username: trimmedUsername,
