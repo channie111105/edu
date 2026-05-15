@@ -148,8 +148,10 @@ export const AuthProvider = ({ children }: { children?: ReactNode }) => {
       return { success: false, error: 'Tài khoản đang bị khóa. Vui lòng liên hệ Admin.' };
     }
 
-    // Trong môi trường demo, mọi mật khẩu đều được chấp nhận.
-    // TODO: Thêm xác thực mật khẩu thật khi có backend.
+    // Check password
+    if (found.password && password !== found.password) {
+      return { success: false, error: 'Mật khẩu không chính xác.' };
+    }
 
     const loadedPermissions = loadPermissionStateForUser(found);
     setAdminUser(found);

@@ -25,6 +25,7 @@ export interface AdminUserRecord {
   startDate?: string;
   endDate?: string;
   avatar: string;
+  password?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -131,6 +132,7 @@ const INITIAL_ADMIN_USERS: AdminUserRecord[] = [
     lastLoginAt: '2026-04-24T08:40',
     startDate: '2022-03-01',
     avatar: 'QT',
+    password: 'admin',
     createdAt: '2022-03-01T08:00:00.000Z',
     updatedAt: '2026-04-24T08:40:00.000Z',
   },
@@ -316,6 +318,7 @@ const normalizeAdminUser = (user: Partial<AdminUserRecord> & Pick<AdminUserRecor
     startDate: String(user.startDate || '').trim() || undefined,
     endDate: String(user.endDate || '').trim() || undefined,
     avatar: String(user.avatar || '').trim() || getInitials(String(user.name || '')),
+    password: user.password || '',
     createdAt: String(user.createdAt || '').trim() || nowIso,
     updatedAt: String(user.updatedAt || '').trim() || nowIso,
   };
@@ -393,6 +396,7 @@ export const buildAdminUserRecord = (
     startDate: formData.startDate,
     endDate: formData.endDate,
     avatar: existingUser?.avatar || getInitials(formData.name),
+    password: formData.password || existingUser?.password || 'password123',
     createdAt: existingUser?.createdAt || nowIso,
     updatedAt: nowIso,
   });

@@ -95,11 +95,12 @@ const ModuleCard: React.FC<ModuleCardProps> = ({ role, icon: Icon, title, subtit
 };
 
 const ModuleSelectionPage: React.FC = () => {
-  const { login } = useAuth();
+  const { login, adminUser } = useAuth();
   const navigate = useNavigate();
   const copy = MODULE_COPY.vi;
 
-  const handleSelectRole = (role: UserRole) => {
+  const handleSelectRole = (role: UserRole, isDisabled: boolean) => {
+    if (isDisabled) return;
     login(role);
     navigate('/');
   };
@@ -119,17 +120,22 @@ const ModuleSelectionPage: React.FC = () => {
         <main className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 lg:gap-5">
           {MODULE_OPTIONS.map((moduleOption) => {
             const moduleCopy = copy.modules[moduleOption.key];
+            const hasAccess = !adminUser || 
+                             adminUser.roles.includes(UserRole.ADMIN) || 
+                             adminUser.roles.includes(UserRole.FOUNDER) || 
+                             adminUser.roles.includes(moduleOption.role);
 
             return (
-              <ModuleCard
-                key={moduleOption.key}
-                role={moduleOption.role}
-                icon={moduleOption.icon}
-                title={moduleCopy.title}
-                subtitle={moduleCopy.subtitle}
-                features={moduleCopy.features}
-                onSelectRole={handleSelectRole}
-              />
+              <div key={moduleOption.key} className={hasAccess ? '' : 'opacity-40 grayscale pointer-events-none'}>
+                <ModuleCard
+                  role={moduleOption.role}
+                  icon={moduleOption.icon}
+                  title={moduleCopy.title}
+                  subtitle={moduleCopy.subtitle}
+                  features={moduleCopy.features}
+                  onSelectRole={(role) => handleSelectRole(role, !hasAccess)}
+                />
+              </div>
             );
           })}
         </main>
