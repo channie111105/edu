@@ -126,15 +126,28 @@ const ModuleSelectionPage: React.FC = () => {
                              adminUser.roles.includes(moduleOption.role);
 
             return (
-              <div key={moduleOption.key} className={hasAccess ? '' : 'opacity-40 grayscale pointer-events-none'}>
-                <ModuleCard
-                  role={moduleOption.role}
-                  icon={moduleOption.icon}
-                  title={moduleCopy.title}
-                  subtitle={moduleCopy.subtitle}
-                  features={moduleCopy.features}
-                  onSelectRole={(role) => handleSelectRole(role, !hasAccess)}
-                />
+              <div key={moduleOption.key} className="relative group">
+                <div className={hasAccess ? '' : 'opacity-70 saturate-[0.25] pointer-events-none'}>
+                  <ModuleCard
+                    role={moduleOption.role}
+                    icon={moduleOption.icon}
+                    title={moduleCopy.title}
+                    subtitle={moduleCopy.subtitle}
+                    features={moduleCopy.features}
+                    onSelectRole={(role) => handleSelectRole(role, !hasAccess)}
+                  />
+                </div>
+                
+                {!hasAccess && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center rounded-xl bg-slate-900/5 backdrop-blur-[1px] transition-all">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white/90 shadow-sm border border-slate-200 text-slate-400">
+                      <Shield size={20} />
+                    </div>
+                    <span className="mt-2 text-[10px] font-bold uppercase tracking-widest text-slate-500 bg-white/80 px-2 py-0.5 rounded-full border border-slate-100">
+                      Han che truy cap
+                    </span>
+                  </div>
+                )}
               </div>
             );
           })}
