@@ -307,6 +307,12 @@ const DocumentLibrary = () => {
     const { user, logout } = useAuth();
     const navigate = useNavigate();
 
+    // Selection state
+    const [selectedDept, setSelectedDept] = useState<string | 'all'>('all');
+    const [selectedCategory, setSelectedCategory] = useState<string | 'all'>('all');
+    const [isDeptSectionOpen, setIsDeptSectionOpen] = useState(true);
+    const [isCategorySectionOpen, setIsCategorySectionOpen] = useState(true);
+
     // Search state
     const [searchQuery, setSearchQuery] = useState('');
     const [showVersionHistory, setShowVersionHistory] = useState(false);
@@ -333,9 +339,13 @@ const DocumentLibrary = () => {
     // Filter Logic
     const filteredDocs = React.useMemo(() => NORMALIZED_DOCUMENTS.filter((doc) => {
         if (!showVersionHistory && doc.isLatestVersion === false) return false;
+        
         const matchSearch = `${doc.name} ${doc.documentCode || ''}`.toLowerCase().includes(searchQuery.toLowerCase());
-        return matchSearch;
-    }), [searchQuery, showVersionHistory]);
+        const matchDept = selectedDept === 'all' || doc.department === selectedDept;
+        const matchCategory = selectedCategory === 'all' || doc.category === selectedCategory;
+        
+        return matchSearch && matchDept && matchCategory;
+    }), [searchQuery, selectedCategory, selectedDept, showVersionHistory]);
 
     const getFileIcon = (type: DocumentType) => {
         switch (type) {
@@ -381,8 +391,72 @@ const DocumentLibrary = () => {
                 </div>
 
                 <div className="flex-1 overflow-y-auto py-4 px-2">
-                    <div className="px-3 py-2 text-sm text-slate-500 italic">
-                        Danh sách tài liệu hệ thống
+                    <div className="mb-5">
+                        <button
+                            type="button"
+                            onClick={() => setIsDeptSectionOpen((prev) => !prev)}
+                            className="flex w-full items-center justify-between rounded-lg px-3 pb-2 text-left text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400 transition-colors hover:text-slate-600"
+                        >
+                            <span>Theo phòng ban</span>
+                            <ChevronDown size={16} className={`transition-transform ${isDeptSectionOpen ? 'rotate-180' : ''}`} />
+                        </button>
+                        <div className={isDeptSectionOpen ? 'space-y-1' : 'hidden'}>
+                            <button
+                                onClick={() => setSelectedDept('all')}
+                                className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-semibold transition-colors ${
+                                    selectedDept === 'all' ? 'bg-blue-50 text-blue-700' : 'text-slate-700 hover:bg-slate-50'
+                                }`}
+                            >
+                                <Globe size={18} className={selectedDept === 'all' ? 'text-blue-600' : 'text-slate-400'} />
+                                <span>Tất cả</span>
+                            </button>
+                            {LIBRARY_DEPARTMENTS.map((dept) => (
+                                <button
+                                    key={dept}
+                                    onClick={() => setSelectedDept(dept)}
+                                    className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-semibold transition-colors ${
+                                        selectedDept === dept ? 'bg-blue-50 text-blue-700' : 'text-slate-700 hover:bg-slate-50'
+                                    }`}
+                                >
+                                    <Briefcase size={18} className={selectedDept === dept ? 'text-blue-600' : 'text-slate-400'} />
+                                    <span className="truncate">{dept}</span>
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="mb-2">
+                        <button
+                            type="button"
+                            onClick={() => setIsCategorySectionOpen((prev) => !prev)}
+                            className="flex w-full items-center justify-between rounded-lg px-3 pb-2 text-left text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400 transition-colors hover:text-slate-600"
+                        >
+                            <span>Theo loại tài liệu</span>
+                            <ChevronDown size={16} className={`transition-transform ${isCategorySectionOpen ? 'rotate-180' : ''}`} />
+                        </button>
+                        <div className={isCategorySectionOpen ? 'space-y-1' : 'hidden'}>
+                            <button
+                                onClick={() => setSelectedCategory('all')}
+                                className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-semibold transition-colors ${
+                                    selectedCategory === 'all' ? 'bg-blue-50 text-blue-700' : 'text-slate-700 hover:bg-slate-50'
+                                }`}
+                            >
+                                <FolderOpen size={18} className={selectedCategory === 'all' ? 'text-blue-600' : 'text-slate-400'} />
+                                <span>Tất cả</span>
+                            </button>
+                            {LIBRARY_CATEGORIES.map((category) => (
+                                <button
+                                    key={category}
+                                    onClick={() => setSelectedCategory(category)}
+                                    className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-semibold transition-colors ${
+                                        selectedCategory === category ? 'bg-blue-50 text-blue-700' : 'text-slate-700 hover:bg-slate-50'
+                                    }`}
+                                >
+                                    <FileCheck size={18} className={selectedCategory === category ? 'text-blue-600' : 'text-slate-400'} />
+                                    <span className="truncate">{category}</span>
+                                </button>
+                            ))}
+                        </div>
                     </div>
                 </div>
 
@@ -420,10 +494,10 @@ const DocumentLibrary = () => {
                 <div className="px-6 py-5 border-b border-gray-200 flex items-center justify-between gap-4 bg-white h-[88px]">
                     <div>
                         <h1 className="text-2xl font-bold text-gray-900 tracking-tight">
-                            Thư viện & Quy trình
+                            {selectedDept === 'all' ? 'Thư viện & Quy trình' : selectedDept}
                         </h1>
                         <p className="text-sm text-gray-500 mt-1">
-                            Toàn bộ danh sách văn bản và tài liệu nội bộ
+                            {selectedCategory !== 'all' ? selectedCategory : 'Danh sách văn bản và tài liệu nội bộ'}
                         </p>
                     </div>
 
