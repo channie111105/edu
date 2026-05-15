@@ -307,32 +307,14 @@ const DocumentLibrary = () => {
     const { user, logout } = useAuth();
     const navigate = useNavigate();
 
-    // Selection state
-    const [selectedDept, setSelectedDept] = useState<string | 'all'>('all');
-    const [selectedCategory, setSelectedCategory] = useState<string | 'all'>('all');
-    const [isDeptSectionOpen, setIsDeptSectionOpen] = useState(true);
-    const [isCategorySectionOpen, setIsCategorySectionOpen] = useState(true);
-    const [expandedDepts, setExpandedDepts] = useState<string[]>([]);
-
     // Search state
     const [searchQuery, setSearchQuery] = useState('');
-    const [selectedStatus, setSelectedStatus] = useState<'all' | DocumentStatus>('all');
-    const [selectedScope, setSelectedScope] = useState<'all' | ScopeType>('all');
-    const [dateFieldFilter, setDateFieldFilter] = useState<'issueDate' | 'effectiveDate'>('effectiveDate');
-    const [dateFrom, setDateFrom] = useState('');
-    const [dateTo, setDateTo] = useState('');
     const [showVersionHistory, setShowVersionHistory] = useState(false);
 
     // Modal state
     const [selectedDoc, setSelectedDoc] = useState<Document | null>(null);
     const [isDetailOpen, setIsDetailOpen] = useState(false);
     const [isUploadOpen, setIsUploadOpen] = useState(false);
-
-    const toggleDept = (dept: string) => {
-        setExpandedDepts((prev) =>
-            prev.includes(dept) ? prev.filter((item) => item !== dept) : [...prev, dept]
-        );
-    };
 
     const handleLogout = () => {
         logout();
@@ -351,19 +333,9 @@ const DocumentLibrary = () => {
     // Filter Logic
     const filteredDocs = React.useMemo(() => NORMALIZED_DOCUMENTS.filter((doc) => {
         if (!showVersionHistory && doc.isLatestVersion === false) return false;
-
         const matchSearch = `${doc.name} ${doc.documentCode || ''}`.toLowerCase().includes(searchQuery.toLowerCase());
-        const matchDept = selectedDept === 'all' || doc.department === selectedDept;
-        const matchCategory = selectedCategory === 'all' || doc.category === selectedCategory;
-        const matchStatus = selectedStatus === 'all' || doc.status === selectedStatus;
-        const matchScope = selectedScope === 'all' || doc.scope === selectedScope;
-
-        const rawDate = dateFieldFilter === 'issueDate' ? doc.issueDate : (doc.effectiveDate || '');
-        const matchDateFrom = !dateFrom || (rawDate && rawDate >= dateFrom);
-        const matchDateTo = !dateTo || (rawDate && rawDate <= dateTo);
-
-        return matchSearch && matchDept && matchCategory && matchStatus && matchScope && matchDateFrom && matchDateTo;
-    }), [dateFieldFilter, dateFrom, dateTo, searchQuery, selectedCategory, selectedDept, selectedScope, selectedStatus, showVersionHistory]);
+        return matchSearch;
+    }), [searchQuery, showVersionHistory]);
 
     const getFileIcon = (type: DocumentType) => {
         switch (type) {
@@ -409,72 +381,8 @@ const DocumentLibrary = () => {
                 </div>
 
                 <div className="flex-1 overflow-y-auto py-4 px-2">
-                    <div className="mb-5">
-                        <button
-                            type="button"
-                            onClick={() => setIsDeptSectionOpen((prev) => !prev)}
-                            className="flex w-full items-center justify-between rounded-lg px-3 pb-2 text-left text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400 transition-colors hover:text-slate-600"
-                        >
-                            <span>Theo phòng ban</span>
-                            <ChevronDown size={16} className={`transition-transform ${isDeptSectionOpen ? 'rotate-180' : ''}`} />
-                        </button>
-                        <div className={isDeptSectionOpen ? 'space-y-1' : 'hidden'}>
-                            <button
-                                onClick={() => setSelectedDept('all')}
-                                className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-semibold transition-colors ${
-                                    selectedDept === 'all' ? 'bg-blue-50 text-blue-700' : 'text-slate-700 hover:bg-slate-50'
-                                }`}
-                            >
-                                <Globe size={18} className={selectedDept === 'all' ? 'text-blue-600' : 'text-slate-400'} />
-                                <span>Tất cả</span>
-                            </button>
-                            {LIBRARY_DEPARTMENTS.map((dept) => (
-                                <button
-                                    key={dept}
-                                    onClick={() => setSelectedDept(dept)}
-                                    className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-semibold transition-colors ${
-                                        selectedDept === dept ? 'bg-blue-50 text-blue-700' : 'text-slate-700 hover:bg-slate-50'
-                                    }`}
-                                >
-                                    <Briefcase size={18} className={selectedDept === dept ? 'text-blue-600' : 'text-slate-400'} />
-                                    <span>{dept}</span>
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-
-                    <div className="mb-2">
-                        <button
-                            type="button"
-                            onClick={() => setIsCategorySectionOpen((prev) => !prev)}
-                            className="flex w-full items-center justify-between rounded-lg px-3 pb-2 text-left text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400 transition-colors hover:text-slate-600"
-                        >
-                            <span>Theo loại tài liệu</span>
-                            <ChevronDown size={16} className={`transition-transform ${isCategorySectionOpen ? 'rotate-180' : ''}`} />
-                        </button>
-                        <div className={isCategorySectionOpen ? 'space-y-1' : 'hidden'}>
-                            <button
-                                onClick={() => setSelectedCategory('all')}
-                                className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-semibold transition-colors ${
-                                    selectedCategory === 'all' ? 'bg-blue-50 text-blue-700' : 'text-slate-700 hover:bg-slate-50'
-                                }`}
-                            >
-                                <FolderOpen size={18} className={selectedCategory === 'all' ? 'text-blue-600' : 'text-slate-400'} />
-                                <span>Tất cả</span>
-                            </button>
-                            {LIBRARY_CATEGORIES.map((category) => (
-                                <button
-                                    key={category}
-                                    onClick={() => setSelectedCategory(category)}
-                                    className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-semibold transition-colors ${
-                                        selectedCategory === category ? 'bg-blue-50 text-blue-700' : 'text-slate-700 hover:bg-slate-50'
-                                    }`}
-                                >
-                                    <FileCheck size={18} className={selectedCategory === category ? 'text-blue-600' : 'text-slate-400'} />
-                                    <span>{category}</span>
-                                </button>
-                            ))}
-                        </div>
+                    <div className="px-3 py-2 text-sm text-slate-500 italic">
+                        Danh sách tài liệu hệ thống
                     </div>
                 </div>
 
@@ -512,10 +420,10 @@ const DocumentLibrary = () => {
                 <div className="px-6 py-5 border-b border-gray-200 flex items-center justify-between gap-4 bg-white h-[88px]">
                     <div>
                         <h1 className="text-2xl font-bold text-gray-900 tracking-tight">
-                            {selectedDept === 'all' ? 'Thư viện & Quy trình' : selectedDept}
+                            Thư viện & Quy trình
                         </h1>
                         <p className="text-sm text-gray-500 mt-1">
-                            {selectedCategory !== 'all' ? selectedCategory : 'Danh sách văn bản và tài liệu nội bộ'}
+                            Toàn bộ danh sách văn bản và tài liệu nội bộ
                         </p>
                     </div>
 
@@ -536,24 +444,6 @@ const DocumentLibrary = () => {
                         >
                             <Upload size={16} /> <span className="hidden sm:inline">Tạo tài liệu</span>
                         </button>
-                    </div>
-                </div>
-
-                <div className="border-b border-gray-100 bg-gray-50/50 px-6 py-3.5">
-                    <div className="flex items-center gap-3">
-                        <select value={selectedDept} onChange={(e) => setSelectedDept(e.target.value)} className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm">
-                            <option value="all">Tất cả phòng ban</option>
-                            {LIBRARY_DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
-                        </select>
-                        <select value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)} className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm">
-                            <option value="all">Tất cả loại tài liệu</option>
-                            {LIBRARY_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                        </select>
-                        <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm" />
-                        <label className="flex items-center gap-2 text-sm">
-                            <input type="checkbox" checked={!showVersionHistory} onChange={(e) => setShowVersionHistory(!e.target.checked)} />
-                            Chỉ bản mới nhất
-                        </label>
                     </div>
                 </div>
 
