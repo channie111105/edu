@@ -46,7 +46,6 @@ import {
    filterLeadSalesRepOptionsByCampus,
    getLeadGuardianRelation,
    getLeadSourceLabel,
-   LEAD_CAMPUS_OPTIONS,
    LEAD_PRODUCT_OPTIONS,
    LEAD_RELATION_OPTIONS,
    LEAD_SOURCE_OPTIONS,
@@ -72,6 +71,7 @@ import { getLeadPhoneValidationMessage, normalizeLeadPhone } from '../utils/phon
 import { clearLeadReclaimTracking } from '../utils/leadSla';
 import { convertLeadToOpportunity } from '../utils/leadConversion';
 import { getCampaignNameOptions } from '../utils/campaignCatalog';
+import { useOrgBranches, useSystemConfigVersion } from '../hooks/useSystemCatalog';
 import {
    Inbox, Phone, Clock, CheckCircle2, X,
    List as ListIcon,
@@ -115,6 +115,12 @@ const getDefaultPostConvertScheduleDateTime = (action: PostConvertScheduleAction
 const MyLeads: React.FC = () => {
    const { user } = useAuth();
    const navigate = useNavigate();
+   useSystemConfigVersion();
+   const branches = useOrgBranches();
+   const LEAD_CAMPUS_OPTIONS = useMemo(
+      () => branches.map((b) => ({ value: b.name, label: b.name })),
+      [branches],
+   );
    const { salesTestRole } = useSalesTestRole(user?.role);
    const isSalesLeader = salesTestRole === UserRole.SALES_LEADER;
 

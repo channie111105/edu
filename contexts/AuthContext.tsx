@@ -4,10 +4,6 @@ import { IUser, UserRole } from '../types';
 import { MOCK_USER } from '../constants';
 import { getAdminUsers, type AdminUserRecord } from '../utils/adminUsers';
 import {
-  loadAdminPermissionSettings,
-  getPermissionKey,
-  PERMISSION_GROUPS,
-  deriveRolesFromPermissionState,
   type GroupPermissionState,
   type PermissionGroupId,
   type PermissionScope,
@@ -110,15 +106,10 @@ const findAdminUserByRole = (role: UserRole): AdminUserRecord | null => {
 
 /**
  * Tải trạng thái quyền cho một user cụ thể.
+ * Đã đơn giản hoá: luôn trả về state rỗng vì ứng dụng không còn gate UI theo permission.
  */
-const loadPermissionStateForUser = (adminUser: AdminUserRecord | null): GroupPermissionState => {
-  if (!adminUser) return EMPTY_PERMISSION_STATE;
-  try {
-    const settings = loadAdminPermissionSettings();
-    return settings.permissions[adminUser.permissionRoleId || ''] || EMPTY_PERMISSION_STATE;
-  } catch {
-    return EMPTY_PERMISSION_STATE;
-  }
+const loadPermissionStateForUser = (_adminUser: AdminUserRecord | null): GroupPermissionState => {
+  return EMPTY_PERMISSION_STATE;
 };
 
 // ─── Context ──────────────────────────────────────────────────────────────────
@@ -131,42 +122,33 @@ export const AuthProvider = ({ children }: { children?: ReactNode }) => {
   const [permissionState, setPermissionState] = useState<GroupPermissionState>(EMPTY_PERMISSION_STATE);
 
   // ── loginWithCredentials ──────────────────────────────────────────────────
-  const loginWithCredentials = useCallback((usernameOrEmail: string, password: string): LoginResult => {
-    if (!usernameOrEmail.trim()) {
+  // Đã gỡ bỏ kiểm tra mật khẩu / tài khoản tồn tại theo yêu cầu.
+  // Cho phép đăng nhập với bất kỳ thông tin nào: nếu tìm thấy user trong adminUsers
+  // thì dùng record đó (giữ thông tin thật), nếu không tạo user demo Admin.
+  const loginWithCredentials = useCallback((usernameOrEmail: string, _password: string): LoginResult => {
+    const trimmed = usernameOrEmail.trim();
+    if (!trimmed) {
       return { success: false, error: 'Vui lòng nhập tên đăng nhập.' };
     }
-    if (!password.trim()) {
-      return { success: false, error: 'Vui lòng nhập mật khẩu.' };
+
+    const found = findAdminUser(trimmed);
+    if (found) {
+      setAdminUser(found);
+      setUser(toIUser(found));
+      setPermissionState(EMPTY_PERMISSION_STATE);
+      return { success: true };
     }
 
-    const found = findAdminUser(usernameOrEmail);
-    if (!found) {
-      return { success: false, error: 'Tài khoản không tồn tại.' };
-    }
-    // Skip account lock check as requested to remove login restrictions
-    /*
-    if (found.accountStatus === 'locked') {
-      return { success: false, error: 'Tài khoản đang bị khóa. Vui lòng liên hệ Admin.' };
-    }
-    */
-
-    // Check password
-    if (found.password && password !== found.password) {
-      return { success: false, error: 'Mật khẩu không chính xác.' };
-    }
-
-    const loadedPermissions = loadAdminPermissionSettings().permissions[found.permissionRoleId || ''] || EMPTY_PERMISSION_STATE;
-    // Auto-correct stale roles based on current RBAC permissions
-    const derivedRoles = deriveRolesFromPermissionState(loadedPermissions);
-    const correctedRoles = (found.roles.includes(UserRole.ADMIN) || found.roles.includes(UserRole.FOUNDER))
-      ? found.roles
-      : (derivedRoles.length > 0 ? derivedRoles : found.roles);
-      
-    const correctedUser = { ...found, roles: correctedRoles };
-    setAdminUser(correctedUser);
-    setUser(toIUser(correctedUser));
-    setPermissionState(loadedPermissions);
-
+    // Không có trong danh sách → tạo demo user dạng Admin
+    const fallbackUser: IUser = {
+      id: `guest-${Date.now()}`,
+      name: trimmed,
+      role: UserRole.ADMIN,
+      avatar: trimmed.slice(0, 2).toUpperCase(),
+    };
+    setAdminUser(null);
+    setUser(fallbackUser);
+    setPermissionState(EMPTY_PERMISSION_STATE);
     return { success: true };
   }, []);
 
@@ -174,11 +156,10 @@ export const AuthProvider = ({ children }: { children?: ReactNode }) => {
   const login = useCallback((role: UserRole) => {
     const demoUser = getDemoUserByRole(role);
     const matchedAdminUser = findAdminUserByRole(role);
-    const loadedPermissions = loadPermissionStateForUser(matchedAdminUser);
 
     setUser(demoUser);
     setAdminUser(matchedAdminUser);
-    setPermissionState(loadedPermissions);
+    setPermissionState(EMPTY_PERMISSION_STATE);
   }, []);
 
   // ── logout ────────────────────────────────────────────────────────────────
@@ -192,11 +173,10 @@ export const AuthProvider = ({ children }: { children?: ReactNode }) => {
   const switchRole = useCallback((role: UserRole) => {
     const demoUser = getDemoUserByRole(role);
     const matchedAdminUser = findAdminUserByRole(role);
-    const loadedPermissions = loadPermissionStateForUser(matchedAdminUser);
 
     setUser(demoUser);
     setAdminUser(matchedAdminUser);
-    setPermissionState(loadedPermissions);
+    setPermissionState(EMPTY_PERMISSION_STATE);
   }, []);
 
   // ── switchWorkspace ─────────────────────────────────────────────────────────
@@ -238,11 +218,11 @@ export const AuthProvider = ({ children }: { children?: ReactNode }) => {
 
   // ── hasPermission (legacy) ────────────────────────────────────────────────
   const hasPermission = useCallback(
-    (allowedRoles: UserRole[]): boolean => {
-      if (!user) return false;
-      return allowedRoles.includes(user.role);
+    (_allowedRoles: UserRole[]): boolean => {
+      // Đã gỡ bỏ hạn chế: Tất cả người dùng đều có toàn quyền truy cập.
+      return true;
     },
-    [user],
+    [],
   );
 
   return (

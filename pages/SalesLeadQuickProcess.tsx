@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getLeadById, saveLead, deleteLead } from '../utils/storage';
 import { getAdminUsers } from '../utils/adminUsers';
@@ -13,8 +13,9 @@ import {
 } from 'lucide-react';
 import { LeadStatus, ILead, DealStage } from '../types';
 import Toast from '../components/Toast';
-import { LEAD_SOURCE_OPTIONS, LEAD_PRODUCT_OPTIONS, LEAD_TARGET_COUNTRY_OPTIONS, LEAD_CAMPUS_OPTIONS } from '../utils/leadCreateForm';
+import { LEAD_SOURCE_OPTIONS, LEAD_PRODUCT_OPTIONS, LEAD_TARGET_COUNTRY_OPTIONS } from '../utils/leadCreateForm';
 import { getCampaignNameOptions } from '../utils/campaignCatalog';
+import { useOrgBranches, useSystemConfigVersion } from '../hooks/useSystemCatalog';
 
 interface ITimelineEvent {
     id: string;
@@ -33,6 +34,12 @@ interface IToast {
 const SalesLeadQuickProcess: React.FC = () => {
     const { id } = useParams();
     const navigate = useNavigate();
+    useSystemConfigVersion();
+    const branches = useOrgBranches();
+    const LEAD_CAMPUS_OPTIONS = useMemo(
+        () => branches.map((b) => ({ value: b.name, label: b.name })),
+        [branches],
+    );
     const { user } = useAuth();
 
     const [lead, setLead] = useState<ILead | null>(null);

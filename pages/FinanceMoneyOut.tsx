@@ -885,7 +885,7 @@ const CompactStatusPill: React.FC<{ label: string; tone: 'blue' | 'green' | 'amb
 };
 
 const CompactAttachmentLink: React.FC<{ name?: string; url?: string }> = ({ name, url }) => {
-  if (!name) return <span className="text-[13px] font-medium text-[#9ca3af]">Chưa attach chứng từ</span>;
+  if (!name) return <span className="text-[13px] font-semibold text-rose-600">Chưa attach chứng từ</span>;
 
   if (url) {
     return (
@@ -915,7 +915,7 @@ const AttachmentPreview: React.FC<{ name?: string; url?: string; emptyLabel?: st
   url,
   emptyLabel = 'Chưa attach chứng từ'
 }) => {
-  if (!name) return <span className="text-slate-400">{emptyLabel}</span>;
+  if (!name) return <span className="font-semibold text-rose-600">{emptyLabel}</span>;
 
   if (!url) {
     return (
@@ -1620,8 +1620,10 @@ const FinanceMoneyOut: React.FC = () => {
     }
 
     if (!item.attachmentName?.trim() && !item.proof?.trim()) {
-      alert('Vui lòng attach chứng từ trước khi xác nhận thu/chi.');
-      return;
+      const proceed = window.confirm(
+        'Phiếu chưa có chứng từ đính kèm. Bạn có muốn tiếp tục xác nhận thu/chi không?'
+      );
+      if (!proceed) return;
     }
 
     const updatedItem: IActualTransaction = {
@@ -1679,8 +1681,10 @@ const FinanceMoneyOut: React.FC = () => {
     }
 
     if (!attachmentName || !attachmentUrl) {
-      alert('Vui lòng attach chứng từ trước khi lưu phiếu thu chi.');
-      return;
+      const proceed = window.confirm(
+        'Phiếu chưa có chứng từ đính kèm. Bạn có muốn tiếp tục lưu phiếu thu chi không?'
+      );
+      if (!proceed) return;
     }
 
     const defaultLabel = formData.type === 'IN' ? 'Thu khác' : 'Chi khác';
@@ -1732,8 +1736,7 @@ const FinanceMoneyOut: React.FC = () => {
   const hasAttachment = Boolean(selectedAttachment || (formData.attachmentName.trim() && formData.attachmentUrl.trim()));
   const canSave =
     Boolean(editingTransactionId) &&
-    Boolean(formData.transactionCode.trim()) &&
-    hasAttachment;
+    Boolean(formData.transactionCode.trim());
   const isViewMode = modalAction === 'VIEW';
   const modalTitle =
     modalAction === 'ATTACH' ? 'Attach chứng từ phiếu thu chi' : modalAction === 'PROCESS' ? 'Xử lý phiếu thu chi' : 'Chi tiết phiếu thu chi';
@@ -2033,15 +2036,25 @@ const FinanceMoneyOut: React.FC = () => {
                 </button>
               ) : null}
               <div className="flex flex-wrap justify-end gap-x-3 gap-y-2">
-                <button
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    openTransactionModal(row.actual, 'ATTACH');
-                  }}
-                  className="text-xs font-semibold text-slate-700 hover:underline inline-flex items-center gap-1"
-                >
-                  <UploadCloud size={12} /> Attach chứng từ
-                </button>
+                {(() => {
+                  // Chỉ coi là đã có chứng từ khi thực sự có file đính kèm.
+                  // (proof có thể được tự sinh từ bankRefCode/voucherNumber nên không tin được.)
+                  const hasAttachment = Boolean(row.actual.attachmentName?.trim());
+                  return (
+                    <button
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        openTransactionModal(row.actual, 'ATTACH');
+                      }}
+                      className={`text-xs font-semibold hover:underline inline-flex items-center gap-1 ${
+                        hasAttachment ? 'text-slate-700' : 'text-rose-600'
+                      }`}
+                      title={hasAttachment ? 'Cập nhật chứng từ' : 'Chưa có chứng từ — bấm để bổ sung'}
+                    >
+                      <UploadCloud size={12} /> Attach chứng từ
+                    </button>
+                  );
+                })()}
                 <button
                   onClick={(event) => {
                     event.stopPropagation();
@@ -2835,10 +2848,10 @@ const FinanceMoneyOut: React.FC = () => {
                               </span>
                               <input type="file" accept=".pdf,image/*" className="hidden" onChange={handleAttachmentChange} />
                             </label>
-                            <p className={`mt-1 text-[11px] ${hasAttachment ? 'text-[#6b7280]' : 'text-[#dc2626]'}`}>
+                            <p className={`mt-1 text-[11px] ${hasAttachment ? 'text-[#6b7280]' : 'text-[#dc2626] font-semibold'}`}>
                               {hasAttachment
                                 ? 'Đã có chứng từ đính kèm.'
-                                : 'Chưa có chứng từ đính kèm. Nút lưu sẽ bị khóa cho đến khi attach chứng từ.'}
+                                : 'Chưa có chứng từ đính kèm. Bạn vẫn có thể lưu, nhưng nên bổ sung sớm.'}
                             </p>
                           </div>
                         </div>

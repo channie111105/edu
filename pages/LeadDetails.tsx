@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getLeadById, saveLead, addMeeting } from '../utils/storage';
 import { getAdminUsers } from '../utils/adminUsers';
@@ -13,8 +13,9 @@ import {
    ChevronDown, UserPlus, PhoneOutgoing,
    Send, FileText, Save, Layout, Calendar
 } from 'lucide-react';
-import { LEAD_SOURCE_OPTIONS, LEAD_PRODUCT_OPTIONS, LEAD_TARGET_COUNTRY_OPTIONS, LEAD_CAMPUS_OPTIONS } from '../utils/leadCreateForm';
+import { LEAD_SOURCE_OPTIONS, LEAD_PRODUCT_OPTIONS, LEAD_TARGET_COUNTRY_OPTIONS } from '../utils/leadCreateForm';
 import { getCampaignNameOptions } from '../utils/campaignCatalog';
+import { useOrgBranches, useSystemConfigVersion } from '../hooks/useSystemCatalog';
 import { LeadStatus, ILead, UserRole, IMeeting, MeetingStatus, MeetingType } from '../types';
 
 interface IActivity {
@@ -29,6 +30,12 @@ interface IActivity {
 const LeadDetails: React.FC = () => {
    const { id } = useParams();
    const navigate = useNavigate();
+   useSystemConfigVersion();
+   const branches = useOrgBranches();
+   const LEAD_CAMPUS_OPTIONS = useMemo(
+      () => branches.map((b) => ({ value: b.name, label: b.name })),
+      [branches],
+   );
    const { user } = useAuth();
 
    const [lead, setLead] = useState<ILead | null>(null);

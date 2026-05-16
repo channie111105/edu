@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef } from 'react';
+﻿import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 import { DealStage, IDeal, ILead, LeadStatus, IContact, Activity, ActivityType } from '../types';
 import { getDeals, saveDeals, getContacts, addContact, updateDeal, saveContact, getLeadById, getLeads, saveLead, getSalesTeams } from '../utils/storage';
@@ -19,12 +19,12 @@ import {
   parseMultiFieldFilterKeys,
 } from '../utils/filterToolbar';
 import {
-  LEAD_CAMPUS_OPTIONS,
   LEAD_POTENTIAL_OPTIONS,
   LEAD_PRODUCT_OPTIONS,
   LEAD_SOURCE_OPTIONS,
   LEAD_TARGET_COUNTRY_OPTIONS,
 } from '../utils/leadCreateForm';
+import { useOrgBranches, useSystemConfigVersion } from '../hooks/useSystemCatalog';
 import {
   DEFAULT_LEAD_ACTION_FILTER_FIELD,
   LEAD_TOOLBAR_TIME_FIELD_OPTIONS,
@@ -130,9 +130,6 @@ const normalizeToolbarToken = (value: unknown) =>
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9]+/gi, '')
     .toLowerCase();
-const LEAD_CAMPUS_OPTION_TOKEN_SET = new Set(
-  LEAD_CAMPUS_OPTIONS.map((option) => normalizeToolbarToken(option.label))
-);
 
 const mapLabelsToValueOptions = (labels: ReadonlyArray<string>): ToolbarValueOption[] =>
   labels
@@ -195,6 +192,16 @@ interface IConvertLeadDraft {
 const Pipeline: React.FC = () => {
   const { user } = useAuth();
   const location = useLocation();
+  useSystemConfigVersion();
+  const branches = useOrgBranches();
+  const LEAD_CAMPUS_OPTIONS = useMemo(
+    () => branches.map((b) => ({ value: b.name, label: b.name })),
+    [branches],
+  );
+  const LEAD_CAMPUS_OPTION_TOKEN_SET = useMemo(
+    () => new Set(LEAD_CAMPUS_OPTIONS.map((o) => normalizeToolbarToken(o.label))),
+    [LEAD_CAMPUS_OPTIONS],
+  );
   const navigate = useNavigate();
 
   const [deals, setDeals] = useState<IDeal[]>([]);

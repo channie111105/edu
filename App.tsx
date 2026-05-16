@@ -124,7 +124,7 @@ const AppRoutes = () => {
     <Routes>
       <Route
         path="/login"
-        element={isAuthenticated ? <Navigate to="/" replace /> : renderLazyRoute('./pages/LoginPage.tsx')}
+        element={isAuthenticated ? <Navigate to="/module-selection" replace /> : renderLazyRoute('./pages/LoginPage.tsx')}
       />
       <Route path="/module-selection" element={renderLazyRoute('./pages/ModuleSelectionPage.tsx')} />
 

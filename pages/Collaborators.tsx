@@ -1,4 +1,4 @@
-
+﻿
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
     Plus,
@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { getLeads, getCollaborators, saveCollaborators, getSalesTeams } from '../utils/storage';
 import { PROVINCE_OPTIONS, COOPERATION_MODULE_OPTIONS } from '../utils/systemConfig';
+import { useSystemConfigVersion } from '../hooks/useSystemCatalog';
 import { LeadStatus, IActivityLog, UserRole } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import LogAudienceFilterControl from '../components/LogAudienceFilter';
@@ -1283,6 +1284,7 @@ const CollaboratorCareDrawer: React.FC<CollaboratorCareDrawerProps> = ({ ctv, is
 };
 const Collaborators: React.FC = () => {
     const { user } = useAuth();
+    useSystemConfigVersion();
     const [searchTerm, setSearchTerm] = useState('');
     const [filterCity, setFilterCity] = useState('All');
     const ownerOptions = useMemo(() => {
@@ -1982,9 +1984,7 @@ const Collaborators: React.FC = () => {
                                         onChange={e => setNewCtv({ ...newCtv, city: e.target.value })}
                                     >
                                         <option value="">-- Chọn tỉnh / thành --</option>
-                                        {COLLABORATOR_PROVINCE_OPTIONS.map((province) => (
-                                            <option key={province} value={province}>{province}</option>
-                                        ))}
+                                        {PROVINCE_OPTIONS.map((option) => (<option key={option.value} value={option.label}>{option.label}</option>))}
                                     </select>
                                 </div>
                                 <div className="col-span-1">
@@ -2163,9 +2163,7 @@ const Collaborators: React.FC = () => {
                                         onChange={e => setEditingCtv({ ...editingCtv, city: e.target.value })}
                                     >
                                         <option value="">-- Chọn tỉnh / thành --</option>
-                                        {COLLABORATOR_PROVINCE_OPTIONS.map((province) => (
-                                            <option key={province} value={province}>{province}</option>
-                                        ))}
+                                        {PROVINCE_OPTIONS.map((option) => (<option key={option.value} value={option.label}>{option.label}</option>))}
                                     </select>
                                 </div>
                                 <div className="col-span-1">
@@ -2254,5 +2252,6 @@ const Collaborators: React.FC = () => {
 };
 
 export default Collaborators;
+
 
 

@@ -25,6 +25,7 @@ import {
   X
 } from 'lucide-react';
 import { DateRangeType, LocationType } from '../components/DashboardFilters';
+import { getBranches, ORG_CONFIG_EVENT, type OrgBranch } from '../utils/orgConfig';
 import { IActualTransaction, IClassStudent, IQuotation, ISalesTeam, IStudent, ITrainingClass, ITransaction } from '../types';
 import { getActualTransactions, getClassStudents, getQuotations, getSalesTeams, getStudents, getTrainingClasses, getTransactions } from '../utils/storage';
 
@@ -96,26 +97,24 @@ const normalizeToken = (value?: string) =>
     .replace(/[^a-z0-9]+/g, ' ')
     .trim();
 
-const getLocationKey = (branch?: string): LocationType => {
+// Doi chieu chuoi 'branch' (ten lay tu du lieu) ve location key (id co so).
+// Match neu chuoi chua ten hoac code cua bat ky co so nao trong Cau hinh To chuc.
+const getLocationKey = (branch: string | undefined, branches: OrgBranch[]): LocationType => {
   const token = normalizeToken(branch);
   if (!token) return 'all';
-  if (token.includes('ha noi') || token === 'hn' || token.includes('hanoi')) return 'hanoi';
-  if (token.includes('ho chi minh') || token.includes('hcm') || token.includes('sai gon')) return 'hcm';
-  if (token.includes('da nang') || token.includes('danang')) return 'danang';
+  for (const b of branches) {
+    const name = normalizeToken(b.name);
+    const code = normalizeToken(b.code);
+    if ((name && token.includes(name)) || (code && token.includes(code))) {
+      return b.id;
+    }
+  }
   return 'all';
 };
 
-const getLocationLabel = (location: LocationType) => {
-  switch (location) {
-    case 'hanoi':
-      return 'Hà Nội';
-    case 'hcm':
-      return 'Hồ Chí Minh';
-    case 'danang':
-      return 'Đà Nẵng';
-    default:
-      return 'Tất cả chi nhánh';
-  }
+const getLocationLabel = (location: LocationType, branches: OrgBranch[]) => {
+  if (location === 'all') return 'Tất cả cơ sở';
+  return branches.find((b) => b.id === location)?.name || location;
 };
 
 const matchesDateRange = (value: string, range: DateRangeType, customDate: string) => {
@@ -229,6 +228,14 @@ const FinanceDashboard: React.FC = () => {
   const [salesTeams, setSalesTeams] = useState<ISalesTeam[]>([]);
   const [actualTransactions, setActualTransactions] = useState<IActualTransaction[]>([]);
   const [sourceTransactions, setSourceTransactions] = useState<ITransaction[]>([]);
+  const [branches, setBranches] = useState<OrgBranch[]>([]);
+
+  useEffect(() => {
+    const sync = () => setBranches(getBranches().filter((b) => b.status === 'Đang hoạt động'));
+    sync();
+    window.addEventListener(ORG_CONFIG_EVENT, sync as EventListener);
+    return () => window.removeEventListener(ORG_CONFIG_EVENT, sync as EventListener);
+  }, []);
 
   useEffect(() => {
     const loadData = () => {
@@ -360,9 +367,9 @@ const FinanceDashboard: React.FC = () => {
   const filteredTerms = useMemo(() => {
     return dateAndSalesTerms.filter((term) => {
       if (location === 'all') return true;
-      return getLocationKey(term.branch) === location;
+      return getLocationKey(term.branch, branches) === location;
     });
-  }, [dateAndSalesTerms, location]);
+  }, [dateAndSalesTerms, location, branches]);
 
   const filteredFinanceRows = useMemo<FinanceActualRecord[]>(() => {
     return actualTransactions
@@ -388,7 +395,7 @@ const FinanceDashboard: React.FC = () => {
         const recordDate = record.actual.date || record.actual.createdAt;
         if (!matchesDateRange(recordDate, dateRange, customDate)) return false;
         if (salesFilter !== 'all' && record.salesPersonId !== salesFilter) return false;
-        if (location !== 'all' && getLocationKey(record.branch) !== location) return false;
+        if (location !== 'all' && getLocationKey(record.branch, branches) !== location) return false;
         return hasAdminExecutedTransaction(record.source, record.quotation);
       });
   }, [
@@ -482,7 +489,7 @@ const FinanceDashboard: React.FC = () => {
         name,
         value,
         color: BRANCH_COLORS[index % BRANCH_COLORS.length],
-        locationKey: getLocationKey(name)
+        locationKey: getLocationKey(name, branches)
       }))
       .sort((a, b) => b.value - a.value);
   }, [dateAndSalesTerms]);
@@ -566,10 +573,10 @@ const FinanceDashboard: React.FC = () => {
                   onChange={(event) => setLocation(event.target.value as LocationType)}
                   className="bg-transparent border-none text-sm font-bold focus:ring-0 cursor-pointer outline-none text-slate-700"
                 >
-                  <option value="all">Tất cả chi nhánh</option>
-                  <option value="hanoi">Hà Nội</option>
-                  <option value="hcm">Hồ Chí Minh</option>
-                  <option value="danang">Đà Nẵng</option>
+                  <option value="all">Tất cả cơ sở</option>
+                  {branches.map((b) => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
+                  ))}
                 </select>
                 <ChevronDown size={14} className="text-slate-400" />
               </div>
@@ -595,7 +602,7 @@ const FinanceDashboard: React.FC = () => {
                 onClick={() => setLocation('all')}
                 className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700"
               >
-                Chi nhánh: {getLocationLabel(location)}
+                Cơ sở: {getLocationLabel(location, branches)}
                 <X size={12} />
               </button>
             )}
@@ -766,7 +773,7 @@ const FinanceDashboard: React.FC = () => {
                   Dự báo Dòng tiền thu
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Dựa trên lịch đến hạn các khoản chưa thu, cập nhật theo bộ lọc ngày, chi nhánh và sale.
+                  Dựa trên lịch đến hạn các khoản chưa thu, cập nhật theo bộ lọc ngày, cơ sở và sale.
                 </p>
               </div>
             </div>
@@ -800,7 +807,7 @@ const FinanceDashboard: React.FC = () => {
           <div className="bg-white p-4 rounded-xl border border-[#E2E8F0] shadow-sm flex flex-col">
             <div className="mb-2">
               <h3 className="text-lg font-bold text-slate-900">Tỷ trọng Công nợ</h3>
-              <p className="text-xs text-slate-500">Theo cơ sở, click biểu đồ để lọc chi nhánh</p>
+              <p className="text-xs text-slate-500">Theo cơ sở, click biểu đồ để lọc cơ sở</p>
             </div>
             <div className="flex-1 w-full min-h-0 relative">
               <ResponsiveContainer width="100%" height="100%">
@@ -837,7 +844,7 @@ const FinanceDashboard: React.FC = () => {
                 <div className="text-center">
                   <span className="block text-xl font-bold text-slate-800">{moneyCompact(location === 'all' ? totalForPie : summary.totalReceivables)}</span>
                   <span className="text-xs text-slate-500 uppercase">
-                    {location === 'all' ? 'Tổng nợ' : getLocationLabel(location)}
+                    {location === 'all' ? 'Tổng nợ' : getLocationLabel(location, branches)}
                   </span>
                 </div>
               </div>

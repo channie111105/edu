@@ -22,6 +22,8 @@ import DashboardFilters, {
   SelectOption
 } from '../components/DashboardFilters';
 import { getLeads, getDeals } from '../utils/storage';
+import { getBranches } from '../utils/orgConfig';
+import { getSystemCatalog } from '../utils/systemConfig';
 import { ILead, IDeal, LeadStatus, DealStage } from '../types';
 
 // Color mapping for sources - Blue / Beige / Mint / Lavender palette
@@ -322,10 +324,11 @@ const MarketingDashboard: React.FC = () => {
   }, []);
 
   const productOptions = useMemo<SelectOption[]>(() => {
+    // Lay danh sach Quoc gia muc tieu tu Cau hinh Du lieu lam options "Ngon ngu"
+    const countries = getSystemCatalog('targetCountries', true);
     return [
-      { value: 'all', label: isEnglish ? 'All products' : 'Tất cả sản phẩm' },
-      { value: 'Tiếng Đức', label: isEnglish ? 'German' : 'Tiếng Đức' },
-      { value: 'Tiếng Trung', label: isEnglish ? 'Chinese' : 'Tiếng Trung' }
+      { value: 'all', label: isEnglish ? 'All languages' : 'Tất cả ngôn ngữ' },
+      ...countries.map((c) => ({ value: c.value, label: c.label })),
     ];
   }, [isEnglish]);
 
@@ -389,29 +392,35 @@ const MarketingDashboard: React.FC = () => {
         break;
     }
 
-    // Location filtering
+    // Location filtering: location la branchId; map sang ten co so de doi chieu voi address/region/city.
     if (location !== 'all') {
-      const locationKeywords: Record<LocationType, string[]> = {
-        'all': [],
-        'hanoi': ['ha noi', 'hanoi'],
-        'hcm': ['ho chi minh', 'hcm', 'tp hcm', 'tphcm', 'sai gon', 'saigon'],
-        'danang': ['da nang', 'danang']
-      };
-      const keywords = locationKeywords[location];
-      result = result.filter((lead) => {
-        const regionRaw = [
-          lead.city,
-          lead.address,
-          lead.marketingData?.region,
-          lead.marketingData?.market
-        ].filter(Boolean).join(' ');
-        const region = normalizeText(regionRaw);
-        return keywords.some((keyword) => region.includes(keyword));
-      });
+      const branch = getBranches().find((b) => b.id === location);
+      const keywords = branch
+        ? [normalizeText(branch.name), normalizeText(branch.code || '')].filter(Boolean)
+        : [];
+      if (keywords.length > 0) {
+        result = result.filter((lead) => {
+          const regionRaw = [
+            lead.city,
+            lead.address,
+            lead.marketingData?.region,
+            lead.marketingData?.market
+          ].filter(Boolean).join(' ');
+          const region = normalizeText(regionRaw);
+          return keywords.some((keyword) => region.includes(keyword));
+        });
+      }
     }
 
     if (product !== 'all') {
-      result = result.filter((lead) => normalizeProgram(lead.program) === product);
+      // 'product' thuc te la quoc gia muc tieu (ngon ngu) duoc chon.
+      const target = product.toString().toLowerCase().trim();
+      result = result.filter((lead) => {
+        const leadTarget = (lead.targetCountry || '').toLowerCase().trim();
+        if (leadTarget && leadTarget === target) return true;
+        // Backward-compat: van match qua program neu chua co targetCountry tren lead cu.
+        return normalizeProgram(lead.program).toLowerCase().includes(target);
+      });
     }
     return result;
   }, [leads, dateRange, location, customDate, product]);

@@ -1,19 +1,13 @@
 import React from 'react';
 import { ShieldCheck } from 'lucide-react';
 import {
-  LEAD_CAMPUS_OPTIONS,
-  LEAD_POTENTIAL_OPTIONS,
-  LEAD_PRODUCT_OPTIONS,
   LEAD_RELATION_OPTIONS,
-  LEAD_SOURCE_OPTIONS,
-  LEAD_TARGET_COUNTRY_OPTIONS,
   LeadCreateFormData,
   LeadCreateModalTab,
-  STUDENT_EDUCATION_LEVEL_OPTIONS,
 } from '../utils/leadCreateForm';
-import { LEAD_CHANNEL_OPTIONS } from '../constants';
 import { LEAD_STATUS_OPTIONS } from '../utils/leadStatus';
 import LeadTagManager from './LeadTagManager';
+import { useOrgBranches, useSystemCatalogOptions } from '../hooks/useSystemCatalog';
 
 interface LeadDrawerProfileFormProps {
   leadFormData: LeadCreateFormData;
@@ -165,6 +159,16 @@ const LeadDrawerProfileForm: React.FC<LeadDrawerProfileFormProps> = ({
 }) => {
   void leadFormActiveTab;
   void onTabChange;
+
+  // Catalog dong tu Cau hinh Du lieu / To chuc.
+  const productOptions = useSystemCatalogOptions('products');
+  const targetCountryOptions = useSystemCatalogOptions('targetCountries');
+  const sourceOptions = useSystemCatalogOptions('leadSources');
+  const channelOptionsCatalog = useSystemCatalogOptions('leadChannels');
+  const educationLevelOptions = useSystemCatalogOptions('educationLevels');
+  const potentialOptions = useSystemCatalogOptions('leadPotentials');
+  const branches = useOrgBranches();
+  const campusOptions = branches.map((b) => ({ value: b.name, label: b.name }));
 
   const renderViewValue = (
     value: string | undefined,
@@ -399,7 +403,7 @@ const LeadDrawerProfileForm: React.FC<LeadDrawerProfileFormProps> = ({
           <FieldBlock label="Nguồn data">
             {selectField(
               leadFormData.source,
-              LEAD_SOURCE_OPTIONS.map((option) => ({ value: option.value, label: option.label })),
+              sourceOptions,
               '-- Chọn nguồn --',
               (value) => onPatch({ source: value }),
             )}
@@ -420,7 +424,7 @@ const LeadDrawerProfileForm: React.FC<LeadDrawerProfileFormProps> = ({
           <FieldBlock label="Sản phẩm">
             {selectField(
               leadFormData.product,
-              LEAD_PRODUCT_OPTIONS,
+              productOptions,
               '-- Chọn --',
               (value) => onPatch({ product: value }),
             )}
@@ -429,7 +433,7 @@ const LeadDrawerProfileForm: React.FC<LeadDrawerProfileFormProps> = ({
           <FieldBlock label="Cơ sở">
             {selectField(
               leadFormData.market,
-              LEAD_CAMPUS_OPTIONS,
+              campusOptions,
               '-- Chọn --',
               (value) => onPatch({ market: value }),
             )}
@@ -471,7 +475,7 @@ const LeadDrawerProfileForm: React.FC<LeadDrawerProfileFormProps> = ({
           <FieldBlock label="Kênh">
             {selectField(
               leadFormData.channel,
-              LEAD_CHANNEL_OPTIONS.map((option) => ({ value: option.value, label: option.label })),
+              channelOptionsCatalog,
               '-- Chọn kênh --',
               (value) => onPatch({ channel: value }),
             )}
@@ -499,7 +503,7 @@ const LeadDrawerProfileForm: React.FC<LeadDrawerProfileFormProps> = ({
           <FieldBlock label="Thị trường mục tiêu">
             {selectField(
               leadFormData.targetCountry,
-              LEAD_TARGET_COUNTRY_OPTIONS,
+              targetCountryOptions,
               '-- Chọn --',
               (value) => onPatch({ targetCountry: value }),
             )}
@@ -508,7 +512,7 @@ const LeadDrawerProfileForm: React.FC<LeadDrawerProfileFormProps> = ({
           <FieldBlock label="Trình độ học vấn" required>
             {selectField(
               leadFormData.studentEducationLevel,
-              STUDENT_EDUCATION_LEVEL_OPTIONS,
+              educationLevelOptions,
               '-- Chọn --',
               (value) => onPatch({ studentEducationLevel: value }),
             )}
@@ -538,7 +542,7 @@ const LeadDrawerProfileForm: React.FC<LeadDrawerProfileFormProps> = ({
           <FieldBlock label="Mức độ tiềm năng">
             {selectField(
               leadFormData.potential,
-              LEAD_POTENTIAL_OPTIONS,
+              potentialOptions,
               '-- Chọn --',
               (value) => onPatch({ potential: value }),
             )}

@@ -30,6 +30,7 @@ export const KEYS = {
   INVOICES: 'educrm_invoices',
   COLLABORATORS: 'educrm_collaborators_v2',
   TAGS: 'educrm_tags',
+  HIDDEN_TAGS: 'educrm_hidden_tags',
   LOST_REASONS: 'educrm_lost_reasons',
   SALES_KPIS: 'educrm_sales_kpis_v2',
   SALES_TEAMS: 'educrm_sales_teams_v2',
@@ -358,6 +359,7 @@ const normalizeLeadTagCatalog = (tags: unknown): string[] => {
     uniqueTags.add(normalized);
   });
 
+  // Luôn đảm bảo các tag cố định tồn tại trong catalog. Trạng thái ẩn được lưu riêng.
   FIXED_LEAD_TAGS.forEach((tag) => uniqueTags.add(tag));
 
   const fixedTags = FIXED_LEAD_TAGS.filter((tag) => uniqueTags.has(tag));
@@ -397,13 +399,25 @@ const maybeNotifyLeadAssignment = (previousLead: ILead | undefined, nextLead: IL
   });
 };
 
-export const getTags = (): string[] => {
+/**
+ * Doc danh sach tag.
+ * - Mac dinh: lọc bỏ các tag đang bị ẩn (hidden) để dropdown ngoài phân hệ luôn đồng bộ với admin.
+ * - Truyen `includeHidden: true` để lấy đủ catalog (dùng cho admin Cấu hình Dữ liệu).
+ */
+export const getTags = (options: { includeHidden?: boolean } = {}): string[] => {
+  const { includeHidden = false } = options;
+  let all: string[];
   try {
     const data = localStorage.getItem(KEYS.TAGS);
-    return normalizeLeadTagCatalog(data ? JSON.parse(data) : []);
+    all = normalizeLeadTagCatalog(data ? JSON.parse(data) : []);
   } catch {
-    return [...FIXED_LEAD_TAGS];
+    all = [...FIXED_LEAD_TAGS];
   }
+
+  if (includeHidden) return all;
+
+  const hidden = new Set(getHiddenTags());
+  return all.filter((tag) => !hidden.has(tag));
 };
 
 export const saveTags = (tags: string[]) => {
@@ -412,6 +426,27 @@ export const saveTags = (tags: string[]) => {
   emitClientEvent('educrm:tags-changed');
   return normalizedTags;
 };
+
+// ─── Hidden tags (ẩn mềm, không xoá khỏi catalog) ────────────────────────────
+
+export const getHiddenTags = (): string[] => {
+  try {
+    const data = localStorage.getItem(KEYS.HIDDEN_TAGS);
+    const parsed = data ? JSON.parse(data) : [];
+    return Array.isArray(parsed) ? parsed.filter((item) => typeof item === 'string') : [];
+  } catch {
+    return [];
+  }
+};
+
+export const saveHiddenTags = (tags: string[]) => {
+  const unique = Array.from(new Set(tags.filter((tag) => typeof tag === 'string' && tag.trim().length > 0)));
+  localStorage.setItem(KEYS.HIDDEN_TAGS, JSON.stringify(unique));
+  emitClientEvent('educrm:tags-changed');
+  return unique;
+};
+
+export const isTagHidden = (tag: string): boolean => getHiddenTags().includes(tag);
 
 const getDefaultLeadDistributionConfig = (): ILeadDistributionConfig => ({
   mode: 'manual',

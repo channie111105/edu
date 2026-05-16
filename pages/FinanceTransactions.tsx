@@ -1088,8 +1088,10 @@ const FinanceTransactions: React.FC = () => {
     }
 
     if (!createForm.proofFile) {
-      alert('Vui lòng attach chứng từ trước khi tạo phiếu duyệt.');
-      return;
+      const proceed = window.confirm(
+        'Phiếu chưa có chứng từ đính kèm. Bạn có muốn tiếp tục tạo phiếu duyệt không?'
+      );
+      if (!proceed) return;
     }
 
     if (createForm.businessGroup === 'THU' && createForm.quotationId) {

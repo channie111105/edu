@@ -11,23 +11,19 @@ import CreateMeetingModal from '../components/CreateMeetingModal';
 import { MEETING_TEACHERS, hasTeacherConflict } from '../utils/meetingHelpers';
 import PinnedSearchInput, { PinnedSearchChip } from '../components/PinnedSearchInput';
 import { useSalesTestRole } from '../utils/salesTestRole';
+import { useOrgBranches, useSystemConfigVersion } from '../hooks/useSystemCatalog';
 
-const normalizeCampus = (value?: string) => {
-    const normalized = value?.trim().toLowerCase();
-
-    if (!normalized) return '';
-    if (['hà nội', 'ha noi', 'hanoi', 'hn'].includes(normalized)) return 'Hà Nội';
-    if (['hcm', 'hồ chí minh', 'ho chi minh', 'tp. hcm', 'tphcm', 'hcmc'].includes(normalized)) return 'HCM';
-    if (['đà nẵng', 'da nang', 'danang', 'dn'].includes(normalized)) return 'Đà Nẵng';
-
-    return value || '';
-};
+// Campus được lấy từ Cấu hình Tổ chức (dynamic) nên không cần normalize cứng nữa.
+// Trả về tên cơ sở đã được lưu trong meeting để khớp dropdown branch hiện tại.
+const normalizeCampus = (value?: string) => (value || '').trim();
 
 const normalizeIdentityToken = (value?: string) => String(value || '').trim().toLowerCase();
 
 const SalesMeetings: React.FC = () => {
     const { user } = useAuth();
     const { salesTestRole } = useSalesTestRole(user?.role);
+    useSystemConfigVersion();
+    const branches = useOrgBranches();
     const [meetings, setMeetings] = useState<IMeeting[]>([]);
 
     const [filterStatus, setFilterStatus] = useState<string>('all');
@@ -413,9 +409,9 @@ const SalesMeetings: React.FC = () => {
                     <Building2 size={16} className="text-slate-400" />
                     <select className="text-sm outline-none text-slate-700 font-medium bg-transparent cursor-pointer hover:text-blue-600" value={filterBranch} onChange={e => setFilterBranch(e.target.value)}>
                         <option value="all">Tất cả cơ sở</option>
-                        <option value="Hà Nội">Hà Nội</option>
-                        <option value="HCM">HCM</option>
-                        <option value="Đà Nẵng">Đà Nẵng</option>
+                        {branches.map((b) => (
+                            <option key={b.id} value={b.name}>{b.name}</option>
+                        ))}
                     </select>
                 </div>
 

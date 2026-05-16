@@ -15,7 +15,6 @@ import { FIXED_LEAD_TAGS, addContract, addQuotation, getClosedLeadReasons, getCo
 import { getAdminUsers } from '../utils/adminUsers';
 import CreateMeetingModal from './CreateMeetingModal';
 import { MeetingCustomerOption } from '../utils/meetingHelpers';
-import { LEAD_CHANNEL_OPTIONS } from '../constants';
 import {
     DEFAULT_QUOTATION_RECEIPT_TYPE,
     normalizeQuotationReceiptType
@@ -50,6 +49,7 @@ import {
 import { getLeadPhoneValidationMessage, normalizeLeadPhone } from '../utils/phone';
 import { clearLeadReclaimTracking } from '../utils/leadSla';
 import { getCampaignNameOptions } from '../utils/campaignCatalog';
+import { useOrgBranches } from '../hooks/useSystemCatalog';
 
 interface UnifiedLeadDrawerProps {
     lead: ILead;
@@ -569,6 +569,8 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
 
     const { user } = useAuth();
     const [lead, setLead] = useState<ILead>(initialLead || {} as ILead);
+    const branches = useOrgBranches();
+    const defaultCampusName = branches[0]?.name || '';
     const [leadFormData, setLeadFormData] = useState<LeadCreateFormData>(() => mapLeadToFormData(initialLead || {} as ILead));
     const [isLeadProfileEditing, setIsLeadProfileEditing] = useState(false);
     const [leadFormActiveTab, setLeadFormActiveTab] = useState<LeadCreateModalTab>('notes');
@@ -859,7 +861,10 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
     const [isAddingTag, setIsAddingTag] = useState(false);
 
     useEffect(() => {
-        setAllAvailableTags(getTags());
+        const sync = () => setAllAvailableTags(getTags());
+        sync();
+        window.addEventListener('educrm:tags-changed', sync as EventListener);
+        return () => window.removeEventListener('educrm:tags-changed', sync as EventListener);
     }, []);
 
     useEffect(() => {
@@ -966,7 +971,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
         source: 'lead',
         name: lead.name,
         phone: lead.phone,
-        campus: lead.company || lead.city || 'Hanoi',
+        campus: lead.company || lead.city || defaultCampusName,
         address: lead.address || 'N/A',
         leadId: lead.id
     };

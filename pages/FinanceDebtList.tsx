@@ -4,6 +4,7 @@ import { getClassStudents, getContracts, getQuotations, getSalesTeams, getStuden
 import { IClassStudent, IContract, IQuotation, QuotationStatus } from '../types';
 import PinnedSearchInput, { PinnedSearchChip } from '../components/PinnedSearchInput';
 import { decodeMojibakeReactNode } from '../utils/mojibake';
+import { useOrgBranches, useSystemConfigVersion } from '../hooks/useSystemCatalog';
 
 type DebtPaymentStatus = 'CHUA_THU' | 'DA_THU_MOT_PHAN' | 'THU_DU' | 'DA_HUY';
 type DebtQuickFilter = 'ALL' | 'CHUA_THU' | 'DA_THU_MOT_PHAN' | 'THU_DU' | 'DA_HUY' | 'QUA_HAN';
@@ -308,6 +309,8 @@ const getChargeName = (quotation?: IQuotation) => {
 };
 
 const FinanceDebtList: React.FC = () => {
+  useSystemConfigVersion();
+  const branches = useOrgBranches();
   const columnMenuRef = useRef<HTMLDivElement | null>(null);
   const quickFilterMenuRef = useRef<HTMLDivElement | null>(null);
   const timeMenuRef = useRef<HTMLDivElement | null>(null);
@@ -609,8 +612,12 @@ const FinanceDebtList: React.FC = () => {
     [rows]
   );
   const branchOptions = useMemo(
-    () => Array.from(new Set(rows.map((row) => row.branchName).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'vi')),
-    [rows]
+    () => {
+      const fromAdmin = branches.map((b) => b.name);
+      const fromData = rows.map((row) => row.branchName).filter(Boolean);
+      return Array.from(new Set([...fromAdmin, ...fromData])).sort((a, b) => a.localeCompare(b, 'vi'));
+    },
+    [rows, branches],
   );
   const activeAdvancedFilterCount = useMemo(
     () =>

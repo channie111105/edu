@@ -37,7 +37,6 @@ import {
   filterLeadSalesRepOptionsByCampus,
   getLeadGuardianRelation,
   getLeadSourceLabel,
-  LEAD_CAMPUS_OPTIONS,
   LEAD_PRODUCT_OPTIONS,
   LEAD_RELATION_OPTIONS,
   LEAD_SOURCE_OPTIONS,
@@ -61,6 +60,7 @@ import { decodeMojibakeReactNode, decodeMojibakeText } from '../utils/mojibake';
 import { getLeadPhoneValidationMessage, isValidLeadPhone, normalizeLeadPhone } from '../utils/phone';
 import { convertLeadToOpportunity } from '../utils/leadConversion';
 import { getCampaignNameOptions } from '../utils/campaignCatalog';
+import { useOrgBranches, useSystemConfigVersion } from '../hooks/useSystemCatalog';
 import {
   SearchFilter,
   ToolbarFilterChip,
@@ -151,6 +151,16 @@ const Leads: React.FC = () => {
   const { t } = useTranslation('marketing');
   const navigate = useNavigate();
   const location = useLocation();
+
+  // Buộc re-render khi catalog hệ thống thay đổi để mọi dropdown lấy data live.
+  useSystemConfigVersion();
+
+  // Cau hinh To chuc: nguon co so chinh thuc cho dropdown.
+  const branches = useOrgBranches();
+  const LEAD_CAMPUS_OPTIONS = useMemo(
+    () => branches.map((b) => ({ value: b.name, label: b.name })),
+    [branches],
+  );
 
   // State: Load from LocalStorage
   const [activeTab, setActiveTab] = useState<'all' | 'new' | 'closed'>('all');

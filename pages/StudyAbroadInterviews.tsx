@@ -24,6 +24,7 @@ import {
   getTimeRangeSummaryLabel
 } from '../utils/filterToolbar';
 import { STUDY_ABROAD_TIME_PRESETS, normalizeStudyAbroadSearch } from '../utils/studyAbroadToolbar';
+import { useSystemCatalogOptions, useSystemConfigVersion } from '../hooks/useSystemCatalog';
 import {
   addStudyAbroadInterview,
   deleteStudyAbroadInterview,
@@ -176,6 +177,9 @@ const toInterviewForm = (item: StudyAbroadInterviewItem): StudyAbroadInterviewIn
 });
 
 const StudyAbroadInterviews: React.FC = () => {
+  useSystemConfigVersion();
+  const targetCountryOptions = useSystemCatalogOptions('targetCountries');
+  const programOptions = useSystemCatalogOptions('programs');
   const [searchTerm, setSearchTerm] = useState('');
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [timeFilterField, setTimeFilterField] = useState<InterviewTimeField>('interviewDate');
@@ -242,15 +246,22 @@ const StudyAbroadInterviews: React.FC = () => {
     [selectedAdvancedFilterValues]
   );
   const advancedFilterSelectableValuesByField = useMemo(
-    () =>
-      selectedAdvancedFilterFields.reduce<Partial<Record<InterviewAdvancedFieldKey, ReadonlyArray<ToolbarValueOption>>>>(
+    () => {
+      // Build lai map gia tri filter dynamic theo Cau hinh Du lieu hien tai.
+      const dynamicMap: Record<InterviewAdvancedFieldKey, ReadonlyArray<ToolbarValueOption>> = {
+        market: targetCountryOptions.map((opt) => ({ value: opt.value, label: opt.label })),
+        program: programOptions.map((opt) => ({ value: opt.value, label: opt.label })),
+        status: INTERVIEW_ADVANCED_SELECTABLE_VALUES.status,
+      };
+      return selectedAdvancedFilterFields.reduce<Partial<Record<InterviewAdvancedFieldKey, ReadonlyArray<ToolbarValueOption>>>>(
         (accumulator, fieldId) => {
-          accumulator[fieldId] = INTERVIEW_ADVANCED_SELECTABLE_VALUES[fieldId];
+          accumulator[fieldId] = dynamicMap[fieldId];
           return accumulator;
         },
         {}
-      ),
-    [selectedAdvancedFilterFields]
+      );
+    },
+    [selectedAdvancedFilterFields, targetCountryOptions, programOptions]
   );
   const advancedFilterSelectableValues =
     (activeAdvancedFilterField

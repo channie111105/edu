@@ -51,12 +51,15 @@ import {
   getSystemCatalog,
 } from '../utils/systemConfig';
 import { LEAD_STATUS_OPTIONS_FULL } from '../utils/leadStatus';
+import { getBranches, ORG_CONFIG_EVENT } from '../utils/orgConfig';
 import {
   FIXED_LEAD_TAGS,
   getCollaborators,
+  getHiddenTags,
   getLeads,
   getLostReasons,
   getTags,
+  saveHiddenTags,
   saveLeads,
   saveLostReasons,
   saveTags,
@@ -114,7 +117,6 @@ const CONFIG_MENU: ConfigMenuItem[] = [
   { id: 'levels', label: 'Trình độ (Đức/Trung)', icon: GraduationCap, emptyHint: 'Chưa có trình độ nào.', editable: true, parentCatalogId: 'targetCountries' },
   { id: 'program_types', label: 'Loại chương trình', icon: Database, emptyHint: 'Chưa có loại chương trình nào.', editable: true },
   { id: 'programs', label: 'Chương trình', icon: Database, emptyHint: 'Chưa có chương trình nào.', editable: true, parentCatalogId: 'programTypes' },
-  { id: 'campuses', label: 'Cơ sở', icon: Building2, emptyHint: 'Chưa có cơ sở nào.', editable: true },
   { id: 'lead_statuses', label: 'Trạng thái Lead', icon: Activity, emptyHint: 'Chưa có trạng thái lead nào.', editable: true },
   { id: 'lead_potentials', label: 'Mức độ tiềm năng', icon: Flag, emptyHint: 'Chưa có mức độ tiềm năng nào.', editable: true },
   { id: 'tags', label: 'Tag', icon: TagIcon, emptyHint: 'Chưa có tag nào.', editable: true },
@@ -183,6 +185,7 @@ const AdminSystemConfig: React.FC = () => {
   const [activeTab, setActiveTab] = useState<ConfigTabId>('products');
   const [searchTerm, setSearchTerm] = useState('');
   const [tagCatalog, setTagCatalog] = useState<string[]>([]);
+  const [hiddenTags, setHiddenTags] = useState<string[]>([]);
   const [lostReasons, setLostReasons] = useState<string[]>([]);
   const [campaignCatalog, setCampaignCatalog] = useState<string[]>([]);
   const [referrerCatalog, setReferrerCatalog] = useState<string[]>([]);
@@ -194,7 +197,8 @@ const AdminSystemConfig: React.FC = () => {
 
   useEffect(() => {
     const syncCatalogs = () => {
-      setTagCatalog(getTags());
+      setTagCatalog(getTags({ includeHidden: true }));
+      setHiddenTags(getHiddenTags());
       setLostReasons(getLostReasons());
       setCampaignCatalog(getCampaignNameOptions().map((option) => option.label));
       setReferrerCatalog(
@@ -259,6 +263,7 @@ const AdminSystemConfig: React.FC = () => {
 
     window.addEventListener('storage', syncCatalogs);
     window.addEventListener(SYSTEM_CONFIG_EVENT, syncCatalogs as EventListener);
+    window.addEventListener(ORG_CONFIG_EVENT, syncCatalogs as EventListener);
     window.addEventListener('educrm:tags-changed', syncCatalogs as EventListener);
     window.addEventListener('educrm:lost-reasons-changed', syncCatalogs as EventListener);
     window.addEventListener('educrm:campaigns-changed', syncCatalogs as EventListener);
@@ -267,6 +272,7 @@ const AdminSystemConfig: React.FC = () => {
     return () => {
       window.removeEventListener('storage', syncCatalogs);
       window.removeEventListener(SYSTEM_CONFIG_EVENT, syncCatalogs as EventListener);
+      window.removeEventListener(ORG_CONFIG_EVENT, syncCatalogs as EventListener);
       window.removeEventListener('educrm:tags-changed', syncCatalogs as EventListener);
       window.removeEventListener('educrm:lost-reasons-changed', syncCatalogs as EventListener);
       window.removeEventListener('educrm:campaigns-changed', syncCatalogs as EventListener);
@@ -313,11 +319,16 @@ const AdminSystemConfig: React.FC = () => {
 
       allTabs.forEach(tab => {
         if (tab === 'lead_statuses') {
+          // Doc truc tiep tu catalog leadStatuses (kem inactive) thay vi LEAD_STATUS_OPTIONS_FULL
+          // boi LEAD_STATUS_OPTIONS_FULL bi chot tai thoi diem import, khong refresh khi user toggle.
+          const statusCatalog = getSystemCatalog('leadStatuses', true);
+          const labelByValue = new Map(statusCatalog.map((item) => [item.value, item.label]));
+          const inactiveByValue = new Map(statusCatalog.map((item) => [item.value, Boolean(item.inactive)]));
           result[tab] = LEAD_STATUS_OPTIONS_FULL.map(opt => ({
             id: `status-${opt.value}`,
             value: opt.value,
-            label: opt.label,
-            inactive: opt.inactive,
+            label: labelByValue.get(opt.value) || opt.label,
+            inactive: inactiveByValue.get(opt.value) ?? Boolean(opt.inactive),
             sourceLabel: 'Logic hệ thống',
             tone: 'system',
             canEdit: true,
@@ -341,6 +352,7 @@ const AdminSystemConfig: React.FC = () => {
         }
 
         if (tab === 'tags') {
+          const hiddenSet = new Set(hiddenTags);
           result[tab] = tagCatalog.map(label => {
             const isFixed = FIXED_LEAD_TAGS.includes(label as any);
             return {
@@ -349,8 +361,9 @@ const AdminSystemConfig: React.FC = () => {
               label,
               sourceLabel: isFixed ? 'Tag cố định' : 'Tag tùy chỉnh',
               tone: isFixed ? 'system' : 'custom',
-              canEdit: !isFixed,
-              canDelete: !isFixed,
+              canEdit: true,
+              canDelete: true,
+              inactive: hiddenSet.has(label),
             };
           });
           return;
@@ -376,6 +389,7 @@ const AdminSystemConfig: React.FC = () => {
           value: option.value,
           label: option.label,
           parentId: option.parentId,
+          inactive: option.inactive,
           sourceLabel: catalogId && isDefaultSystemCatalogValue(catalogId, option.value) ? 'Mặc định' : 'Tùy chỉnh',
           tone: catalogId && isDefaultSystemCatalogValue(catalogId, option.value) ? 'system' : 'custom',
           canEdit: true,
@@ -385,7 +399,7 @@ const AdminSystemConfig: React.FC = () => {
 
       return result;
     },
-    [campaignCatalog, catalogRevision, referrerCatalog, tagCatalog, lostReasons],
+    [campaignCatalog, catalogRevision, referrerCatalog, tagCatalog, hiddenTags, lostReasons],
   );
 
   const activeMenu = CONFIG_MENU.find((item) => item.id === activeTab) || CONFIG_MENU[0];
@@ -564,23 +578,31 @@ const AdminSystemConfig: React.FC = () => {
   const handleDeleteRow = (row: ConfigRow) => {
     if (!row.canDelete) return;
 
+    // Tab Tag: ẩn mềm (toggle), không xoá thật để có thể khôi phục.
+    if (activeTab === 'tags') {
+      const isCurrentlyHidden = hiddenTags.includes(row.label);
+      const action = isCurrentlyHidden ? 'hiện' : 'ẩn';
+      if (!window.confirm(`Bạn có chắc muốn ${action} tag "${row.label}"?`)) {
+        return;
+      }
+      const next = isCurrentlyHidden
+        ? hiddenTags.filter((item) => item !== row.label)
+        : [...hiddenTags, row.label];
+      setHiddenTags(saveHiddenTags(next));
+      return;
+    }
+
     if (!window.confirm(`Bạn có chắc muốn xóa "${row.label}"?`)) {
       return;
     }
 
     const catalogId = getSystemCatalogId(activeTab);
-    if (catalogId && activeTab !== 'tags' && activeTab !== 'lost_reasons') {
+    if (catalogId && activeTab !== 'lost_reasons') {
       persistSystemCatalog(activeTab, (current) => {
         return current.map(item => 
           item.value === row.value ? { ...item, inactive: !item.inactive } : item
         );
       });
-      return;
-    }
-
-    if (activeTab === 'tags') {
-      removeTagFromLeads(row.label);
-      setTagCatalog(saveTags(tagCatalog.filter((item) => item !== row.label)));
       return;
     }
 
@@ -592,16 +614,16 @@ const AdminSystemConfig: React.FC = () => {
   };
 
   return (
-    <div className="flex h-full bg-slate-50 text-slate-900">
-      <aside className="w-80 shrink-0 border-r border-slate-200 bg-white">
-        <div className="border-b border-slate-200 px-6 py-5">
+    <div className="flex h-full min-h-0 bg-slate-50 text-slate-900">
+      <aside className="flex h-full w-80 shrink-0 flex-col border-r border-slate-200 bg-white">
+        <div className="shrink-0 border-b border-slate-200 px-6 py-5">
           <h2 className="text-xl font-bold">Cấu hình dữ liệu</h2>
           <p className="mt-1 text-sm text-slate-500">
             Quản lý các danh mục dùng trong lead, chiến dịch và dữ liệu marketing.
           </p>
         </div>
 
-        <div className="flex flex-col gap-1 p-4">
+        <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-4">
           {CONFIG_MENU.map((item) => {
             const Icon = item.icon;
             const isActive = item.id === activeTab;
@@ -689,9 +711,18 @@ const AdminSystemConfig: React.FC = () => {
               <tbody>
                 {filteredRows.length > 0 ? (
                   (() => {
+                    // Map parent id → label cho hiển thị nhóm cha (đặc biệt là Phòng học → Cơ sở từ Cấu hình Tổ chức)
+                    const branchNameById = new Map(getBranches().map(b => [b.id, b.name]));
+                    const resolveParentLabel = (parentId: string) => {
+                      if (activeTab === 'classrooms') {
+                        return branchNameById.get(parentId) ?? parentId;
+                      }
+                      return parentId;
+                    };
+
                     const groups: Record<string, ConfigRow[]> = {};
                     filteredRows.forEach(row => {
-                      const groupKey = row.parentId || 'Chưa phân loại';
+                      const groupKey = row.parentId ? resolveParentLabel(row.parentId) : 'Chưa phân loại';
                       if (!groups[groupKey]) groups[groupKey] = [];
                       groups[groupKey].push(row);
                     });
@@ -729,7 +760,7 @@ const AdminSystemConfig: React.FC = () => {
                               <td className="px-6 py-4 text-sm text-slate-500">
                                 {row.parentId ? (
                                   <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
-                                    {row.parentId}
+                                    {resolveParentLabel(row.parentId)}
                                   </span>
                                 ) : '-'}
                               </td>
@@ -822,7 +853,12 @@ const AdminSystemConfig: React.FC = () => {
                     className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm outline-none transition focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
                   >
                     <option value="">-- Chọn nhóm cha (Không bắt buộc) --</option>
-                    {(getSystemCatalogId(activeTab) ? getSystemCatalogOptions(activeTab === 'products' || activeTab === 'levels' ? 'target_countries' : (activeTab === 'programs' ? 'program_types' : 'campuses')) : []).map(opt => (
+                    {(activeTab === 'classrooms'
+                      ? getBranches().map(b => ({ value: b.id, label: b.name }))
+                      : (getSystemCatalogId(activeTab)
+                          ? getSystemCatalogOptions(activeTab === 'products' || activeTab === 'levels' ? 'target_countries' : (activeTab === 'programs' ? 'program_types' : 'campuses'))
+                          : [])
+                    ).map(opt => (
                       <option key={opt.value} value={opt.value}>{opt.label}</option>
                     ))}
                   </select>

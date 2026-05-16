@@ -41,6 +41,7 @@ import {
   updateStudent
 } from '../utils/storage';
 import { decodeMojibakeText } from '../utils/mojibake';
+import { useOrgBranches, useSystemConfigVersion } from '../hooks/useSystemCatalog';
 type DetailTabKey = 'overview' | 'classroom';
 type ClaimModalMode = 'create' | 'process' | 'cancel';
 type ClaimFormState = {
@@ -383,6 +384,9 @@ const buildDetailLogMessage = (
 const ContractStudentDetail: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  useSystemConfigVersion();
+  const branches = useOrgBranches();
+  const defaultCampusName = branches[0]?.name || '';
   const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
   const canOperate =
@@ -408,8 +412,8 @@ const ContractStudentDetail: React.FC = () => {
   const [showEditModal, setShowEditModal] = useState(false);
   const [claimModalMode, setClaimModalMode] = useState<ClaimModalMode | null>(null);
   const [selectedClaim, setSelectedClaim] = useState<IStudentClaim | null>(null);
-  const [enrollForm, setEnrollForm] = useState({ quotationId: '', campusId: 'Hà Nội', classId: '', note: '' });
-  const [transferForm, setTransferForm] = useState({ campusId: 'Hà Nội', classId: '', effectiveDate: '', reason: '' });
+  const [enrollForm, setEnrollForm] = useState({ quotationId: '', campusId: defaultCampusName, classId: '', note: '' });
+  const [transferForm, setTransferForm] = useState({ campusId: defaultCampusName, classId: '', effectiveDate: '', reason: '' });
   const [pauseForm, setPauseForm] = useState({ startDate: '', reason: '', expectedReturnDate: '', note: '' });
   const [editForm, setEditForm] = useState({ name: '', dob: '', phone: '', email: '', campus: '', payerName: '', note: '' });
   const [claimForm, setClaimForm] = useState<ClaimFormState>(EMPTY_CLAIM_FORM);
@@ -637,7 +641,7 @@ const ContractStudentDetail: React.FC = () => {
 
   useEffect(() => {
     if (!student) return;
-    const defaultEnrollCampus = latestAdmission?.campusId || student.campus || currentClass?.campus || enrollCampusOptions[0] || allCampusOptions[0] || 'Hà Nội';
+    const defaultEnrollCampus = latestAdmission?.campusId || student.campus || currentClass?.campus || enrollCampusOptions[0] || allCampusOptions[0] || defaultCampusName;
     setEnrollForm({
       quotationId: linkedQuotation?.id || availableLockedQuotations[0]?.id || '',
       campusId: defaultEnrollCampus,
@@ -647,7 +651,7 @@ const ContractStudentDetail: React.FC = () => {
           : '',
       note: ''
     });
-    setTransferForm({ campusId: currentClass?.campus || transferCampusOptions[0] || allCampusOptions[0] || 'Hà Nội', classId: '', effectiveDate: '', reason: '' });
+    setTransferForm({ campusId: currentClass?.campus || transferCampusOptions[0] || allCampusOptions[0] || defaultCampusName, classId: '', effectiveDate: '', reason: '' });
     setPauseForm({ startDate: '', reason: '', expectedReturnDate: '', note: '' });
     setEditForm({
       name: student.name || '',
@@ -816,7 +820,7 @@ const ContractStudentDetail: React.FC = () => {
           : 'Học viên chưa có chương trình phù hợp để chuyển lớp'
       );
     }
-    setTransferForm({ campusId: currentClass?.campus || transferCampusOptions[0] || allCampusOptions[0] || 'Hà Nội', classId: '', effectiveDate: '', reason: '' });
+    setTransferForm({ campusId: currentClass?.campus || transferCampusOptions[0] || allCampusOptions[0] || defaultCampusName, classId: '', effectiveDate: '', reason: '' });
     setShowTransferModal(true);
   };
 
@@ -1829,4 +1833,5 @@ const ContractStudentDetail: React.FC = () => {
 };
 
 export default ContractStudentDetail;
+
 

@@ -30,16 +30,12 @@ const LoginPage: React.FC = () => {
     setIsLoading(false);
 
     if (!result.success) {
-      // Nếu không tìm thấy trong adminUsers → cho phép chọn module (demo mode)
-      if (result.error === 'Tài khoản không tồn tại.') {
-        navigate('/module-selection');
-        return;
-      }
       setError(result.error || 'Đăng nhập thất bại.');
       return;
     }
 
-    navigate('/');
+    // Sau khi đăng nhập thành công, đi đến trang chọn phân hệ thay vì vào thẳng admin.
+    navigate('/module-selection');
   };
 
   return (

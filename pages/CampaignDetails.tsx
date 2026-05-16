@@ -43,11 +43,11 @@ import * as XLSX from 'xlsx';
 import { getLeads, saveLeads, getCollaborators, getSalesTeams } from '../utils/storage';
 import { useAuth } from '../contexts/AuthContext';
 import { getCampaignCatalog } from '../utils/campaignCatalog';
+import { useOrgBranches, useSystemConfigVersion } from '../hooks/useSystemCatalog';
 import { decodeMojibakeReactNode, decodeMojibakeText } from '../utils/mojibake';
 import CampaignEvaluation from './CampaignEvaluation';
 import { getLeadPhoneValidationMessage, isValidLeadPhone, normalizeLeadPhone } from '../utils/phone';
 import {
-    LEAD_CAMPUS_OPTIONS,
     LEAD_PRODUCT_OPTIONS,
     LEAD_SOURCE_OPTIONS,
     LEAD_TARGET_COUNTRY_OPTIONS
@@ -393,6 +393,12 @@ const getCampaignChannelLabel = (channel?: string) =>
 const CampaignDetails: React.FC = () => {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
+    useSystemConfigVersion();
+    const branches = useOrgBranches();
+    const LEAD_CAMPUS_OPTIONS = useMemo(
+        () => branches.map((b) => ({ value: b.name, label: b.name })),
+        [branches],
+    );
     const location = useLocation();
     const { t } = useTranslation('marketing');
     const { user } = useAuth();

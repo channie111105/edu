@@ -1,8 +1,8 @@
 import React from 'react';
 import {
   LeadCreateFormData,
-  STUDENT_EDUCATION_LEVEL_OPTIONS,
 } from '../utils/leadCreateForm';
+import { useSystemCatalogOptions } from '../hooks/useSystemCatalog';
 
 interface LeadStudentInfoTabProps {
   data: LeadCreateFormData;
@@ -13,6 +13,7 @@ const inputClassName =
   'flex-1 px-3 py-2 border border-slate-300 rounded text-sm focus:border-purple-500 outline-none text-slate-700 placeholder:text-slate-400';
 
 const LeadStudentInfoTab: React.FC<LeadStudentInfoTabProps> = ({ data, onPatch }) => {
+  const educationLevelOptions = useSystemCatalogOptions('educationLevels');
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-4 animate-in fade-in duration-200">
       <div className="flex items-center gap-4">
@@ -73,7 +74,7 @@ const LeadStudentInfoTab: React.FC<LeadStudentInfoTabProps> = ({ data, onPatch }
           onChange={(event) => onPatch({ studentEducationLevel: event.target.value })}
         >
           <option value="">-- Chọn trình độ học vấn --</option>
-          {STUDENT_EDUCATION_LEVEL_OPTIONS.map((option) => (
+          {educationLevelOptions.map((option) => (
             <option key={option.value} value={option.value}>
               {option.label}
             </option>

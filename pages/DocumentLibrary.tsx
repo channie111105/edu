@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { APP_NAME } from '../constants';
+import { useSystemCatalogOptions } from '../hooks/useSystemCatalog';
 
 // --- Types ---
 
@@ -305,16 +306,26 @@ const DetailRow = ({ icon, label, value }: { icon: React.ReactNode, label: strin
 const DocumentLibrary = () => {
     // Auth & Navigation
     const { user, logout } = useAuth();
+    // Phòng ban tài liệu lấy từ Cấu hình Dữ liệu (auto-update). Fallback dùng list mặc định.
+    const documentDepartmentOptions = useSystemCatalogOptions('documentDepartments');
+    const dynamicLibraryDepartments = documentDepartmentOptions.length > 0
+        ? documentDepartmentOptions.map((opt) => opt.label)
+        : LIBRARY_DEPARTMENTS;
     const navigate = useNavigate();
 
     // Selection state
     const [selectedDept, setSelectedDept] = useState<string | 'all'>('all');
     const [selectedCategory, setSelectedCategory] = useState<string | 'all'>('all');
-    const [isDeptSectionOpen, setIsDeptSectionOpen] = useState(true);
-    const [isCategorySectionOpen, setIsCategorySectionOpen] = useState(true);
+    const [isDeptSectionOpen, setIsDeptSectionOpen] = useState(false);
+    const [isCategorySectionOpen, setIsCategorySectionOpen] = useState(false);
 
     // Search state
     const [searchQuery, setSearchQuery] = useState('');
+    const [selectedStatus, setSelectedStatus] = useState<'all' | DocumentStatus>('all');
+    const [selectedScope, setSelectedScope] = useState<'all' | ScopeType>('all');
+    const [dateFieldFilter, setDateFieldFilter] = useState<'issueDate' | 'effectiveDate'>('effectiveDate');
+    const [dateFrom, setDateFrom] = useState('');
+    const [dateTo, setDateTo] = useState('');
     const [showVersionHistory, setShowVersionHistory] = useState(false);
 
     // Modal state
@@ -339,13 +350,19 @@ const DocumentLibrary = () => {
     // Filter Logic
     const filteredDocs = React.useMemo(() => NORMALIZED_DOCUMENTS.filter((doc) => {
         if (!showVersionHistory && doc.isLatestVersion === false) return false;
-        
+
         const matchSearch = `${doc.name} ${doc.documentCode || ''}`.toLowerCase().includes(searchQuery.toLowerCase());
         const matchDept = selectedDept === 'all' || doc.department === selectedDept;
         const matchCategory = selectedCategory === 'all' || doc.category === selectedCategory;
-        
-        return matchSearch && matchDept && matchCategory;
-    }), [searchQuery, selectedCategory, selectedDept, showVersionHistory]);
+        const matchStatus = selectedStatus === 'all' || doc.status === selectedStatus;
+        const matchScope = selectedScope === 'all' || doc.scope === selectedScope;
+
+        const rawDate = dateFieldFilter === 'issueDate' ? doc.issueDate : (doc.effectiveDate || '');
+        const matchDateFrom = !dateFrom || (rawDate && rawDate >= dateFrom);
+        const matchDateTo = !dateTo || (rawDate && rawDate <= dateTo);
+
+        return matchSearch && matchDept && matchCategory && matchStatus && matchScope && matchDateFrom && matchDateTo;
+    }), [dateFieldFilter, dateFrom, dateTo, searchQuery, selectedCategory, selectedDept, selectedScope, selectedStatus, showVersionHistory]);
 
     const getFileIcon = (type: DocumentType) => {
         switch (type) {
@@ -410,7 +427,7 @@ const DocumentLibrary = () => {
                                 <Globe size={18} className={selectedDept === 'all' ? 'text-blue-600' : 'text-slate-400'} />
                                 <span>Tất cả</span>
                             </button>
-                            {LIBRARY_DEPARTMENTS.map((dept) => (
+                            {dynamicLibraryDepartments.map((dept) => (
                                 <button
                                     key={dept}
                                     onClick={() => setSelectedDept(dept)}
@@ -521,6 +538,85 @@ const DocumentLibrary = () => {
                     </div>
                 </div>
 
+                <div className="border-b border-gray-100 bg-gray-50/50 px-6 py-3.5">
+                    <div className="flex flex-wrap items-center gap-3">
+                        <div className="flex items-center gap-2">
+                            <Filter size={14} className="text-gray-400" />
+                            <span className="text-xs font-semibold uppercase tracking-wider text-gray-500">Bộ lọc</span>
+                        </div>
+
+                        <select
+                            value={selectedStatus}
+                            onChange={(e) => setSelectedStatus(e.target.value as 'all' | DocumentStatus)}
+                            className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
+                        >
+                            <option value="all">Tất cả trạng thái</option>
+                            <option value="active">Đang áp dụng</option>
+                            <option value="expiring">Sắp hết hạn</option>
+                            <option value="expired">Hết hạn</option>
+                        </select>
+
+                        <select
+                            value={selectedScope}
+                            onChange={(e) => setSelectedScope(e.target.value as 'all' | ScopeType)}
+                            className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
+                        >
+                            <option value="all">Tất cả phạm vi</option>
+                            <option value="company">Toàn công ty</option>
+                            <option value="branch">Chi nhánh / Cơ sở</option>
+                            <option value="department">Phòng ban nội bộ</option>
+                        </select>
+
+                        <div className="flex items-center gap-2">
+                            <select
+                                value={dateFieldFilter}
+                                onChange={(e) => setDateFieldFilter(e.target.value as 'issueDate' | 'effectiveDate')}
+                                className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
+                            >
+                                <option value="effectiveDate">Ngày hiệu lực</option>
+                                <option value="issueDate">Ngày ban hành</option>
+                            </select>
+                            <input
+                                type="date"
+                                value={dateFrom}
+                                onChange={(e) => setDateFrom(e.target.value)}
+                                className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
+                            />
+                            <span className="text-xs text-gray-400">đến</span>
+                            <input
+                                type="date"
+                                value={dateTo}
+                                onChange={(e) => setDateTo(e.target.value)}
+                                className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
+                            />
+                        </div>
+
+                        <label className="flex items-center gap-2 text-sm text-gray-700">
+                            <input
+                                type="checkbox"
+                                checked={!showVersionHistory}
+                                onChange={(e) => setShowVersionHistory(!e.target.checked)}
+                            />
+                            Chỉ bản mới nhất
+                        </label>
+
+                        {(selectedStatus !== 'all' || selectedScope !== 'all' || dateFrom || dateTo) && (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setSelectedStatus('all');
+                                    setSelectedScope('all');
+                                    setDateFrom('');
+                                    setDateTo('');
+                                }}
+                                className="ml-auto rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-100"
+                            >
+                                Xóa bộ lọc
+                            </button>
+                        )}
+                    </div>
+                </div>
+
                 <div className="flex-1 overflow-auto bg-gray-50 p-6">
                     <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
                         <table className="w-full text-left">
@@ -608,7 +704,7 @@ const DocumentLibrary = () => {
                                 <div className="space-y-2">
                                     <label className="text-sm font-semibold text-slate-700">Phòng ban</label>
                                     <select className="w-full px-4 py-2 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500/20 outline-none">
-                                        {LIBRARY_DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+                                        {dynamicLibraryDepartments.map(d => <option key={d} value={d}>{d}</option>)}
                                     </select>
                                 </div>
                             </div>

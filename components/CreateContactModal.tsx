@@ -4,6 +4,7 @@ import { IContact } from '../types';
 import { getContacts } from '../utils/storage';
 import { getAdminUsers } from '../utils/adminUsers';
 import { useAuth } from '../contexts/AuthContext';
+import { useSystemCatalogOptions } from '../hooks/useSystemCatalog';
 
 interface CreateContactModalProps {
     isOpen: boolean;
@@ -11,7 +12,7 @@ interface CreateContactModalProps {
     onSave: (contact: Partial<IContact>, createNew: boolean) => void;
 }
 
-const defaultFormData = (currentUserId: string): Partial<IContact> => ({
+const defaultFormData = (currentUserId: string, defaultTargetCountry: string): Partial<IContact> => ({
     name: '',
     phone: '',
     email: '',
@@ -22,7 +23,7 @@ const defaultFormData = (currentUserId: string): Partial<IContact> => ({
     marketingData: {
         tags: []
     },
-    targetCountry: 'Đức'
+    targetCountry: defaultTargetCountry
 });
 
 const inputClassName =
@@ -31,7 +32,11 @@ const inputClassName =
 const CreateContactModal: React.FC<CreateContactModalProps> = ({ isOpen, onClose, onSave }) => {
     const { user } = useAuth();
     const currentUserId = user?.id || 'u1';
-    const [formData, setFormData] = useState<Partial<IContact>>(() => defaultFormData(currentUserId));
+    const targetCountryOptions = useSystemCatalogOptions('targetCountries');
+    const defaultTargetCountry = targetCountryOptions[0]?.value || '';
+    const [formData, setFormData] = useState<Partial<IContact>>(() =>
+        defaultFormData(currentUserId, defaultTargetCountry),
+    );
     const [phoneError, setPhoneError] = useState<string | null>(null);
 
     const salesStaffOptions = useMemo(() => {
@@ -49,9 +54,9 @@ const CreateContactModal: React.FC<CreateContactModalProps> = ({ isOpen, onClose
 
     useEffect(() => {
         if (!isOpen) return;
-        setFormData(defaultFormData(currentUserId));
+        setFormData(defaultFormData(currentUserId, defaultTargetCountry));
         setPhoneError(null);
-    }, [isOpen, currentUserId]);
+    }, [isOpen, currentUserId, defaultTargetCountry]);
 
     if (!isOpen) return null;
 
@@ -88,7 +93,7 @@ const CreateContactModal: React.FC<CreateContactModalProps> = ({ isOpen, onClose
     };
 
     const resetForm = () => {
-        setFormData(defaultFormData(currentUserId));
+        setFormData(defaultFormData(currentUserId, defaultTargetCountry));
         setPhoneError(null);
     };
 

@@ -1109,49 +1109,49 @@ const FinanceInvoices: React.FC = () => {
                   </div>
                </div>
 
-               <div className="mt-2 grid grid-cols-2 gap-2 xl:grid-cols-6">
-                  <div className="rounded-md border border-emerald-100 bg-emerald-50 px-2.5 py-2">
+               <div className="mt-2 grid grid-cols-2 gap-2 xl:grid-cols-12">
+                  <div className="rounded-md border border-emerald-100 bg-emerald-50 px-2.5 py-2 xl:col-span-1">
                      <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-emerald-700">Tổng thu</div>
-                     <div className="mt-1 text-lg font-black leading-none text-emerald-700">{formatCurrency(invoiceSummary.totalIn)}</div>
+                     <div className="mt-1 text-base font-black leading-none text-emerald-700">{formatCurrency(invoiceSummary.totalIn)}</div>
                   </div>
 
-                  <div className="rounded-md border border-rose-100 bg-rose-50 px-2.5 py-2">
+                  <div className="rounded-md border border-rose-100 bg-rose-50 px-2.5 py-2 xl:col-span-1">
                      <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-rose-700">Tổng chi</div>
-                     <div className="mt-1 text-lg font-black leading-none text-rose-700">{formatCurrency(invoiceSummary.totalOut)}</div>
+                     <div className="mt-1 text-base font-black leading-none text-rose-700">{formatCurrency(invoiceSummary.totalOut)}</div>
                   </div>
 
-                  <div className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-2">
+                  <div className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-2 xl:col-span-1">
                      <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-600">Ròng</div>
-                     <div className={`mt-1 text-lg font-black leading-none ${invoiceSummary.net >= 0 ? 'text-sky-700' : 'text-amber-700'}`}>
+                     <div className={`mt-1 text-base font-black leading-none ${invoiceSummary.net >= 0 ? 'text-sky-700' : 'text-amber-700'}`}>
                         {formatCurrency(invoiceSummary.net)}
                      </div>
                   </div>
 
-                  <div className="rounded-md border border-blue-100 bg-blue-50 px-2.5 py-2">
+                  <div className="rounded-md border border-blue-100 bg-blue-50 px-2.5 py-2 xl:col-span-1">
                      <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-blue-700">Đã in</div>
-                     <div className="mt-1 text-lg font-black leading-none text-blue-700">{invoiceSummary.printedCount}</div>
+                     <div className="mt-1 text-base font-black leading-none text-blue-700">{invoiceSummary.printedCount}</div>
                   </div>
 
                   {invoiceSummary.accountBreakdown.map((item) => (
-                     <div key={item.key} className="rounded-md border border-slate-200 bg-slate-50/80 px-2.5 py-2">
+                     <div key={item.key} className="rounded-md border border-slate-200 bg-slate-50/80 px-3 py-2 xl:col-span-4">
                         <div className="flex items-center justify-between gap-2">
-                           <div className="text-[12px] font-bold text-slate-900">{item.label}</div>
+                           <div className="text-[13px] font-bold text-slate-900">{item.label}</div>
                            <div className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${item.key === 'cash' ? 'bg-amber-100 text-amber-700' : 'bg-sky-100 text-sky-700'}`}>
                               {item.key === 'cash' ? 'Cash' : 'Bank'}
                            </div>
                         </div>
-                        <div className="mt-1.5 grid grid-cols-3 gap-1.5 text-[10px]">
-                           <div className="rounded bg-white px-2 py-1.5">
+                        <div className="mt-2 grid grid-cols-3 gap-2 text-[11px]">
+                           <div className="rounded bg-white px-2.5 py-2">
                               <div className="font-semibold text-slate-500">Thu</div>
-                              <div className="mt-0.5 font-bold leading-none text-emerald-700">{formatCurrency(item.totalIn)}</div>
+                              <div className="mt-1 text-sm font-bold leading-none text-emerald-700">{formatCurrency(item.totalIn)}</div>
                            </div>
-                           <div className="rounded bg-white px-2 py-1.5">
+                           <div className="rounded bg-white px-2.5 py-2">
                               <div className="font-semibold text-slate-500">Chi</div>
-                              <div className="mt-0.5 font-bold leading-none text-rose-700">{formatCurrency(item.totalOut)}</div>
+                              <div className="mt-1 text-sm font-bold leading-none text-rose-700">{formatCurrency(item.totalOut)}</div>
                            </div>
-                           <div className="rounded bg-white px-2 py-1.5">
+                           <div className="rounded bg-white px-2.5 py-2">
                               <div className="font-semibold text-slate-500">Ròng</div>
-                              <div className={`mt-0.5 font-bold leading-none ${item.net >= 0 ? 'text-sky-700' : 'text-amber-700'}`}>
+                              <div className={`mt-1 text-sm font-bold leading-none ${item.net >= 0 ? 'text-sky-700' : 'text-amber-700'}`}>
                                  {formatCurrency(item.net)}
                               </div>
                            </div>

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { RotateCcw, Search, Settings } from 'lucide-react';
 import ClassCodeLookupInput from '../components/ClassCodeLookupInput';
 import { AdvancedFilterDropdown, ToolbarTimeFilter } from '../components/filters';
@@ -47,6 +47,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { decodeMojibakeReactNode, decodeMojibakeText } from '../utils/mojibake';
 import { LEAD_TARGET_COUNTRY_OPTIONS, PROGRAM_OPTIONS } from '../utils/systemConfig';
+import { useOrgBranches, useSystemConfigVersion } from '../hooks/useSystemCatalog';
 
 type EnrollmentTabKey = 'waiting_enrollment' | 'waiting_approval' | 'enrolled' | 'processing' | 'students' | 'all';
 type EnrollmentMarketValue = string;
@@ -166,8 +167,11 @@ const CLASS_STATUS_LABELS: Record<ITrainingClass[ 'status' ], string> = {
   CANCELED: 'Đã hủy'
 };
 
-const ENROLLMENT_MARKET_OPTIONS = LEAD_TARGET_COUNTRY_OPTIONS.map(opt => opt.value);
-const ENROLLMENT_PROGRAM_OPTIONS = PROGRAM_OPTIONS.map(opt => opt.value);
+// Lấy options live từ Cấu hình Dữ liệu (auto-update khi admin thay đổi).
+const getEnrollmentMarketOptions = () =>
+  LEAD_TARGET_COUNTRY_OPTIONS.map(opt => opt.value);
+const getEnrollmentProgramOptions = () =>
+  PROGRAM_OPTIONS.map(opt => opt.value);
 const ENROLLMENT_ADMISSION_STATUS_ORDER = ['CHUA_TAO', 'CHO_DUYET', 'DA_DUYET'] as const;
 const ENROLLMENT_CLAIM_STATUS_ORDER = ['KHONG_CO', 'CHO_XU_LY', 'DA_XU_LY', 'TU_CHOI', 'DA_HUY'] as const;
 const ENROLLMENT_DEBT_STATUS_ORDER = ['DA_DONG', 'THIEU', 'QUA_HAN'] as const;
@@ -253,7 +257,7 @@ const detectEnrollmentMarket = (...values: Array<string | undefined>) => {
 
 const extractEnrollmentPrograms = (...values: Array<string | undefined>) => {
   const normalized = normalizeText(values.filter(Boolean).join(' '));
-  return ENROLLMENT_PROGRAM_OPTIONS.filter((program) => normalized.includes(program.toLowerCase()));
+  return getEnrollmentProgramOptions().filter((program) => normalized.includes(program.toLowerCase()));
 };
 
 const formatEnrollmentProgramLabel = (values: EnrollmentProgramValue[]) => values.join(' / ');
@@ -261,6 +265,10 @@ const formatEnrollmentProgramLabel = (values: EnrollmentProgramValue[]) => value
 const Contracts: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
+  // Buộc re-render khi Cấu hình Dữ liệu / Cấu hình Tổ chức thay đổi để dropdown auto-update.
+  useSystemConfigVersion();
+  const branches = useOrgBranches();
+  const defaultCampusName = branches[0]?.name || '';
   const canEnrollBySales =
     user?.role === UserRole.SALES_REP ||
     user?.role === UserRole.SALES_LEADER ||
@@ -296,12 +304,12 @@ const Contracts: React.FC = () => {
   const [form, setForm] = useState({
     studentId: '',
     quotationId: '',
-    campusId: text('Hà Nội'),
+    campusId: defaultCampusName,
     classId: '',
     classCode: '',
     note: ''
   });
-  const [assignForm, setAssignForm] = useState({ campusId: text('Hà Nội'), classId: '', classCode: '', note: '' });
+  const [assignForm, setAssignForm] = useState({ campusId: defaultCampusName, classId: '', classCode: '', note: '' });
 
   const loadData = () => {
     setAdmissions(getAdmissions());
@@ -669,9 +677,9 @@ const Contracts: React.FC = () => {
   ): string[] => {
     switch (fieldId) {
       case 'market':
-        return [...ENROLLMENT_MARKET_OPTIONS];
+        return [...getEnrollmentMarketOptions()];
       case 'program':
-        return [...ENROLLMENT_PROGRAM_OPTIONS];
+        return [...getEnrollmentProgramOptions()];
       case 'admissionStatus':
         return ENROLLMENT_ADMISSION_STATUS_ORDER.map((status) => ADMISSION_STATUS_LABELS[status]);
       case 'claimStatus':
@@ -698,9 +706,9 @@ const Contracts: React.FC = () => {
 
     switch (fieldId) {
       case 'market':
-        return sortByOrder([...ENROLLMENT_MARKET_OPTIONS]);
+        return sortByOrder([...getEnrollmentMarketOptions()]);
       case 'program':
-        return sortByOrder([...ENROLLMENT_PROGRAM_OPTIONS]);
+        return sortByOrder([...getEnrollmentProgramOptions()]);
       case 'admissionStatus':
         return sortByOrder(ENROLLMENT_ADMISSION_STATUS_ORDER.map((status) => ADMISSION_STATUS_LABELS[status]));
       case 'claimStatus':
@@ -942,8 +950,12 @@ const Contracts: React.FC = () => {
     );
   };
   const activeClassCampusOptions = useMemo(
-    () => Array.from(new Set(activeClasses.map((item) => item.campus).filter(Boolean) as string[])).sort(),
-    [activeClasses]
+    () => {
+      const fromClasses = activeClasses.map((item) => item.campus).filter(Boolean) as string[];
+      const fromAdmin = branches.map((b) => b.name);
+      return Array.from(new Set([...fromAdmin, ...fromClasses])).sort();
+    },
+    [activeClasses, branches]
   );
   const desiredClassOptions = useMemo(
     () => activeClasses.filter((item) => !form.campusId || item.campus === form.campusId),
@@ -983,7 +995,7 @@ const Contracts: React.FC = () => {
     setForm({
       studentId: '',
       quotationId: '',
-      campusId: activeClassCampusOptions[0] || text('Hà Nội'),
+      campusId: activeClassCampusOptions[0] || defaultCampusName,
       classId: '',
       classCode: '',
       note: ''
@@ -993,7 +1005,7 @@ const Contracts: React.FC = () => {
   const closeAssignModal = () => {
     setShowAssignModal(false);
     setSelectedAssignRow(null);
-    setAssignForm({ campusId: activeClassCampusOptions[0] || text('Hà Nội'), classId: '', classCode: '', note: '' });
+    setAssignForm({ campusId: activeClassCampusOptions[0] || defaultCampusName, classId: '', classCode: '', note: '' });
   };
 
   const admissionEligibleStudents = useMemo(
@@ -1048,7 +1060,7 @@ const Contracts: React.FC = () => {
     setForm({
       studentId: row?.student.id || '',
       quotationId: row?.lockedQuotation?.id || '',
-      campusId: initialClass?.campus || row?.desiredCampus || row?.student.campus || activeClassCampusOptions[0] || text('Hà Nội'),
+      campusId: initialClass?.campus || row?.desiredCampus || row?.student.campus || activeClassCampusOptions[0] || defaultCampusName,
       classId: initialClass?.id || '',
       classCode: initialClass?.code || '',
       note: ''
@@ -1262,7 +1274,7 @@ const Contracts: React.FC = () => {
     setForm({
       studentId: '',
       quotationId: '',
-      campusId: activeClassCampusOptions[0] || text('Hà Nội'),
+      campusId: activeClassCampusOptions[0] || defaultCampusName,
       classId: '',
       classCode: '',
       note: ''
@@ -1315,7 +1327,7 @@ const Contracts: React.FC = () => {
     }
     setShowActionMenu(false);
     setSelectedAssignRow(null);
-    setAssignForm({ campusId: activeClassCampusOptions[0] || text('Hà Nội'), classId: '', classCode: '', note: '' });
+    setAssignForm({ campusId: activeClassCampusOptions[0] || defaultCampusName, classId: '', classCode: '', note: '' });
     setShowAssignModal(true);
   };
 
@@ -1325,7 +1337,7 @@ const Contracts: React.FC = () => {
 
     setSelectedAssignRow(row || null);
     setAssignForm({
-      campusId: initialClass?.campus || row?.latestAdmission?.campusId || row?.student.campus || activeClassCampusOptions[0] || text('Hà Nội'),
+      campusId: initialClass?.campus || row?.latestAdmission?.campusId || row?.student.campus || activeClassCampusOptions[0] || defaultCampusName,
       classId: initialClass?.id || row?.latestAdmission?.classId || row?.currentClass?.id || '',
       classCode: initialClass?.code || row?.latestAdmission?.classId || row?.currentClass?.code || '',
       note: ''
@@ -2081,6 +2093,7 @@ const Contracts: React.FC = () => {
 };
 
 export default Contracts;
+
 
 
 

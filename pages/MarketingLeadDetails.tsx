@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import LeadTagManager from '../components/LeadTagManager';
 import { FIXED_LEAD_TAGS, getLeadById, saveLead, getTags, saveTags } from '../utils/storage';
 import { useAuth } from '../contexts/AuthContext';
 import { getLeadStatusLabel, LEAD_STATUS_OPTIONS, normalizeLeadStatusKey, toLeadStatusValue } from '../utils/leadStatus';
-import { LEAD_SOURCE_OPTIONS, LEAD_CAMPUS_OPTIONS } from '../utils/leadCreateForm';
+import { LEAD_SOURCE_OPTIONS } from '../utils/leadCreateForm';
 import { getCampaignNameOptions } from '../utils/campaignCatalog';
 import {
     ArrowLeft, Phone, Mail, MessageCircle, Clock,
@@ -13,10 +13,17 @@ import {
 } from 'lucide-react';
 import { LeadStatus, ILead, UserRole, DealStage } from '../types';
 import { appendLeadLogs, buildLeadAuditChange, buildLeadAuditLog, buildLeadActivityLog } from '../utils/leadLogs';
+import { useOrgBranches, useSystemConfigVersion } from '../hooks/useSystemCatalog';
 
 const MarketingLeadDetails: React.FC = () => {
     const { id } = useParams();
     const navigate = useNavigate();
+    useSystemConfigVersion();
+    const branches = useOrgBranches();
+    const LEAD_CAMPUS_OPTIONS = useMemo(
+        () => branches.map((b) => ({ value: b.name, label: b.name })),
+        [branches],
+    );
     const { user } = useAuth();
 
     const [lead, setLead] = useState<ILead | null>(null);

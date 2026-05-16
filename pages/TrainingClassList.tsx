@@ -48,6 +48,7 @@ import {
   doesDateMatchTimeRange
 } from '../utils/filterToolbar';
 import { filterByLogAudience, getILogNoteAudience, LogAudienceFilter } from '../utils/logAudience';
+import { useOrgBranches, useSystemConfigVersion } from '../hooks/useSystemCatalog';
 
 const STATUS = ['DRAFT', 'ACTIVE', 'DONE', 'CANCELED'] as const;
 const STATUS_LABEL: Record<ITrainingClass[ 'status' ], string> = {
@@ -274,10 +275,10 @@ const getInitialVisibleClassColumns = (): ClassListColumnKey[] => {
     return getDefaultVisibleClassColumns();
   }
 };
-const getDefaultCreateClassForm = (): CreateClassFormState => ({
+const getDefaultCreateClassForm = (defaultCampus: string = ''): CreateClassFormState => ({
   code: '',
   name: '',
-  campus: 'Hà Nội',
+  campus: defaultCampus,
   room: '',
   level: 'A1',
   classType: 'Offline',
@@ -328,6 +329,9 @@ const getSessionShortTitle = (session: IClassSession) => {
 const TrainingClassList: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  useSystemConfigVersion();
+  const branches = useOrgBranches();
+  const defaultCampusName = branches[0]?.name || '';
 
   const [classes, setClasses] = useState<ITrainingClass[]>([]);
   const [teachers, setTeachers] = useState<ITeacher[]>([]);
@@ -365,7 +369,7 @@ const TrainingClassList: React.FC = () => {
   const [noteModal, setNoteModal] = useState<NoteModalState | null>(null);
   const [createClassOpen, setCreateClassOpen] = useState(false);
   const [createClassError, setCreateClassError] = useState('');
-  const [createClassForm, setCreateClassForm] = useState<CreateClassFormState>(getDefaultCreateClassForm);
+  const [createClassForm, setCreateClassForm] = useState<CreateClassFormState>(() => getDefaultCreateClassForm(defaultCampusName));
 
   const loadBaseData = () => {
     setClasses(getTrainingClasses());
@@ -1004,7 +1008,7 @@ const TrainingClassList: React.FC = () => {
 
     setCreateClassError('');
     setCreateClassOpen(false);
-    setCreateClassForm(getDefaultCreateClassForm());
+    setCreateClassForm(getDefaultCreateClassForm(defaultCampusName));
     setSelectedClassId(result.data.id);
   };
 
@@ -1488,7 +1492,7 @@ const TrainingClassList: React.FC = () => {
                 onClick={() => {
                   setCreateClassError('');
                   setCreateClassForm({
-                    ...getDefaultCreateClassForm(),
+                    ...getDefaultCreateClassForm(defaultCampusName),
                     code: getNextGerClassCode(classes)
                   });
                   setCreateClassOpen(true);
@@ -1882,11 +1886,16 @@ const TrainingClassList: React.FC = () => {
               </label>
               <label className="text-sm">
                 <span className="mb-1 block font-semibold text-slate-700">Cơ sở</span>
-                <input
+                <select
                   value={createClassForm.campus}
                   onChange={(e) => setCreateClassForm((prev) => ({ ...prev, campus: e.target.value }))}
                   className="w-full rounded-lg border px-3 py-2"
-                />
+                >
+                  <option value="">-- Chọn cơ sở --</option>
+                  {branches.map((b) => (
+                    <option key={b.id} value={b.name}>{b.name}</option>
+                  ))}
+                </select>
               </label>
               <label className="text-sm">
                 <span className="mb-1 block font-semibold text-slate-700">Phòng</span>
@@ -2052,7 +2061,7 @@ const TrainingClassList: React.FC = () => {
               <button
                 type="button"
                 onClick={() => {
-                  setCreateClassForm(getDefaultCreateClassForm());
+                  setCreateClassForm(getDefaultCreateClassForm(defaultCampusName));
                   setCreateClassError('');
                 }}
                 className="rounded-lg border px-4 py-2 text-sm font-semibold"

@@ -107,15 +107,15 @@ export const NAV_ITEMS = [
   { label: 'Nhật ký Hệ thống', path: '/admin/audit-logs', icon: ScrollText, roles: [UserRole.ADMIN] },
   { label: 'Phân quyền (RBAC)', path: '/admin/permissions', icon: Shield, roles: [UserRole.ADMIN] },
 
-  // --- THƯ VIỆN TÀI LIỆU (Mới) ---
-  {
-    label: 'Thư viện & Quy trình', path: '/library', icon: Library, roles: [
-      UserRole.ADMIN,
-      UserRole.FOUNDER,
-      UserRole.LIBRARY,
-      UserRole.TEACHER,
-    ]
-  },
+  // --- THƯ VIỆN TÀI LIỆU --- (đã ẩn theo yêu cầu)
+  // {
+  //   label: 'Thư viện & Quy trình', path: '/library', icon: Library, roles: [
+  //     UserRole.ADMIN,
+  //     UserRole.FOUNDER,
+  //     UserRole.LIBRARY,
+  //     UserRole.TEACHER,
+  //   ]
+  // },
 
 
   // --- ROLE HỢP ĐỒNG --- (Removed ADMIN)

@@ -53,6 +53,8 @@ const Layout: React.FC = () => {
     location.pathname.startsWith('/enrollment/');
 
   const visibleNavItems = NAV_ITEMS.filter(item => {
+    // Sidebar van loc theo role hien tai cua workspace de moi phan he chi thay tab cua minh.
+    // (Khong phai logic gate quyen — quyen da duoc mo cho moi user, day chi la goi y dieu huong.)
     const hasAccess = !item.roles || item.roles.includes(user.role);
     if (!hasAccess) return false;
 

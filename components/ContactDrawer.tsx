@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { getContactById, getContracts, getQuotations } from '../utils/storage';
 import CreateMeetingModal from './CreateMeetingModal';
 import { MeetingCustomerOption } from '../utils/meetingHelpers';
+import { useOrgBranches, useSystemCatalogOptions } from '../hooks/useSystemCatalog';
 
 interface ContactDrawerProps {
     contact: IContact | null;
@@ -207,6 +208,12 @@ const ContactDrawer: React.FC<ContactDrawerProps> = ({ contact: initialContact, 
     const [noteContent, setNoteContent] = useState('');
     const [isCreateMeetingModalOpen, setIsCreateMeetingModalOpen] = useState(false);
 
+    // Catalog dong (auto refresh khi admin sua) cho cac dropdown trong drawer.
+    const branches = useOrgBranches();
+    const sourceOptions = useSystemCatalogOptions('leadSources');
+    const targetCountryOptions = useSystemCatalogOptions('targetCountries');
+    const defaultCampusName = branches[0]?.name || '';
+
     useEffect(() => {
         if (!initialContact) return;
         setContact(initialContact);
@@ -319,7 +326,7 @@ const ContactDrawer: React.FC<ContactDrawerProps> = ({ contact: initialContact, 
     const tagValue = (activeContact.marketingData?.tags || []).join(', ');
     const websiteValue = activeContact.website || activeContact.socialLink || '';
     const activityList = [...(contact.activities || [])].sort((a: any, b: any) => new Date(b?.timestamp || b?.datetime || 0).getTime() - new Date(a?.timestamp || a?.datetime || 0).getTime());
-    const lockedMeetingCustomer: MeetingCustomerOption = { key: `contact:${contact.id}`, id: contact.id, source: 'contact', name: contact.name, phone: contact.phone, campus: contact.company || contact.city || 'Hà Nội', address: contact.address || 'Chưa có địa chỉ', contactId: contact.id };
+    const lockedMeetingCustomer: MeetingCustomerOption = { key: `contact:${contact.id}`, id: contact.id, source: 'contact', name: contact.name, phone: contact.phone, campus: contact.company || contact.city || defaultCampusName, address: contact.address || 'Chưa có địa chỉ', contactId: contact.id };
     const headerPrimaryValue = currentType === 'company' ? (activeContact.company || '') : activeContact.name;
     const headerSecondaryValue = currentType === 'company' ? activeContact.name : (activeContact.company || '');
     const headerPrimaryPlaceholder = currentType === 'company' ? 'Tên công ty' : 'Tên khách hàng';
@@ -390,7 +397,12 @@ const ContactDrawer: React.FC<ContactDrawerProps> = ({ contact: initialContact, 
                     <input type="text" value={tagValue} onChange={(event) => changeTags(event.target.value)} placeholder="tag-1, tag-2, vip" className={inputClassName} />
                 </FieldBlock>
                 <FieldBlock label="Cơ sở">
-                    <input type="text" value={contact.venue || ''} onChange={(event) => change('venue', event.target.value)} placeholder="Cơ sở / Campus" className={inputClassName} />
+                    <select value={contact.venue || ''} onChange={(event) => change('venue', event.target.value)} className={inputClassName}>
+                        <option value="">-- Chọn cơ sở --</option>
+                        {branches.map((b) => (
+                            <option key={b.id} value={b.name}>{b.name}</option>
+                        ))}
+                    </select>
                 </FieldBlock>
                 <FieldBlock label="Trang web">
                     <input type="text" value={websiteValue} onChange={(event) => changeWebsite(event.target.value)} placeholder="VD: https://example.com" className={inputClassName} />
@@ -411,10 +423,20 @@ const ContactDrawer: React.FC<ContactDrawerProps> = ({ contact: initialContact, 
                     </label>
                 </FieldBlock>
                 <FieldBlock label="Nguồn">
-                    <input type="text" value={contact.source || ''} onChange={(event) => change('source', event.target.value)} placeholder="Referral / Website / Sale tự khai thác" className={inputClassName} />
+                    <select value={contact.source || ''} onChange={(event) => change('source', event.target.value)} className={inputClassName}>
+                        <option value="">-- Chọn nguồn --</option>
+                        {sourceOptions.map((option) => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                    </select>
                 </FieldBlock>
                 <FieldBlock label="Thị trường">
-                    <input type="text" value={contact.targetCountry || ''} onChange={(event) => change('targetCountry', event.target.value)} placeholder="Đức / Tiếng Anh / HSK..." className={inputClassName} />
+                    <select value={contact.targetCountry || ''} onChange={(event) => change('targetCountry', event.target.value)} className={inputClassName}>
+                        <option value="">-- Chọn thị trường --</option>
+                        {targetCountryOptions.map((option) => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                    </select>
                 </FieldBlock>
                 <FieldBlock label="Địa chỉ" className="xl:col-span-2">
                     <div className="grid gap-2 xl:grid-cols-[1.5fr_repeat(3,minmax(0,1fr))]">

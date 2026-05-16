@@ -45,6 +45,7 @@ import {
   updateStudyAbroadCase
 } from '../services/studyAbroadCases.local';
 import { decodeMojibakeReactNode, decodeMojibakeText } from '../utils/mojibake';
+import { useSystemCatalogOptions, useSystemConfigVersion } from '../hooks/useSystemCatalog';
 
 type EditFormState = UpdateStudyAbroadCasePayload;
 
@@ -674,6 +675,10 @@ const ViewTimelineItem: React.FC<{
 );
 
 const StudyAbroadCaseDetail: React.FC = () => {
+  useSystemConfigVersion();
+  // Lay options dong tu Cau hinh Du lieu (programs / products) thay cho hardcode.
+  const dynamicProgramOptions = useSystemCatalogOptions('programs');
+  const dynamicProductOptions = useSystemCatalogOptions('products');
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
@@ -1308,7 +1313,7 @@ const StudyAbroadCaseDetail: React.FC = () => {
                             onChange={(event) => updateEditForm('program', event.target.value)}
                             className={selectClassName}
                           >
-                            {PROGRAM_OPTIONS.map((option) => (
+                            {(dynamicProgramOptions.length > 0 ? dynamicProgramOptions : PROGRAM_OPTIONS).map((option) => (
                               <option key={option.value} value={option.value}>
                                 {option.label}
                               </option>

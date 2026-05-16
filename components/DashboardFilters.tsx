@@ -1,6 +1,7 @@
-﻿import React from 'react';
+﻿import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Calendar, MapPin, Package, ShieldCheck } from 'lucide-react';
+import { Calendar, Languages, MapPin, ShieldCheck } from 'lucide-react';
+import { getBranches, ORG_CONFIG_EVENT, type OrgBranch } from '../utils/orgConfig';
 
 export type DateRangeType =
     | 'today'
@@ -12,7 +13,8 @@ export type DateRangeType =
     | 'thisYear'
     | 'custom';
 
-export type LocationType = 'all' | 'hanoi' | 'hcm' | 'danang';
+// LocationType nay la id cua co so (hoac 'all'). Cac dashboard tu doi chieu.
+export type LocationType = string;
 export type ProductFilterType = 'all' | string;
 export type VerificationFilterType = 'all' | 'verified' | 'unverified';
 
@@ -65,6 +67,22 @@ const DashboardFilters: React.FC<DashboardFiltersProps> = ({
 }) => {
     const { i18n } = useTranslation('common');
     const isEnglish = i18n.resolvedLanguage === 'en';
+
+    // Lay danh sach co so tu Cau hinh To chuc.
+    const [branches, setBranches] = useState<OrgBranch[]>([]);
+    useEffect(() => {
+        const sync = () => {
+            setBranches(getBranches().filter((b) => b.status === 'Đang hoạt động'));
+        };
+        sync();
+        window.addEventListener(ORG_CONFIG_EVENT, sync as EventListener);
+        window.addEventListener('storage', sync);
+        return () => {
+            window.removeEventListener(ORG_CONFIG_EVENT, sync as EventListener);
+            window.removeEventListener('storage', sync);
+        };
+    }, []);
+
     const defaultDateOptions: DateOption[] = [
         { value: 'today', label: isEnglish ? 'Today' : 'Hôm nay' },
         { value: 'yesterday', label: isEnglish ? 'Yesterday' : 'Hôm qua' },
@@ -78,7 +96,7 @@ const DashboardFilters: React.FC<DashboardFiltersProps> = ({
     const renderedDateOptions = dateOptions && dateOptions.length > 0 ? dateOptions : defaultDateOptions;
     const renderedProductOptions = productOptions && productOptions.length > 0
         ? productOptions
-        : [{ value: 'all', label: isEnglish ? 'All products' : 'Tất cả sản phẩm' }];
+        : [{ value: 'all', label: isEnglish ? 'All languages' : 'Tất cả ngôn ngữ' }];
     const renderedVerificationOptions = verificationOptions && verificationOptions.length > 0
         ? verificationOptions
         : [
@@ -128,16 +146,18 @@ const DashboardFilters: React.FC<DashboardFiltersProps> = ({
                             onChange={(e) => onLocationChange(e.target.value as LocationType)}
                             className="bg-transparent border-none text-sm font-bold focus:ring-0 cursor-pointer outline-none text-slate-700"
                         >
-                            <option value="all">{isEnglish ? 'All branches' : 'Tất cả chi nhánh'}</option>
-                            <option value="hanoi">{isEnglish ? 'Hanoi' : 'Hà Nội'}</option>
-                            <option value="hcm">{isEnglish ? 'Ho Chi Minh City' : 'Hồ Chí Minh'}</option>
-                            <option value="danang">{isEnglish ? 'Da Nang' : 'Đà Nẵng'}</option>
+                            <option value="all">{isEnglish ? 'All campuses' : 'Tất cả cơ sở'}</option>
+                            {branches.map((branch) => (
+                                <option key={branch.id} value={branch.id}>
+                                    {branch.name}
+                                </option>
+                            ))}
                         </select>
                     </div>
 
                     {showProductFilter && (
                         <div className={`flex items-center gap-2 ${showVerificationFilter ? 'border-r border-slate-200 pr-4' : ''}`}>
-                            <Package size={16} className="text-slate-500" />
+                            <Languages size={16} className="text-slate-500" />
                             <select
                                 value={product}
                                 onChange={(e) => onProductChange?.(e.target.value as ProductFilterType)}

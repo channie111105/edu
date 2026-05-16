@@ -109,10 +109,8 @@ const resolveDateRange = (dateRange: DateRangeType, customDate: string): { from:
 };
 
 const locationToBranch = (location: LocationType): string | 'all' => {
-  if (location === 'hanoi') return 'hanoi';
-  if (location === 'hcm') return 'hcm';
-  if (location === 'danang') return 'danang';
-  return 'all';
+  // location la branchId hoac 'all'.
+  return location === 'all' ? 'all' : location;
 };
 
 const getChartTotal = (row: ChartRow) => row.unprocessed + row.processing + row.departed;

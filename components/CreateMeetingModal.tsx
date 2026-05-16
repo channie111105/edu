@@ -9,6 +9,7 @@ import {
     hasTeacherConflict
 } from '../utils/meetingHelpers';
 import { updateMeeting } from '../utils/storage';
+import { useOrgBranches } from '../hooks/useSystemCatalog';
 
 interface CreateMeetingModalProps {
     isOpen: boolean;
@@ -22,19 +23,6 @@ interface CreateMeetingModalProps {
 
 const normalizeMeetingType = (type?: string): MeetingType =>
     type === MeetingType.ONLINE ? MeetingType.ONLINE : MeetingType.OFFLINE;
-
-const CAMPUS_OPTIONS = ['Hà Nội', 'HCM', 'Đà Nẵng'] as const;
-
-const normalizeCampus = (value?: string) => {
-    const normalized = value?.trim().toLowerCase();
-
-    if (!normalized) return 'Hà Nội';
-    if (['hà nội', 'ha noi', 'hanoi', 'hn'].includes(normalized)) return 'Hà Nội';
-    if (['hcm', 'hồ chí minh', 'ho chi minh', 'tp. hcm', 'tphcm', 'hcmc'].includes(normalized)) return 'HCM';
-    if (['đà nẵng', 'da nang', 'danang', 'dn'].includes(normalized)) return 'Đà Nẵng';
-
-    return 'Hà Nội';
-};
 
 const toDateTimeLocalValue = (value?: string) => {
     if (!value) return '';
@@ -63,6 +51,18 @@ const CreateMeetingModal: React.FC<CreateMeetingModalProps> = ({
     const [notes, setNotes] = useState('');
     const [error, setError] = useState('');
 
+    // Lay co so dong tu Cau hinh To chuc.
+    const branches = useOrgBranches();
+    const defaultCampus = branches[0]?.name || '';
+    const resolveCampus = (value?: string) => {
+        const trimmed = (value || '').trim();
+        if (!trimmed) return defaultCampus;
+        const match = branches.find(
+            (b) => b.name.toLowerCase() === trimmed.toLowerCase(),
+        );
+        return match?.name || trimmed; // giu nguyen gia tri san co de khong mat data cu
+    };
+
     useEffect(() => {
         if (!isOpen) return;
         const options = getMeetingCustomerOptions();
@@ -72,7 +72,7 @@ const CreateMeetingModal: React.FC<CreateMeetingModalProps> = ({
         if (meetingToEdit) {
             setSelectedCustomerKey('');
             setQuery(meetingToEdit.leadName);
-            setCampus(normalizeCampus(meetingToEdit.campus));
+            setCampus(resolveCampus(meetingToEdit.campus));
             setMeetingDateTime(toDateTimeLocalValue(meetingToEdit.datetime));
             setMeetingType(normalizeMeetingType(meetingToEdit.type));
             setTeacherId(meetingToEdit.teacherId || '');
@@ -80,7 +80,7 @@ const CreateMeetingModal: React.FC<CreateMeetingModalProps> = ({
         } else if (lockedCustomer) {
             setSelectedCustomerKey(lockedCustomer.key);
             setQuery(lockedCustomer.name);
-            setCampus(normalizeCampus(lockedCustomer.campus));
+            setCampus(resolveCampus(lockedCustomer.campus));
             setMeetingDateTime('');
             setMeetingType(MeetingType.OFFLINE);
             setTeacherId('');
@@ -88,14 +88,14 @@ const CreateMeetingModal: React.FC<CreateMeetingModalProps> = ({
         } else {
             setSelectedCustomerKey('');
             setQuery('');
-            setCampus('Hà Nội');
+            setCampus(defaultCampus);
             setMeetingDateTime('');
             setMeetingType(MeetingType.OFFLINE);
             setTeacherId('');
             setNotes('');
         }
 
-    }, [isOpen, lockedCustomer, meetingToEdit]);
+    }, [isOpen, lockedCustomer, meetingToEdit, branches]);
 
     const selectedCustomer = useMemo(() => {
         if (meetingToEdit) {
@@ -131,7 +131,7 @@ const CreateMeetingModal: React.FC<CreateMeetingModalProps> = ({
     const handleSelectCustomer = (customer: MeetingCustomerOption) => {
         setSelectedCustomerKey(customer.key);
         setQuery(customer.name);
-        setCampus(normalizeCampus(customer.campus));
+        setCampus(resolveCampus(customer.campus));
     };
 
     const handleSave = () => {
@@ -285,8 +285,11 @@ const CreateMeetingModal: React.FC<CreateMeetingModalProps> = ({
                                 onChange={(e) => setCampus(e.target.value)}
                                 className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:border-blue-500 outline-none"
                             >
-                                {CAMPUS_OPTIONS.map(option => (
-                                    <option key={option} value={option}>{option}</option>
+                                {branches.length === 0 && (
+                                    <option value="">-- Chưa có cơ sở --</option>
+                                )}
+                                {branches.map((b) => (
+                                    <option key={b.id} value={b.name}>{b.name}</option>
                                 ))}
                             </select>
                         </div>

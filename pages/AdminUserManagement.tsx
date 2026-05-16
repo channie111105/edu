@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import PermissionScopeSelect from '../components/admin-permissions/PermissionScopeSelect';
 import { AdvancedFilterDropdown } from '../components/filters';
+import Toast from '../components/Toast';
 import { useAuth } from '../contexts/AuthContext';
 import { getLeads, saveLeads } from '../utils/storage';
 import { type ToolbarOption, type ToolbarValueOption } from '../utils/filterToolbar';
@@ -344,6 +345,7 @@ const AdminUserManagement: React.FC = () => {
   const [permissionRoles, setPermissionRoles] = useState<PermissionRoleRecord[]>(() => loadAdminPermissionSettings().roles);
   const [activePermissionGroupId, setActivePermissionGroupId] = useState<PermissionGroupId>(PERMISSION_GROUPS[0].id);
   const [formError, setFormError] = useState('');
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'warning' | 'info' } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<AdminUserRecord | null>(null);
   const [deleteError, setDeleteError] = useState('');
   const [reassignUserId, setReassignUserId] = useState('');
@@ -394,27 +396,47 @@ const AdminUserManagement: React.FC = () => {
     [users]
   );
 
-  const branchOptions = useMemo(
-    () =>
-      getBranches()
-        .filter((b) => b.status === 'Đang hoạt động')
-        .map((b) => ({
-          value: b.name,
-          label: b.name,
-        })),
+  const activeBranches = useMemo(
+    () => getBranches().filter((b) => b.status === 'Đang hoạt động'),
     [orgVersion]
   );
 
-  const teamOptions = useMemo(
-    () =>
-      getTeams()
-        .filter((t) => t.status === 'Đang hoạt động')
-        .map((t) => ({
-          value: t.name,
-          label: t.name,
-        })),
+  const activeTeams = useMemo(
+    () => getTeams().filter((t) => t.status === 'Đang hoạt động'),
     [orgVersion]
   );
+
+  const branchOptions = useMemo(
+    () =>
+      activeBranches.map((b) => ({
+        value: b.name,
+        label: b.name,
+      })),
+    [activeBranches]
+  );
+
+  const teamOptions = useMemo(() => {
+    const selectedBranch = activeBranches.find((b) => b.name === formData.branch);
+    const selectedBranchId = selectedBranch?.id;
+    // Khi chưa chọn cơ sở: hiển thị tất cả team đang hoạt động.
+    // Khi đã chọn cơ sở: chỉ hiển thị team của cơ sở đó + team toàn hệ thống ('all').
+    const filtered = selectedBranchId
+      ? activeTeams.filter((t) => t.branchId === selectedBranchId || t.branchId === 'all')
+      : activeTeams;
+    return filtered.map((t) => ({
+      value: t.name,
+      label: t.name,
+    }));
+  }, [activeTeams, activeBranches, formData.branch]);
+
+  // Khi đổi cơ sở, nếu team đã chọn không thuộc cơ sở mới thì reset.
+  useEffect(() => {
+    if (!formData.team) return;
+    const stillValid = teamOptions.some((option) => option.value === formData.team);
+    if (!stillValid) {
+      setFormData((prev) => ({ ...prev, team: '' }));
+    }
+  }, [teamOptions, formData.team]);
 
   const managerOptions = useMemo(
     () => users.map((item) => ({ value: item.id, label: item.name })),
@@ -729,18 +751,18 @@ const AdminUserManagement: React.FC = () => {
     const trimmedPermissionRoleLabel = formData.permissionRoleLabel.trim();
     const draftPermissionSummary = buildRolePermissionSummary(permissionDraft);
 
-    if (!trimmedEmail) {
-      setFormError('Vui lòng nhập email.');
-      return;
-    }
+    const missingFields: string[] = [];
+    if (!trimmedName) missingFields.push('Họ và tên');
+    if (!trimmedUsername) missingFields.push('Username');
+    if (!trimmedEmail) missingFields.push('Email');
+    if (!editingUser && !formData.password.trim()) missingFields.push('Mật khẩu');
+    if (!trimmedPermissionRoleLabel) missingFields.push('Role');
+    if (!trimmedBranch) missingFields.push('Cơ sở (Chi nhánh)');
 
-    if (!trimmedUsername) {
-      setFormError('Vui lòng nhập username.');
-      return;
-    }
-
-    if (!editingUser && !formData.password.trim()) {
-      setFormError('Vui lòng nhập mật khẩu.');
+    if (missingFields.length > 0) {
+      const message = `Vui lòng nhập đầy đủ các trường bắt buộc: ${missingFields.join(', ')}.`;
+      setFormError(message);
+      setToast({ message, type: 'error' });
       return;
     }
 
@@ -756,6 +778,7 @@ const AdminUserManagement: React.FC = () => {
     );
     if (duplicateEmail) {
       setFormError('Email đã tồn tại.');
+      setToast({ message: 'Email đã tồn tại.', type: 'error' });
       return;
     }
 
@@ -764,6 +787,7 @@ const AdminUserManagement: React.FC = () => {
     );
     if (duplicateUsername) {
       setFormError('Username đã tồn tại.');
+      setToast({ message: 'Username đã tồn tại.', type: 'error' });
       return;
     }
 
@@ -780,6 +804,7 @@ const AdminUserManagement: React.FC = () => {
     if (trimmedPermissionRoleLabel) {
       if (!selectedPermissionRole) {
         setFormError('Vui lòng chọn Role hợp lệ.');
+        setToast({ message: 'Vui lòng chọn Role hợp lệ.', type: 'error' });
         return;
       }
 
@@ -855,6 +880,10 @@ const AdminUserManagement: React.FC = () => {
 
     saveAdminUsers(nextUsers);
     setUsers(nextUsers);
+    setToast({
+      message: editingUser ? 'Cập nhật người dùng thành công.' : 'Tạo người dùng thành công.',
+      type: 'success',
+    });
     resetForm();
   };
 
@@ -1319,7 +1348,7 @@ const AdminUserManagement: React.FC = () => {
 
                   <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-12">
                     <div className="lg:col-span-4">
-                      <label className={labelClass}>Họ và tên</label>
+                      <label className={labelClass}>Họ và tên <span className="text-rose-500">*</span></label>
                       <input
                         value={formData.name}
                         onChange={(event) => handleFormFieldChange('name', event.target.value)}
@@ -1329,7 +1358,7 @@ const AdminUserManagement: React.FC = () => {
                     </div>
 
                     <div className="lg:col-span-4">
-                      <label className={labelClass}>Username</label>
+                      <label className={labelClass}>Username <span className="text-rose-500">*</span></label>
                       <input
                         value={formData.username}
                         onChange={(event) => handleFormFieldChange('username', event.target.value)}
@@ -1339,7 +1368,7 @@ const AdminUserManagement: React.FC = () => {
                     </div>
 
                     <div className="lg:col-span-4">
-                      <label className={labelClass}>Email</label>
+                      <label className={labelClass}>Email <span className="text-rose-500">*</span></label>
                       <input
                         type="email"
                         value={formData.email}
@@ -1350,7 +1379,9 @@ const AdminUserManagement: React.FC = () => {
                     </div>
 
                     <div className="lg:col-span-4">
-                      <label className={labelClass}>Mật khẩu</label>
+                      <label className={labelClass}>
+                        Mật khẩu {editingUser ? null : <span className="text-rose-500">*</span>}
+                      </label>
                       <input
                         type="password"
                         autoComplete="new-password"
@@ -1362,7 +1393,7 @@ const AdminUserManagement: React.FC = () => {
                     </div>
 
                     <div className="lg:col-span-8">
-                      <label className={labelClass}>Role</label>
+                      <label className={labelClass}>Role <span className="text-rose-500">*</span></label>
                       <select
                         value={formData.permissionRoleLabel}
                         onChange={(event) => handlePermissionRoleLabelChange(event.target.value)}
@@ -1378,7 +1409,7 @@ const AdminUserManagement: React.FC = () => {
                     </div>
 
                     <div className="lg:col-span-4">
-                      <label className={labelClass}>Cơ sở (Chi nhánh)</label>
+                      <label className={labelClass}>Cơ sở (Chi nhánh) <span className="text-rose-500">*</span></label>
                       <select
                         value={formData.branch}
                         onChange={(event) => handleFormFieldChange('branch', event.target.value)}
@@ -1735,6 +1766,10 @@ const AdminUserManagement: React.FC = () => {
             </div>
           </div>
         </div>
+      ) : null}
+
+      {toast ? (
+        <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />
       ) : null}
     </div>
   );
