@@ -13,12 +13,8 @@ import { useNavigate } from 'react-router-dom';
 const FinancePeriodClosing: React.FC = () => {
   const navigate = useNavigate();
 
-  // Mock Data
-  const PERIODS = [
-    { month: '10/2023', status: 'Open', revenue: 1200000000, expense: 450000000 },
-    { month: '09/2023', status: 'Closed', revenue: 1100000000, expense: 420000000, closedBy: 'Kế toán trưởng', closedDate: '05/10/2023' },
-    { month: '08/2023', status: 'Closed', revenue: 980000000, expense: 380000000, closedBy: 'Kế toán trưởng', closedDate: '05/09/2023' },
-  ];
+  // Mock đã loại bỏ — kỳ kế toán sẽ load từ service khi có module sổ sách.
+  const PERIODS: Array<{ month: string; status: string; revenue: number; expense: number; closedBy?: string; closedDate?: string }> = [];
 
   const formatCurrency = (val: number) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(val);
 

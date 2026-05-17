@@ -16,29 +16,9 @@ import {
 
 const AdminDashboard: React.FC = () => {
   
-  // --- MOCK DATA ---
-  const REVENUE_DATA = [
-    { month: 'T1', value: 35000 },
-    { month: 'T2', value: 42000 },
-    { month: 'T3', value: 38000 },
-    { month: 'T4', value: 65000 },
-    { month: 'T5', value: 55000 },
-    { month: 'T6', value: 95000 },
-    { month: 'T7', value: 120000 },
-    { month: 'T8', value: 110000 },
-    { month: 'T9', value: 160000 },
-    { month: 'T10', value: 185000 },
-    { month: 'T11', value: 210000 },
-    { month: 'T12', value: 250000 },
-  ];
-
-  const AGENT_PERFORMANCE = [
-    { name: 'Trung tâm Tiếng Đức ABC', revenue: '500 Tr', won: 50 },
-    { name: 'Du học Á Âu', revenue: '450 Tr', won: 45 },
-    { name: 'Global Education', revenue: '400 Tr', won: 40 },
-    { name: 'Sunrise Agency', revenue: '350 Tr', won: 35 },
-    { name: 'VietGermany Link', revenue: '300 Tr', won: 30 },
-  ];
+  // Mock đã loại bỏ — số liệu doanh thu/dashboard sẽ tính từ storage thực khi có module reporting.
+  const REVENUE_DATA: Array<{ month: string; value: number }> = [];
+  const AGENT_PERFORMANCE: Array<{ name: string; revenue: string; won: number }> = [];
 
   return (
     <div className="flex flex-col h-full bg-slate-50 text-[#0d141b] font-sans overflow-y-auto">

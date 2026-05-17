@@ -38,45 +38,8 @@ interface IRule {
   skipOffline: boolean; // SLA Feature
 }
 
-// --- Mock Data ---
-const MOCK_RULES: IRule[] = [
-  {
-    id: 'r1',
-    name: 'Phân bổ Team Đức (Ưu tiên cao)',
-    isActive: true,
-    priority: 1,
-    criteria: [
-      { field: 'program', operator: 'contains', value: 'Đức' }
-    ],
-    assignToTeam: ['Nguyễn Sale', 'Phạm Sale'],
-    distributionMethod: 'round-robin',
-    skipOffline: true,
-  },
-  {
-    id: 'r2',
-    name: 'Phân bổ Team Trung',
-    isActive: true,
-    priority: 2,
-    criteria: [
-      { field: 'program', operator: 'contains', value: 'Trung' }
-    ],
-    assignToTeam: ['Trần Sale'],
-    distributionMethod: 'weighted',
-    skipOffline: false,
-  },
-  {
-    id: 'r3',
-    name: 'Lead từ Landing Page (Nguồn lạnh)',
-    isActive: false,
-    priority: 3,
-    criteria: [
-      { field: 'source', operator: 'equals', value: 'Landing Page' }
-    ],
-    assignToTeam: ['Lê Leader'],
-    distributionMethod: 'round-robin',
-    skipOffline: true,
-  }
-];
+// Mock đã loại bỏ — luật phân bổ sẽ load từ storage / service khi có module thực.
+const MOCK_RULES: IRule[] = [];
 
 const AssignmentRules: React.FC = () => {
   const { hasPermission } = useAuth();

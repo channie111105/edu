@@ -17,37 +17,36 @@ import {
     FileText
 } from 'lucide-react';
 
-// --- MOCK DATA ---
-const CLASS_INFO = {
-    id: 'C-001',
-    code: 'DE-A1-K24',
-    name: 'Tiếng Đức A1 - K24',
-    status: 'Active',
-    teacher: 'Cô Nguyễn Thị Lan',
-    room: 'Phòng 101 - Offline',
-    schedule: 'T2-4-6 (18:30 - 20:30)',
-    startDate: '15/09/2025',
-    endDate: '15/12/2025',
-    totalSessions: 24,
-    completedSessions: 8
+// Mock đã loại bỏ — dữ liệu thực sẽ load từ services/storage khi có id lớp.
+const CLASS_INFO: {
+    id: string;
+    code: string;
+    name: string;
+    status: string;
+    teacher: string;
+    room: string;
+    schedule: string;
+    startDate: string;
+    endDate: string;
+    totalSessions: number;
+    completedSessions: number;
+} = {
+    id: '',
+    code: '',
+    name: 'Chưa chọn lớp',
+    status: '',
+    teacher: '',
+    room: '',
+    schedule: '',
+    startDate: '',
+    endDate: '',
+    totalSessions: 0,
+    completedSessions: 0,
 };
 
-const STUDENTS = [
-    { id: 'S1', name: 'Nguyễn Văn Nam', code: 'HV001' },
-    { id: 'S2', name: 'Trần Thị Bích', code: 'HV002' },
-    { id: 'S3', name: 'Lê Hoàng', code: 'HV003' },
-    { id: 'S4', name: 'Phạm Hương', code: 'HV004' },
-    { id: 'S5', name: 'Hoàng Minh', code: 'HV005' },
-];
+const STUDENTS: Array<{ id: string; name: string; code: string }> = [];
 
-// Mock 5 recent sessions
-const SESSIONS = [
-    { id: 1, date: '15/09', topic: 'Bài 1: Giới thiệu' },
-    { id: 2, date: '17/09', topic: 'Bài 2: Chào hỏi' },
-    { id: 3, date: '19/09', topic: 'Bài 3: Số đếm' },
-    { id: 4, date: '22/09', topic: 'Bài 4: Động từ' },
-    { id: 5, date: '24/09', topic: 'Bài 5: Gia đình' },
-];
+const SESSIONS: Array<{ id: number; date: string; topic: string }> = [];
 
 const TrainingClassDetail: React.FC = () => {
     const { id } = useParams();

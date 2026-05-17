@@ -66,31 +66,22 @@ const ContractDetails: React.FC = () => {
   const [contractStatus, setContractStatus] = useState<'DRAFT' | 'SENT' | 'SIGNED_PENDING_PAYMENT' | 'ACTIVE' | 'BREACHED'>('SIGNED_PENDING_PAYMENT');
   const [installment1Paid, setInstallment1Paid] = useState(false);
 
-  // --- MOCK DATA: AUDIT TRAIL (Nhật ký Pháp lý) ---
-  const auditLog = [
-      { action: 'Đã gửi Email cho khách', time: '12/10/2023 09:00', ip: 'System', user: systemRepresentative.name },
-      { action: 'Khách hàng đã xem', time: '12/10/2023 09:15', ip: '113.160.x.x (iPhone 14)', user: 'Guest' },
-      { action: 'Khách hàng đã ký số (OTP)', time: '12/10/2023 10:30', ip: '113.160.x.x (iPhone 14)', user: 'Guest' },
-      { action: 'Hệ thống khóa file PDF', time: '12/10/2023 10:31', ip: 'System', user: 'Auto' },
-  ];
+  // Mock đã loại bỏ — auditLog, changeRequests, contractBreakdown sẽ load từ storage khi có module hợp đồng thực.
+  const auditLog: Array<{ action: string; time: string; ip: string; user: string }> = [];
 
-  // --- MOCK DATA: ADDENDA REQUESTS (Yêu cầu thay đổi) ---
-  const [changeRequests, setChangeRequests] = useState([
-      { id: 'req1', type: 'RESERVATION', title: 'Phụ lục 01: Bảo lưu khóa học', status: 'DRAFT', created: 'Hôm nay', reason: 'Đi nghĩa vụ quân sự' }
-  ]);
+  const [changeRequests, setChangeRequests] = useState<Array<{ id: string; type: string; title: string; status: string; created: string; reason: string }>>([]);
 
-  // --- MOCK DATA: COMBO BREAKDOWN ---
-  const contractBreakdown = {
+  const contractBreakdown: {
+      type: string;
+      packageName: string;
+      items: Array<{ id: string; category: string; name: string; price: number; status: string; refundable: boolean }>;
+  } = {
       type: 'COMBO',
-      packageName: 'Combo Du học Đức (A1-B1 + Visa)',
-      items: [
-          { id: 'i1', category: 'EDUCATION', name: 'Khóa học Tiếng Đức A1 (Offline)', price: 15000000, status: 'Completed', refundable: true },
-          { id: 'i2', category: 'EDUCATION', name: 'Khóa học Tiếng Đức A2 (Offline)', price: 15000000, status: 'Scheduled', refundable: true },
-          { id: 'i3', category: 'SERVICE', name: 'Phí dịch vụ Hồ sơ & Visa', price: 95000000, status: 'In Progress', refundable: false },
-      ]
+      packageName: '',
+      items: [],
   };
-  
-  const totalContractValue = 125000000;
+
+  const totalContractValue = 0;
 
   const handleActivate = () => {
       if (installment1Paid) {

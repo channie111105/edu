@@ -22,53 +22,25 @@ const FinancePaymentPlan: React.FC = () => {
   const { id } = useParams();
   const [showRefundModal, setShowRefundModal] = useState(false);
 
-  // Mock Data
+  // Mock đã loại bỏ — payment plan sẽ load từ service khi có id thực.
   const PLAN_SUMMARY = {
-    totalValue: 30000000,
-    paid: 15000000,
-    remaining: 15000000
+    totalValue: 0,
+    paid: 0,
+    remaining: 0,
   };
 
-  const INSTALLMENTS = [
-    {
-      id: 'ins-1',
-      phase: 'Đợt 1 (Đặt cọc)',
-      totalAmount: 10000000,
-      paidAmount: 10000000,
-      dueDate: '15/08/2024',
-      condition: 'Trước khi xếp lớp A1',
-      status: 'Paid',
-      transactions: 1
-    },
-    {
-      id: 'ins-2',
-      phase: 'Đợt 2 (Giữa khóa)',
-      totalAmount: 10000000,
-      paidAmount: 5000000, // Partial payment
-      dueDate: '15/09/2024',
-      condition: 'Sau 1 tháng học A1',
-      status: 'Partial',
-      transactions: 2 // Đã đóng 2 lần lắt nhắt
-    },
-    {
-      id: 'ins-3',
-      phase: 'Đợt 3 (Cuối khóa)',
-      totalAmount: 10000000,
-      paidAmount: 0,
-      dueDate: '15/10/2024',
-      condition: 'Trước kỳ thi cuối khóa',
-      status: 'Overdue',
-      transactions: 0
-    }
-  ];
+  const INSTALLMENTS: Array<{
+    id: string;
+    phase: string;
+    totalAmount: number;
+    paidAmount: number;
+    dueDate: string;
+    condition: string;
+    status: string;
+    transactions: number;
+  }> = [];
 
-  const HISTORY = [
-    { title: 'Kế hoạch thanh toán được tạo', date: '01/07/2024', icon: Calendar, color: 'text-[#111418]' },
-    { title: 'Thanh toán Đợt 1 thành công (10tr)', date: '15/08/2024', icon: DollarSign, color: 'text-[#111418]' },
-    { title: 'Thanh toán một phần Đợt 2 (3tr)', date: '14/09/2024', icon: DollarSign, color: 'text-[#111418]' },
-    { title: 'Thanh toán một phần Đợt 2 (2tr)', date: '20/09/2024', icon: DollarSign, color: 'text-[#111418]' },
-    { title: 'Quá hạn thanh toán Đợt 3', date: '16/10/2024', icon: AlertTriangle, color: 'text-red-500' },
-  ];
+  const HISTORY: Array<{ title: string; date: string; icon: any; color: string }> = [];
 
   const formatCurrency = (val: number) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(val);
 

@@ -6,8 +6,10 @@ import { createAdmission } from '../services/enrollmentFlow.service';
 import { useAuth } from '../contexts/AuthContext';
 import PinnedSearchInput, { PinnedSearchChip } from '../components/PinnedSearchInput';
 
-const MOCK_CLASSES = ['GER-A1-K35', 'GER-A1-K36', 'GER-B1-K12', 'AUS-COOK-K01'];
-const MOCK_CAMPUSES = ['Ha Noi', 'HCM', 'Da Nang'];
+import { useOrgBranches } from '../hooks/useSystemCatalog';
+
+// Mock đã loại bỏ — danh sách lớp/cơ sở sẽ lấy từ storage và Cấu hình Tổ chức.
+const FALLBACK_CLASSES: string[] = [];
 
 const formatDisplayDate = (value?: string) => {
   if (!value) return '--/--/----';
@@ -18,6 +20,7 @@ const formatDisplayDate = (value?: string) => {
 
 const Students: React.FC = () => {
   const { user } = useAuth();
+  const branches = useOrgBranches();
   const [students, setStudents] = useState<IStudent[]>([]);
   const [quotations, setQuotations] = useState<IQuotation[]>([]);
   const [admissions, setAdmissions] = useState<IAdmission[]>([]);
@@ -258,14 +261,15 @@ const Students: React.FC = () => {
                 <div>
                   <label className="text-sm font-semibold block mb-1">Co so *</label>
                   <select className="w-full border border-slate-300 rounded p-2" value={enrollData.campusId} onChange={(e) => setEnrollData((p) => ({ ...p, campusId: e.target.value }))}>
-                    {MOCK_CAMPUSES.map((c) => <option key={c} value={c}>{c}</option>)}
+                    <option value="">-- Chọn cơ sở --</option>
+                    {branches.map((b) => <option key={b.id} value={b.name}>{b.name}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="text-sm font-semibold block mb-1">Lop *</label>
                   <select className="w-full border border-slate-300 rounded p-2" value={enrollData.classId} onChange={(e) => setEnrollData((p) => ({ ...p, classId: e.target.value }))}>
                     <option value="">-- Chon lop --</option>
-                    {MOCK_CLASSES.map((c) => <option key={c} value={c}>{c}</option>)}
+                    {FALLBACK_CLASSES.map((c) => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
               </div>

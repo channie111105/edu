@@ -40,6 +40,7 @@ import {
 import { decodeMojibakeReactNode } from '../utils/mojibake';
 import SalesRoleTestSwitcher from '../components/SalesRoleTestSwitcher';
 import { useSalesTestRole } from '../utils/salesTestRole';
+import { useOrgBranches, useSystemConfigVersion } from '../hooks/useSystemCatalog';
 
 type MemberProfile = {
   userId: string;
@@ -337,6 +338,8 @@ const sanitizeNumericInput = (value: string) => value.replace(/[^\d]/g, '');
 const SalesKPIs: React.FC = () => {
   const { user } = useAuth();
   const { salesTestRole } = useSalesTestRole(user?.role);
+  useSystemConfigVersion();
+  const branchesFromAdmin = useOrgBranches();
   const currentMonth = getMonthKey(new Date());
   const today = new Date();
   const currentMonthStart = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -503,7 +506,13 @@ const SalesKPIs: React.FC = () => {
     return left.name.localeCompare(right.name);
   });
 
-  const branchOptions = ['all', ...Array.from(new Set(roster.map((item) => item.branch).filter(Boolean)))];
+  const branchOptions = [
+    'all',
+    ...Array.from(new Set([
+      ...branchesFromAdmin.map((b) => b.name),
+      ...roster.map((item) => item.branch).filter(Boolean),
+    ])),
+  ];
   const teamOptions = [
     { id: 'all', name: 'Tất cả team' },
     ...teams.map((team) => ({ id: team.id, name: team.name })),

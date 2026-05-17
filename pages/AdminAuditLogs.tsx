@@ -1,4 +1,4 @@
-
+﻿
 import React, { useState } from 'react';
 import { 
   Search, 
@@ -50,95 +50,7 @@ interface AuditLog {
   };
 }
 
-const MOCK_LOGS: AuditLog[] = [
-  {
-    id: 'LOG-001',
-    timestamp: '24/10/2023 14:22:10',
-    user: { name: 'Trần Văn Quản Trị', role: 'Quản trị viên', avatar: 'QT', color: 'bg-blue-100 text-blue-700' },
-    action: { name: 'Cập nhật Phân quyền', type: 'update', color: 'bg-blue-50 text-blue-700 border-blue-200' },
-    module: 'Phân quyền (RBAC)',
-    details: {
-      actionId: 'ACT_9921',
-      requestId: 'req_a1b2c3',
-      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
-      changes: [
-        { field: 'Can Export Leads', before: 'false', after: 'true' },
-        { field: 'Max Lead View', before: '100', after: '500' }
-      ]
-    }
-  },
-  {
-    id: 'LOG-002',
-    timestamp: '24/10/2023 13:05:45',
-    user: { name: 'Nguyễn Thị Marketing', role: 'Trưởng phòng MKT', avatar: 'NM', color: 'bg-orange-100 text-orange-700' },
-    action: { name: 'Xuất Excel Lead', type: 'export', color: 'bg-orange-50 text-orange-700 border-orange-200' },
-    module: 'Quản lý Lead',
-    details: {
-      actionId: 'ACT_9920',
-      requestId: 'req_x9y8z7',
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-    }
-  },
-  {
-    id: 'LOG-003',
-    timestamp: '24/10/2023 12:40:12',
-    user: { name: 'Lê Văn Sales', role: 'Nhân viên Sale', avatar: 'LS', color: 'bg-purple-100 text-purple-700' },
-    action: { name: 'Đăng nhập', type: 'login', color: 'bg-green-50 text-green-700 border-green-200' },
-    module: 'Hệ thống',
-    details: {
-      actionId: 'ACT_9919',
-      requestId: 'req_login_123',
-      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X)',
-    }
-  },
-  {
-    id: 'LOG-004',
-    timestamp: '24/10/2023 11:15:00',
-    user: { name: 'Trần Văn Quản Trị', role: 'Quản trị viên', avatar: 'QT', color: 'bg-blue-100 text-blue-700' },
-    action: { name: 'Xóa Lead Rác', type: 'delete', color: 'bg-red-50 text-red-700 border-red-200' },
-    module: 'Quản lý Lead',
-    details: {
-      actionId: 'ACT_9918',
-      requestId: 'req_del_456',
-      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
-      changes: [
-        { field: 'Status', before: 'Junk', after: 'Deleted' }
-      ]
-    }
-  },
-  {
-    id: 'LOG-005',
-    timestamp: '24/10/2023 10:00:23',
-    user: { name: 'Phạm Kế Toán', role: 'Kế toán trưởng', avatar: 'PK', color: 'bg-pink-100 text-pink-700' },
-    action: { name: 'Cập nhật Giao dịch (Duyệt)', type: 'update', color: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-    module: 'Tài chính',
-    details: {
-      actionId: 'ACT_9917',
-      requestId: 'req_fin_789',
-      userAgent: 'Chrome/118.0.0.0 Safari/537.36',
-      changes: [
-        { field: 'Transaction Status', before: 'Pending', after: 'Approved' },
-        { field: 'Approved By', before: 'null', after: 'USR_ACC_01' }
-      ]
-    }
-  },
-  {
-    id: 'LOG-006',
-    timestamp: '24/10/2023 09:15:00',
-    user: { name: 'Lê Văn Sales', role: 'Nhân viên Sale', avatar: 'LS', color: 'bg-purple-100 text-purple-700' },
-    action: { name: 'Thêm mới Lead', type: 'create', color: 'bg-blue-50 text-blue-700 border-blue-200' },
-    module: 'Quản lý Lead',
-    details: {
-      actionId: 'ACT_9916',
-      requestId: 'req_new_777',
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-      changes: [
-        { field: 'Họ và tên', before: 'null', after: 'Nguyễn Văn Test' },
-        { field: 'Số điện thoại', before: 'null', after: '0987654321' }
-      ]
-    }
-  }
-];
+const MOCK_LOGS: AuditLog[] = [];
 
 const AdminAuditLogs: React.FC = () => {
   const [selectedLog, setSelectedLog] = useState<AuditLog | null>(null);
@@ -412,3 +324,4 @@ const AdminAuditLogs: React.FC = () => {
 };
 
 export default AdminAuditLogs;
+

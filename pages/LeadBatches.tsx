@@ -33,61 +33,12 @@ interface IBatch {
   status: 'Processed' | 'Processing' | 'Failed';
 }
 
-// --- Mock Data ---
-const MOCK_BATCHES: IBatch[] = [
-  { 
-    id: 'D-2410-01', 
-    name: 'Data_THPT_NguyenDu_K12', 
-    source: 'Hợp tác Trường THPT', 
-    importDate: '24/10/2023', 
-    importedBy: 'Admin', 
-    totalRows: 500, 
-    validPhones: 480, 
-    activeDeals: 150, 
-    wonDeals: 45, 
-    status: 'Processed' 
-  },
-  { 
-    id: 'D-2010-02', 
-    name: 'Mua_Data_Ngoai_T10', 
-    source: 'Mua ngoài (Agency A)', 
-    importDate: '20/10/2023', 
-    importedBy: 'Marketing Lead', 
-    totalRows: 1000, 
-    validPhones: 350, // Chất lượng thấp
-    activeDeals: 20, 
-    wonDeals: 2, 
-    status: 'Processed' 
-  },
-  { 
-    id: 'D-1510-01', 
-    name: 'Hoi_Thao_Du_Hoc_Duc_HaNoi', 
-    source: 'Sự kiện Offline', 
-    importDate: '15/10/2023', 
-    importedBy: 'Sales Leader', 
-    totalRows: 200, 
-    validPhones: 198, 
-    activeDeals: 120, 
-    wonDeals: 60, 
-    status: 'Processed' 
-  },
-  { 
-    id: 'D-0110-03', 
-    name: 'Import_Excel_Cu_2022', 
-    source: 'Hệ thống cũ', 
-    importDate: '01/10/2023', 
-    importedBy: 'Admin', 
-    totalRows: 1500, 
-    validPhones: 1400, 
-    activeDeals: 50, 
-    wonDeals: 5, 
-    status: 'Processed' 
-  }
-];
+// --- Mock Data đã được loại bỏ ---
+const INITIAL_BATCHES: IBatch[] = [];
 
 const LeadBatches: React.FC = () => {
   const navigate = useNavigate();
-  const [batches, setBatches] = useState<IBatch[]>(MOCK_BATCHES);
+  const [batches, setBatches] = useState<IBatch[]>(INITIAL_BATCHES);
 
   // --- Calculations Helper ---
   const getQualityMetrics = (batch: IBatch) => {
@@ -175,7 +126,7 @@ const LeadBatches: React.FC = () => {
                 </div>
                 <div>
                     <p className="text-xs text-slate-500 font-medium uppercase">Tổng Data đã nhập</p>
-                    <p className="text-2xl font-bold text-slate-900">{MOCK_BATCHES.reduce((acc, b) => acc + b.totalRows, 0).toLocaleString()}</p>
+                    <p className="text-2xl font-bold text-slate-900">{batches.reduce((acc, b) => acc + b.totalRows, 0).toLocaleString()}</p>
                 </div>
             </div>
             <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
@@ -185,7 +136,7 @@ const LeadBatches: React.FC = () => {
                 <div>
                     <p className="text-xs text-slate-500 font-medium uppercase">SĐT Liên lạc được</p>
                     <p className="text-2xl font-bold text-slate-900">
-                        {Math.round(MOCK_BATCHES.reduce((acc, b) => acc + (b.validPhones/b.totalRows), 0) / MOCK_BATCHES.length * 100)}%
+                        {batches.length === 0 ? '0%' : `${Math.round(batches.reduce((acc, b) => acc + (b.validPhones/b.totalRows), 0) / batches.length * 100)}%`}
                     </p>
                 </div>
             </div>
@@ -196,7 +147,7 @@ const LeadBatches: React.FC = () => {
                 <div>
                     <p className="text-xs text-slate-500 font-medium uppercase">Tỷ lệ Quan tâm học</p>
                     <p className="text-2xl font-bold text-slate-900">
-                        {Math.round(MOCK_BATCHES.reduce((acc, b) => acc + (b.activeDeals/b.totalRows), 0) / MOCK_BATCHES.length * 100)}%
+                        {batches.length === 0 ? '0%' : `${Math.round(batches.reduce((acc, b) => acc + (b.activeDeals/b.totalRows), 0) / batches.length * 100)}%`}
                     </p>
                 </div>
             </div>

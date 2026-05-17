@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+﻿import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { UserRole } from '../types';
@@ -39,36 +39,12 @@ interface ILeadDetail {
   notes: string;
 }
 
-const MOCK_SUMMARY_DATA: IDuplicateLeadSummary[] = [
-  { id: '1', name: 'Nguyễn Văn Lâm', source: 'Web Form', createdDate: '24/10/2023', matchScore: 95 },
-  { id: '2', name: 'Nguyễn V. Lâm', source: 'Referral', createdDate: '22/10/2023', matchScore: 90 },
-  { id: '3', name: 'Lâm Nguyễn', source: 'Import', createdDate: '10/10/2023', matchScore: 85 },
-  { id: '4', name: 'Nguyễn Văn Nam', source: 'Facebook Ads', createdDate: '05/10/2023', matchScore: 80 },
-];
+// Mock data đã loại bỏ — màn này hiện hiển thị danh sách trùng lặp thực tế.
+// Khi có service thật sẽ thay bằng API call. Hiện tạm dùng mảng rỗng.
+const SUMMARY_DATA: IDuplicateLeadSummary[] = [];
 
-// Giả lập dữ liệu chi tiết khi người dùng chọn 2 bản ghi để merge
-const MOCK_DETAILS: Record<string, ILeadDetail> = {
-  '1': {
-    id: '1',
-    name: 'Nguyễn Văn Lâm',
-    email: 'lam.nguyen.van@gmail.com',
-    phone: '0912 345 678',
-    source: 'Web Form',
-    program: 'Tiếng Đức - A1',
-    owner: 'Sarah Miller',
-    notes: 'Khách hàng quan tâm du học nghề, đã có bằng tốt nghiệp THPT.'
-  },
-  '2': {
-    id: '2',
-    name: 'Nguyễn V. Lâm',
-    email: 'lamnv@company.com.vn', // Email khác
-    phone: '0912 345 678', // Trùng SĐT
-    source: 'Referral (Giới thiệu)',
-    program: 'Du học Đức',
-    owner: 'David Clark',
-    notes: 'Được giới thiệu bởi học viên cũ (Hùng).'
-  }
-};
+// Map chi tiết lead sẽ được fetch khi user chọn hai bản ghi để merge.
+const LEAD_DETAILS: Record<string, ILeadDetail> = {};
 
 type MergeField = keyof Omit<ILeadDetail, 'id'>;
 
@@ -114,7 +90,7 @@ const DuplicateDetection: React.FC = () => {
 
   const handleFinalMerge = () => {
     // Logic gọi API gộp thật ở đây
-    alert(`Đã gộp thành công! Hồ sơ giữ lại gồm:\n- Tên: ${MOCK_DETAILS[mergeSelection['name']].name}\n- Email: ${MOCK_DETAILS[mergeSelection['email']].email}`);
+    alert(`Đã gộp thành công! Hồ sơ giữ lại gồm:\n- Tên: ${LEAD_DETAILS[mergeSelection['name']].name}\n- Email: ${LEAD_DETAILS[mergeSelection['email']].email}`);
     navigate('/leads');
   };
 
@@ -157,7 +133,7 @@ const DuplicateDetection: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {MOCK_SUMMARY_DATA.map((item) => (
+                    {SUMMARY_DATA.map((item) => (
                       <tr key={item.id} className={`border-t border-[#dbe0e6] hover:bg-slate-50 transition-colors ${selectedIds.includes(item.id) ? 'bg-blue-50/50' : ''}`}>
                         <td className="h-[72px] px-4 py-2 text-[#111418] text-sm font-normal leading-normal">
                           <div className="font-bold">{item.name}</div>
@@ -216,8 +192,8 @@ const DuplicateDetection: React.FC = () => {
   }
 
   // --- RENDER MERGE VIEW ---
-  const recordA = MOCK_DETAILS[selectedIds[0]] || MOCK_DETAILS['1']; // Fallback for types
-  const recordB = MOCK_DETAILS[selectedIds[1]] || MOCK_DETAILS['2'];
+  const recordA = LEAD_DETAILS[selectedIds[0]] || LEAD_DETAILS['1']; // Fallback for types
+  const recordB = LEAD_DETAILS[selectedIds[1]] || LEAD_DETAILS['2'];
 
   const fields: { key: MergeField, label: string, icon: any }[] = [
     { key: 'name', label: 'Họ và tên', icon: User },

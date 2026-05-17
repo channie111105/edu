@@ -15,13 +15,8 @@ const FinanceInventory: React.FC = () => {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<'inventory' | 'pos'>('inventory');
 
-  // Mock Data
-  const ITEMS = [
-    { id: 'BK-001', name: 'Giáo trình A1 Netzwerk', price: 250000, stock: 45, category: 'Sách' },
-    { id: 'BK-002', name: 'Giáo trình A2 Netzwerk', price: 280000, stock: 30, category: 'Sách' },
-    { id: 'UN-001', name: 'Áo đồng phục ULA (Size M)', price: 150000, stock: 12, category: 'Đồng phục' },
-    { id: 'UN-002', name: 'Áo đồng phục ULA (Size L)', price: 150000, stock: 5, category: 'Đồng phục' }, // Low stock
-  ];
+  // Mock đã loại bỏ — danh sách hàng hoá sẽ load từ kho thực tế.
+  const ITEMS: Array<{ id: string; name: string; price: number; stock: number; category: string }> = [];
 
   return (
     <div className="flex flex-col h-full bg-[#f8fafc] text-[#111418] font-sans overflow-hidden">

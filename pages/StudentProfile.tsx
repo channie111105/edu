@@ -118,28 +118,23 @@ const StudentProfile: React.FC = () => {
   const latestClaimTypeLabel = latestClaim ? CLAIM_TYPE_LABELS[latestClaim.claimType] : CLAIM_TYPE_LABELS.KHONG_CO;
   const latestClaimStatusLabel = latestClaim ? CLAIM_STATUS_LABELS[latestClaim.claimStatus] : CLAIM_STATUS_LABELS.KHONG_CO;
 
+  // Mock đã loại bỏ — khi không tìm thấy student trong storage sẽ render bộ dữ liệu rỗng.
   const profileStudent = student || {
-    id: id || '123456',
-    code: 'HV-2024-089',
-    name: 'Nguyễn Thùy Linh',
-    phone: '098 765 4321',
-    email: 'linh.nguyen@email.com',
-    address: 'Số 18, Ngõ 5, Nguyễn Chí Thanh, Hà Nội',
-    dob: '2004-01-15',
-    guardianName: 'Nguyễn Văn Hùng',
-    guardianPhone: '091 234 5678',
-    campus: 'Hà Nội',
+    id: id || '',
+    code: '',
+    name: '',
+    phone: '',
+    email: '',
+    address: '',
+    dob: '',
+    guardianName: '',
+    guardianPhone: '',
+    campus: '',
     status: 'ENROLLED' as IStudent['status'],
     createdAt: new Date().toISOString()
   };
 
-  const timeline = [
-    { icon: FileText, title: 'Nộp hồ sơ ghi danh', date: '01/07/2024', status: 'completed' },
-    { icon: CheckCircle2, title: 'Phỏng vấn đầu vào', date: '15/07/2024', status: 'completed' },
-    { icon: CheckCircle2, title: 'Xác nhận nhập học', date: '15/08/2024', status: 'completed' },
-    { icon: DollarSign, title: 'Hoàn thành đóng phí đợt 1', date: '01/09/2024', status: 'completed' },
-    { icon: Clock, title: 'Dự kiến thi B1', date: '15/12/2024', status: 'pending' }
-  ];
+  const timeline: Array<{ icon: any; title: string; date: string; status: string }> = [];
 
   const closeClaimModal = () => {
     setClaimModalMode(null);

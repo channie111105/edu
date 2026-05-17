@@ -33,13 +33,8 @@ const STAGE_INFO: Record<DealStage, { title: string, nextAction: string }> = {
     [DealStage.LOST]: { title: 'Lost', nextAction: 'Mở lại Deal' }
 };
 
-const MOCK_PRODUCTS = [
-    { id: 'p1', name: 'Combo Du học nghề Đức - Nhà hàng KS', price: 200000000 },
-    { id: 'p2', name: 'Combo Du học nghề Đức - Điều dưỡng', price: 220000000 },
-    { id: 'p3', name: 'Combo Du học nghề Đức - Cơ khí', price: 230000000 },
-    { id: 'p4', name: 'Khóa luyện thi B1 Cấp tốc', price: 15000000 },
-    { id: 'p5', name: 'Hồ sơ du học Đại học Đức', price: 45000000 },
-];
+// Mock đã loại bỏ — danh sách sản phẩm sẽ load từ Cấu hình Dữ liệu khi có module sản phẩm thực.
+const MOCK_PRODUCTS: Array<{ id: string; name: string; price: number }> = [];
 
 // Payment Templates
 const PAYMENT_TEMPLATES = [

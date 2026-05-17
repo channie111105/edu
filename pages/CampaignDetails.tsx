@@ -54,30 +54,19 @@ import {
 } from '../utils/leadCreateForm';
 import { LEAD_CHANNEL_OPTIONS } from '../constants';
 
-// --- MOCK DATA ---
+// Mock đã loại bỏ — metrics & ROI chart sẽ tính từ dữ liệu chiến dịch thực.
 const CAMPAIGNS_METRICS = {
-    totalLeads: 1567,
-    validRate: 85,
-    contactedRate: 60,
-    conversionRate: 12,
-    roi: 450,
-    budget: 57500000,
-    revenue: 980000000,
-    cpl: 323034
+    totalLeads: 0,
+    validRate: 0,
+    contactedRate: 0,
+    conversionRate: 0,
+    roi: 0,
+    budget: 0,
+    revenue: 0,
+    cpl: 0,
 };
 
-const ROI_CHART_DATA = [
-    { name: '1/2', revenue: 400, budget: 240 },
-    { name: '2/2', revenue: 300, budget: 139 },
-    { name: '3/2', revenue: 500, budget: 380 },
-    { name: '4/2', revenue: 780, budget: 390 },
-    { name: '5/2', revenue: 480, budget: 480 },
-    { name: '6/2', revenue: 600, budget: 380 },
-    { name: '7/2', revenue: 900, budget: 430 },
-    { name: '8/2', revenue: 850, budget: 400 },
-    { name: '9/2', revenue: 980, budget: 410 },
-    { name: '10/2', revenue: 1100, budget: 420 },
-];
+const ROI_CHART_DATA: Array<{ name: string; revenue: number; budget: number }> = [];
 
 const LEAD_STATUS_OPTIONS = ['Mới', 'Đã liên hệ', 'Đạt chuẩn', 'Chốt', 'Hủy'];
 

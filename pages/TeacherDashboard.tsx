@@ -16,16 +16,9 @@ import {
 const TeacherDashboard: React.FC = () => {
   const navigate = useNavigate();
 
-  // Mock Data for Teacher View
-  const MY_CLASSES = [
-    { id: 'C1', name: 'Tiếng Đức A1 - K24', room: 'P.101', time: '18:30 - 20:30 (T2-4-6)', students: 20, nextSession: 'Hôm nay' },
-    { id: 'C2', name: 'Luyện thi B1 - K10', room: 'P.102', time: '08:30 - 10:30 (T3-5-7)', students: 15, nextSession: 'Ngày mai' },
-  ];
-
-  const PENDING_TASKS = [
-    { id: 1, title: 'Điểm danh lớp A1-K24', due: 'Trước 21:00 hôm nay', type: 'attendance' },
-    { id: 2, title: 'Nhập điểm giữa kỳ lớp B1-K10', due: 'Trước 25/10', type: 'grade' },
-  ];
+  // Mock đã loại bỏ — sẽ load lớp & nhắc việc thật từ storage khi có teacher service.
+  const MY_CLASSES: Array<{ id: string; name: string; room: string; time: string; students: number; nextSession: string }> = [];
+  const PENDING_TASKS: Array<{ id: number; title: string; due: string; type: 'attendance' | 'grade' }> = [];
 
   return (
     <div className="flex flex-col h-full bg-[#f8fafc] text-[#111418] font-sans overflow-y-auto">

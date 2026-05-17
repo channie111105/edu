@@ -15,12 +15,8 @@ const FinancePayroll: React.FC = () => {
   const navigate = useNavigate();
   const [isCalculated, setIsCalculated] = useState(false);
 
-  // Mock Data
-  const [payrollData, setPayrollData] = useState([
-    { id: 'T-001', name: 'Cô Lan', role: 'Giáo viên', hours: 40, rate: 500000, bonus: 0, penalty: 0, total: 20000000, status: 'Draft' },
-    { id: 'T-002', name: 'Thầy Đức', role: 'Giáo viên', hours: 35, rate: 550000, bonus: 500000, penalty: 200000, total: 19550000, status: 'Draft' },
-    { id: 'S-001', name: 'Phạm Hương', role: 'Sales Rep', hours: 0, rate: 0, bonus: 15400000, penalty: 0, total: 23400000, salary: 8000000, status: 'Calculated' }, // Sales logic mixed
-  ]);
+  // Mock đã loại bỏ — payroll thực tế sẽ load từ storage/service khi có module chấm công.
+  const [payrollData, setPayrollData] = useState<Array<{ id: string; name: string; role: string; hours: number; rate: number; bonus: number; penalty: number; total: number; salary?: number; status: string }>>([]);
 
   const formatCurrency = (val: number) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(val);
 

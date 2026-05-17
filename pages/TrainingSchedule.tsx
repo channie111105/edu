@@ -52,22 +52,8 @@ const TrainingSchedule: React.FC = () => {
       teacher: 'ALL',
    });
 
-   // --- MOCK DATA ---
-   const INITIAL_SCHEDULE: ScheduleItem[] = [
-      // ACTUAL SCHEDULE (Lịch đang chạy)
-      { id: '1', day: 0, slot: 0, classCode: 'GER-A1-K24', room: 'P.101', teacher: 'Cô Lan', currentStudents: 12, maxStudents: 15, type: 'actual', branch: 'Hanoi', language: 'German', level: 'A1', color: 'bg-blue-50 border-blue-200 text-blue-800' },
-      { id: '2', day: 0, slot: 2, classCode: 'GER-B1-K08', room: 'P.201', teacher: 'Thầy Hans', currentStudents: 8, maxStudents: 10, type: 'actual', branch: 'Hanoi', language: 'German', level: 'B1', color: 'bg-indigo-50 border-indigo-200 text-indigo-800' },
-      // Conflict demo: Same room P.101 at same time
-      { id: '3', day: 0, slot: 0, classCode: 'CHN-HSK1-01', room: 'P.101', teacher: 'Cô Mai', currentStudents: 15, maxStudents: 20, type: 'actual', branch: 'Hanoi', language: 'Chinese', level: 'HSK1', color: 'bg-red-50 border-red-200 text-red-800' },
-
-      { id: '4', day: 2, slot: 4, classCode: 'ENG-IELTS-05', room: 'P.302', teacher: 'Mr. David', currentStudents: 10, maxStudents: 12, type: 'actual', branch: 'HCM', language: 'English', level: 'IELTS', color: 'bg-emerald-50 border-emerald-200 text-emerald-800' },
-      { id: '5', day: 4, slot: 4, classCode: 'ENG-IELTS-05', room: 'P.302', teacher: 'Mr. David', currentStudents: 10, maxStudents: 12, type: 'actual', branch: 'HCM', language: 'English', level: 'IELTS', color: 'bg-emerald-50 border-emerald-200 text-emerald-800' },
-
-      // EXPECTED SCHEDULE (Lịch dự kiến khai giảng)
-      { id: 'e1', day: 1, slot: 4, classCode: 'GER-A1-NEW', room: 'P.102', teacher: 'Dự kiến', currentStudents: 0, maxStudents: 15, type: 'expected', branch: 'Hanoi', language: 'German', level: 'A1', color: 'bg-amber-50 border-amber-200 text-amber-800 border-dashed' },
-      { id: 'e2', day: 3, slot: 4, classCode: 'GER-A1-NEW', room: 'P.102', teacher: 'Dự kiến', currentStudents: 0, maxStudents: 15, type: 'expected', branch: 'Hanoi', language: 'German', level: 'A1', color: 'bg-amber-50 border-amber-200 text-amber-800 border-dashed' },
-      { id: 'e3', day: 5, slot: 4, classCode: 'GER-A1-NEW', room: 'P.102', teacher: 'Dự kiến', currentStudents: 0, maxStudents: 15, type: 'expected', branch: 'Hanoi', language: 'German', level: 'A1', color: 'bg-amber-50 border-amber-200 text-amber-800 border-dashed' },
-   ];
+   // Mock đã loại bỏ — lịch học sẽ load từ storage khi có.
+   const INITIAL_SCHEDULE: ScheduleItem[] = [];
 
    // --- LOGIC ---
 

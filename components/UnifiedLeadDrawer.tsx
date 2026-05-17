@@ -255,44 +255,8 @@ const ORDER_LINE_CATALOG: OrderCatalogItem[] = [
 
 const CREATOR_MARKETS: CreatorMarket[] = ['Đức', 'Trung Quốc'];
 
-const CREATOR_CLASS_FALLBACKS: ITrainingClass[] = [
-    {
-        id: 'CN-HSK1-K01',
-        code: 'CN-HSK1-K01',
-        name: 'Lớp HSK1 K01',
-        campus: 'Hà Nội',
-        schedule: 'T2-4-6 19:00',
-        language: 'Tiếng Trung',
-        level: 'HSK1',
-        classType: 'Offline',
-        status: 'ACTIVE' as ITrainingClass['status'],
-        teacherId: 'T003'
-    },
-    {
-        id: 'CN-HSK3-K02',
-        code: 'CN-HSK3-K02',
-        name: 'Lớp HSK3 K02',
-        campus: 'Hà Nội',
-        schedule: 'T3-5-7 18:30',
-        language: 'Tiếng Trung',
-        level: 'HSK3',
-        classType: 'Offline',
-        status: 'ACTIVE' as ITrainingClass['status'],
-        teacherId: 'T003'
-    },
-    {
-        id: 'CN-HSK5-K03',
-        code: 'CN-HSK5-K03',
-        name: 'Lớp HSK5 K03',
-        campus: 'TP.HCM',
-        schedule: 'T2-4 20:00',
-        language: 'Tiếng Trung',
-        level: 'HSK5',
-        classType: 'Online',
-        status: 'ACTIVE' as ITrainingClass['status'],
-        teacherId: 'T003'
-    }
-];
+// Mock đã loại bỏ — fallback rỗng. Khi có lớp thực trong storage sẽ tự dùng.
+const CREATOR_CLASS_FALLBACKS: ITrainingClass[] = [];
 
 const toInputDate = (value?: string) => {
     if (!value) return '';

@@ -240,56 +240,6 @@ const getYearStart = (input: Date) => {
 
 const toDayKey = (date: Date) => date.toISOString().split('T')[0];
 
-// --- MOCK DATA GENERATOR ---
-const generateMockLeads = (): ILead[] => {
-  const sources = ['facebook', 'website', 'referral', 'hotline', 'Google', 'Tiktok', 'Email'];
-  const programs: Array<ILead['program']> = ['Tiếng Đức', 'Tiếng Trung'];
-  const germanProducts = ['A1', 'A2', 'B1', 'Combo'];
-  const chineseProducts = ['HSK 1', 'HSK 2', 'Combo'];
-  const cities = ['Hà Nội', 'Hồ Chí Minh', 'Đà Nẵng'];
-  const statuses = [
-    LeadStatus.NEW,
-    LeadStatus.ASSIGNED,
-    LeadStatus.CONTACTED,
-    LeadStatus.CONVERTED,
-    LeadStatus.DISQUALIFIED,
-    LeadStatus.QUALIFIED // Mapping Qualified -> Converted/Contacted depending on logic, but preserving standard statuses
-  ];
-  const mockLeads: ILead[] = [];
-
-  // Generate 200 mock leads to ensure charts are colorful
-  for (let i = 0; i < 200; i++) {
-    const randomSource = sources[Math.floor(Math.random() * sources.length)];
-    const randomStatus = statuses[Math.floor(Math.random() * statuses.length)];
-    const randomProgram = programs[Math.floor(Math.random() * programs.length)];
-    const randomProduct = randomProgram === 'Tiếng Đức'
-      ? germanProducts[Math.floor(Math.random() * germanProducts.length)]
-      : chineseProducts[Math.floor(Math.random() * chineseProducts.length)];
-    const randomCity = cities[Math.floor(Math.random() * cities.length)];
-
-    // Random Date within last 60 days
-    const date = new Date();
-    date.setDate(date.getDate() - Math.floor(Math.random() * 60));
-
-    mockLeads.push({
-      id: `mock-lead-${i}`,
-      name: `Mock User ${i}`,
-      phone: `0900000${i}`,
-      email: `user${i}@example.com`,
-      source: randomSource,
-      status: randomStatus,
-      ownerId: 'sales1',
-      createdAt: date.toISOString(),
-      lastInteraction: date.toISOString(),
-      notes: 'Mock data',
-      program: randomProgram,
-      product: randomProduct,
-      city: randomCity
-    });
-  }
-  return mockLeads;
-};
-
 const MarketingDashboard: React.FC = () => {
   const { i18n } = useTranslation('common');
   const isEnglish = i18n.resolvedLanguage === 'en';
@@ -312,15 +262,10 @@ const MarketingDashboard: React.FC = () => {
   const [growthLookback, setGrowthLookback] = useState<number>(8);
   const [growthYearOffset, setGrowthYearOffset] = useState<number>(0);
 
-  // Load data & Merge with Mock
+  // Load data thật từ storage; không trộn mock nữa.
   useEffect(() => {
-    const storedLeads = getLeads();
-    const storedDeals = getDeals();
-    const mockData = generateMockLeads();
-
-    // Combine real and mock data for rich visualization
-    setLeads([...storedLeads, ...mockData]);
-    setDeals(storedDeals);
+    setLeads(getLeads());
+    setDeals(getDeals());
   }, []);
 
   const productOptions = useMemo<SelectOption[]>(() => {

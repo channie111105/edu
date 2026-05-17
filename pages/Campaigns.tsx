@@ -59,84 +59,8 @@ type CampaignItem = {
 
 const CAMPAIGN_TYPE_OPTIONS: CampaignType[] = ['manual', 'auto'];
 
-// --- MOCK DATA ---
-const CAMPAIGNS: CampaignItem[] = [
-  {
-    id: 'camp_01',
-    name: 'Trại Hè 2024',
-    channel: 'Facebook',
-    status: 'Running',
-    startDate: '01/05/2026',
-    endDate: '30/08/2026',
-    budget: 57500000,
-    spent: 24500000,
-    revenue: 980000000,
-    leads: 1567,
-    campaignType: 'auto' as CampaignType,
-    apiConnected: true,
-    color: 'bg-blue-100 text-blue-700'
-  },
-  {
-    id: 'camp_02',
-    name: 'Khóa học IELTS Online',
-    channel: 'Google Ads',
-    status: 'Paused',
-    startDate: '15/04/2026',
-    endDate: '15/06/2026',
-    budget: 20000000,
-    spent: 18000000,
-    revenue: 45000000,
-    leads: 124,
-    campaignType: 'auto' as CampaignType,
-    apiConnected: true,
-    color: 'bg-orange-100 text-orange-700'
-  },
-  {
-    id: 'camp_03',
-    name: 'Hội thảo Du học Đức',
-    channel: 'Event/Offline',
-    status: 'Planned',
-    startDate: '10/06/2026',
-    endDate: '10/06/2026',
-    budget: 5000000,
-    spent: 0,
-    revenue: 0,
-    leads: 0,
-    campaignType: 'manual' as CampaignType,
-    apiConnected: false,
-    color: 'bg-purple-100 text-purple-700'
-  },
-  {
-    id: 'camp_04',
-    name: 'TikTok Brand Awareness',
-    channel: 'TikTok',
-    status: 'Running',
-    startDate: '01/01/2026',
-    endDate: '31/12/2026',
-    budget: 120000000,
-    spent: 45000000,
-    revenue: 120000000,
-    leads: 850,
-    campaignType: 'auto' as CampaignType,
-    apiConnected: true,
-    color: 'bg-pink-100 text-pink-700'
-  },
-  {
-    id: 'camp_05',
-    name: 'Email Marketing - Khách cũ',
-    channel: 'Email',
-    status: 'Running',
-    startDate: '05/02/2026',
-    endDate: 'Inderfinite',
-    budget: 2000000,
-    spent: 500000,
-    revenue: 35000000,
-    leads: 45,
-    campaignType: 'manual' as CampaignType,
-    apiConnected: false,
-    color: 'bg-slate-100 text-slate-700'
-  }
-];
+// Mock đã loại bỏ — chiến dịch sẽ load từ campaignCatalog thực tế.
+const CAMPAIGNS: CampaignItem[] = [];
 
 const CHANNEL_DEFAULT_BUDGETS: Record<string, number> = {
   Facebook: 30000000,

@@ -1,16 +1,17 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend, BarChart, Bar, CartesianGrid
 } from 'recharts';
 import {
-  ArrowUp, ArrowDown, MoreVertical, Calendar, TrendingUp, TrendingDown,
+  MoreVertical, TrendingUp, TrendingDown,
   Users, BadgeDollarSign, Filter
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import DashboardFilters, { DateRangeType, LocationType } from '../components/DashboardFilters';
+import { getDeals, getQuotations } from '../utils/storage';
+import { DealStage, QuotationStatus } from '../types';
 
-// --- MOCK DATA ---
 interface ISaleRecord {
   id: string;
   amount: number;
@@ -20,45 +21,62 @@ interface ISaleRecord {
   status: 'Won' | 'Lost' | 'Negotiation' | 'Qualified' | 'New';
 }
 
-const SALES_PEOPLE = ['Nguyễn Văn Nam', 'Trần Thị Hương', 'Lê Hoàng', 'Phạm Bích Ngọc', 'Vũ Minh Hiếu'];
-const SOURCES = ['Facebook', 'Google Ads', 'Referral', 'Offline', 'Other'];
-
-const generateMockSalesData = (): ISaleRecord[] => {
-  const data: ISaleRecord[] = [];
-  const now = new Date();
-
-  // Generate 500 sales records over last 3 months
-  for (let i = 0; i < 500; i++) {
-    const date = new Date(now);
-    date.setDate(date.getDate() - Math.floor(Math.random() * 90));
-
-    // Weighted random source
-    const rand = Math.random();
-    let source = 'Other';
-    if (rand < 0.4) source = 'Facebook';
-    else if (rand < 0.65) source = 'Google Ads';
-    else if (rand < 0.8) source = 'Referral';
-    else if (rand < 0.9) source = 'Offline';
-
-    data.push({
-      id: `sale-${i}`,
-      amount: Math.floor(Math.random() * 50) + 10, // 10-60 Trieu
-      date: date.toISOString(),
-      salesPerson: SALES_PEOPLE[Math.floor(Math.random() * SALES_PEOPLE.length)],
-      source,
-      status: Math.random() > 0.7 ? 'Won' : Math.random() > 0.4 ? 'Negotiation' : 'New'
-    });
-  }
-  return data;
+// Bảng màu cho biểu đồ tỷ trọng nguồn.
+const COLORS: Record<string, string> = {
+  Facebook: '#60a5fa',
+  'Google Ads': '#818cf8',
+  Referral: '#2dd4bf',
+  Offline: '#fbbf24',
+  Other: '#cbd5e1',
 };
 
-// Colors (Soft Palette)
-const COLORS = {
-  Facebook: '#60a5fa', // Blue 400
-  'Google Ads': '#818cf8', // Indigo 400
-  Referral: '#2dd4bf', // Teal 400
-  Offline: '#fbbf24', // Amber 400
-  Other: '#cbd5e1', // Slate 300
+const getSaleColor = (name: string) => COLORS[name] || COLORS.Other;
+
+// Đưa giá trị tiền vào đơn vị "Triệu" cho dễ đọc.
+const toMillion = (value: number) => Math.round(value / 1_000_000);
+
+const buildSalesFromStorage = (): ISaleRecord[] => {
+  const deals = getDeals();
+  const quotations = getQuotations();
+  const records: ISaleRecord[] = [];
+
+  // Map deal → ISaleRecord. Coi như tất cả deal đều có 1 báo giá liên kết để lấy doanh số.
+  deals.forEach((deal) => {
+    const linkedQuotation = quotations.find((q) => q.dealId === deal.id) || quotations[0];
+    const amount = linkedQuotation ? toMillion(linkedQuotation.totalAmount || 0) : 0;
+    let status: ISaleRecord['status'] = 'New';
+    if (deal.stage === DealStage.WON || deal.stage === DealStage.CONTRACT) status = 'Won';
+    else if (deal.stage === DealStage.LOST) status = 'Lost';
+    else if (deal.stage === DealStage.NEGOTIATION) status = 'Negotiation';
+    else if (deal.stage === DealStage.PROPOSAL) status = 'Qualified';
+
+    records.push({
+      id: deal.id,
+      amount,
+      date: deal.createdAt || new Date().toISOString(),
+      salesPerson: deal.assigneeName || 'Chưa rõ',
+      source: deal.source || 'Other',
+      status,
+    });
+  });
+
+  // Bổ sung báo giá đã chốt (LOCKED / SALE_CONFIRMED) chưa có deal tương ứng.
+  quotations.forEach((q) => {
+    const alreadyMapped = records.some((r) => r.id === q.dealId);
+    if (alreadyMapped) return;
+    if (q.status === QuotationStatus.LOCKED || q.status === QuotationStatus.SALE_CONFIRMED) {
+      records.push({
+        id: `quotation-${q.id}`,
+        amount: toMillion(q.totalAmount || 0),
+        date: q.issuedAt || q.createdAt || new Date().toISOString(),
+        salesPerson: q.salespersonName || 'Chưa rõ',
+        source: 'Other',
+        status: 'Won',
+      });
+    }
+  });
+
+  return records;
 };
 
 const SalesDashboard: React.FC = () => {
@@ -66,74 +84,81 @@ const SalesDashboard: React.FC = () => {
   const [dateRange, setDateRange] = useState<DateRangeType>('thisMonth');
   const [customDate, setCustomDate] = useState<string>('');
   const [location, setLocation] = useState<LocationType>('all');
-
-  // Filtering State
   const [selectedSource, setSelectedSource] = useState<string | null>(null);
-
-  // Raw Data
   const [allSales, setAllSales] = useState<ISaleRecord[]>([]);
 
   useEffect(() => {
-    setAllSales(generateMockSalesData());
+    setAllSales(buildSalesFromStorage());
   }, []);
 
-  // Filtered Data Logic
   const filteredSales = useMemo(() => {
     let result = [...allSales];
     const now = new Date();
 
-    // Date Filter
     if (dateRange === 'thisMonth') {
-      result = result.filter(s => new Date(s.date).getMonth() === now.getMonth() && new Date(s.date).getFullYear() === now.getFullYear());
+      result = result.filter((s) => {
+        const d = new Date(s.date);
+        return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+      });
     } else if (dateRange === 'thisQuarter') {
       const q = Math.floor(now.getMonth() / 3);
-      result = result.filter(s => Math.floor(new Date(s.date).getMonth() / 3) === q && new Date(s.date).getFullYear() === now.getFullYear());
+      result = result.filter((s) => Math.floor(new Date(s.date).getMonth() / 3) === q && new Date(s.date).getFullYear() === now.getFullYear());
     }
-    // (Simplified date logic for demo)
 
-    // Source Filter
     if (selectedSource) {
-      result = result.filter(s => s.source === selectedSource);
+      result = result.filter((s) => s.source === selectedSource);
     }
 
     return result;
   }, [allSales, dateRange, selectedSource]);
 
-  // --- DERIVED CHART DATA ---
-
-  // 1. KPIs
+  // 1. KPI
   const kpiData = useMemo(() => {
-    const totalRevenue = filteredSales.filter(s => s.status === 'Won').reduce((sum, s) => sum + s.amount, 0);
-    const pipelineValue = filteredSales.filter(s => s.status !== 'Won' && s.status !== 'Lost').reduce((sum, s) => sum + s.amount, 0);
-    const wonCount = filteredSales.filter(s => s.status === 'Won').length;
+    const totalRevenue = filteredSales.filter((s) => s.status === 'Won').reduce((sum, s) => sum + s.amount, 0);
+    const pipelineValue = filteredSales.filter((s) => s.status !== 'Won' && s.status !== 'Lost').reduce((sum, s) => sum + s.amount, 0);
+    const wonCount = filteredSales.filter((s) => s.status === 'Won').length;
     const totalCount = filteredSales.length;
 
     return [
-      { label: 'Tổng doanh thu thực thu', value: `${(totalRevenue / 1000).toFixed(1)} Tỷ`, change: '+12%', isPositive: true },
-      { label: 'Tổng giá trị Pipeline', value: `${(pipelineValue / 1000).toFixed(1)} Tỷ`, change: '+8%', isPositive: true },
-      { label: 'Tỷ lệ chuyển đổi chung', value: totalCount ? `${((wonCount / totalCount) * 100).toFixed(1)}%` : '0%', change: '-2%', isPositive: false },
-      { label: '% Lead xác thực', value: '45%', change: '+5%', isPositive: true }, // Static for demo
+      { label: 'Tổng doanh thu thực thu', value: `${(totalRevenue / 1000).toFixed(1)} Tỷ`, change: '', isPositive: true },
+      { label: 'Tổng giá trị Pipeline', value: `${(pipelineValue / 1000).toFixed(1)} Tỷ`, change: '', isPositive: true },
+      { label: 'Tỷ lệ chuyển đổi chung', value: totalCount ? `${((wonCount / totalCount) * 100).toFixed(1)}%` : '0%', change: '', isPositive: true },
+      { label: 'Số deal đã chốt', value: `${wonCount}`, change: '', isPositive: true },
     ];
   }, [filteredSales]);
 
-  // 2. Revenue Graph (Time Series)
+  // 2. Biểu đồ doanh thu theo tuần dựa vào ngày tạo deal.
   const revenueData = useMemo(() => {
-    // Bucket by week/day (Simplified: Just bucket by index for area chart shape)
-    // Real impl would bucket by date.
-    // Let's create dummy buckets based on filtered sales count to show change
     const buckets = 6;
-    const data = [];
+    const data: Array<{ name: string; value: number; target: number }> = [];
+    if (filteredSales.length === 0) {
+      for (let i = 0; i < buckets; i++) {
+        data.push({ name: `Tuần ${i + 1}`, value: 0, target: 0 });
+      }
+      return data;
+    }
+    const sorted = [...filteredSales].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const start = new Date(sorted[0].date).getTime();
+    const end = new Date(sorted[sorted.length - 1].date).getTime();
+    const span = Math.max(1, end - start);
+    const bucketSize = span / buckets;
     for (let i = 0; i < buckets; i++) {
-      const val = filteredSales.length * (Math.random() * 0.5 + 0.5) * 10;
-      data.push({ name: `Tuần ${i + 1}`, value: Math.round(val), target: Math.round(val * 0.9) });
+      const from = start + bucketSize * i;
+      const to = start + bucketSize * (i + 1);
+      const bucketSales = filteredSales.filter((s) => {
+        const t = new Date(s.date).getTime();
+        return t >= from && t < to && s.status === 'Won';
+      });
+      const value = bucketSales.reduce((sum, s) => sum + s.amount, 0);
+      data.push({ name: `Tuần ${i + 1}`, value, target: 0 });
     }
     return data;
   }, [filteredSales]);
 
-  // 3. Top Sales
+  // 3. Top sales theo doanh số.
   const salesComparison = useMemo(() => {
     const stats: Record<string, number> = {};
-    filteredSales.filter(s => s.status === 'Won').forEach(s => {
+    filteredSales.filter((s) => s.status === 'Won').forEach((s) => {
       stats[s.salesPerson] = (stats[s.salesPerson] || 0) + s.amount;
     });
     return Object.entries(stats)
@@ -142,14 +167,9 @@ const SalesDashboard: React.FC = () => {
       .slice(0, 5);
   }, [filteredSales]);
 
-  // 4. Source Distribution (For Pie Chart) - THIS CONTROLS THE FILTER
-  // Note: Pie chart should usually show ALL sources even if filtered? 
-  // Standard UI pattern: Pie shows global distribution. Clicking filters others.
-  // If we filter the Pie chart itself, it becomes 100% of 1 slice.
-  // So we derive this from `allSales` (filtered by DATE only, NOT Source).
+  // 4. Tỷ trọng nguồn (lấy theo bộ lọc ngày, không lọc theo nguồn để giữ đầy đủ slices).
   const sourceDistribution = useMemo(() => {
-    const dateFiltered = allSales.filter(s => {
-      // Apply same date logic as main filter
+    const dateFiltered = allSales.filter((s) => {
       if (dateRange === 'thisMonth') {
         const now = new Date();
         return new Date(s.date).getMonth() === now.getMonth();
@@ -158,48 +178,47 @@ const SalesDashboard: React.FC = () => {
     });
 
     const counts: Record<string, number> = {};
-    dateFiltered.forEach(s => counts[s.source] = (counts[s.source] || 0) + 1);
+    dateFiltered.forEach((s) => {
+      counts[s.source] = (counts[s.source] || 0) + 1;
+    });
 
     return Object.entries(counts).map(([name, value]) => ({
       name,
       value,
-      color: COLORS[name as keyof typeof COLORS] || COLORS.Other
+      color: getSaleColor(name),
     }));
   }, [allSales, dateRange]);
 
-  // 5. Conversion Rate
+  // 5. Tỷ lệ chuyển đổi ra hợp đồng theo nguồn.
   const conversionBySource = useMemo(() => {
-    // If filtered by source, show only that source or breakdown?
-    // Let's show breakdown of valid sources in current view
-    const dataToUse = selectedSource ? filteredSales : allSales; // Simplify for demo
-
-    // Actually, usually Bar charts react to filter.
-    const sources = selectedSource ? [selectedSource] : SOURCES;
-
-    return sources.map(source => ({
-      name: source,
-      rate: Math.floor(Math.random() * 30) + 10 // Mock rate
+    const sourceStats: Record<string, { won: number; total: number }> = {};
+    filteredSales.forEach((s) => {
+      if (!sourceStats[s.source]) sourceStats[s.source] = { won: 0, total: 0 };
+      sourceStats[s.source].total += 1;
+      if (s.status === 'Won') sourceStats[s.source].won += 1;
+    });
+    return Object.entries(sourceStats).map(([name, { won, total }]) => ({
+      name,
+      rate: total > 0 ? Math.round((won / total) * 100) : 0,
     }));
-  }, [selectedSource, filteredSales, allSales]);
+  }, [filteredSales]);
 
-  // 6. Status Stacked
+  // 6. Phân bổ trạng thái theo nguồn.
   const statusBySource = useMemo(() => {
-    const sources = selectedSource ? [selectedSource] : SOURCES;
-    return sources.map(source => ({
-      source,
-      NEW: Math.floor(Math.random() * 50),
-      CONTACTED: Math.floor(Math.random() * 40),
-      QUALIFIED: Math.floor(Math.random() * 30),
-      WON: Math.floor(Math.random() * 20),
-    }));
-  }, [selectedSource]);
-
+    const sourceMap: Record<string, { NEW: number; CONTACTED: number; QUALIFIED: number; WON: number }> = {};
+    filteredSales.forEach((s) => {
+      if (!sourceMap[s.source]) sourceMap[s.source] = { NEW: 0, CONTACTED: 0, QUALIFIED: 0, WON: 0 };
+      if (s.status === 'New') sourceMap[s.source].NEW += 1;
+      else if (s.status === 'Negotiation') sourceMap[s.source].CONTACTED += 1;
+      else if (s.status === 'Qualified') sourceMap[s.source].QUALIFIED += 1;
+      else if (s.status === 'Won') sourceMap[s.source].WON += 1;
+    });
+    return Object.entries(sourceMap).map(([source, value]) => ({ source, ...value }));
+  }, [filteredSales]);
 
   return (
     <div className="flex flex-col h-full bg-[#f8fafc] text-[#0d141b] font-sans">
       <div className="flex flex-col flex-1 p-6 lg:p-8 max-w-[1600px] mx-auto w-full gap-6">
-
-        {/* Header Title & Controls */}
         <DashboardFilters
           dateRange={dateRange}
           onDateRangeChange={setDateRange}
@@ -211,54 +230,46 @@ const SalesDashboard: React.FC = () => {
           subtitle="Theo dõi hiệu suất bán hàng, doanh thu và tỷ lệ chuyển đổi."
         />
 
-        {/* --- SELECTED FILTER CHIP --- */}
         {selectedSource && (
           <div className="flex items-center gap-2 mb-2 animate-in fade-in slide-in-from-top-2">
             <span className="text-sm text-slate-500 font-medium">Đang lọc theo nguồn:</span>
             <div className="flex items-center gap-2 bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-sm font-bold shadow-sm">
               <span>{selectedSource}</span>
-              <button
-                onClick={() => setSelectedSource(null)}
-                className="hover:bg-blue-200 rounded-full p-0.5 transition-colors"
-              >
+              <button onClick={() => setSelectedSource(null)} className="hover:bg-blue-200 rounded-full p-0.5 transition-colors">
                 <Filter size={12} />
               </button>
             </div>
-            <button
-              onClick={() => setSelectedSource(null)}
-              className="text-xs text-slate-400 underline hover:text-slate-600"
-            >
+            <button onClick={() => setSelectedSource(null)} className="text-xs text-slate-400 underline hover:text-slate-600">
               Xóa lọc
             </button>
           </div>
         )}
 
-        {/* KPI CARDS */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           {kpiData.map((kpi, index) => (
             <div key={index} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 animate-in fade-in duration-500">
               <p className="text-slate-500 text-sm font-medium">{kpi.label}</p>
               <div className="flex items-end justify-between mt-2">
                 <p className="text-2xl font-bold text-slate-900">{kpi.value}</p>
-                <div className={`flex items-center text-sm font-bold ${kpi.isPositive ? 'text-emerald-600' : 'text-red-500'}`}>
-                  {kpi.isPositive ? <TrendingUp size={16} className="mr-1" /> : <TrendingDown size={16} className="mr-1" />}
-                  {kpi.change}
-                </div>
+                {kpi.change ? (
+                  <div className={`flex items-center text-sm font-bold ${kpi.isPositive ? 'text-emerald-600' : 'text-red-500'}`}>
+                    {kpi.isPositive ? <TrendingUp size={16} className="mr-1" /> : <TrendingDown size={16} className="mr-1" />}
+                    {kpi.change}
+                  </div>
+                ) : null}
               </div>
             </div>
           ))}
         </div>
 
-        {/* SALES REPORTS (Revenue & Comparison) */}
         <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2 mt-4">
           <BadgeDollarSign className="text-blue-600" /> Báo cáo Hiệu suất Bán hàng
         </h2>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Revenue Report */}
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
             <div className="flex justify-between items-center mb-6">
-              <h3 className="font-bold text-lg text-slate-900">Doanh thu Thực tế vs Mục tiêu</h3>
+              <h3 className="font-bold text-lg text-slate-900">Doanh thu theo thời gian</h3>
               <button className="text-slate-400 hover:text-slate-600"><MoreVertical size={20} /></button>
             </div>
             <div className="h-[300px]">
@@ -275,13 +286,11 @@ const SalesDashboard: React.FC = () => {
                   <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b' }} />
                   <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
                   <Area type="monotone" dataKey="value" stroke="#60a5fa" fillOpacity={1} fill="url(#colorRev)" name="Thực tế" />
-                  <Area type="monotone" dataKey="target" stroke="#cbd5e1" strokeDasharray="5 5" fill="none" name="Mục tiêu" />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
           </div>
 
-          {/* Sales Comparison */}
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
             <div className="flex justify-between items-center mb-6">
               <h3 className="font-bold text-lg text-slate-900">Top Sale theo Doanh số</h3>
@@ -301,13 +310,11 @@ const SalesDashboard: React.FC = () => {
           </div>
         </div>
 
-        {/* MARKETING-STYLE ANALYSIS */}
         <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2 mt-4">
           <Users className="text-indigo-600" /> Phân tích Nguồn & Chuyển đổi
         </h2>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Source Distribution */}
           <div className="lg:col-span-1 bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
             <h3 className="font-bold text-lg text-slate-900 mb-6">Tỷ trọng Nguồn Lead</h3>
             <div className="h-[250px] relative">
@@ -320,8 +327,9 @@ const SalesDashboard: React.FC = () => {
                     paddingAngle={5}
                     dataKey="value"
                     onClick={(data) => {
-                      if (data && data.name) {
-                        setSelectedSource(data.name === selectedSource ? null : data.name);
+                      if (data && (data as { name?: string }).name) {
+                        const name = (data as { name?: string }).name as string;
+                        setSelectedSource(name === selectedSource ? null : name);
                       }
                     }}
                     className="cursor-pointer"
@@ -353,7 +361,6 @@ const SalesDashboard: React.FC = () => {
             </div>
           </div>
 
-          {/* Conversion By Source */}
           <div className="lg:col-span-2 bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
             <h3 className="font-bold text-lg text-slate-900 mb-6">% Chuyển đổi ra Hợp đồng theo Nguồn</h3>
             <div className="h-[250px]">
@@ -370,7 +377,6 @@ const SalesDashboard: React.FC = () => {
           </div>
         </div>
 
-        {/* Status By Source */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 mb-8">
           <h3 className="font-bold text-lg text-slate-900 mb-6">Tỷ trọng Trạng thái theo Nguồn</h3>
           <div className="h-[300px]">
@@ -389,7 +395,6 @@ const SalesDashboard: React.FC = () => {
             </ResponsiveContainer>
           </div>
         </div>
-
       </div>
     </div>
   );

@@ -1,4 +1,4 @@
-import { IContact, ILead, IMeeting, MeetingStatus, MeetingType } from '../types';
+﻿import { IContact, ILead, IMeeting, MeetingStatus, MeetingType } from '../types';
 import { addMeeting, getContacts, getLeads, getMeetings, saveContact, saveLead } from './storage';
 
 export interface MeetingTeacherOption {
@@ -31,11 +31,8 @@ export interface CreateMeetingPayload {
   salesPersonName: string;
 }
 
-export const MEETING_TEACHERS: MeetingTeacherOption[] = [
-  { id: 'T01', name: 'Nguyễn Văn A (IELTS)' },
-  { id: 'T02', name: 'Trần Thị B (Tiếng Đức)' },
-  { id: 'T03', name: 'Lê Văn C (Tiếng Trung)' }
-];
+// Mock đã loại bỏ — danh sách giáo viên test sẽ load từ getTeachers() trong storage.
+export const MEETING_TEACHERS: MeetingTeacherOption[] = [];
 
 const normalizePhone = (phone?: string) => (phone || '').replace(/\D/g, '');
 
@@ -45,7 +42,7 @@ const toCustomerFromLead = (lead: ILead): MeetingCustomerOption => ({
   source: 'lead',
   name: lead.name,
   phone: lead.phone,
-  campus: lead.company || lead.city || 'Hà Nội',
+  campus: lead.company || lead.city || '',
   address: lead.address || 'N/A',
   leadId: lead.id
 });
@@ -56,7 +53,7 @@ const toCustomerFromContact = (contact: IContact): MeetingCustomerOption => ({
   source: 'contact',
   name: contact.name,
   phone: contact.phone,
-  campus: contact.company || contact.city || 'Hà Nội',
+  campus: contact.company || contact.city || '',
   address: contact.address || 'N/A',
   contactId: contact.id
 });
@@ -102,7 +99,7 @@ export const createMeetingWithActivityLog = (payload: CreateMeetingPayload): IMe
     leadPhone: payload.customer.phone,
     salesPersonId: payload.salesPersonId,
     salesPersonName: payload.salesPersonName,
-    campus: payload.campus || payload.customer.campus || 'Hà Nội',
+    campus: payload.campus || payload.customer.campus || '',
     address: payload.address || payload.customer.address || 'N/A',
     datetime: payload.datetime,
     type: payload.type,
@@ -146,3 +143,4 @@ export const createMeetingWithActivityLog = (payload: CreateMeetingPayload): IMe
 export const toMeetingType = (value: string): MeetingType => {
   return value === MeetingType.ONLINE ? MeetingType.ONLINE : MeetingType.OFFLINE;
 };
+

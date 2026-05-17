@@ -3621,70 +3621,72 @@ export const initializeData = () => {
     }
   };
 
-  const CURRENT_VERSION = 'v15';
+  const CURRENT_VERSION = 'v16-no-mock';
   if (localStorage.getItem(KEYS.INIT) !== CURRENT_VERSION) {
-    console.log('Initializing Data if needed...');
-    localStorage.setItem(KEYS.LEADS, JSON.stringify(INITIAL_LEADS));
-    localStorage.setItem(KEYS.DEALS, JSON.stringify(INITIAL_DEALS));
+    console.log('Initializing Data (no mock seed) if needed...');
+    // Mock seed đã loại bỏ — chỉ tạo các key rỗng để storage không bị undefined.
+    localStorage.setItem(KEYS.LEADS, JSON.stringify([]));
+    localStorage.setItem(KEYS.DEALS, JSON.stringify([]));
     localStorage.setItem(KEYS.CONTACTS, JSON.stringify([]));
-    localStorage.setItem(KEYS.CONTRACTS, JSON.stringify(INITIAL_CONTRACTS));
-    localStorage.setItem(KEYS.QUOTATIONS, JSON.stringify(INITIAL_QUOTATIONS));
-    localStorage.setItem(KEYS.TRANSACTIONS, JSON.stringify(INITIAL_TRANSACTIONS));
-    localStorage.setItem(KEYS.STUDENTS, JSON.stringify(INITIAL_STUDENTS));
-    localStorage.setItem(KEYS.ADMISSIONS, JSON.stringify(INITIAL_ADMISSIONS));
-    localStorage.setItem(KEYS.CLASS_STUDENTS, JSON.stringify(INITIAL_CLASS_STUDENTS));
-    localStorage.setItem(KEYS.STUDENT_SCORES, JSON.stringify(INITIAL_STUDENT_SCORES));
-    localStorage.setItem(KEYS.TRAINING_CLASSES, JSON.stringify(INITIAL_TRAINING_CLASSES));
+    localStorage.setItem(KEYS.CONTRACTS, JSON.stringify([]));
+    localStorage.setItem(KEYS.QUOTATIONS, JSON.stringify([]));
+    localStorage.setItem(KEYS.TRANSACTIONS, JSON.stringify([]));
+    localStorage.setItem(KEYS.STUDENTS, JSON.stringify([]));
+    localStorage.setItem(KEYS.ADMISSIONS, JSON.stringify([]));
+    localStorage.setItem(KEYS.CLASS_STUDENTS, JSON.stringify([]));
+    localStorage.setItem(KEYS.STUDENT_SCORES, JSON.stringify([]));
+    localStorage.setItem(KEYS.TRAINING_CLASSES, JSON.stringify([]));
     localStorage.setItem(KEYS.CLASS_SESSIONS, JSON.stringify([]));
     localStorage.setItem(KEYS.ATTENDANCE, JSON.stringify([]));
     localStorage.setItem(KEYS.STUDY_NOTES, JSON.stringify([]));
-    localStorage.setItem(KEYS.TEACHERS, JSON.stringify(INITIAL_TEACHERS));
-    localStorage.setItem(KEYS.LOG_NOTES, JSON.stringify(INITIAL_LOG_NOTES));
-    localStorage.setItem(KEYS.SALES_TEAMS, JSON.stringify(INITIAL_SALES_TEAMS));
-    localStorage.setItem(KEYS.SALES_KPIS, JSON.stringify(INITIAL_SALES_KPIS));
+    localStorage.setItem(KEYS.TEACHERS, JSON.stringify([]));
+    localStorage.setItem(KEYS.LOG_NOTES, JSON.stringify([]));
+    localStorage.setItem(KEYS.SALES_TEAMS, JSON.stringify([]));
+    localStorage.setItem(KEYS.SALES_KPIS, JSON.stringify([]));
     localStorage.setItem(KEYS.INIT, CURRENT_VERSION);
   }
-  ensureDemoReclaimLead();
-  ensureDemoTodayCareLead();
-  ensureDemoInstallmentActivationScenario();
+  // Mock đã loại bỏ — không seed lead demo nữa.
+  // ensureDemoReclaimLead();
+  // ensureDemoTodayCareLead();
+  // ensureDemoInstallmentActivationScenario();
   if (!localStorage.getItem(KEYS.STUDENTS)) {
-    localStorage.setItem(KEYS.STUDENTS, JSON.stringify(INITIAL_STUDENTS));
+    localStorage.setItem(KEYS.STUDENTS, JSON.stringify([]));
   }
   if (!localStorage.getItem(KEYS.STUDENT_CLAIMS)) {
     localStorage.setItem(KEYS.STUDENT_CLAIMS, JSON.stringify([]));
   }
   if (!localStorage.getItem(KEYS.ADMISSIONS)) {
-    localStorage.setItem(KEYS.ADMISSIONS, JSON.stringify(INITIAL_ADMISSIONS));
-    localStorage.setItem(KEYS.CLASS_STUDENTS, JSON.stringify(INITIAL_CLASS_STUDENTS));
-    localStorage.setItem(KEYS.STUDENT_SCORES, JSON.stringify(INITIAL_STUDENT_SCORES));
-    localStorage.setItem(KEYS.TRAINING_CLASSES, JSON.stringify(INITIAL_TRAINING_CLASSES));
+    localStorage.setItem(KEYS.ADMISSIONS, JSON.stringify([]));
+    localStorage.setItem(KEYS.CLASS_STUDENTS, JSON.stringify([]));
+    localStorage.setItem(KEYS.STUDENT_SCORES, JSON.stringify([]));
+    localStorage.setItem(KEYS.TRAINING_CLASSES, JSON.stringify([]));
     localStorage.setItem(KEYS.CLASS_SESSIONS, JSON.stringify([]));
     localStorage.setItem(KEYS.ATTENDANCE, JSON.stringify([]));
     localStorage.setItem(KEYS.STUDY_NOTES, JSON.stringify([]));
-    localStorage.setItem(KEYS.TEACHERS, JSON.stringify(INITIAL_TEACHERS));
-    localStorage.setItem(KEYS.LOG_NOTES, JSON.stringify(INITIAL_LOG_NOTES));
+    localStorage.setItem(KEYS.TEACHERS, JSON.stringify([]));
+    localStorage.setItem(KEYS.LOG_NOTES, JSON.stringify([]));
   }
   if (!localStorage.getItem(KEYS.TRANSACTIONS)) {
-    localStorage.setItem(KEYS.TRANSACTIONS, JSON.stringify(INITIAL_TRANSACTIONS));
+    localStorage.setItem(KEYS.TRANSACTIONS, JSON.stringify([]));
   }
   if (!localStorage.getItem(KEYS.CLASS_STUDENTS)) {
-    localStorage.setItem(KEYS.CLASS_STUDENTS, JSON.stringify(INITIAL_CLASS_STUDENTS));
-    localStorage.setItem(KEYS.STUDENT_SCORES, JSON.stringify(INITIAL_STUDENT_SCORES));
-    localStorage.setItem(KEYS.TRAINING_CLASSES, JSON.stringify(INITIAL_TRAINING_CLASSES));
+    localStorage.setItem(KEYS.CLASS_STUDENTS, JSON.stringify([]));
+    localStorage.setItem(KEYS.STUDENT_SCORES, JSON.stringify([]));
+    localStorage.setItem(KEYS.TRAINING_CLASSES, JSON.stringify([]));
     localStorage.setItem(KEYS.CLASS_SESSIONS, JSON.stringify([]));
     localStorage.setItem(KEYS.ATTENDANCE, JSON.stringify([]));
     localStorage.setItem(KEYS.STUDY_NOTES, JSON.stringify([]));
-    localStorage.setItem(KEYS.TEACHERS, JSON.stringify(INITIAL_TEACHERS));
-    localStorage.setItem(KEYS.LOG_NOTES, JSON.stringify(INITIAL_LOG_NOTES));
+    localStorage.setItem(KEYS.TEACHERS, JSON.stringify([]));
+    localStorage.setItem(KEYS.LOG_NOTES, JSON.stringify([]));
   }
   if (!localStorage.getItem(KEYS.STUDENT_SCORES)) {
-    localStorage.setItem(KEYS.STUDENT_SCORES, JSON.stringify(INITIAL_STUDENT_SCORES));
+    localStorage.setItem(KEYS.STUDENT_SCORES, JSON.stringify([]));
   }
   if (!localStorage.getItem(KEYS.SALES_TEAMS)) {
-    localStorage.setItem(KEYS.SALES_TEAMS, JSON.stringify(INITIAL_SALES_TEAMS));
+    localStorage.setItem(KEYS.SALES_TEAMS, JSON.stringify([]));
   }
   if (!localStorage.getItem(KEYS.SALES_KPIS)) {
-    localStorage.setItem(KEYS.SALES_KPIS, JSON.stringify(INITIAL_SALES_KPIS));
+    localStorage.setItem(KEYS.SALES_KPIS, JSON.stringify([]));
   }
   if (!localStorage.getItem(KEYS.CLASS_SESSIONS)) {
     localStorage.setItem(KEYS.CLASS_SESSIONS, JSON.stringify([]));

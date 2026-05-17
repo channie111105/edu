@@ -10,13 +10,8 @@ import {
     UserCheck
 } from 'lucide-react';
 
-// Mock Data for Attendance Sessions
-const SESSIONS = [
-    { id: '1', className: 'Tiếng Đức A1 - K24', sso: 'DE-A1-K24', time: '18:30 - 20:30', date: '03/02/2026', teacher: 'Cô Lan', total: 20, present: 18, status: 'completed' },
-    { id: '2', className: 'Tiếng Đức A2 - K10', sso: 'DE-A2-K10', time: '18:30 - 20:30', date: '03/02/2026', teacher: 'Thầy Đức', total: 15, present: 0, status: 'pending' },
-    { id: '3', className: 'Luyện thi B1 - K05', sso: 'DE-B1-K05', time: '14:00 - 16:00', date: '03/02/2026', teacher: 'Cô Mai', total: 12, present: 12, status: 'completed' },
-    { id: '4', className: 'Tiếng Trung HSK 3', sso: 'CN-HSK3', time: '08:30 - 10:30', date: '04/02/2026', teacher: 'Thầy Hùng', total: 10, present: 0, status: 'upcoming' },
-];
+// Mock đã loại bỏ — danh sách buổi học sẽ lấy từ storage/service khi có.
+const SESSIONS: Array<{ id: string; className: string; sso: string; time: string; date: string; teacher: string; total: number; present: number; status: 'completed' | 'pending' | 'upcoming' }> = [];
 
 const TrainingAttendanceHub: React.FC = () => {
     const navigate = useNavigate();
@@ -74,6 +69,11 @@ const TrainingAttendanceHub: React.FC = () => {
 
                 {/* Sessions List */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                    {filteredSessions.length === 0 && (
+                        <div className="col-span-full bg-white border border-dashed border-slate-200 rounded-xl p-12 text-center text-slate-400 text-sm">
+                            Chưa có buổi học nào trong ngày này.
+                        </div>
+                    )}
                     {filteredSessions.map(session => (
                         <div key={session.id} className="bg-white border border-slate-200 rounded-xl shadow-sm hover:shadow-md transition-shadow overflow-hidden flex flex-col">
                             <div className="p-5 border-b border-slate-100 flex-1">

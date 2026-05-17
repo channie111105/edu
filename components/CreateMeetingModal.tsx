@@ -8,7 +8,7 @@ import {
     getMeetingCustomerOptions,
     hasTeacherConflict
 } from '../utils/meetingHelpers';
-import { updateMeeting } from '../utils/storage';
+import { getTeachers, updateMeeting } from '../utils/storage';
 import { useOrgBranches } from '../hooks/useSystemCatalog';
 
 interface CreateMeetingModalProps {
@@ -50,6 +50,12 @@ const CreateMeetingModal: React.FC<CreateMeetingModalProps> = ({
     const [teacherId, setTeacherId] = useState('');
     const [notes, setNotes] = useState('');
     const [error, setError] = useState('');
+
+    // Danh sách giáo viên test lấy từ getTeachers thực tế. Fallback rỗng.
+    const teacherOptions = useMemo(() => {
+        const fromStorage = getTeachers().map((t) => ({ id: t.id, name: t.fullName }));
+        return fromStorage.length > 0 ? fromStorage : MEETING_TEACHERS;
+    }, [isOpen]);
 
     // Lay co so dong tu Cau hinh To chuc.
     const branches = useOrgBranches();
@@ -122,7 +128,7 @@ const CreateMeetingModal: React.FC<CreateMeetingModalProps> = ({
             .slice(0, 20);
     }, [customers, query]);
 
-    const selectedTeacher = MEETING_TEACHERS.find(t => t.id === teacherId);
+    const selectedTeacher = teacherOptions.find(t => t.id === teacherId);
     const hasConflict = useMemo(() => {
         if (!teacherId || !meetingDateTime) return false;
         return hasTeacherConflict(teacherId, meetingDateTime, meetingToEdit?.id);
@@ -301,7 +307,7 @@ const CreateMeetingModal: React.FC<CreateMeetingModalProps> = ({
                                 className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:border-blue-500 outline-none"
                             >
                                 <option value="">-- Chọn giáo viên --</option>
-                                {MEETING_TEACHERS.map(t => (
+                                {teacherOptions.map(t => (
                                     <option key={t.id} value={t.id}>{t.name}</option>
                                 ))}
                             </select>

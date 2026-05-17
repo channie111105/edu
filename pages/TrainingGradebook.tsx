@@ -17,14 +17,8 @@ const TrainingGradebook: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
 
-  // Mock Data
-  const STUDENTS = [
-    { id: 'HV001', name: 'Nguyễn Văn Nam', initials: 'NN', midTerm: 8.8, final: 9.2, avg: 9.0, grade: 'A', color: 'bg-green-100 text-green-800' },
-    { id: 'HV002', name: 'Trần Thị Bích', initials: 'TB', midTerm: 7.5, final: 8.0, avg: 7.8, grade: 'B', color: 'bg-blue-100 text-blue-800' },
-    { id: 'HV003', name: 'Lê Văn Cường', initials: 'LC', midTerm: 6.2, final: 6.8, avg: 6.5, grade: 'C', color: 'bg-yellow-100 text-yellow-800' },
-    { id: 'HV004', name: 'Phạm Hương', initials: 'PH', midTerm: 9.5, final: 9.4, avg: 9.4, grade: 'A+', color: 'bg-emerald-100 text-emerald-800' },
-    { id: 'HV005', name: 'Hoàng Văn Em', initials: 'HE', midTerm: 8.2, final: 8.5, avg: 8.3, grade: 'B+', color: 'bg-blue-100 text-blue-800' },
-  ];
+  // Mock đã loại bỏ — dữ liệu lớp/học viên sẽ load từ storage khi có.
+  const STUDENTS: Array<{ id: string; name: string; initials: string; midTerm: number; final: number; avg: number; grade: string; color: string }> = [];
 
   return (
     <div className="flex flex-col h-full bg-[#f8fafc] text-[#0d141b] font-sans overflow-y-auto">

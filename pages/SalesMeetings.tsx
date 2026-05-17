@@ -9,6 +9,7 @@ import { getMeetings, updateMeeting, getLeadById, saveLead } from '../utils/stor
 import { useAuth } from '../contexts/AuthContext';
 import CreateMeetingModal from '../components/CreateMeetingModal';
 import { MEETING_TEACHERS, hasTeacherConflict } from '../utils/meetingHelpers';
+import { getTeachers } from '../utils/storage';
 import PinnedSearchInput, { PinnedSearchChip } from '../components/PinnedSearchInput';
 import { useSalesTestRole } from '../utils/salesTestRole';
 import { useOrgBranches, useSystemConfigVersion } from '../hooks/useSystemCatalog';
@@ -24,6 +25,10 @@ const SalesMeetings: React.FC = () => {
     const { salesTestRole } = useSalesTestRole(user?.role);
     useSystemConfigVersion();
     const branches = useOrgBranches();
+    const teacherOptions = useMemo(() => {
+        const fromStorage = getTeachers().map((t) => ({ id: t.id, name: t.fullName }));
+        return fromStorage.length > 0 ? fromStorage : MEETING_TEACHERS;
+    }, []);
     const [meetings, setMeetings] = useState<IMeeting[]>([]);
 
     const [filterStatus, setFilterStatus] = useState<string>('all');
@@ -184,7 +189,7 @@ const SalesMeetings: React.FC = () => {
     }, [meetings]);
 
     const assignTeacher = (meetingId: string, teacherId: string) => {
-        const teacher = MEETING_TEACHERS.find(t => t.id === teacherId);
+        const teacher = teacherOptions.find(t => t.id === teacherId);
         const meeting = scopedMeetings.find(m => m.id === meetingId);
         if (meeting && teacher) {
             if (hasTeacherConflict(teacher.id, meeting.datetime, meeting.id)) {
@@ -523,7 +528,7 @@ const SalesMeetings: React.FC = () => {
                                                     defaultValue=""
                                                 >
                                                     <option value="" disabled>-- Chọn GV --</option>
-                                                    {MEETING_TEACHERS.map(t => (
+                                                    {teacherOptions.map(t => (
                                                         <option key={t.id} value={t.id}>{t.name}</option>
                                                     ))}
                                                 </select>

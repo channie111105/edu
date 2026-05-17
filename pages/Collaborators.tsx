@@ -26,7 +26,7 @@ import {
     AlertTriangle
 } from 'lucide-react';
 import { getLeads, getCollaborators, saveCollaborators, getSalesTeams } from '../utils/storage';
-import { PROVINCE_OPTIONS, COOPERATION_MODULE_OPTIONS } from '../utils/systemConfig';
+import { LEAD_PRODUCT_OPTIONS, PROVINCE_OPTIONS, COOPERATION_MODULE_OPTIONS } from '../utils/systemConfig';
 import { useSystemConfigVersion } from '../hooks/useSystemCatalog';
 import { LeadStatus, IActivityLog, UserRole } from '../types';
 import { useAuth } from '../contexts/AuthContext';
@@ -1394,11 +1394,14 @@ const Collaborators: React.FC = () => {
         () => [
             'All',
             ...Array.from(
-                new Set(
-                    visibleCollaborators
+                new Set([
+                    // Lay tu Cau hinh Du lieu (Loai san pham)
+                    ...LEAD_PRODUCT_OPTIONS.map((option) => option.label),
+                    // + segment thuc te dang co tren CTV de khong mat data cu
+                    ...visibleCollaborators
                         .map((item) => String(item.segment || '').trim())
-                        .filter(Boolean)
-                )
+                        .filter(Boolean),
+                ])
             ).sort((left, right) => left.localeCompare(right, 'vi'))
         ],
         [visibleCollaborators]
