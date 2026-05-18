@@ -43,7 +43,7 @@ const buildSalesFromStorage = (): ISaleRecord[] => {
   // Map deal → ISaleRecord. Coi như tất cả deal đều có 1 báo giá liên kết để lấy doanh số.
   deals.forEach((deal) => {
     const linkedQuotation = quotations.find((q) => q.dealId === deal.id) || quotations[0];
-    const amount = linkedQuotation ? toMillion(linkedQuotation.totalAmount || 0) : 0;
+    const amount = linkedQuotation ? toMillion(linkedQuotation.finalAmount || linkedQuotation.amount || 0) : 0;
     let status: ISaleRecord['status'] = 'New';
     if (deal.stage === DealStage.WON || deal.stage === DealStage.CONTRACT) status = 'Won';
     else if (deal.stage === DealStage.LOST) status = 'Lost';
@@ -54,8 +54,8 @@ const buildSalesFromStorage = (): ISaleRecord[] => {
       id: deal.id,
       amount,
       date: deal.createdAt || new Date().toISOString(),
-      salesPerson: deal.assigneeName || 'Chưa rõ',
-      source: deal.source || 'Other',
+      salesPerson: deal.ownerId || 'Chưa rõ',
+      source: 'Other',
       status,
     });
   });
@@ -67,8 +67,8 @@ const buildSalesFromStorage = (): ISaleRecord[] => {
     if (q.status === QuotationStatus.LOCKED || q.status === QuotationStatus.SALE_CONFIRMED) {
       records.push({
         id: `quotation-${q.id}`,
-        amount: toMillion(q.totalAmount || 0),
-        date: q.issuedAt || q.createdAt || new Date().toISOString(),
+        amount: toMillion(q.finalAmount || q.amount || 0),
+        date: q.createdAt || new Date().toISOString(),
         salesPerson: q.salespersonName || 'Chưa rõ',
         source: 'Other',
         status: 'Won',

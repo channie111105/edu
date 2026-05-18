@@ -37,14 +37,7 @@ import {
 } from '../services/refundFlow.service';
 import { filterByLogAudience, getRefundLogAudience, LogAudienceFilter } from '../utils/logAudience';
 import { decodeMojibakeReactNode } from '../utils/mojibake';
-
-const REFUND_REASONS = [
-   'Rút hồ sơ',
-   'Đóng thừa',
-   'Thay đổi chính sách',
-   'Theo chính sách hỗ trợ',
-   'Lý do khác'
-];
+import { useLostReasons } from '../hooks/useSystemCatalog';
 
 const INITIAL_REFUNDS: IRefundRequest[] = [
    {
@@ -257,7 +250,7 @@ const EMPTY_FORM: RefundFormState = {
    paidAmount: '',
    requestedAmount: '',
    approvedAmount: '',
-   reason: REFUND_REASONS[0],
+   reason: '',
    refundBasis: '',
    ownerName: '',
    status: 'DRAFT',
@@ -626,6 +619,7 @@ const syncQuotationRefundAmount = (soCode?: string) => {
 const FinanceRefunds: React.FC = () => {
    const { user } = useAuth();
    const userRole = user?.role;
+   const REFUND_REASONS = useLostReasons();
    const canUseDualFinanceApproval =
       userRole === UserRole.ACCOUNTANT || userRole === UserRole.ADMIN || userRole === UserRole.FOUNDER;
    const canActAsAccountant = canUseDualFinanceApproval;

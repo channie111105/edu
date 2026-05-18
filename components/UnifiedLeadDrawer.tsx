@@ -17,7 +17,8 @@ import CreateMeetingModal from './CreateMeetingModal';
 import { MeetingCustomerOption } from '../utils/meetingHelpers';
 import {
     DEFAULT_QUOTATION_RECEIPT_TYPE,
-    normalizeQuotationReceiptType
+    normalizeQuotationReceiptType,
+    QuotationReceiptType
 } from '../utils/quotationReceiptType';
 import {
     formatServicePaymentPlanNote,
@@ -127,7 +128,7 @@ const DEFAULT_SERVICE_PACKAGES: ServicePackage[] = [
   },
 ];
 
-type CreatorMarket = 'Đức' | 'Trung Quốc';
+type CreatorMarket = 'Đức' | 'Trung';
 type CreatorServicePackage = 'Du học' | 'Combo' | 'Đào tạo';
 
 const normalizeCreatorMarket = (value?: string): CreatorMarket | '' => {
@@ -138,7 +139,7 @@ const normalizeCreatorMarket = (value?: string): CreatorMarket | '' => {
         .replace(/[\u0300-\u036f]/g, '');
 
     if (normalized === 'duc') return 'Đức';
-    if (normalized === 'trung' || normalized === 'trung quoc') return 'Trung Quốc';
+    if (normalized === 'trung' || normalized === 'trung quoc') return 'Trung';
     return '';
 };
 
@@ -214,7 +215,7 @@ const ORDER_LINE_CATALOG: OrderCatalogItem[] = [
     {
         id: 'order-cn-training-hsk123',
         product: 'Khóa tiếng Trung HSK1-HSK3',
-        market: 'Trung Quốc',
+        market: 'Trung',
         servicePackage: 'Đào tạo',
         serviceType: 'Training',
         courseOptions: ['HSK 1', 'HSK 2', 'HSK 3'],
@@ -224,7 +225,7 @@ const ORDER_LINE_CATALOG: OrderCatalogItem[] = [
     {
         id: 'order-cn-training-hsk45',
         product: 'Khóa tiếng Trung HSK4-HSK5',
-        market: 'Trung Quốc',
+        market: 'Trung',
         servicePackage: 'Đào tạo',
         serviceType: 'Training',
         courseOptions: ['HSK 4', 'HSK 5'],
@@ -234,7 +235,7 @@ const ORDER_LINE_CATALOG: OrderCatalogItem[] = [
     {
         id: 'order-cn-combo',
         product: 'Combo tiếng HSK1-HSK3',
-        market: 'Trung Quốc',
+        market: 'Trung',
         servicePackage: 'Combo',
         serviceType: 'Combo',
         courseOptions: ['Combo tiếng HSK1-HSK3'],
@@ -243,17 +244,17 @@ const ORDER_LINE_CATALOG: OrderCatalogItem[] = [
     },
     {
         id: 'order-cn-abroad',
-        product: 'Du học Trung Quốc - Trọn gói',
-        market: 'Trung Quốc',
+        product: 'Du học Trung - Trọn gói',
+        market: 'Trung',
         servicePackage: 'Du học',
         serviceType: 'StudyAbroad',
-        courseOptions: ['Hồ sơ du học Trung Quốc', 'Luyện phỏng vấn', 'Định hướng trước bay'],
+        courseOptions: ['Hồ sơ du học Trung', 'Luyện phỏng vấn', 'Định hướng trước bay'],
         programOptions: ['HSK4', 'HSK5', 'Visa', 'Hồ sơ'],
         defaultPrice: 160000000
     }
 ];
 
-const CREATOR_MARKETS: CreatorMarket[] = ['Đức', 'Trung Quốc'];
+const CREATOR_MARKETS: CreatorMarket[] = ['Đức', 'Trung'];
 
 // Mock đã loại bỏ — fallback rỗng. Khi có lớp thực trong storage sẽ tự dùng.
 const CREATOR_CLASS_FALLBACKS: ITrainingClass[] = [];
@@ -1894,12 +1895,12 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
                 paymentMethod: existingQuotation.paymentMethod === 'CASH' ? 'Tiền mặt' : existingQuotation.paymentMethod === 'CK' ? 'Chuyển khoản' : prev.paymentMethod,
                 expirationDate: existingQuotation.expirationDate || existingQuotation.updatedAt?.slice(0, 10) || prev.expirationDate,
                 pricelist: existingQuotation.pricelist || prev.pricelist,
-                orderMode: normalizeQuotationReceiptType(existingQuotation.orderMode || prev.orderMode),
+                orderMode: normalizeQuotationReceiptType(existingQuotation.orderMode || prev.orderMode) as QuotationReceiptType,
                 salespersonName: existingQuotation.salespersonName || existingQuotation.createdBy || prev.salespersonName || user?.name || '',
                 classCode: existingQuotation.classCode || prev.classCode,
                 schedule: existingQuotation.schedule || prev.schedule,
                 pricingNote: existingQuotation.pricingNote || prev.pricingNote,
-                serviceType: existingQuotation.serviceType || prev.serviceType,
+                serviceType: (existingQuotation.serviceType || prev.serviceType) as typeof prev.serviceType,
                 needInvoice: !!existingQuotation.needInvoice
             }));
         } else {
@@ -2266,7 +2267,7 @@ const UnifiedLeadDrawer: React.FC<UnifiedLeadDrawerProps> = ({ lead: initialLead
             unitPrice: catalog?.defaultPrice || 0
         }));
         if (catalog?.serviceType) {
-            setQuotationData((prev) => ({ ...prev, serviceType: catalog.serviceType }));
+            setQuotationData((prev) => ({ ...prev, serviceType: catalog.serviceType as typeof prev.serviceType }));
         }
     };
 

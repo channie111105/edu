@@ -49,6 +49,7 @@ export interface AdminUserFormData {
   lastLoginAt: string;
   startDate: string;
   endDate: string;
+  avatar: string;
 }
 
 const STORAGE_KEY = 'educrm_admin_users_v4';
@@ -235,6 +236,7 @@ export const createEmptyAdminUserForm = (): AdminUserFormData => ({
   lastLoginAt: '',
   startDate: '',
   endDate: '',
+  avatar: '',
 });
 
 export const buildAdminUserFormData = (user?: AdminUserRecord): AdminUserFormData => (
@@ -258,6 +260,7 @@ export const buildAdminUserFormData = (user?: AdminUserRecord): AdminUserFormDat
         lastLoginAt: user.lastLoginAt || '',
         startDate: user.startDate || '',
         endDate: user.endDate || '',
+        avatar: user.avatar || '',
       }
     : createEmptyAdminUserForm()
 );
@@ -287,7 +290,7 @@ export const buildAdminUserRecord = (
     lastLoginAt: formData.lastLoginAt,
     startDate: formData.startDate,
     endDate: formData.endDate,
-    avatar: existingUser?.avatar || getInitials(formData.name),
+    avatar: formData.avatar || existingUser?.avatar || getInitials(formData.name),
     password: formData.password || existingUser?.password || 'password123',
     createdAt: existingUser?.createdAt || nowIso,
     updatedAt: nowIso,

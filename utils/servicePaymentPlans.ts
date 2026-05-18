@@ -1,4 +1,4 @@
-export type ServicePaymentPlanMarket = 'Đức' | 'Trung Quốc';
+export type ServicePaymentPlanMarket = 'Đức' | 'Trung';
 export type ServicePaymentPlanPackage = 'Du học' | 'Combo' | 'Đào tạo';
 
 export type ServicePaymentPlanStepConfig = {
@@ -31,7 +31,7 @@ const normalizeServicePaymentPlanMarket = (market?: string): ServicePaymentPlanM
     .replace(/[\u0300-\u036f]/g, '');
 
   if (normalized === 'duc') return 'Đức';
-  if (normalized === 'trung' || normalized === 'trung quoc') return 'Trung Quốc';
+  if (normalized === 'trung' || normalized === 'trung quoc') return 'Trung';
   return undefined;
 };
 
@@ -67,7 +67,7 @@ export const SERVICE_PAYMENT_PLAN_CONFIGS: ServicePaymentPlanConfig[] = [
   },
   {
     id: 'cn-training',
-    market: 'Trung Quốc',
+    market: 'Trung',
     servicePackage: 'Đào tạo',
     steps: [
       { installmentLabel: 'Lần 1', condition: 'Giữ chỗ và kích hoạt lớp đầu vào', ratio: 0.5 },
@@ -76,7 +76,7 @@ export const SERVICE_PAYMENT_PLAN_CONFIGS: ServicePaymentPlanConfig[] = [
   },
   {
     id: 'cn-combo',
-    market: 'Trung Quốc',
+    market: 'Trung',
     servicePackage: 'Combo',
     steps: [
       { installmentLabel: 'Lần 1', condition: 'Xác nhận lộ trình và giữ chỗ', ratio: 0.4 },
@@ -86,7 +86,7 @@ export const SERVICE_PAYMENT_PLAN_CONFIGS: ServicePaymentPlanConfig[] = [
   },
   {
     id: 'cn-study-abroad',
-    market: 'Trung Quốc',
+    market: 'Trung',
     servicePackage: 'Du học',
     steps: [
       { installmentLabel: 'Lần 1', condition: 'Mở hồ sơ và xác nhận trường mục tiêu', ratio: 0.25 },

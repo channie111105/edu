@@ -1347,6 +1347,46 @@ const AdminUserManagement: React.FC = () => {
                   </div>
 
                   <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-12">
+                    <div className="lg:col-span-12">
+                      <label className={labelClass}>Ảnh đại diện</label>
+                      <div className="flex items-center gap-4">
+                        <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-slate-100 text-slate-400">
+                          {formData.avatar && /^(https?:\/\/|data:image|\/)/i.test(formData.avatar) ? (
+                            <img src={formData.avatar} alt={formData.name || 'Avatar'} className="h-full w-full object-cover" />
+                          ) : (
+                            <UserPlus size={28} className="text-slate-300" />
+                          )}
+                        </div>
+                        <div className="flex flex-col gap-2">
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(event) => {
+                              const file = event.target.files?.[0];
+                              if (!file) return;
+                              const reader = new FileReader();
+                              reader.onload = () => {
+                                handleFormFieldChange('avatar', String(reader.result || ''));
+                              };
+                              reader.readAsDataURL(file);
+                            }}
+                            className="text-xs text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-slate-700 hover:file:bg-slate-200"
+                          />
+                          {formData.avatar ? (
+                            <button
+                              type="button"
+                              onClick={() => handleFormFieldChange('avatar', '')}
+                              className="self-start text-xs font-semibold text-rose-600 hover:underline"
+                            >
+                              Xóa ảnh
+                            </button>
+                          ) : (
+                            <p className="text-xs text-slate-400">PNG/JPG ≤ 2MB. Để trống sẽ dùng icon mặc định.</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
                     <div className="lg:col-span-4">
                       <label className={labelClass}>Họ và tên <span className="text-rose-500">*</span></label>
                       <input

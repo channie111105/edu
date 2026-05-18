@@ -779,9 +779,6 @@ const StudyAbroadStudentList: React.FC = () => {
               Quản lý danh sách hồ sơ du học tự sinh từ SO đã khóa. Mỗi khách hàng hiển thị 1 dòng.
             </p>
           </div>
-          <button className="h-10 rounded-lg bg-blue-600 px-4 text-sm font-bold text-white shadow-sm transition-colors hover:bg-blue-700">
-            + Thêm hồ sơ
-          </button>
         </div>
 
         <div className="mb-4 overflow-visible rounded-2xl border border-[#cfdbe7] bg-white p-4 shadow-sm">

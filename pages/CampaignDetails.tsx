@@ -53,6 +53,7 @@ import {
     LEAD_TARGET_COUNTRY_OPTIONS
 } from '../utils/leadCreateForm';
 import { LEAD_CHANNEL_OPTIONS } from '../constants';
+import { getSystemCatalog } from '../utils/systemConfig';
 
 // Mock đã loại bỏ — metrics & ROI chart sẽ tính từ dữ liệu chiến dịch thực.
 const CAMPAIGNS_METRICS = {
@@ -68,7 +69,7 @@ const CAMPAIGNS_METRICS = {
 
 const ROI_CHART_DATA: Array<{ name: string; revenue: number; budget: number }> = [];
 
-const LEAD_STATUS_OPTIONS = ['Mới', 'Đã liên hệ', 'Đạt chuẩn', 'Chốt', 'Hủy'];
+const LEAD_STATUS_OPTIONS = getSystemCatalog('leadStatuses').map(opt => opt.label);
 
 type LeadRecord = {
     id: string | number;

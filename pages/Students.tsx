@@ -1,15 +1,12 @@
 ﻿import React, { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, CheckCircle2, GraduationCap } from 'lucide-react';
 import { IAdmission, IQuotation, IStudent, QuotationStatus, StudentStatus } from '../types';
-import { getAdmissions, getQuotations, getStudents, quotationLinksToStudent } from '../utils/storage';
+import { getAdmissions, getQuotations, getStudents, getTrainingClasses, quotationLinksToStudent } from '../utils/storage';
 import { createAdmission } from '../services/enrollmentFlow.service';
 import { useAuth } from '../contexts/AuthContext';
 import PinnedSearchInput, { PinnedSearchChip } from '../components/PinnedSearchInput';
 
 import { useOrgBranches } from '../hooks/useSystemCatalog';
-
-// Mock đã loại bỏ — danh sách lớp/cơ sở sẽ lấy từ storage và Cấu hình Tổ chức.
-const FALLBACK_CLASSES: string[] = [];
 
 const formatDisplayDate = (value?: string) => {
   if (!value) return '--/--/----';
@@ -24,6 +21,7 @@ const Students: React.FC = () => {
   const [students, setStudents] = useState<IStudent[]>([]);
   const [quotations, setQuotations] = useState<IQuotation[]>([]);
   const [admissions, setAdmissions] = useState<IAdmission[]>([]);
+  const [classes, setClasses] = useState(getTrainingClasses());
   const [filter, setFilter] = useState<'ALL' | 'CHUA_GHI_DANH' | 'DA_GHI_DANH'>('CHUA_GHI_DANH');
   const [search, setSearch] = useState('');
 
@@ -36,10 +34,17 @@ const Students: React.FC = () => {
     note: ''
   });
 
+  // Lớp filter theo cơ sở đã chọn
+  const filteredClasses = useMemo(
+    () => classes.filter((c) => !enrollData.campusId || c.campus === enrollData.campusId),
+    [classes, enrollData.campusId]
+  );
+
   const loadData = () => {
     setStudents(getStudents() as IStudent[]);
     setQuotations(getQuotations());
     setAdmissions(getAdmissions());
+    setClasses(getTrainingClasses());
   };
 
   useEffect(() => {
@@ -260,7 +265,7 @@ const Students: React.FC = () => {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-sm font-semibold block mb-1">Co so *</label>
-                  <select className="w-full border border-slate-300 rounded p-2" value={enrollData.campusId} onChange={(e) => setEnrollData((p) => ({ ...p, campusId: e.target.value }))}>
+                  <select className="w-full border border-slate-300 rounded p-2" value={enrollData.campusId} onChange={(e) => setEnrollData((p) => ({ ...p, campusId: e.target.value, classId: '' }))}>
                     <option value="">-- Chọn cơ sở --</option>
                     {branches.map((b) => <option key={b.id} value={b.name}>{b.name}</option>)}
                   </select>
@@ -269,7 +274,7 @@ const Students: React.FC = () => {
                   <label className="text-sm font-semibold block mb-1">Lop *</label>
                   <select className="w-full border border-slate-300 rounded p-2" value={enrollData.classId} onChange={(e) => setEnrollData((p) => ({ ...p, classId: e.target.value }))}>
                     <option value="">-- Chon lop --</option>
-                    {FALLBACK_CLASSES.map((c) => <option key={c} value={c}>{c}</option>)}
+                    {filteredClasses.map((c) => <option key={c.id} value={c.id}>{c.code} - {c.name || c.level || ''}</option>)}
                   </select>
                 </div>
               </div>

@@ -324,7 +324,9 @@ const getDisplayStatusConfig = (status: QuotationStatus) => {
 };
 
 const getSaleTypeLabel = (quotation: IQuotation) => {
-  if (quotation.serviceType === 'Training') return 'Bán thêm';
+  // Tương thích cả enum cũ ('Training') lẫn label admin ('Đào tạo').
+  const raw = String(quotation.serviceType || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (raw === 'training' || raw.includes('dao tao')) return 'Bán thêm';
   return 'Mới';
 };
 

@@ -1389,7 +1389,7 @@ const Collaborators: React.FC = () => {
     const scopedCollaborators = visibleCollaborators;
 
     // Derived Options for Filters
-    const cityOptions = useMemo(() => ['All', ...COLLABORATOR_PROVINCE_OPTIONS], []);
+    const cityOptions = useMemo(() => ['All', ...PROVINCE_OPTIONS.map(opt => opt.label)], []);
     const segmentOptions = useMemo(
         () => [
             'All',

@@ -251,7 +251,7 @@ const detectEnrollmentMarket = (...values: Array<string | undefined>) => {
   const normalized = normalizeText(values.filter(Boolean).join(' '));
   if (!normalized) return '';
   if (['duc', 'german', 'deutsch'].some((keyword) => normalized.includes(keyword))) return 'Đức';
-  if (['trung', 'china', 'chinese', 'hsk'].some((keyword) => normalized.includes(keyword))) return 'Trung Quốc';
+  if (['trung', 'china', 'chinese', 'hsk'].some((keyword) => normalized.includes(keyword))) return 'Trung';
   return '';
 };
 

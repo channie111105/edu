@@ -30,9 +30,10 @@ import {
   getTimeRangeSummaryLabel
 } from '../utils/filterToolbar';
 import { decodeMojibakeReactNode, decodeMojibakeText } from '../utils/mojibake';
+import { useSystemCatalogOptions } from '../hooks/useSystemCatalog';
 
 type PartnerLevel = 'GOLD' | 'SILVER' | 'PREMIUM';
-type CountryFilter = 'ALL' | 'Germany' | 'China';
+type CountryFilter = 'ALL' | string;
 type WebsiteFilter = 'ALL' | 'HAS_WEBSITE' | 'NO_WEBSITE';
 type ApplicantBand = 'ALL' | 'UNDER_80' | 'FROM_80_TO_120' | 'OVER_120';
 type PartnerActionKey = 'ALL' | 'CREATED' | 'PROFILE_UPDATED' | 'AGREEMENT_RENEWED' | 'PROGRAM_REVIEWED';
@@ -96,7 +97,7 @@ interface IStudyAbroadPartner {
   id: number;
   name: string;
   type: string;
-  country: 'Germany' | 'China';
+  country: string;
   flag: string;
   ranking: string;
   intake: string;
@@ -110,7 +111,7 @@ interface IStudyAbroadPartner {
 interface IPartnerFormState {
   name: string;
   type: string;
-  country: IStudyAbroadPartner[ 'country' ];
+  country: string;
   ranking: string;
   intake: string;
   applicants: string;
@@ -128,14 +129,22 @@ interface IPartnerFormState {
   rankingGlobal: string;
 }
 
-const COUNTRY_LABEL: Record<IStudyAbroadPartner[ 'country' ], string> = {
+const COUNTRY_LABEL: Record<string, string> = {
   Germany: 'Đức',
-  China: 'Trung Quốc'
+  China: 'Trung Quốc',
+  Đức: 'Đức',
+  Trung: 'Trung',
+  Anh: 'Anh',
+  Hàn: 'Hàn'
 };
 
-const COUNTRY_FLAG: Record<IStudyAbroadPartner[ 'country' ], string> = {
+const COUNTRY_FLAG: Record<string, string> = {
   Germany: '🇩🇪',
-  China: '🇨🇳'
+  China: '🇨🇳',
+  Đức: '🇩🇪',
+  Trung: '🇨🇳',
+  Anh: '🇬🇧',
+  Hàn: '🇰🇷'
 };
 
 const LEVEL_LABEL: Record<PartnerLevel, string> = {
@@ -345,7 +354,7 @@ const doesPartnerTimeFieldMatch = (
 
 const formatPartnerAdvancedFilterValue = (fieldId: PartnerAdvancedFieldKey, value: string) => {
   if (fieldId === 'country' && value in COUNTRY_LABEL) {
-    return COUNTRY_LABEL[value as IStudyAbroadPartner[ 'country' ]];
+    return COUNTRY_LABEL[value];
   }
   return value;
 };
@@ -648,9 +657,13 @@ const normalizePartnerAction = (value: unknown): Exclude<PartnerActionKey, 'ALL'
   return 'CREATED';
 };
 
-const normalizePartnerCountry = (value: unknown): IStudyAbroadPartner[ 'country' ] => {
-  const token = decodeMojibakeText(String(value || '')).toLowerCase();
-  return token.includes('china') || token.includes('trung') ? 'China' : 'Germany';
+const normalizePartnerCountry = (value: unknown): string => {
+  const token = decodeMojibakeText(String(value || '')).trim();
+  if (!token) return 'Đức';
+  // Backward-compatible: map code cũ sang label mới
+  if (token.toLowerCase().includes('china') || token === 'China') return 'Trung';
+  if (token.toLowerCase().includes('germany') || token === 'Germany') return 'Đức';
+  return token;
 };
 
 const normalizePartner = (partner: IStudyAbroadPartner): IStudyAbroadPartner => {
@@ -795,6 +808,7 @@ const getLevelBadge = (level: PartnerLevel) => {
 };
 
 const StudyAbroadPartners: React.FC = () => {
+  const targetCountryOptions = useSystemCatalogOptions('targetCountries');
   const [partners, setPartners] = useState<IStudyAbroadPartner[]>(() => loadPersistedPartners());
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -1825,10 +1839,12 @@ const StudyAbroadPartners: React.FC = () => {
                             <select
                               className={modalSelectClass}
                               value={partnerForm.country}
-                              onChange={(event) => updatePartnerFormField('country', event.target.value as IStudyAbroadPartner[ 'country' ])}
+                              onChange={(event) => updatePartnerFormField('country', event.target.value)}
                             >
-                              <option value="Germany">Đức</option>
-                              <option value="China">Trung Quốc</option>
+                              <option value="">-- Chọn quốc gia --</option>
+                              {targetCountryOptions.map((opt) => (
+                                <option key={opt.value} value={opt.label}>{opt.label}</option>
+                              ))}
                             </select>
                           </div>
                           <div>
@@ -2035,10 +2051,12 @@ const StudyAbroadPartners: React.FC = () => {
                     <select
                       className={modalFieldClass}
                       value={partnerForm.country}
-                      onChange={(event) => updatePartnerFormField('country', event.target.value as IStudyAbroadPartner[ 'country' ])}
+                      onChange={(event) => updatePartnerFormField('country', event.target.value)}
                     >
-                      <option value="Germany">Đức</option>
-                      <option value="China">Trung Quốc</option>
+                      <option value="">-- Chọn quốc gia --</option>
+                      {targetCountryOptions.map((opt) => (
+                        <option key={opt.value} value={opt.label}>{opt.label}</option>
+                      ))}
                     </select>
                   </div>
                   <div>

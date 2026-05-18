@@ -866,11 +866,18 @@ export const getQuotationProgramTypes = (quotation: IQuotation): string[] => {
   });
   
   if (types.size === 0) {
-    if (quotation.serviceType === 'StudyAbroad') types.add('Du học');
-    else if (quotation.serviceType === 'Training') types.add('Đào tạo');
-    else if (quotation.serviceType === 'Combo') {
+    // Chấp nhận cả enum cũ lẫn label admin (Du học / Đào tạo / Combo / ...).
+    const raw = String(quotation.serviceType || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    if (raw === 'studyabroad' || raw.includes('du hoc')) {
+      types.add('Du học');
+    } else if (raw === 'training' || raw.includes('dao tao')) {
+      types.add('Đào tạo');
+    } else if (raw === 'combo' || raw.includes('combo')) {
       types.add('Du học');
       types.add('Đào tạo');
+    } else if (quotation.serviceType) {
+      // Loại tự do từ admin → giữ nguyên label làm program type.
+      types.add(String(quotation.serviceType));
     }
   }
   

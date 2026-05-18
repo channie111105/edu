@@ -860,7 +860,9 @@ export interface IQuotation {
   studentIds?: string[];
 
 
-  serviceType: 'StudyAbroad' | 'Training' | 'Combo';
+  // Loại dịch vụ. Lưu thẳng label admin (Loại chương trình) để dropdown auto-update.
+  // Vẫn nhận giá trị enum cũ (StudyAbroad/Training/Combo) để backward-compatible.
+  serviceType: 'StudyAbroad' | 'Training' | 'Combo' | string;
   product: string; // Course name
   lineItems?: IQuotationLineItem[];
   amount: number;

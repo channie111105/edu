@@ -63,7 +63,7 @@ type InterviewTimeField = 'interviewDate';
 const INTERVIEW_MARKET_OPTIONS = [
   { value: 'ALL', label: 'Thị trường: Tất cả' },
   { value: 'Đức', label: 'Thị trường: Đức' },
-  { value: 'Trung Quốc', label: 'Thị trường: Trung Quốc' }
+  { value: 'Trung', label: 'Thị trường: Trung' }
 ] as const;
 
 const INTERVIEW_PROGRAM_OPTIONS = [
@@ -123,7 +123,7 @@ const normalizeInterviewMarket = (value: string) => {
   const token = normalizeStudyAbroadSearch(value);
   if (!token) return '';
   if (token.includes('duc') || token.includes('germany') || token.includes('ger')) return 'Đức';
-  if (token.includes('trung quoc') || token.includes('china')) return 'Trung Quốc';
+  if (token.includes('trung quoc') || token.includes('trung') || token.includes('china')) return 'Trung';
   return '';
 };
 
@@ -180,6 +180,7 @@ const StudyAbroadInterviews: React.FC = () => {
   useSystemConfigVersion();
   const targetCountryOptions = useSystemCatalogOptions('targetCountries');
   const programOptions = useSystemCatalogOptions('programs');
+  const channelOptionsAdmin = useSystemCatalogOptions('leadChannels');
   const [searchTerm, setSearchTerm] = useState('');
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [timeFilterField, setTimeFilterField] = useState<InterviewTimeField>('interviewDate');
@@ -792,11 +793,19 @@ const StudyAbroadInterviews: React.FC = () => {
                     value={formData.channel}
                     onChange={(event) => updateFormField('channel', event.target.value)}
                   >
-                    {CHANNEL_OPTIONS.map((option) => (
-                      <option key={option} value={option}>
-                        {option}
-                      </option>
-                    ))}
+                    {channelOptionsAdmin.length > 0 ? (
+                      channelOptionsAdmin.map((option) => (
+                        <option key={option.value} value={option.label}>
+                          {option.label}
+                        </option>
+                      ))
+                    ) : (
+                      CHANNEL_OPTIONS.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))
+                    )}
                   </select>
                 </div>
 

@@ -14,6 +14,7 @@ import {
   Save,
   Trophy,
   TrendingUp,
+  User,
   X,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
@@ -40,7 +41,7 @@ import {
 import { decodeMojibakeReactNode } from '../utils/mojibake';
 import SalesRoleTestSwitcher from '../components/SalesRoleTestSwitcher';
 import { useSalesTestRole } from '../utils/salesTestRole';
-import { useOrgBranches, useSystemConfigVersion } from '../hooks/useSystemCatalog';
+import { useOrgBranches, useOrgTeams, useSystemConfigVersion } from '../hooks/useSystemCatalog';
 
 type MemberProfile = {
   userId: string;
@@ -311,19 +312,12 @@ const TOP_SALE_FIREWORKS = [
   },
 ];
 
-const DEMO_SALES_AVATAR_BY_ID: Record<string, string> = {
-  u1: 'https://picsum.photos/seed/educrm-sales-leader/160',
-  u2: 'https://i.pravatar.cc/160?u=educrm-sarah-miller',
-  u3: 'https://i.pravatar.cc/160?u=educrm-david-clark',
-  u4: 'https://i.pravatar.cc/160?u=educrm-alex-rivera',
-};
-
-const DEMO_SALES_AVATAR_BY_NAME: Record<string, string> = {
-  'trần văn quản trị': DEMO_SALES_AVATAR_BY_ID.u1,
-  'tran van quan tri': DEMO_SALES_AVATAR_BY_ID.u1,
-  'sarah miller': DEMO_SALES_AVATAR_BY_ID.u2,
-  'david clark': DEMO_SALES_AVATAR_BY_ID.u3,
-  'alex rivera': DEMO_SALES_AVATAR_BY_ID.u4,
+// Demo avatar URLs đã loại bỏ — avatar chỉ lấy từ thông tin user thực trong storage.
+// Khi user.avatar là URL ảnh hợp lệ thì hiển thị, ngược lại render icon mặc định.
+const isImageAvatar = (value?: string): boolean => {
+  if (!value) return false;
+  const trimmed = value.trim();
+  return /^(https?:\/\/|data:image|\/)/i.test(trimmed);
 };
 
 const normalizeLookupKey = (value?: string) =>
@@ -340,6 +334,7 @@ const SalesKPIs: React.FC = () => {
   const { salesTestRole } = useSalesTestRole(user?.role);
   useSystemConfigVersion();
   const branchesFromAdmin = useOrgBranches();
+  const teamsFromAdmin = useOrgTeams();
   const currentMonth = getMonthKey(new Date());
   const today = new Date();
   const currentMonthStart = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -428,11 +423,22 @@ const SalesKPIs: React.FC = () => {
 
   const closeTimeFilter = () => setIsTimeFilterOpen(false);
 
-  const resolveSalesAvatarUrl = (memberId?: string, memberName?: string) => {
-    if (memberId && user?.id === memberId && user.avatar) return user.avatar;
-    if (memberId && DEMO_SALES_AVATAR_BY_ID[memberId]) return DEMO_SALES_AVATAR_BY_ID[memberId];
-    const normalizedName = normalizeLookupKey(memberName);
-    return normalizedName ? DEMO_SALES_AVATAR_BY_NAME[normalizedName] : undefined;
+  const resolveSalesAvatarUrl = (memberId?: string, memberName?: string): string | undefined => {
+    void memberName;
+    // Ưu tiên avatar của user đang đăng nhập nếu trùng id và là URL ảnh hợp lệ.
+    if (memberId && user?.id === memberId && isImageAvatar(user.avatar)) return user.avatar;
+    // Avatar lấy từ adminUsers (user được tạo trong admin) — chỉ dùng nếu là URL ảnh.
+    if (memberId) {
+      try {
+        const raw = typeof window !== 'undefined' ? localStorage.getItem('educrm_admin_users') : null;
+        const adminUsers: Array<{ id: string; avatar?: string }> = raw ? JSON.parse(raw) : [];
+        const matched = adminUsers.find((u) => u.id === memberId);
+        if (matched && isImageAvatar(matched.avatar)) return matched.avatar;
+      } catch {
+        // ignore parse error
+      }
+    }
+    return undefined;
   };
 
   const rosterMap = new Map<string, MemberProfile>();
@@ -506,23 +512,17 @@ const SalesKPIs: React.FC = () => {
     return left.name.localeCompare(right.name);
   });
 
+  // Dropdown chỉ hiển thị cơ sở từ Cấu hình Tổ chức (admin) — đây là source of truth.
+  // Cơ sở do user tự gán nếu không trùng với admin sẽ không hiện trong filter.
   const branchOptions = [
     'all',
-    ...Array.from(new Set([
-      ...branchesFromAdmin.map((b) => b.name),
-      ...roster.map((item) => item.branch).filter(Boolean),
-    ])),
+    ...branchesFromAdmin.map((b) => b.name),
   ];
+  // Dropdown team lấy từ Cấu hình Tổ chức (admin) — source of truth.
+  // Bỏ dòng "Chưa gán team" / unassigned khỏi filter để chỉ thấy team chính thức.
   const teamOptions = [
     { id: 'all', name: 'Tất cả team' },
-    ...teams.map((team) => ({ id: team.id, name: team.name })),
-    ...Array.from(
-      new Set(
-        roster
-          .filter((item) => item.teamId === 'unassigned')
-          .map((item) => JSON.stringify({ id: item.teamId, name: item.teamName }))
-      )
-    ).map((item) => JSON.parse(item) as { id: string; name: string }),
+    ...teamsFromAdmin.map((team) => ({ id: team.id, name: team.name })),
   ];
 
   const filteredRoster = roster.filter((member) => {
@@ -1324,11 +1324,11 @@ const SalesKPIs: React.FC = () => {
                   </p>
                 </div>
 
-                <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-[22px] border border-white/15 bg-white/14 text-[18px] font-black tracking-[0.16em] text-white shadow-lg shadow-blue-950/20 backdrop-blur-sm sm:h-[72px] sm:w-[72px]">
+                <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-[22px] border border-white/15 bg-white/14 text-white shadow-lg shadow-blue-950/20 backdrop-blur-sm sm:h-[72px] sm:w-[72px]">
                   {topMemberAvatarUrl ? (
                     <img src={topMemberAvatarUrl} alt={topMember?.name || 'Top sale'} className="h-full w-full object-cover" />
                   ) : (
-                    topMemberInitials
+                    <User size={32} className="text-white/80" />
                   )}
                 </div>
               </div>
@@ -1477,11 +1477,11 @@ const SalesKPIs: React.FC = () => {
                         <td className="px-4 py-3 text-center font-semibold text-slate-500">{index + 1}</td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2.5">
-                            <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-lg border border-blue-100 bg-blue-50 text-[13px] font-bold text-blue-700">
+                            <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-lg border border-blue-100 bg-blue-50 text-blue-700">
                               {row.avatarUrl ? (
                                 <img src={row.avatarUrl} alt={row.name} className="h-full w-full object-cover" />
                               ) : (
-                                getInitials(row.name)
+                                <User size={18} className="text-blue-400" />
                               )}
                             </div>
                             <div>

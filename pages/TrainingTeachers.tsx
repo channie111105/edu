@@ -7,6 +7,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { AdvancedFilterDropdown, ToolbarTimeFilter } from '../components/filters';
 import { DEFAULT_ATTACHMENT_ACCEPT, readFilesAsAttachmentRecords } from '../utils/fileAttachments';
 import { CustomDateRange, ToolbarOption, ToolbarValueOption, doesDateMatchTimeRange } from '../utils/filterToolbar';
+import { useOrgBranches, useSystemCatalogOptions, useSystemConfigVersion } from '../hooks/useSystemCatalog';
 
 const DEFAULT_TEACHER: Partial<ITeacher> = {
   status: 'ACTIVE',
@@ -95,6 +96,10 @@ const toDateInputValue = (value: Date) => {
 const TrainingTeachers: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
+  useSystemConfigVersion();
+  const branches = useOrgBranches();
+  const targetCountryOptionsAdmin = useSystemCatalogOptions('targetCountries');
+  const levelOptionsAdmin = useSystemCatalogOptions('levels');
   const [teachers, setTeachers] = useState<ITeacher[]>([]);
   const [classes, setClasses] = useState<ITrainingClass[]>([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -271,7 +276,16 @@ const TrainingTeachers: React.FC = () => {
     return selectedAdvancedFilterFields.reduce<Partial<Record<TeacherToolbarFilterFieldKey, ReadonlyArray<ToolbarValueOption>>>>(
       (accumulator, fieldId) => {
         const derivedValues = teacherRows.flatMap((row) => getAdvancedFieldValues(row, fieldId));
-        const presetValues = fieldId === 'contractType' ? [...TEACHER_CONTRACT_TYPE_ORDER] : [];
+        let presetValues: string[] = [];
+        if (fieldId === 'contractType') {
+          presetValues = [...TEACHER_CONTRACT_TYPE_ORDER];
+        } else if (fieldId === 'campus') {
+          presetValues = branches.map((b) => b.name);
+        } else if (fieldId === 'language') {
+          presetValues = targetCountryOptionsAdmin.map((opt) => opt.label);
+        } else if (fieldId === 'teachingLevel') {
+          presetValues = levelOptionsAdmin.map((opt) => opt.label);
+        }
 
         accumulator[fieldId] = sortSelectableValues(
           fieldId,
@@ -285,7 +299,7 @@ const TrainingTeachers: React.FC = () => {
       },
       {}
     );
-  }, [selectedAdvancedFilterFields, teacherRows]);
+  }, [selectedAdvancedFilterFields, teacherRows, branches, targetCountryOptionsAdmin, levelOptionsAdmin]);
   const advancedFilterSelectableValues =
     (activeAdvancedFilterField
       ? advancedFilterSelectableValuesByField[activeAdvancedFilterField.id as TeacherToolbarFilterFieldKey]

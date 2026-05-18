@@ -48,7 +48,7 @@ import {
   doesDateMatchTimeRange
 } from '../utils/filterToolbar';
 import { filterByLogAudience, getILogNoteAudience, LogAudienceFilter } from '../utils/logAudience';
-import { useOrgBranches, useSystemConfigVersion } from '../hooks/useSystemCatalog';
+import { useOrgBranches, useSystemCatalogOptions, useSystemConfigVersion } from '../hooks/useSystemCatalog';
 
 const STATUS = ['DRAFT', 'ACTIVE', 'DONE', 'CANCELED'] as const;
 const STATUS_LABEL: Record<ITrainingClass[ 'status' ], string> = {
@@ -332,6 +332,8 @@ const TrainingClassList: React.FC = () => {
   useSystemConfigVersion();
   const branches = useOrgBranches();
   const defaultCampusName = branches[0]?.name || '';
+  const targetCountryOptionsAdmin = useSystemCatalogOptions('targetCountries');
+  const levelOptionsAdmin = useSystemCatalogOptions('levels');
 
   const [classes, setClasses] = useState<ITrainingClass[]>([]);
   const [teachers, setTeachers] = useState<ITeacher[]>([]);
@@ -416,12 +418,20 @@ const TrainingClassList: React.FC = () => {
     [classes]
   );
   const levelOptions = useMemo(
-    () => Array.from(new Set(classes.map((item) => item.level).filter(Boolean))).sort((left, right) => left!.localeCompare(right!, 'vi')) as string[],
-    [classes]
+    () => {
+      const fromAdmin = levelOptionsAdmin.map((opt) => opt.label);
+      const fromData = (classes.map((item) => item.level).filter(Boolean) as string[]);
+      return Array.from(new Set([...fromAdmin, ...fromData])).sort((a, b) => a.localeCompare(b, 'vi'));
+    },
+    [classes, levelOptionsAdmin]
   );
   const languageOptions = useMemo(
-    () => Array.from(new Set(classes.map((item) => item.language).filter(Boolean))).sort((left, right) => left!.localeCompare(right!, 'vi')) as string[],
-    [classes]
+    () => {
+      const fromAdmin = targetCountryOptionsAdmin.map((opt) => opt.label);
+      const fromData = (classes.map((item) => item.language).filter(Boolean) as string[]);
+      return Array.from(new Set([...fromAdmin, ...fromData])).sort((a, b) => a.localeCompare(b, 'vi'));
+    },
+    [classes, targetCountryOptionsAdmin]
   );
   const timeSlotOptions = useMemo(
     () => Array.from(new Set(classes.map((item) => item.timeSlot || getLegacyTimeSlot(item.schedule)).filter(Boolean))).sort((left, right) => left!.localeCompare(right!, 'vi')) as string[],

@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Save, 
   Search, 
@@ -11,6 +11,7 @@ import {
   X,
   CheckCircle2
 } from 'lucide-react';
+import { useSystemCatalogOptions } from '../hooks/useSystemCatalog';
 
 export type ServicePackageStatus = 'Đang áp dụng' | 'Ngừng áp dụng';
 
@@ -57,11 +58,12 @@ interface ServicePackageDraft {
   steps: Array<PaymentRoadmapStep & { key: string }>;
 }
 
-const COUNTRIES = ['Trung Quốc', 'Đức'];
-const SERVICE_TYPES = ['Onl', 'off', 'APp', 'Blended'];
-const CURRENCIES = ['Eur', 'VNĐ', 'tệ', 'won'];
-const PROGRAM_TYPES = ['Đào tạo', 'Du học', 'Loại khác'];
-import { PROGRAM_OPTIONS as SYSTEM_PROGRAM_OPTIONS } from '../utils/systemConfig';
+const SERVICE_TYPES = ['Online', 'Offline', 'App', 'Blended'];
+const CURRENCIES = ['EUR', 'VNĐ', 'CNY', 'KRW'];
+const PROGRAM_TYPES = PROGRAM_TYPE_OPTIONS.length > 0
+  ? PROGRAM_TYPE_OPTIONS.map(opt => opt.label)
+  : ['Đào tạo', 'Du học', 'Loại khác'];
+import { PROGRAM_OPTIONS as SYSTEM_PROGRAM_OPTIONS, PROGRAM_TYPE_OPTIONS } from '../utils/systemConfig';
 const PROGRAM_OPTIONS = SYSTEM_PROGRAM_OPTIONS.map(opt => opt.value);
 
 const PRODUCTS: ServicePackage[] = [
@@ -226,6 +228,9 @@ const AdminFinancialConfig: React.FC = () => {
   const [formError, setFormError] = useState('');
   const [feedbackMessage, setFeedbackMessage] = useState('');
 
+  // Lấy danh sách quốc gia từ Cấu hình Dữ liệu (Quốc gia mục tiêu)
+  const targetCountryOptions = useSystemCatalogOptions('targetCountries');
+  const COUNTRIES = useMemo(() => targetCountryOptions.map(opt => opt.label), [targetCountryOptions]);
   useEffect(() => {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(products));
     window.dispatchEvent(new CustomEvent('educrm:financial-config-changed'));

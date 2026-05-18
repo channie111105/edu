@@ -553,8 +553,8 @@ const ContractStudentDetail: React.FC = () => {
   };
   const resolveClassCampus = (id?: string, code?: string) => findClassByValue(id)?.campus || findClassByValue(code)?.campus || '';
   const allCampusOptions = useMemo(
-    () => Array.from(new Set(classes.map((item) => item.campus).filter(Boolean) as string[])).sort(),
-    [classes]
+    () => branches.map((b) => b.name).filter(Boolean).sort(),
+    [branches]
   );
   const enrollCampusOptions = useMemo(() => {
     const source = new Set<string>();
@@ -581,20 +581,15 @@ const ContractStudentDetail: React.FC = () => {
     [classOptions, transferForm.campusId]
   );
   const claimCampusOptions = useMemo(() => {
-    const source = new Set<string>();
-    if (currentClass?.campus) source.add(currentClass.campus);
-    classOptions.forEach((item) => {
-      if (item.campus) source.add(item.campus);
-    });
-    return Array.from(source).sort();
-  }, [classOptions, currentClass?.campus]);
+    return branches.map((b) => b.name).filter(Boolean).sort();
+  }, [branches]);
   const claimProposedClassOptions = useMemo(
-    () => classOptions.filter((item) => !claimForm.proposedCampusId || item.campus === claimForm.proposedCampusId),
-    [classOptions, claimForm.proposedCampusId]
+    () => classes.filter((item) => item.id !== currentClass?.id && (!claimForm.proposedCampusId || item.campus === claimForm.proposedCampusId)),
+    [classes, currentClass?.id, claimForm.proposedCampusId]
   );
   const claimResolvedClassOptions = useMemo(
-    () => classOptions.filter((item) => !claimForm.resolvedCampusId || item.campus === claimForm.resolvedCampusId),
-    [classOptions, claimForm.resolvedCampusId]
+    () => classes.filter((item) => !claimForm.resolvedCampusId || item.campus === claimForm.resolvedCampusId),
+    [classes, claimForm.resolvedCampusId]
   );
   const latestClaim = claims[0];
   const latestPendingClaim = claims.find((item) => item.claimStatus === 'CHO_XU_LY');

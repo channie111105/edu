@@ -12,6 +12,8 @@ import {
    Info,
    Home
 } from 'lucide-react';
+import { getTeachers, getTrainingClasses } from '../utils/storage';
+import { useOrgBranches, useSystemCatalogOptions, useSystemConfigVersion } from '../hooks/useSystemCatalog';
 
 // Interfaces for Schedule
 interface ScheduleItem {
@@ -31,6 +33,26 @@ interface ScheduleItem {
 }
 
 const TrainingSchedule: React.FC = () => {
+   useSystemConfigVersion();
+   const branches = useOrgBranches();
+   const classroomCatalog = useSystemCatalogOptions('classrooms');
+   const targetCountryOptions = useSystemCatalogOptions('targetCountries');
+   const levelOptions = useSystemCatalogOptions('levels');
+   // Lay danh sach phong / giao vien tu storage thuc.
+   const allClasses = useMemo(() => getTrainingClasses(), []);
+   const teacherOptions = useMemo(
+      () => getTeachers().map((t) => t.fullName).filter(Boolean),
+      [],
+   );
+   const roomOptionsFromData = useMemo(
+      () => Array.from(new Set(allClasses.map((c) => c.room).filter(Boolean))),
+      [allClasses],
+   );
+   const roomOptions = useMemo(() => {
+      const fromAdmin = classroomCatalog.map((opt) => opt.label);
+      return Array.from(new Set([...fromAdmin, ...roomOptionsFromData]));
+   }, [classroomCatalog, roomOptionsFromData]);
+
    // --- CONSTANTS ---
    const DAYS = ['Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7', 'Chủ Nhật'];
    const SLOTS = [
@@ -134,9 +156,9 @@ const TrainingSchedule: React.FC = () => {
                         onChange={(e) => setFilters({ ...filters, branch: e.target.value })}
                      >
                         <option value="ALL">Tất cả Cơ sở</option>
-                        <option value="Hanoi">Hà Nội</option>
-                        <option value="HCM">Hồ Chí Minh</option>
-                        <option value="Danang">Đà Nẵng</option>
+                        {branches.map((b) => (
+                           <option key={b.id} value={b.name}>{b.name}</option>
+                        ))}
                      </select>
                   </div>
 
@@ -149,10 +171,9 @@ const TrainingSchedule: React.FC = () => {
                         onChange={(e) => setFilters({ ...filters, room: e.target.value })}
                      >
                         <option value="ALL">Tất cả Phòng học</option>
-                        <option value="P.101">P.101</option>
-                        <option value="P.102">P.102</option>
-                        <option value="P.201">P.201</option>
-                        <option value="P.302">P.302</option>
+                        {roomOptions.map((room) => (
+                           <option key={room} value={room}>{room}</option>
+                        ))}
                      </select>
                   </div>
 
@@ -165,10 +186,9 @@ const TrainingSchedule: React.FC = () => {
                         onChange={(e) => setFilters({ ...filters, language: e.target.value })}
                      >
                         <option value="ALL">Tất cả Ngôn ngữ</option>
-                        <option value="German">Tiếng Đức</option>
-                        <option value="Chinese">Tiếng Trung</option>
-                        <option value="English">Tiếng Anh</option>
-                        <option value="Korean">Tiếng Hàn</option>
+                        {targetCountryOptions.map((opt) => (
+                           <option key={opt.value} value={opt.label}>{opt.label}</option>
+                        ))}
                      </select>
                   </div>
 
@@ -181,11 +201,9 @@ const TrainingSchedule: React.FC = () => {
                         onChange={(e) => setFilters({ ...filters, level: e.target.value })}
                      >
                         <option value="ALL">Tất cả Trình độ</option>
-                        <option value="A1">A1</option>
-                        <option value="A2">A2</option>
-                        <option value="B1">B1</option>
-                        <option value="HSK1">HSK 1</option>
-                        <option value="IELTS">IELTS</option>
+                        {levelOptions.map((opt) => (
+                           <option key={opt.value} value={opt.label}>{opt.label}</option>
+                        ))}
                      </select>
                   </div>
 
@@ -198,10 +216,9 @@ const TrainingSchedule: React.FC = () => {
                         onChange={(e) => setFilters({ ...filters, teacher: e.target.value })}
                      >
                         <option value="ALL">Tất cả Giáo viên</option>
-                        <option value="Cô Lan">Cô Lan</option>
-                        <option value="Thầy Hans">Thầy Hans</option>
-                        <option value="Cô Mai">Cô Mai</option>
-                        <option value="Mr. David">Mr. David</option>
+                        {teacherOptions.map((name) => (
+                           <option key={name} value={name}>{name}</option>
+                        ))}
                      </select>
                   </div>
 

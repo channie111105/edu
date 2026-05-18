@@ -22,6 +22,7 @@ import ClassCodeLookupInput from '../components/ClassCodeLookupInput';
 import { buildTrainingClassLookupOptions } from '../utils/trainingClassLookup';
 import LogAudienceFilterControl from '../components/LogAudienceFilter';
 import { filterByLogAudience, getQuotationLogAudience, LogAudienceFilter } from '../utils/logAudience';
+import { useSystemCatalogOptions, useSystemConfigVersion } from '../hooks/useSystemCatalog';
 
 export interface ServicePackage {
   id: string;
@@ -120,7 +121,7 @@ type ContractDraftState = {
   templateFields: Record<string, string>;
 };
 
-type CreatorMarket = 'Đức' | 'Trung Quốc';
+type CreatorMarket = 'Đức' | 'Trung';
 type CreatorServicePackage = 'Du học' | 'Combo' | 'Đào tạo';
 
 const normalizeCreatorMarket = (value?: string): CreatorMarket | '' => {
@@ -131,7 +132,7 @@ const normalizeCreatorMarket = (value?: string): CreatorMarket | '' => {
     .replace(/[\u0300-\u036f]/g, '');
 
   if (normalized === 'duc') return 'Đức';
-  if (normalized === 'trung' || normalized === 'trung quoc') return 'Trung Quốc';
+  if (normalized === 'trung' || normalized === 'trung quoc') return 'Trung';
   return '';
 };
 
@@ -232,7 +233,7 @@ const ORDER_LINE_CATALOG: OrderCatalogItem[] = [
   {
     id: 'order-cn-training-hsk123',
     product: 'Khóa tiếng Trung HSK1-HSK3',
-    market: 'Trung Quốc',
+    market: 'Trung',
     servicePackage: 'Đào tạo',
     serviceType: 'Training',
     courseOptions: ['HSK 1', 'HSK 2', 'HSK 3'],
@@ -242,7 +243,7 @@ const ORDER_LINE_CATALOG: OrderCatalogItem[] = [
   {
     id: 'order-cn-training-hsk45',
     product: 'Khóa tiếng Trung HSK4-HSK5',
-    market: 'Trung Quốc',
+    market: 'Trung',
     servicePackage: 'Đào tạo',
     serviceType: 'Training',
     courseOptions: ['HSK 4', 'HSK 5'],
@@ -252,7 +253,7 @@ const ORDER_LINE_CATALOG: OrderCatalogItem[] = [
   {
     id: 'order-cn-combo',
     product: 'Combo tiếng HSK1-HSK3',
-    market: 'Trung Quốc',
+    market: 'Trung',
     servicePackage: 'Combo',
     serviceType: 'Combo',
     courseOptions: ['Combo tiếng HSK1-HSK3'],
@@ -261,17 +262,17 @@ const ORDER_LINE_CATALOG: OrderCatalogItem[] = [
   },
   {
     id: 'order-cn-abroad',
-    product: 'Du học Trung Quốc - Trọn gói',
-    market: 'Trung Quốc',
+    product: 'Du học Trung - Trọn gói',
+    market: 'Trung',
     servicePackage: 'Du học',
     serviceType: 'StudyAbroad',
-    courseOptions: ['Hồ sơ du học Trung Quốc', 'Luyện phỏng vấn', 'Định hướng trước bay'],
+    courseOptions: ['Hồ sơ du học Trung', 'Luyện phỏng vấn', 'Định hướng trước bay'],
     programOptions: ['HSK4', 'HSK5', 'Visa', 'Hồ sơ'],
     defaultPrice: 160000000
   }
 ];
 
-const CREATOR_MARKETS: CreatorMarket[] = ['Đức', 'Trung Quốc'];
+const CREATOR_MARKETS: CreatorMarket[] = ['Đức', 'Trung'];
 
 // Mock đã loại bỏ — fallback rỗng. Khi có lớp thực trong storage sẽ tự dùng.
 const CREATOR_CLASS_FALLBACKS: ITrainingClass[] = [];
@@ -334,8 +335,14 @@ const getPrimaryCatalogByServicePackage = (
     (item) => item.market === market && item.servicePackage === servicePackage
   );
 
-const getServicePackageFromServiceType = (serviceType?: IQuotation['serviceType']): CreatorServicePackage =>
-  serviceType === 'StudyAbroad' ? 'Du học' : serviceType === 'Combo' ? 'Combo' : 'Đào tạo';
+// Map serviceType (lưu trong storage) sang servicePackage logic. Chấp nhận cả enum cũ
+// (StudyAbroad/Training/Combo) lẫn label admin tự do (Du học, Đào tạo, Combo, ...).
+const getServicePackageFromServiceType = (serviceType?: IQuotation['serviceType']): CreatorServicePackage => {
+  const raw = String(serviceType || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (raw === 'studyabroad' || raw.includes('du hoc')) return 'Du học';
+  if (raw === 'combo' || raw.includes('combo')) return 'Combo';
+  return 'Đào tạo';
+};
 
 const calculateOrderDraftLineTotal = (unitPrice: number, discountPercent: number) =>
   Math.max(0, Math.round((Number(unitPrice) || 0) * (1 - (Number(discountPercent) || 0) / 100)));
@@ -550,6 +557,9 @@ const buildQuotationAuditLogNote = (
 const QuotationDetails: React.FC = () => {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
+  useSystemConfigVersion();
+  const targetCountryOptions = useSystemCatalogOptions('targetCountries');
+  const programTypeOptions = useSystemCatalogOptions('programTypes');
   const navigate = useNavigate();
   const { user } = useAuth();
 
@@ -837,14 +847,8 @@ const QuotationDetails: React.FC = () => {
       lineItems: nextLineItems,
       product: nextLineItems.map((item) => item.name).filter(Boolean).join(' + ') || prev.product || '',
       targetCountry: nextLineItems[0]?.targetMarket || prev.targetCountry,
-      serviceType:
-        nextLineItems[0]?.servicePackage === 'Du học'
-          ? 'StudyAbroad'
-          : nextLineItems[0]?.servicePackage === 'Combo'
-            ? 'Combo'
-            : nextLineItems[0]?.servicePackage === 'Đào tạo'
-              ? 'Training'
-              : prev.serviceType,
+      // Lưu thẳng tên gói dịch vụ làm serviceType (tương thích với label admin).
+      serviceType: nextLineItems[0]?.servicePackage || prev.serviceType,
       amount: subtotal,
       discount: Math.max(0, subtotal - finalTotal),
       finalAmount: finalTotal
@@ -895,12 +899,7 @@ const QuotationDetails: React.FC = () => {
   const normalizedStatus =
     formData.status === QuotationStatus.SALE_ORDER ? QuotationStatus.SALE_CONFIRMED : formData.status;
   const workflowPaymentMetrics = useMemo(() => {
-    const fallbackServicePackage =
-      formData.serviceType === 'StudyAbroad'
-        ? 'Du học'
-        : formData.serviceType === 'Combo'
-          ? 'Combo'
-          : 'Đào tạo';
+    const fallbackServicePackage = getServicePackageFromServiceType(formData.serviceType);
 
     const sourceLineItems: IQuotationLineItem[] =
       creatorLineItems.length > 0
@@ -1225,7 +1224,7 @@ const QuotationDetails: React.FC = () => {
         formData.confirmDate ||
         formData.saleConfirmedAt ||
         (nextStatus === QuotationStatus.LOCKED ? formData.lockedAt || now : undefined),
-      serviceType: (formData.serviceType || 'Training') as IQuotation['serviceType'],
+      serviceType: formData.serviceType || 'Training',
       customerName: formData.customerName || '',
       product: formData.product || '',
       paymentMethod: formData.paymentMethod,
@@ -1498,7 +1497,9 @@ const QuotationDetails: React.FC = () => {
     setOrderLineDraft((prev) => {
       const market = prev.targetMarket;
       // Check if the service package matches admin custom config
-      const custom = servicePackages.find(p => p.country === market && p.name === servicePackage);
+      const normalizeCountryMatch = (c: string) => c.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      const marketNorm = normalizeCountryMatch(market || '');
+      const custom = servicePackages.find(p => normalizeCountryMatch(p.country).startsWith(marketNorm) && p.name === servicePackage);
 
       if (custom) {
         return {
@@ -1708,31 +1709,31 @@ const QuotationDetails: React.FC = () => {
       return true;
     });
   }, []);
-  // Danh sách thị trường lấy động từ admin config, fallback về hardcode nếu chưa có
+  // Danh sách thị trường = lấy từ Quốc gia mục tiêu trong Cấu hình Dữ liệu (admin).
   const availableMarkets = useMemo<string[]>(() => {
-    const fromAdmin = Array.from(new Set(
-      servicePackages
-        .filter(p => p.status === 'Đang áp dụng' || p.status === 'active')
-        .map(p => p.country)
-        .filter(Boolean)
-    ));
-    return fromAdmin;
-  }, [servicePackages]);
+    return targetCountryOptions.map((opt) => opt.label);
+  }, [targetCountryOptions]);
 
   const availableServicePackages = useMemo(() => {
     if (!orderLineDraft.targetMarket) return [];
 
-    const custom = servicePackages
-      .filter(p => p.country === orderLineDraft.targetMarket && (p.status === 'Đang áp dụng' || p.status === 'active'))
+    // Chỉ lấy gói dịch vụ từ Chính sách & Lộ trình Phí (đã có roadmap).
+    // So sánh linh hoạt: normalize cả 2 bên để tránh lệch label (VD: "Trung Quốc" vs "Trung").
+    const normalizeCountry = (c: string) => c.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const targetNorm = normalizeCountry(orderLineDraft.targetMarket);
+    const fromFinancial = servicePackages
+      .filter(p => normalizeCountry(p.country).startsWith(targetNorm) && (p.status === 'Đang áp dụng' || p.status === 'active'))
       .map(p => p.name);
 
-    return Array.from(new Set(custom));
+    return Array.from(new Set(fromFinancial));
   }, [orderLineDraft.targetMarket, servicePackages]);
 
   const availableProducts = useMemo(() => {
     if (!orderLineDraft.targetMarket || !orderLineDraft.servicePackage) return [];
 
-    const custom = servicePackages.find(p => p.country === orderLineDraft.targetMarket && p.name === orderLineDraft.servicePackage);
+    const normalizeCountry = (c: string) => c.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const targetNorm = normalizeCountry(orderLineDraft.targetMarket);
+    const custom = servicePackages.find(p => normalizeCountry(p.country).startsWith(targetNorm) && p.name === orderLineDraft.servicePackage);
     if (custom) {
       return [{
         id: custom.id,
@@ -1776,7 +1777,9 @@ const QuotationDetails: React.FC = () => {
   const resolvedOrderPaymentPlan = useMemo(() => {
     const totalAmount = calculateOrderDraftLineTotal(orderLineDraft.unitPrice, orderLineDraft.discountPercent);
 
-    const custom = servicePackages.find(p => p.country === orderLineDraft.targetMarket && p.name === orderLineDraft.servicePackage);
+    const normalizeCountryMatch = (c: string) => c.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const targetNorm = normalizeCountryMatch(orderLineDraft.targetMarket || '');
+    const custom = servicePackages.find(p => normalizeCountryMatch(p.country).startsWith(targetNorm) && p.name === orderLineDraft.servicePackage);
     if (custom && custom.roadmap && custom.roadmap.steps && custom.roadmap.steps.length > 0) {
       let allocated = 0;
       const normalizedTotal = Math.max(0, Math.round(Number(totalAmount) || 0));
@@ -1822,7 +1825,9 @@ const QuotationDetails: React.FC = () => {
       return packageNames.join(', ');
     }
 
-    return SERVICES.find((service) => service.id === formData.serviceType)?.name || '-';
+    // Fallback hiển thị: nếu serviceType là enum cũ → tìm trong SERVICES; nếu là label admin → trả về thẳng.
+    const matched = SERVICES.find((service) => service.id === formData.serviceType);
+    return matched?.name || formData.serviceType || '-';
   }, [creatorLineItems, formData.serviceType]);
   const quotationAmountDisplay = formatCurrency(creatorGrandTotal || formData.finalAmount || formData.amount || 0);
   const quotationPrintSummaryItems = useMemo(
@@ -1933,14 +1938,8 @@ const QuotationDetails: React.FC = () => {
       amount: subtotal,
       discount: Math.max(0, subtotal - finalTotal),
       finalAmount: finalTotal,
-      serviceType:
-        primaryLineItem?.servicePackage === 'Du học'
-          ? 'StudyAbroad'
-          : primaryLineItem?.servicePackage === 'Combo'
-            ? 'Combo'
-            : primaryLineItem?.servicePackage === 'Đào tạo'
-              ? 'Training'
-              : prev.serviceType,
+      // Lưu thẳng tên gói dịch vụ làm serviceType (tương thích với label admin).
+      serviceType: primaryLineItem?.servicePackage || prev.serviceType,
       studentDob: primaryLineItem?.studentDob || prev.studentDob,
       internalNote: primaryLineItem?.additionalInfo || prev.internalNote
     }));
@@ -2496,14 +2495,15 @@ const QuotationDetails: React.FC = () => {
                   <div>
                     <label className="mb-1 block text-[10px] font-bold uppercase text-slate-600">Loại dịch vụ</label>
                     <select
-                      value={formData.serviceType || 'Training'}
-                      onChange={(e) => canEditQuotation && setFormData((prev) => ({ ...prev, serviceType: e.target.value as IQuotation['serviceType'] }))}
+                      value={formData.serviceType || ''}
+                      onChange={(e) => canEditQuotation && setFormData((prev) => ({ ...prev, serviceType: e.target.value }))}
                       disabled={!canEditQuotation}
                       className="h-9 w-full rounded border border-slate-300 bg-white px-3 py-1.5 text-[13px]"
                     >
-                      <option value="Training">Đào tạo</option>
-                      <option value="StudyAbroad">Du học</option>
-                      <option value="Combo">Combo</option>
+                      <option value="">-- Chọn loại dịch vụ --</option>
+                      {programTypeOptions.map((opt) => (
+                        <option key={opt.value} value={opt.label}>{opt.label}</option>
+                      ))}
                     </select>
                   </div>
                   <div>
